@@ -1733,7 +1733,7 @@ pub fn redeem_for_collateral(
     let initial_credit_amount = credit_amount.clone();
 
     //Set debt minimum in amount, not value
-    let mut debt_minimum = basket.credit_price.get_amount(Decimal::from_ratio(config.debt_minimum, Uint128::one()))?;
+    let debt_minimum = basket.credit_price.get_amount(Decimal::from_ratio(config.debt_minimum, Uint128::one()))?;
 
     //Set premium range
     for premium in 0..=max_collateral_premium {
@@ -1815,13 +1815,17 @@ pub fn redeem_for_collateral(
                         config.clone(),
                         Some(basket.clone()),
                     )?;
-
+                    let available_credit = if target_position.credit_amount > debt_minimum {
+                        target_position.credit_amount - debt_minimum
+                    } else {
+                        Uint128::zero()
+                    };
                     //Calc amount of credit that can be redeemed.
                     //Max we can redeem is the target_position's credit_amount.
                     redeemable_credit = Decimal::min(
                         Decimal::min(
                             Decimal::from_ratio(position_redemption_info.remaining_loan_repayment, Uint128::one()),
-                            Decimal::from_ratio(target_position.credit_amount, Uint128::one())
+                            Decimal::from_ratio(available_credit, Uint128::one())
                         ),
                         credit_amount
                     );

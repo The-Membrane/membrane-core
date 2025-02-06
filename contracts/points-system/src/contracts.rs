@@ -487,6 +487,8 @@ fn give_points(
         if user_vt_balance < rangebound_info.last_vt_balance {
             rangebound_info.last_vt_balance = user_vt_balance;
         } 
+
+        //If balance is 0, remove the user's info
         if user_vt_balance == Uint128::zero() || rangebound_info.last_vt_balance == Uint128::zero() {
             //Remove user's Range Bound Vault info
             user_info.remove(found.unwrap());
@@ -505,10 +507,20 @@ fn give_points(
                 Ok(diff) => diff,
                 Err(_) => return Err(ContractError::Std(StdError::generic_err(format!("{} conversion rate difference is negative", user)))),
             };
-            //Calc points to give
+
+            //Query Range Bound Vault for user's underlying token balance
+            let underlying_deposit_token: Uint128 = match deps.querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart { 
+                contract_addr: RANGE_BOUND_VAULT.to_string().clone(), 
+                msg: to_json_binary(&RB_QueryMsg::VaultTokenUnderlying { vault_token_amount: rangebound_info.last_vt_balance })?
+            })){
+                Ok(rate) => rate,
+                Err(_) => return Err(ContractError::Std(StdError::generic_err("Failed to query Range Bound Vault for underlying_deposit_token"))),
+            };
+            //Calc points to give.
+            //We give points based on the underlying CDT * the yield gained per 1 VT = how much CDT was earned
             let points_to_give = decimal_multiplication(
                 Decimal::from_ratio(rate_diff, Uint128::one()) , 
-                Decimal::from_ratio(rangebound_info.last_vt_balance, Uint128::one()
+                Decimal::from_ratio(underlying_deposit_token, Uint128::one()
             ))?;
 
             //Add these points to revenue paid

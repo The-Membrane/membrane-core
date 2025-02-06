@@ -471,7 +471,7 @@ fn give_points(
         let mut found: Option<usize> = None;
         
         //Find User's Range Bound Vault info
-        let rangebound_info = match user_info.clone().into_iter().enumerate().find(|(_, x)| x.vault_address == RANGE_BOUND_VAULT){
+        let mut rangebound_info = match user_info.clone().into_iter().enumerate().find(|(_, x)| x.vault_address == RANGE_BOUND_VAULT){
             Some((index, info)) => {
                 found = Some(index);
                 info
@@ -483,12 +483,15 @@ fn give_points(
             Ok(balance) => balance.amount,
             Err(_) => Uint128::zero(),
         };
-        //If balance is less than the last balance, delete the user's info
+        //If balance is less than the last balance, update the user's info
         if user_vt_balance < rangebound_info.last_vt_balance {
+            rangebound_info.last_vt_balance = user_vt_balance;
+        } 
+        if user_vt_balance == Uint128::zero() || rangebound_info.last_vt_balance == Uint128::zero() {
+            //Remove user's Range Bound Vault info
             user_info.remove(found.unwrap());
-
         } else {
-            //Otherwise give points on the difference of the conversion rates * the VT initial balance
+            /////Give points on the difference of the conversion rates * the VT initial/lower balance////
             //Query Range Bound Vault for conversion rate
             let conversion_rate: Uint128 = match deps.querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart { 
                 contract_addr: RANGE_BOUND_VAULT.to_string().clone(), 
@@ -521,11 +524,11 @@ fn give_points(
 
         }
 
-        //Save or Remove user info
-        if user_info.len() == 0 {
-            USER_VAULT_CONVERSION_RATES.remove(deps.storage, user_addr);
-        } else {
+        //Save or remove user info
+        if user_info.len() > 0 {
             USER_VAULT_CONVERSION_RATES.save(deps.storage, user_addr, &user_info)?;
+        } else {
+            USER_VAULT_CONVERSION_RATES.remove(deps.storage, user_addr);
         }
     }
 

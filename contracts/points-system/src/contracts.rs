@@ -121,7 +121,7 @@ fn check_claims(
     //Load config
     let config: Config = CONFIG.load(deps.storage)?;
 
-    if cdp_repayment.is_none() && !sp_claims && !lq_claims && vote.is_none() {
+    if cdp_repayment.is_none() && !sp_claims && !lq_claims && vote.is_none() && rangebound_user.is_none() {
         return Err(ContractError::Std(StdError::generic_err("No claims to check")));
     }
 

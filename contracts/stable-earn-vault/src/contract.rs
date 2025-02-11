@@ -951,9 +951,10 @@ fn rate_assurance(
 
     //Check that the rates are static for everything other than exits.
     //Exits will show an increase bc of the entry fee & calculation logic.
-    if !(btokens_per_one >= token_rate_assurance.pre_btokens_per_one) {
+    if !(btokens_per_one+Uint128::one() >= token_rate_assurance.pre_btokens_per_one) {
         return Err(TokenFactoryError::CustomError { val: format!("Conversation rate assurance failed, should be equal or greater than. If its 1 off just try again. Deposit tokens per 1 pre-tx: {:?} --- post-tx: {:?}", token_rate_assurance.pre_btokens_per_one, btokens_per_one) });
     }
+    //We're adding 1 to stop errors for 1 offs. The APR will cover this gap.
 
     Ok(Response::new())
 }

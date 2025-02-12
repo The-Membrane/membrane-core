@@ -296,6 +296,7 @@ fn check_claims(
 //2) SP Claims: Check difference btwn present & pending claims & allocate points inline with value
 //3) LQ Claims: Check difference btwn present & pending claims & allocate points inline with value
 //4) Governance Votes: Give points for every unvoted proposal saved in CheckClaims that is now voted on
+//5) Range Bound Vault: Give points based on the difference in conversion rates * the VT balance
 fn give_points(
     deps: DepsMut,
     env: Env,
@@ -309,12 +310,26 @@ fn give_points(
     //Load config
     let config: Config = CONFIG.load(deps.storage)?;
     //Load Claim Check
-    let claim_check: ClaimCheck = CLAIM_CHECK.load(deps.storage)?;
+    let claim_check: ClaimCheck = match CLAIM_CHECK.load(deps.storage){
+        Ok(check) => {
+            check
+        },
+        Err(_) => {
+            if rangebound_user.is_none() {
+                return Err(ContractError::Std(StdError::generic_err("No claim check found & no Range Bound user to give points to")));
+            } else {
+                ClaimCheck {
+                    user: info.clone().sender,
+                    cdp_pending_revenue: Uint128::zero(),
+                    lq_pending_claims: vec![],
+                    sp_pending_claims: vec![],
+                    vote_pending: vec![],
+                    check_time: env.block.time.seconds() - 1,
+                }
+            }
+        },
+    };
 
-    //Assert the caller is the same as the claim check user
-    if info.clone().sender != claim_check.user {
-        return Err(ContractError::Unauthorized {});
-    }
 
     //Get CDP Basket    
     let basket: Basket = deps.querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart { 
@@ -326,6 +341,10 @@ fn give_points(
     let mut attrs: Vec<Attribute> = vec![];
     //1) Check CDP repayment?
     if cdp_repayment {
+        //Assert the caller is the same as the claim check user
+        if info.clone().sender != claim_check.user {
+            return Err(ContractError::Unauthorized {});
+        }
         //Check if the claim check is outdated
         if claim_check.check_time != env.block.time.seconds() {
             return Err(ContractError::Std(StdError::generic_err("Claim Check is outdated")));
@@ -340,6 +359,10 @@ fn give_points(
     let mut sp_claim_diff: Vec<Coin> = vec![];
     //2) Check SP claims?
     if sp_claims {
+        //Assert the caller is the same as the claim check user
+        if info.clone().sender != claim_check.user {
+            return Err(ContractError::Unauthorized {});
+        }
         //Check if the claim check is outdated
         if claim_check.check_time != env.block.time.seconds() {
             return Err(ContractError::Std(StdError::generic_err("Claim Check is outdated")));
@@ -384,6 +407,10 @@ fn give_points(
     let mut lq_claim_diff: Vec<Coin> = vec![];
     //3) Check Liquidation claims?
     if lq_claims {
+        //Assert the caller is the same as the claim check user
+        if info.clone().sender != claim_check.user {
+            return Err(ContractError::Unauthorized {});
+        }
         //Check if the claim check is outdated
         if claim_check.check_time != env.block.time.seconds() {
             return Err(ContractError::Std(StdError::generic_err("Claim Check is outdated")));
@@ -427,6 +454,10 @@ fn give_points(
     let mut newly_voted_proposals: Vec<u64> = vec![];
     //4) Check Governance votes?
     if let Some(votes) = vote {
+        //Assert the caller is the same as the claim check user
+        if info.clone().sender != claim_check.user {
+            return Err(ContractError::Unauthorized {});
+        }
         //Check if the claim check is outdated
         if claim_check.check_time != env.block.time.seconds() {
             return Err(ContractError::Std(StdError::generic_err("Claim Check is outdated")));
@@ -462,6 +493,7 @@ fn give_points(
             }
         }
     }
+    //5) Check Range Bound Vault conversion rates
     if let Some(user) = rangebound_user {
         //Validate user address
         let user_addr = deps.api.addr_validate(&user)?;

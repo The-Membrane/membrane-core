@@ -8,7 +8,7 @@ use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 use membrane::oracle::PriceResponse;
 use membrane::points_system::{ClaimCheck, Config, ExecuteMsg, InstantiateMsg, QueryMsg, VaultConversionRate, UserConversionResponse, UserStats, UserStatsResponse};
-use membrane::math::decimal_multiplication;
+use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, MigrateMsg, QueryMsg as CDP_QueryMsg};
 use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
 use membrane::liq_queue::{QueryMsg as LIQ_QueryMsg, ClaimsResponse as LQ_ClaimsResponse};
@@ -203,10 +203,10 @@ fn check_claims(
 
     //Save Range Bound Vault conversion rate and user's VT balance
     if let Some(user) = rangebound_user {
-        let user_addr = deps.api.addr_validate(&user)?;
+        let range_bound_user_addr = deps.api.addr_validate(&user)?;
 
         //Load User's Vault Conversion info
-        let mut user_info = match USER_VAULT_CONVERSION_RATES.load(deps.storage, user_addr.clone()){
+        let mut user_info = match USER_VAULT_CONVERSION_RATES.load(deps.storage, range_bound_user_addr.clone()){
             Ok(info) => info,
             Err(_) => vec![]
         };
@@ -262,7 +262,7 @@ fn check_claims(
             user_info.push(rangebound_info);
         }
         //Save user info
-        USER_VAULT_CONVERSION_RATES.save(deps.storage, user_addr, &user_info)?;
+        USER_VAULT_CONVERSION_RATES.save(deps.storage, range_bound_user_addr, &user_info)?;
     }
 
     //Save Claim Check
@@ -496,9 +496,9 @@ fn give_points(
     //5) Check Range Bound Vault conversion rates
     if let Some(user) = rangebound_user {
         //Validate user address
-        let user_addr = deps.api.addr_validate(&user)?;
+        let range_bound_user_addr = deps.api.addr_validate(&user)?;
         //Load User's Vault Conversion info
-        let mut user_info = USER_VAULT_CONVERSION_RATES.load(deps.storage, user_addr.clone())?;
+        let mut user_info = USER_VAULT_CONVERSION_RATES.load(deps.storage, range_bound_user_addr.clone())?;
 
         let mut found: Option<usize> = None;
         
@@ -535,9 +535,17 @@ fn give_points(
                 Err(_) => return Err(ContractError::Std(StdError::generic_err("Failed to query Range Bound Vault for conversion rate"))),
             };
             //Calc conversion rate difference
-            let rate_diff = match conversion_rate.checked_sub(rangebound_info.last_conversion_rate){
+            let mut rate_diff = match decimal_division(
+                Decimal::from_ratio(conversion_rate, Uint128::one()),
+            Decimal::from_ratio(rangebound_info.last_conversion_rate, Uint128::one())
+            ){
                 Ok(diff) => diff,
-                Err(_) => return Err(ContractError::Std(StdError::generic_err(format!("{} conversion rate difference is negative", user)))),
+                Err(_) => return Err(ContractError::Std(StdError::generic_err(format!("{} conversion rate division errored", user)))),
+            };
+            //Subtract 1 to get the yield gained per 1 VT
+            rate_diff = match rate_diff.checked_sub(Decimal::one()){
+                Ok(diff) => diff,
+                Err(_) => return Err(ContractError::Std(StdError::generic_err(format!("{} conversion rate subtraction errored", user)))),
             };
 
             //Query Range Bound Vault for user's underlying token balance
@@ -550,14 +558,24 @@ fn give_points(
             };
             //Calc points to give.
             //We give points based on the underlying CDT * the yield gained per 1 VT = how much CDT was earned
-            let points_to_give = decimal_multiplication(
-                Decimal::from_ratio(rate_diff, Uint128::one()) , 
+            let cdt_rev_made = decimal_multiplication(
+                rate_diff, 
                 Decimal::from_ratio(underlying_deposit_token, Uint128::one()
             ))?;
 
-            //Add these points to revenue paid
-            revenue_paid += points_to_give.to_uint_floor();
-            attrs.push(attr("range_bound_yield", points_to_give.to_string()));
+            //Add these points to the user's claimable points
+            allocate_points(
+                deps.storage, 
+                deps.querier, 
+                config.clone(), 
+                range_bound_user_addr.clone(), 
+                basket.clone().credit_price, 
+                cdt_rev_made.clone().to_uint_floor(), 
+                vec![], 
+                vec![], 
+                    vec![]
+            )?;
+            attrs.push(attr("range_bound_yield", cdt_rev_made.to_string()));
 
             //Update user's Range Bound Vault info
             user_info[found.unwrap()] = VaultConversionRate {
@@ -570,9 +588,9 @@ fn give_points(
 
         //Save or remove user info
         if user_info.len() > 0 {
-            USER_VAULT_CONVERSION_RATES.save(deps.storage, user_addr, &user_info)?;
+            USER_VAULT_CONVERSION_RATES.save(deps.storage, range_bound_user_addr, &user_info)?;
         } else {
-            USER_VAULT_CONVERSION_RATES.remove(deps.storage, user_addr);
+            USER_VAULT_CONVERSION_RATES.remove(deps.storage, range_bound_user_addr);
         }
     }
 
@@ -1109,6 +1127,7 @@ fn query_user_conversion_rates(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    USER_STATS.remove(deps.storage, Addr::unchecked("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0"));
     
     Ok(Response::default())
 }

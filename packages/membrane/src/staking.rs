@@ -116,6 +116,8 @@ pub enum ExecuteMsg {
     DepositFee {},
     /// Clear FeeEvent state object
     TrimFeeEvents {},
+    /// Buyback and burn MBRN with CDT in the contract
+    BuybackAndBurn { max_slippage: Option<Decimal> },
 
 }
 

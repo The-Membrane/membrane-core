@@ -1,8 +1,9 @@
 #[cfg(not(feature = "library"))]
 use std::env;
 use std::cmp::min;
+use std::ops::Sub;
 
-use cosmwasm_std::{entry_point, Coin};
+use cosmwasm_std::{entry_point, Coin, Reply, SubMsg};
 use cosmwasm_std::{
     attr, coin, to_binary, Addr, Api, BankMsg, Binary, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg, QueryRequest, WasmQuery, QuerierWrapper,
@@ -29,6 +30,9 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //Constants
 const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 pub const SECONDS_PER_DAY: u64 = 86_400u64;
+
+//Reply ID
+const BURN_REPLY_ID: u64 = 1;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -238,6 +242,7 @@ pub fn execute(
 
             deposit_fee(deps, info, env, fee_assets)
         },
+        ExecuteMsg::BuybackAndBurn { max_slippage } => buyback_and_burn(deps, env, info, max_slippage),
         ExecuteMsg::TrimFeeEvents {  } => trim_fee_events(deps.storage, info),
     }
 }
@@ -1526,6 +1531,42 @@ fn deposit_fee(
     ]))
 }
 
+
+///Buyback and burn MBRN with CDT
+fn buyback_and_burn(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    max_slippage: Option<Decimal>,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    //Get CDT denom
+    let basket: Basket = query_basket(deps.querier, config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
+    let cdt_denom = basket.credit_asset.info;
+
+    //Get CDT balance
+    let cdt_balance = deps.querier.query_balance(&env.contract.address, cdt_denom.clone().to_string())?;
+
+    //Create swap msg
+    let swap_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.osmosis_proxy.unwrap().to_string(),
+        msg: to_binary(&OsmoExecuteMsg::ExecuteSwaps { 
+            token_out: config.mbrn_denom.clone(), 
+            max_slippage: max_slippage.unwrap_or_else(|| Decimal::percent(90))
+        })?,
+        funds: vec![cdt_balance.clone()],
+    });
+    //Convert into Submsg
+    let swap_submsg = SubMsg::reply_on_success(swap_msg, BURN_REPLY_ID);
+
+    Ok(Response::new().add_submessage(swap_submsg)
+    .add_attributes(vec![
+        attr("method", "buyback_and_burn"),
+        attr("cdt_coin", format!("{:?}", cdt_balance)),
+    ]))
+}
+
 /// Create rewards msgs from claimables and accrued interest
 fn create_rewards_msgs(
     storage: &mut dyn Storage,
@@ -2399,6 +2440,49 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::IncentiveSchedule {  } => to_binary(&INCENTIVE_SCHEDULING.load(deps.storage)?),
     }
 }
+
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+    match msg.id {
+        BURN_REPLY_ID => handle_burn_reply(deps, env, msg),
+        id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
+    }
+}
+
+fn handle_burn_reply(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply,
+) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_) => {
+            //Load config
+            let config = CONFIG.load(deps.storage)?;
+            //Get MBRN balance
+            let mbrn_balance = deps.querier.query_balance(env.contract.address.clone(), config.mbrn_denom.clone())?;
+
+            //Create burn msg
+            let burn_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.osmosis_proxy.unwrap().to_string(),
+                msg: to_binary(&OsmoExecuteMsg::BurnTokens { 
+                    denom: config.mbrn_denom.clone(), 
+                    amount: mbrn_balance.amount,
+                    burn_from_address: env.contract.address.to_string(),
+                })?,
+                funds: vec![],
+            });
+
+            return Ok(Response::new()
+                .add_message(burn_msg)
+                .add_attribute("method", "buyback_and_burn")
+                .add_attribute("mbrn_burnt", format!("{:?}", mbrn_balance.amount))
+            )
+        } //We only reply on success
+        Err(err) => return Err(StdError::GenericErr { msg: err }),
+    }
+}
+
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {

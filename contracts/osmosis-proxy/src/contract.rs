@@ -359,7 +359,8 @@ fn update_config(
         //Update routes with the same token_in
         for route in new_routes {
             //If route exists, update it
-            if let Some((index, _route)) = swap_routes.clone().into_iter().enumerate().find(|(_i, route)| route.token_in == route.token_in){
+            if let Some((index, _route)) = swap_routes.clone().into_iter().enumerate()
+            .find(|(_i, existing_route)| existing_route.token_in == route.token_in && existing_route.route_out.token_out_denom == route.route_out.token_out_denom){
                 swap_routes[index] = route;
             } else {
                 //Add new route
@@ -368,7 +369,6 @@ fn update_config(
         }
         //Save new routes
         SWAP_ROUTES.save(deps.storage, &swap_routes)?;
-
     }
 
     //Save Config

@@ -639,10 +639,10 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     //Get the collateral amount for "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized"
     let collateral_amount = target_position.collateral_assets
         .into_iter()
-        .find(|asset| asset.asset.info.to_string() == "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized")?;
+        .find(|asset| asset.asset.info.to_string() == "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized").unwrap();
 
 
-        
+
     //Load basket
     let mut basket = BASKET.load(deps.storage)?;
 

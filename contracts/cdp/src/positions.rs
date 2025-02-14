@@ -1770,6 +1770,9 @@ pub fn redeem_for_collateral(
                             continue;
                         }
                     };
+
+                    //Initialize redeemed collateral
+                    let mut redeemed_collateral: Vec<cAsset> = vec![];
                     
                     //Accrue
                     // accrue(
@@ -1901,6 +1904,17 @@ pub fn redeem_for_collateral(
                                 amount: collateral_to_send.clone(),
                             });
                         }
+
+                        //Add to redeemed_collateral
+                        redeemed_collateral.push(
+                            cAsset {
+                                asset: Asset {
+                                    amount: collateral_to_send.clone(),
+                                    ..cAsset.asset.clone()
+                                },
+                                ..cAsset.clone()
+                            }
+                        );
                         
                         //Update Position totals
                         update_position_claims(
@@ -1913,6 +1927,7 @@ pub fn redeem_for_collateral(
                             cAsset.asset.info.clone(), 
                             collateral_to_send
                         )?;
+
                     }
 
                     //Reload target_position
@@ -1942,6 +1957,20 @@ pub fn redeem_for_collateral(
                         deps.storage, 
                         user.clone().position_owner, 
                         new_target_position.clone()
+                    )?;
+
+
+                    //Update basket tally
+                    update_basket_tally(
+                        deps.storage, 
+                        deps.querier,
+                        env.clone(), 
+                        &mut basket, 
+                        redeemed_collateral.clone(),
+                        target_position.clone().collateral_assets,
+                        false, 
+                        config.clone(), 
+                        false
                     )?;
                 }
 

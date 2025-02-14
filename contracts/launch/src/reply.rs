@@ -1266,6 +1266,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                         max_commission_rate: None,
                         keep_raw_cdt: None,
                         vesting_rev_multiplier: None,
+                        buyback_and_burn: None,
                     })?, 
                     funds: vec![],
                 }));

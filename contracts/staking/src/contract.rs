@@ -166,6 +166,7 @@ pub fn execute(
             max_commission_rate,
             keep_raw_cdt,
             vesting_rev_multiplier,
+            buyback_and_burn,
         } => update_config(
             deps,
             info,
@@ -182,6 +183,7 @@ pub fn execute(
             max_commission_rate,
             keep_raw_cdt,            
             vesting_rev_multiplier,
+            buyback_and_burn,
         ),
         ExecuteMsg::Stake { user } => stake(deps, env, info, user),
         ExecuteMsg::Unstake { mbrn_amount } => unstake(deps, env, info, mbrn_amount),
@@ -323,6 +325,7 @@ fn update_config(
     max_commission_rate: Option<Decimal>,
     keep_raw_cdt: Option<bool>,
     vesting_rev_multiplier: Option<Decimal>,
+    buyback_and_burn: Option<bool>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -388,6 +391,14 @@ fn update_config(
     };
     if let Some(osmosis_proxy) = osmosis_proxy {
         config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
+    };
+    if let Some(buyback_and_burn) = buyback_and_burn {
+        BUYBACK_AND_BURN.save(deps.storage, &buyback_and_burn)?;
+        //Filter out any CDT fee events if buyback and burn is toggled
+        FEE_EVENTS.update(deps.storage, |mut fee_events| -> StdResult<_> {
+            fee_events.retain(|fee_event| fee_event.fee.info.to_string() != String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt"));
+            Ok(fee_events)
+        })?;
     };
 
     //Save new Config
@@ -2489,6 +2500,9 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
     
     //Initialize BUYBACK_AND_BURN
     BUYBACK_AND_BURN.save(deps.storage, &true)?;
+
+    //Reset fee events
+    FEE_EVENTS.save(deps.storage, &vec![])?;
 
     Ok(Response::default())
 }

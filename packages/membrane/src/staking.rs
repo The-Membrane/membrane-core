@@ -55,6 +55,8 @@ pub enum ExecuteMsg {
         /// Transforms the total stake in the revenue calculations, not the revenue directly
         /// WARNING: SETTING TO 0 IS PERMANENT
         vesting_rev_multiplier: Option<Decimal>,
+        ///Toggle to buyback and burn
+        buyback_and_burn: Option<bool>,
     },
     /// Stake MBRN tokens
     Stake {

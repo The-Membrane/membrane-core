@@ -20,7 +20,7 @@ use membrane::math::{decimal_division, decimal_multiplication};
 
 use crate::error::ContractError;
 use crate::query::{query_declared_delegates, query_delegations, query_fee_events, query_staked, query_totals, query_user_rewards, query_user_stake};
-use crate::state::{CONFIG, DELEGATE_CLAIMS, DELEGATE_INFO, DELEGATIONS, FEE_EVENTS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, STAKED, STAKING_TOTALS, VESTING_REV_MULTIPLIER, VESTING_STAKE_TIME};
+use crate::state::{CONFIG, BUYBACK_AND_BURN, DELEGATE_CLAIMS, DELEGATE_INFO, DELEGATIONS, FEE_EVENTS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, STAKED, STAKING_TOTALS, VESTING_REV_MULTIPLIER, VESTING_STAKE_TIME};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:staking";
@@ -116,6 +116,8 @@ pub fn instantiate(
         ownership_distribution: config.clone().incentive_schedule,
         start_time: env.block.time.seconds(),
     })?;
+
+    BUYBACK_AND_BURN.save(deps.storage, &false)?;
 
     //Initialize Delegate state
     DELEGATE_INFO.save(deps.storage, &vec![])?;
@@ -1464,10 +1466,14 @@ fn deposit_fee(
             //bc it has just sent back the system's desired_Asset
             //If no auction contract then nothing was sent so deposit all to stakers
             fee_assets.clone()
-        } else {
+        } else if !BUYBACK_AND_BURN.load(deps.storage)? {
             //If not auction contract, set fee_assets to CDT_assets
             //bc the other assets were sent to the auction
             CDT_assets.clone()
+        } else {
+            //If buyback and burn is enabled, set fee_assets to vec![]
+            vec![]
+            //CDT saved will be executed on in a separate function
         };
     
         //Load Fee Events
@@ -2397,8 +2403,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     
-    //Initialize fee events
-    FEE_EVENTS.save(deps.storage, &vec![])?;
+    //Initialize BUYBACK_AND_BURN
+    BUYBACK_AND_BURN.save(deps.storage, &true)?;
 
     Ok(Response::default())
 }

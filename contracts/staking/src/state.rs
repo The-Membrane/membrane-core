@@ -14,6 +14,7 @@ pub const FEE_EVENTS: Item<Vec<FeeEvent>> = Item::new("fee_events"); //<timestam
 pub const INCENTIVE_SCHEDULING: Item<StakeDistributionLog> = Item::new("stake_incentives_log"); 
 /// Filled with info of addresses that want to be delegates
 pub const DELEGATE_INFO: Item<Vec<Delegate>> = Item::new("delegate_info"); 
+pub const BUYBACK_AND_BURN: Item<bool> = Item::new("buyback_and_burn"); //boolean toggle for buyback and burn
 
 //Vesting specific
 pub const VESTING_STAKE_TIME: Item<u64> = Item::new("vesting_stake_time"); //The time to use for vesting contract claims

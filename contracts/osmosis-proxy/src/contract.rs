@@ -366,6 +366,8 @@ fn update_config(
                 swap_routes.push(route);
             }
         }
+        //Save new routes
+        SWAP_ROUTES.save(deps.storage, &swap_routes)?;
 
     }
 

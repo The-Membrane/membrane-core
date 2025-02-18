@@ -12,6 +12,8 @@ mod tests {
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
 
+    use crate::contract::reply;
+
     //const USER: &str = "user";
     const ADMIN: &str = "admin";
 
@@ -44,7 +46,7 @@ mod tests {
             crate::contract::execute,
             crate::contract::instantiate,
             crate::contract::query,
-        );
+        ).with_reply(reply);
         Box::new(contract)
     }
 
@@ -56,7 +58,11 @@ mod tests {
             denom: String,
             amount: Uint128,
             mint_to_address: String,
-        }
+        },
+        ExecuteSwaps {
+            token_out: String,
+            max_slippage: Decimal,
+        },
     }
     
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
@@ -89,6 +95,9 @@ mod tests {
                         && (amount != Uint128::new(4109) || denom != String::from("mbrn_denom") || mint_to_address != String::from("governator_addr")){
                             // panic!("MintTokens called with incorrect parameters, {}, {}, {}", amount, denom, mint_to_address);
                         }
+                        Ok(Response::default())
+                    },
+                    Osmo_MockExecuteMsg::ExecuteSwaps { token_out, max_slippage } => {
                         Ok(Response::default())
                     }
                 }
@@ -661,6 +670,12 @@ mod tests {
                 vec![coin(1000, "fee_asset")]
             );
             
+
+            //Buy and Burn
+            let msg = ExecuteMsg::BuybackAndBurn { max_slippage: None };
+            let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("contract1"), cosmos_msg).unwrap();
+
             //DepositFee from Auction
             let msg = ExecuteMsg::DepositFee {  };
             let cosmos_msg = staking_contract.call(msg, vec![coin(1000, "fee_asset")]).unwrap();
@@ -863,6 +878,7 @@ mod tests {
                 max_commission_rate: None,
                 keep_raw_cdt: None,
                 vesting_rev_multiplier: Some(Decimal::percent(50)),
+                buyback_and_burn: None,
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -938,6 +954,7 @@ mod tests {
                 max_commission_rate: None,
                 keep_raw_cdt: None,
                 vesting_rev_multiplier: Some(Decimal::zero()),
+                buyback_and_burn: None,
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();

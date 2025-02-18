@@ -1070,80 +1070,16 @@ pub fn end_of_launch(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     
-    let vesting = ADDRESSES.load(deps.storage)?.vesting;
-
-    //Add recipients to vesting contract
-    let pre_launch_community =  vec![
-        "osmo1ssgz49n7a6uc0xvxwmx59t60mgktnk238m5yf0",
-        "osmo1d9ryqp7yfmr92vkk2yal96824pewf2g5wx0h2r",
-        "osmo10k0qxqh39fwk2khv49g0n673kfqwe778f09ffg",
-        "osmo1ks3p0rtxkph9us3rg5z3as2hl4gfq4fua5d0vh",
-        "osmo1xaaxw8xzyxh6cflqd4g2xqmypsa4x8hzl8t4nc",
-        "osmo1dxrfdpxju5jmcqz3lffn5qj4kqvtpuvjdet49z",
-        "osmo1w7tql40ad8m4hzw65ahlcgd72vm4zwfq6uw68j",
-        "osmo1t7f0rmcjxvmdmftsfsy66k2yny9zq703hwa9qg",
-        "osmo1vg5gzyfqfnqz7l6hqh307q9mczjrns266a2q06",
-        "osmo1pgsya6vgfr0rzxuc24wn5t3x9azy6r83mumygz"
-    ];
-    let founder = "osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n";
-    
-    let mut msgs: Vec<CosmosMsg> = vec![];
-    //Loop through pre_launch_community to create add_recipient messages
-    for recipient in pre_launch_community.clone() {
-        let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-            contract_addr: vesting.to_string(), 
-            msg: to_binary(&VestingExecuteMsg::AddRecipient { 
-                recipient: recipient.to_string(),
-            })?, 
-            funds: vec![], 
-        });
-        msgs.push(msg);
-    }
-    //Add founder recipient
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-        contract_addr: vesting.to_string(), 
-        msg: to_binary(&VestingExecuteMsg::AddRecipient { 
-            recipient: founder.to_string(),
-        })?, 
-        funds: vec![], 
+    //Mint incorrectly burnt MBRN to staking contract
+    let message = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: "osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd".to_string(),
+        msg: to_binary(&OPExecuteMsg::MintTokens {
+            denom: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn"),
+            amount: Uint128::new(7382206489624),
+            mint_to_address: "osmo1fty83rfxqs86jm5fmlql5e340e8pe0v9j8ez0lcc6zwt2amegwvsfp3gxj".to_string(),
+        })?,
+        funds: vec![],
     });
-    msgs.push(msg);
 
-    //////Allocations
-    //Subtract 99 days from first vesting date.
-    //PLC: 0 cliff 266 linear 
-    //Founder: 631 cliff 365 linear
-
-    //Loop through pre_launch_community to create add_allocation messages
-    for recipient in pre_launch_community {
-        let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-            contract_addr: vesting.to_string(), 
-            msg: to_binary(&VestingExecuteMsg::AddAllocation { 
-                recipient: recipient.to_string(),
-                allocation: Uint128::new(1_000_000_000u128),
-                vesting_period: Some(VestingPeriod {
-                    cliff: 0,
-                    linear: 266,
-                })
-            })?, 
-            funds: vec![], 
-        });
-        msgs.push(msg);
-    }
-    //Set founder allocation
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-        contract_addr: vesting.to_string(), 
-        msg: to_binary(&VestingExecuteMsg::AddAllocation { 
-            recipient: founder.to_string(),
-            allocation: Uint128::new(9_000_000_000_000u128), //9M
-            vesting_period: Some(VestingPeriod {
-                cliff: 631,
-                linear: 365,
-            })
-        })?, 
-        funds: vec![], 
-    });
-    msgs.push(msg);
-
-    Ok(Response::new().add_messages(msgs))
+    Ok(Response::new().add_message(message))
 }

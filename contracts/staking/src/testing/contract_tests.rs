@@ -51,6 +51,7 @@ fn update_config(){
         max_commission_rate: Some(Decimal::percent(11)),
         keep_raw_cdt: Some(false),
         vesting_rev_multiplier: None,
+        buyback_and_burn: None,
     };
 
     execute(
@@ -102,6 +103,7 @@ fn update_config(){
         max_commission_rate: None,
         keep_raw_cdt: None,
         vesting_rev_multiplier: None,
+        buyback_and_burn: None,
     };
 
     execute(
@@ -126,6 +128,7 @@ fn update_config(){
         max_commission_rate: None,
         keep_raw_cdt: None,
         vesting_rev_multiplier: None,
+        buyback_and_burn: None,
     };
 
     execute(
@@ -281,6 +284,7 @@ fn stake() {
             ],
         }
     );
+
 }
 
 #[test]

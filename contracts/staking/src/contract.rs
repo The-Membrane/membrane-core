@@ -21,7 +21,7 @@ use membrane::math::{decimal_division, decimal_multiplication};
 
 use crate::error::ContractError;
 use crate::query::{query_declared_delegates, query_delegations, query_fee_events, query_staked, query_totals, query_user_rewards, query_user_stake};
-use crate::state::{CONFIG, BUYBACK_AND_BURN, DELEGATE_CLAIMS, DELEGATE_INFO, DELEGATIONS, FEE_EVENTS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, STAKED, STAKING_TOTALS, VESTING_REV_MULTIPLIER, VESTING_STAKE_TIME};
+use crate::state::{CONFIG, LAST_MBRN_TOTAL_BALANCE, BUYBACK_AND_BURN, DELEGATE_CLAIMS, DELEGATE_INFO, DELEGATIONS, FEE_EVENTS, INCENTIVE_SCHEDULING, OWNERSHIP_TRANSFER, STAKED, STAKING_TOTALS, VESTING_REV_MULTIPLIER, VESTING_STAKE_TIME};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:staking";
@@ -121,7 +121,7 @@ pub fn instantiate(
         start_time: env.block.time.seconds(),
     })?;
 
-    BUYBACK_AND_BURN.save(deps.storage, &false)?;
+    BUYBACK_AND_BURN.save(deps.storage, &true)?;
 
     //Initialize Delegate state
     DELEGATE_INFO.save(deps.storage, &vec![])?;
@@ -1547,10 +1547,17 @@ fn deposit_fee(
 fn buyback_and_burn(
     deps: DepsMut,
     env: Env,
-    info: MessageInfo,
+    _info: MessageInfo,
     max_slippage: Option<Decimal>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
+
+    //Check if buyback and burn is enabled
+    if !BUYBACK_AND_BURN.load(deps.storage)? {
+        return Err(ContractError::CustomError {
+            val: String::from("Buyback and burn is disabled"),
+        });
+    }
 
     //Get CDT denom
     let basket: Basket = query_basket(deps.querier, config.clone().positions_contract.unwrap_or_else(|| Addr::unchecked("")).to_string())?;
@@ -1558,6 +1565,10 @@ fn buyback_and_burn(
 
     //Get CDT balance
     let cdt_balance = deps.querier.query_balance(&env.contract.address, cdt_denom.clone().to_string())?;
+    //Get MBRN balance
+    let mbrn_balance = deps.querier.query_balance(&env.contract.address, config.mbrn_denom.clone().to_string())?;
+    //Save MBRN balance in state
+    LAST_MBRN_TOTAL_BALANCE.save(deps.storage, &mbrn_balance.amount)?;
 
     //Create swap msg
     let swap_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -2473,12 +2484,22 @@ fn handle_burn_reply(
             //Get MBRN balance
             let mbrn_balance = deps.querier.query_balance(env.contract.address.clone(), config.mbrn_denom.clone())?;
 
+            //Load last MBRN balance from state
+            let preswap_mbrn_balance = LAST_MBRN_TOTAL_BALANCE.load(deps.storage)?;
+
+            //Calculate the difference to get the amount to burn
+            let mbrn_burn_balance = match mbrn_balance.amount.checked_sub(preswap_mbrn_balance){
+                Ok(res) => res,
+                //Unreachable but for safety of not blocking revenue deposits
+                Err(_) => Uint128::zero(),
+            };
+
             //Create burn msg
             let burn_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.osmosis_proxy.unwrap().to_string(),
                 msg: to_binary(&OsmoExecuteMsg::BurnTokens { 
                     denom: config.mbrn_denom.clone(), 
-                    amount: mbrn_balance.amount,
+                    amount: mbrn_burn_balance,
                     burn_from_address: env.contract.address.to_string(),
                 })?,
                 funds: vec![],
@@ -2487,7 +2508,7 @@ fn handle_burn_reply(
             return Ok(Response::new()
                 .add_message(burn_msg)
                 .add_attribute("method", "buyback_and_burn")
-                .add_attribute("mbrn_burnt", format!("{:?}", mbrn_balance.amount))
+                .add_attribute("mbrn_burnt", format!("{:?}", mbrn_burn_balance))
             )
         } //We only reply on success
         Err(err) => return Err(StdError::GenericErr { msg: err }),
@@ -2498,12 +2519,6 @@ fn handle_burn_reply(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     
-    //Initialize BUYBACK_AND_BURN
-    BUYBACK_AND_BURN.save(deps.storage, &true)?;
-
-    //Reset fee events
-    FEE_EVENTS.save(deps.storage, &vec![])?;
-
     Ok(Response::default())
 }
 

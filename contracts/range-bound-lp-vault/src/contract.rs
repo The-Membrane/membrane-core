@@ -822,23 +822,31 @@ fn exit_vault(
         Decimal::from_ratio(balance_of_floor_tokens, Uint128::one()),
         withdrawal_ratio
     )?.to_uint_floor();
-    //Send the user its ratio of assets in the contract balance
-    let send_contract_balance_tokens_msg: CosmosMsg = BankMsg::Send {
-        to_address: send_to.clone(),
-        amount: vec![
-            Coin {
+    //Dont send if the amount is 0
+    if ceiling_tokens_to_send > Uint128::zero() {
+        //Send ceiling tokens to the user
+        let send_contract_balance_ceiling_tokens_msg: CosmosMsg = BankMsg::Send {
+            to_address: send_to.clone(),
+            amount: vec![Coin {
                 denom: config.range_tokens.ceiling_deposit_token.clone(),
                 amount: ceiling_tokens_to_send,
-            },
-            Coin {
+            }],
+        }.into();
+        //Add to msgs
+        msgs.push(SubMsg::new(send_contract_balance_ceiling_tokens_msg));
+    }
+    if floor_tokens_to_send > Uint128::zero() {
+        //Send floor tokens to the user
+        let send_contract_balance_floor_tokens_msg: CosmosMsg = BankMsg::Send {
+            to_address: send_to.clone(),
+            amount: vec![Coin {
                 denom: config.range_tokens.floor_deposit_token.clone(),
                 amount: floor_tokens_to_send,
-            }
-        ],
-    }.into();
-    //Add to msgs
-    msgs.push(SubMsg::new(send_contract_balance_tokens_msg));
-
+            }],
+        }.into();
+        //Add to msgs
+        msgs.push(SubMsg::new(send_contract_balance_floor_tokens_msg));
+    }
 
     //Burn vault tokens
     let burn_vault_tokens_msg: CosmosMsg = TokenFactory::MsgBurn {

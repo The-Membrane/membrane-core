@@ -48,6 +48,8 @@ pub enum ExecuteMsg {
     /// - If price is in the ceiling, swap and deposit into floor
     /// - If price is in the floor, swap and deposit into ceiling
     ManageVault { rebalance_sale_max: Option<Decimal> },
+    /// Withdraws CDT from the ceiling to swap to USDC to deposit into the floor
+    BolsterFloorWithSwaps { max_swap_amount: Option<Uint128> },
     /// Set intents for a user. They must send vault tokens or have a non-zero balance in state.
     /// NOTE: We don't use the asset price initiation.
     SetUserIntents { 

@@ -22,7 +22,7 @@ use membrane::osmosis_proxy::{
     Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, MigrateMsg, TokenInfoResponse, OwnerResponse, ContractDenomsResponse,
 };
 use membrane::cdp::{QueryMsg as CDPQueryMsg, Config as CDPConfig};
-use membrane::oracle::{QueryMsg as OracleQueryMsg, PriceResponse};
+use membrane::oracle::{QueryMsg as OracleQueryMsg, PriceResponse, AssetResponse};
 use membrane::types::{PoolStateResponse, Basket, Owner, AssetInfo, SwapRoute};
 use membrane::mars_vault_token::ExecuteMsg as MarsVaultExecuteMsg;
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse, MsgCreateDenomResponse};
@@ -82,6 +82,9 @@ pub fn execute(
         ExecuteMsg::ExecuteSwaps { token_out, max_slippage } => {
             execute_swaps(deps, env, info.sender.clone(), info.funds.clone(), token_out, max_slippage)
         }
+        ExecuteMsg::AddSwapRoutesFromOracleInfo { assets } => {
+            add_swap_routes_from_oracle(deps, env, assets)
+        }
         ExecuteMsg::CreateDenom {
             subdenom,
             max_supply,
@@ -124,6 +127,60 @@ pub fn execute(
             edit_owner(deps, info, owner, stability_pool_ratio, non_token_contract_auth)
         }
     }
+}
+
+//Anyone can execute to add swap routes by calling this function to check the oracle for its asset pool info for a list of assets & add the pool info as 2 bidirectional swap routes
+fn add_swap_routes_from_oracle(
+    deps: DepsMut,
+    env: Env,
+    assets: Vec<String>
+) -> Result<Response, TokenFactoryError> {
+
+    //Load config
+    let config = CONFIG.load(deps.storage)?;
+    //Load swap routes
+    let mut swap_routes = SWAP_ROUTES.load(deps.storage)?;
+
+    //Loop thru assets
+    for asset in assets.clone() {
+        //Check if asset has a swap route
+        if !swap_routes.iter().any(|route| route.token_in == asset) {
+            //Get asset info
+            let asset_info: Vec<AssetResponse> = deps.querier.query_wasm_smart::<Vec<AssetResponse>>(
+                config.oracle_contract.clone().unwrap().to_string(), 
+                &OracleQueryMsg::Assets { asset_infos: vec![AssetInfo::NativeToken { denom: asset.clone() } ] }
+            )?;
+            let asset_info = asset_info[0].clone();
+            //Create swap routes
+            let route1 = SwapRoute {
+                token_in: asset.clone(),
+                route_out: SwapAmountInRoute {
+                    token_out_denom: asset_info.oracle_info[0].pools_for_osmo_twap[0].quote_asset_denom.clone(),
+                    pool_id: asset_info.oracle_info[0].pools_for_osmo_twap[0].pool_id.clone(),
+                },
+            };
+            let route2 = SwapRoute {
+                token_in: asset_info.oracle_info[0].pools_for_osmo_twap[0].quote_asset_denom.clone(),
+                route_out: SwapAmountInRoute {
+                    token_out_denom: asset.clone(),
+                    pool_id: asset_info.oracle_info[0].pools_for_osmo_twap[0].pool_id.clone(),
+                },
+            };
+            //Add routes to swap_routes
+            swap_routes.push(route1);
+            //Check if route2 already exists before adding
+            if !swap_routes.iter().any(|route| route.token_in == route2.token_in && route.route_out.token_out_denom == route2.route_out.token_out_denom) {
+                swap_routes.push(route2);
+            }
+        }
+    }
+
+    //Save swap routes
+    SWAP_ROUTES.save(deps.storage, &swap_routes)?;
+
+    Ok(Response::new()
+    .add_attribute("method", "add_swap_routes_from_oracle")
+    .add_attribute("assets", format!("{:?}", assets)))
 }
 
 /// Execute a swap to token out 

@@ -51,6 +51,11 @@ pub enum ExecuteMsg {
         /// New max supply
         max_supply: Uint128,
     },
+    /// Add swap routes from oracle info
+    AddSwapRoutesFromOracleInfo {
+        /// Assets to add
+        assets: Vec<String>,
+    },
     /// Execute Swaps
     ExecuteSwaps {
         /// Token out

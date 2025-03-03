@@ -10,7 +10,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 use cw_storage_plus::Bound;
-use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
+use membrane::math::{decimal_multiplication, decimal_division};
 use membrane::oracle::PriceResponse;
 
 use crate::error::TokenFactoryError;
@@ -33,7 +33,6 @@ use osmosis_std::types::osmosis::concentratedliquidity::v1beta1::{self as CL, Fu
 const CONTRACT_NAME: &str = "crates.io:range-bound-lp-vault";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_LIMIT: u32 = 32;
-const MAX_SWAP_AMOUNT: u128 = 1_000_000_000u128;
 
 //Reply IDs
 const SWAP_ADD_TO_FLOOR_REPLY_ID: u64 = 1u64;
@@ -150,7 +149,6 @@ pub fn execute(
         ExecuteMsg::EnterVault { leave_vault_tokens_in_vault } => enter_vault(deps, env, info, leave_vault_tokens_in_vault),
         ExecuteMsg::ExitVault { send_to, swap_to_cdt } => exit_vault(deps, env, info, send_to, swap_to_cdt),
         ExecuteMsg::ManageVault { rebalance_sale_max } => manage_vault(deps, env, info, rebalance_sale_max),
-        ExecuteMsg::BolsterFloorWithSwaps { max_swap_amount } => bolster_floor_with_swaps(deps, env, info, max_swap_amount),
         ExecuteMsg::SetUserIntents { intents, reduce_vault_tokens } => set_intents(deps, env, info, intents, reduce_vault_tokens),
         ExecuteMsg::FulFillUserIntents { user } => fulfill_intents(deps, env, info, user),
         ExecuteMsg::RepayUserDebt { user_info, repayment } => repay_user_debt(deps, env, info, user_info, repayment),
@@ -762,6 +760,7 @@ fn exit_vault(
                 usdc_withdrawn_coins.push(coin.clone());
             }
         }
+        
 
         
         if !cdt_withdrawn_coins.is_empty() && cdt_withdrawn_coins[0].amount > Uint128::zero() {
@@ -807,45 +806,6 @@ fn exit_vault(
         }.into();
         //Add to msgs
         msgs.push(SubMsg::new(send_deposit_tokens_msg));
-    }
-
-    /////Send the user its ratio of assets in the contract balance as well////
-    //Get tokens in the contract
-    let balance_of_ceiling_tokens = deps.querier.query_balance(env.contract.address.clone(), config.clone().range_tokens.ceiling_deposit_token)?.amount;
-    let balance_of_floor_tokens = deps.querier.query_balance(env.contract.address.clone(), config.clone().range_tokens.floor_deposit_token)?.amount;
-    //Calc amounts to send to the user using the withdrawal ratio
-    let ceiling_tokens_to_send = decimal_multiplication(
-        Decimal::from_ratio(balance_of_ceiling_tokens, Uint128::one()),
-        withdrawal_ratio
-    )?.to_uint_floor();
-    let floor_tokens_to_send = decimal_multiplication(
-        Decimal::from_ratio(balance_of_floor_tokens, Uint128::one()),
-        withdrawal_ratio
-    )?.to_uint_floor();
-    //Dont send if the amount is 0
-    if ceiling_tokens_to_send > Uint128::zero() {
-        //Send ceiling tokens to the user
-        let send_contract_balance_ceiling_tokens_msg: CosmosMsg = BankMsg::Send {
-            to_address: send_to.clone(),
-            amount: vec![Coin {
-                denom: config.range_tokens.ceiling_deposit_token.clone(),
-                amount: ceiling_tokens_to_send,
-            }],
-        }.into();
-        //Add to msgs
-        msgs.push(SubMsg::new(send_contract_balance_ceiling_tokens_msg));
-    }
-    if floor_tokens_to_send > Uint128::zero() {
-        //Send floor tokens to the user
-        let send_contract_balance_floor_tokens_msg: CosmosMsg = BankMsg::Send {
-            to_address: send_to.clone(),
-            amount: vec![Coin {
-                denom: config.range_tokens.floor_deposit_token.clone(),
-                amount: floor_tokens_to_send,
-            }],
-        }.into();
-        //Add to msgs
-        msgs.push(SubMsg::new(send_contract_balance_floor_tokens_msg));
     }
 
     //Burn vault tokens
@@ -1097,31 +1057,31 @@ fn manage_vault(
         }
 
         //Set swappable amount based on the rebalance_sale_max
-        // let swappable_amount = decimal_multiplication(
-        //     rebalance_sale_max,
-        //     Decimal::from_ratio(total_floor_tokens, Uint128::one())
-        // )?.to_uint_floor();
+        let swappable_amount = decimal_multiplication(
+            rebalance_sale_max,
+            Decimal::from_ratio(total_floor_tokens, Uint128::one())
+        )?.to_uint_floor();
 
-        // //Swap floor (USDC) to ceiling (CDT)
-        // if !swappable_amount.is_zero() {
+        //Swap floor (USDC) to ceiling (CDT)
+        if !swappable_amount.is_zero() {
                 
-        //     let swap_to_ceiling: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        //         contract_addr: config.osmosis_proxy_contract_addr.to_string(),
-        //         msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps {
-        //             token_out: config.range_tokens.clone().ceiling_deposit_token,
-        //             max_slippage: Decimal::percent(1), //we'd take whatever if this was only swapping yields but deposits get swapped as well
-        //         })?,
-        //         funds: vec![
-        //             Coin {
-        //                 denom: config.range_tokens.floor_deposit_token.clone(),
-        //                 amount: swappable_amount,
-        //             },
-        //         ],
-        //     });
-        //     //Add to msgs as SubMsg
-        //     msgs.push(SubMsg::reply_on_success(swap_to_ceiling, SWAP_ADD_TO_CEILING_REPLY_ID));
-        //     //& deposit into ceiling in a submsg post swap
-        // }
+            let swap_to_ceiling: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.osmosis_proxy_contract_addr.to_string(),
+                msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps {
+                    token_out: config.range_tokens.clone().ceiling_deposit_token,
+                    max_slippage: Decimal::percent(1), //we'd take whatever if this was only swapping yields but deposits get swapped as well
+                })?,
+                funds: vec![
+                    Coin {
+                        denom: config.range_tokens.floor_deposit_token.clone(),
+                        amount: swappable_amount,
+                    },
+                ],
+            });
+            //Add to msgs as SubMsg
+            msgs.push(SubMsg::reply_on_success(swap_to_ceiling, SWAP_ADD_TO_CEILING_REPLY_ID));
+            //& deposit into ceiling in a submsg post swap
+        }
 
     }     
     //Below the floor, add ceiling to BOTH
@@ -1162,31 +1122,31 @@ fn manage_vault(
         }
 
         //Set swappable amount based on the rebalance_sale_max
-        // let swappable_amount = decimal_multiplication(
-        //     rebalance_sale_max,
-        //     Decimal::from_ratio(total_floor_tokens, Uint128::one())
-        // )?.to_uint_floor();
+        let swappable_amount = decimal_multiplication(
+            rebalance_sale_max,
+            Decimal::from_ratio(total_floor_tokens, Uint128::one())
+        )?.to_uint_floor();
 
-        // //Swap floor (USDC) to ceiling (CDT)
-        // if !swappable_amount.is_zero() {
+        //Swap floor (USDC) to ceiling (CDT)
+        if !swappable_amount.is_zero() {
                 
-        //     let swap_to_ceiling: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        //         contract_addr: config.osmosis_proxy_contract_addr.to_string(),
-        //         msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps {
-        //             token_out: config.range_tokens.clone().ceiling_deposit_token,
-        //             max_slippage: Decimal::percent(1), //we'd take whatever if this was only swapping yields but deposits get swapped as well
-        //         })?,
-        //         funds: vec![
-        //             Coin {
-        //                 denom: config.range_tokens.floor_deposit_token.clone(),
-        //                 amount: swappable_amount,
-        //             },
-        //         ],
-        //     });
-        //     //Add to msgs as SubMsg
-        //     msgs.push(SubMsg::reply_on_success(swap_to_ceiling, SWAP_TO_CEILING_ADD_BOTH_REPLY_ID));
-        //     //& deposit into BOTH in a submsg post swap
-        // }
+            let swap_to_ceiling: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.osmosis_proxy_contract_addr.to_string(),
+                msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps {
+                    token_out: config.range_tokens.clone().ceiling_deposit_token,
+                    max_slippage: Decimal::percent(1), //we'd take whatever if this was only swapping yields but deposits get swapped as well
+                })?,
+                funds: vec![
+                    Coin {
+                        denom: config.range_tokens.floor_deposit_token.clone(),
+                        amount: swappable_amount,
+                    },
+                ],
+            });
+            //Add to msgs as SubMsg
+            msgs.push(SubMsg::reply_on_success(swap_to_ceiling, SWAP_TO_CEILING_ADD_BOTH_REPLY_ID));
+            //& deposit into BOTH in a submsg post swap
+        }
     }
 
     if msgs.is_empty() {
@@ -1199,105 +1159,6 @@ fn manage_vault(
         .add_attribute("total_floor_tokens", total_floor_tokens)
         .add_submessages(msgs)
     )
-}
-
-//This function will:
-// 1) Swap ceiling tokens to floor tokens while price is between the ceiling and the floor with a max slippage of the distance to the floor (ex: .987 = .002 slippage or 0.2%)
-// 2) deposit those tokens into the floor position
-fn bolster_floor_with_swaps(
-    deps: DepsMut,
-    env: Env,
-    _info: MessageInfo,
-    max_swap_amount: Option<Uint128>
-) -> Result<Response, TokenFactoryError> {
-    //Load state
-    let config = CONFIG.load(deps.storage)?;
-    let mut msgs: Vec<SubMsg> = vec![];
-
-    //Get total_deposit_tokens & prices
-    let (
-        _,
-        cdt_price,
-        _,
-        ceiling_position_coins,
-        _,
-        ceiling_position,
-        _
-    ) = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
-
-    //If cdt_price isn't above the floor range (.985), error
-    if cdt_price.price <= Decimal::from_str("0.985").unwrap() {
-        return Err(TokenFactoryError::CustomError { val: String::from("Price is at or below the floor range of 0.985") });
-    }
-    //If cdt_price is at or above the ceiling range's floor (.99), error
-    if cdt_price.price >= Decimal::from_str("0.99").unwrap() {
-        return Err(TokenFactoryError::CustomError { val: String::from("Price is at or above the ceiling range of 0.99") });
-    }
-    //Calc max slippage based on the distance to the floor
-    let max_slippage = decimal_subtraction(cdt_price.price, Decimal::from_str("0.985").unwrap())?;
-
-    //Ceiling position coins will be all ceiling (CDT) tokens but let's find and set it separately to make sure
-    let mut ceiling_tokens = Uint128::zero();
-    for coin in ceiling_position_coins {
-        if coin.denom == config.range_tokens.ceiling_deposit_token {
-            ceiling_tokens = coin.amount;
-        }
-    }
-
-    //Set max swap amount
-    let max_swap_amount = match max_swap_amount {
-        Some(amount) => amount,
-        None => Uint128::new(MAX_SWAP_AMOUNT), //1000 CDT
-    };
-
-    //Set the amount to swap
-    let swap_amount = min(ceiling_tokens, max_swap_amount);
-
-    //Create swap coin
-    let swap_coin = Coin {
-        denom: config.range_tokens.ceiling_deposit_token.clone(),
-        amount: swap_amount,
-    };
-
-    //Calculate the amount of LP tokens to withdraw
-    let withdrawal_ratio = decimal_division(
-        Decimal::from_ratio(swap_amount, Uint128::one()),
-        Decimal::from_ratio(ceiling_tokens, Uint128::one()),
-    )?;
-    let liquidity_amount_to_withdraw = (decimal_multiplication(
-        Decimal::from_str(&ceiling_position.position.unwrap().liquidity).unwrap(),
-        withdrawal_ratio
-    )? * Uint128::new(10u64.pow(18 as u32) as u128)).to_string();
-
-    //Withdraw liquidity from the ceiling position
-    let ceiling_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
-        position_id: config.range_position_ids.ceiling,
-        sender: env.contract.address.to_string(),
-        liquidity_amount: liquidity_amount_to_withdraw,
-    }.into();
-    //Add to msgs
-    msgs.push(SubMsg::new(ceiling_position_withdraw_msg));
-
-    //Swap ceiling (CDT) to floor (USDC)
-    //Reply will deposit into the floor position
-    let swap_to_floor: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.osmosis_proxy_contract_addr.to_string(),
-        msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps {
-            token_out: config.range_tokens.clone().floor_deposit_token,
-            max_slippage,
-        })?,
-        funds: vec![swap_coin],
-    });
-    //Add to msgs as SubMsg
-    msgs.push(SubMsg::reply_on_success(swap_to_floor, SWAP_ADD_TO_FLOOR_REPLY_ID));
-
-    //Create response
-    Ok(Response::new()
-        .add_attribute("method", "bolster_floor_with_swaps")
-        .add_attribute("swap_amount", swap_amount)
-        .add_submessages(msgs)
-    )
-
 }
 
 /// Set intents for a user. They must send vault tokens or have a non-zero balance in state.

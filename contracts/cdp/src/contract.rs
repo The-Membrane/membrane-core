@@ -634,30 +634,14 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Load position 433 from user osmo1vf6e300hv2qe7r5rln8deft45ewgyytjnwfrdfcv5rgzrfy0s6cswjqf9r
-    let mut target_position = get_target_position(deps.storage, Addr::unchecked("osmo1vf6e300hv2qe7r5rln8deft45ewgyytjnwfrdfcv5rgzrfy0s6cswjqf9r"), Uint128::new(433u128))?.1;
-    //Get the collateral amount for "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized"
-    let collateral_amount = target_position.collateral_assets
-        .into_iter()
-        .find(|asset| asset.asset.info.to_string() == "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized").unwrap();
+    
+    /////Restore correct credit amount to basket///
+    let current_difference = Uint128::new(185343942318 - 103346541792); //81,997,400,526
 
+    let mut basket: Basket = BASKET.load(deps.storage)?;
 
-
-    //Load basket
-    let mut basket = BASKET.load(deps.storage)?;
-
-    //Set the basket's collateral amount in collateral_types & collateral_supply_caps for the asset, "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized", to the position 433's totoal
-    // collateral amount
-    for cAsset in basket.collateral_types.iter_mut(){
-        if cAsset.asset.info.to_string() == "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized"{
-            cAsset.asset.amount = collateral_amount.asset.amount;
-        }
-    }
-    for cap in basket.collateral_supply_caps.iter_mut(){
-        if cap.asset_info.to_string() == "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized"{
-            cap.current_supply = collateral_amount.asset.amount;
-        }
-    }
+    //Update basket credit amount
+    basket.credit_asset.amount -= current_difference;
 
     //Save basket
     BASKET.save(deps.storage, &basket)?;

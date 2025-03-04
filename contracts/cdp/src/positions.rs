@@ -1860,6 +1860,13 @@ pub fn redeem_for_collateral(
                         credit_amount = decimal_subtraction(credit_amount, redemption_fee)?;
                     }
 
+
+                    //Subtract redeemed debt from Basket
+                    basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(redeemable_credit.to_uint_floor()) {
+                        Ok(difference) => difference,
+                        Err(_err) => Uint128::zero(),
+                    };
+
                     //Subtract redeemable from remaining_loan_repayment
                     user.position_infos[pos_rdmpt_index].remaining_loan_repayment = 
                         position_redemption_info.remaining_loan_repayment - 

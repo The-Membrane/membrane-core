@@ -74,6 +74,9 @@ pub enum ExecuteMsg {
     /// Assures that for deposits & withdrawals the conversion rate is static.
     /// Only callable by the contract
     RateAssurance { },
+    /// Temp Executable bc migration can't pass a CL Withdraw Msg:
+    /// Withdraws the floor position 
+    WithdrawFloorPosition {  },
 }
 
 #[cw_serde]

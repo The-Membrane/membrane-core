@@ -221,15 +221,15 @@ fn get_total_deposit_tokens(
     }
     let ceiling_position = ceiling_position_response.position.unwrap();
     //
-    let floor_position_response: CL::PositionByIdResponse = cl_querier.position_by_id(config.range_position_ids.floor)?;
-    if floor_position_response.position.is_none() {
-        return Err(StdError::GenericErr { msg: format!("Failed to query the floor position: {}", config.range_position_ids.floor) });
-    }
-    let floor_position = floor_position_response.position.unwrap();
+    // let floor_position_response: CL::PositionByIdResponse = cl_querier.position_by_id(config.range_position_ids.floor)?;
+    // if floor_position_response.position.is_none() {
+    //     return Err(StdError::GenericErr { msg: format!("Failed to query the floor position: {}", config.range_position_ids.floor) });
+    // }
+    // let floor_position = floor_position_response.position.unwrap();
     //
     //Initialize Coin propogation variables
     let mut ceiling_position_coins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
-    let mut floor_position_coins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
+    // let mut floor_position_coins: Vec<osmosis_std::types::cosmos::base::v1beta1::Coin> = vec![];
     //Condense the ceiling position's possible coins into 1 array
     //Asset 0
     if let Some(coin) = ceiling_position.clone().asset0 {        
@@ -270,42 +270,42 @@ fn get_total_deposit_tokens(
     });
     //Condense the floor position's possible coins into 1 array
     //Asset 0
-    if let Some(coin) = floor_position.clone().asset0 {
-        //Add to the coins array
-        floor_position_coins.push(coin.clone());
-        //Add to the totals
-        if coin.denom == config.range_tokens.ceiling_deposit_token {
-            //Add to the total
-            total_ceiling_tokens += Uint128::from_str(&coin.amount).unwrap();
-        }
-        if coin.denom == config.range_tokens.floor_deposit_token {
-            //Add to the total
-            total_floor_tokens += Uint128::from_str(&coin.amount).unwrap();
-        }
-    }
-    //Asset 1
-    if let Some(coin) = floor_position.clone().asset1 {
-        //Add to the coins array
-        floor_position_coins.push(coin.clone());
-        //Add to the totals
-        if coin.denom == config.range_tokens.ceiling_deposit_token {
-            //Add to the total
-            total_ceiling_tokens += Uint128::from_str(&coin.amount).unwrap();
-        }
-        if coin.denom == config.range_tokens.floor_deposit_token {
-            //Add to the total
-            total_floor_tokens += Uint128::from_str(&coin.amount).unwrap();
-        }
-    }
-    //Find and accumulate the tokens in the positions
-    floor_position.clone().claimable_spread_rewards.into_iter().for_each(|coin| {
-        if coin.denom == config.range_tokens.ceiling_deposit_token {
-            total_ceiling_tokens += Uint128::from_str(&coin.amount).unwrap();
-        }
-        if coin.denom == config.range_tokens.floor_deposit_token {
-            total_floor_tokens += Uint128::from_str(&coin.amount).unwrap();
-        }
-    });
+    // if let Some(coin) = floor_position.clone().asset0 {
+    //     //Add to the coins array
+    //     floor_position_coins.push(coin.clone());
+    //     //Add to the totals
+    //     if coin.denom == config.range_tokens.ceiling_deposit_token {
+    //         //Add to the total
+    //         total_ceiling_tokens += Uint128::from_str(&coin.amount).unwrap();
+    //     }
+    //     if coin.denom == config.range_tokens.floor_deposit_token {
+    //         //Add to the total
+    //         total_floor_tokens += Uint128::from_str(&coin.amount).unwrap();
+    //     }
+    // }
+    // //Asset 1
+    // if let Some(coin) = floor_position.clone().asset1 {
+    //     //Add to the coins array
+    //     floor_position_coins.push(coin.clone());
+    //     //Add to the totals
+    //     if coin.denom == config.range_tokens.ceiling_deposit_token {
+    //         //Add to the total
+    //         total_ceiling_tokens += Uint128::from_str(&coin.amount).unwrap();
+    //     }
+    //     if coin.denom == config.range_tokens.floor_deposit_token {
+    //         //Add to the total
+    //         total_floor_tokens += Uint128::from_str(&coin.amount).unwrap();
+    //     }
+    // }
+    // //Find and accumulate the tokens in the positions
+    // floor_position.clone().claimable_spread_rewards.into_iter().for_each(|coin| {
+    //     if coin.denom == config.range_tokens.ceiling_deposit_token {
+    //         total_ceiling_tokens += Uint128::from_str(&coin.amount).unwrap();
+    //     }
+    //     if coin.denom == config.range_tokens.floor_deposit_token {
+    //         total_floor_tokens += Uint128::from_str(&coin.amount).unwrap();
+    //     }
+    // });
 
     //Calc value of the tokens
     let total_ceiling_value = ceiling_price.get_value(total_ceiling_tokens)?;
@@ -322,21 +322,21 @@ fn get_total_deposit_tokens(
             amount: Uint128::from_str(&coin.amount).unwrap(),
         }
     }).collect();
-    let floor_position_coins: Vec<Coin> = floor_position_coins.iter().map(|coin| {
-        Coin {
-            denom: coin.denom.clone(),
-            amount: Uint128::from_str(&coin.amount).unwrap(),
-        }
-    }).collect();
+    // let floor_position_coins: Vec<Coin> = floor_position_coins.iter().map(|coin| {
+    //     Coin {
+    //         denom: coin.denom.clone(),
+    //         amount: Uint128::from_str(&coin.amount).unwrap(),
+    //     }
+    // }).collect();
 
     Ok((
         total_deposit_tokens, 
         ceiling_price, 
         floor_price, 
         ceiling_position_coins,
-        floor_position_coins,
+        vec![],
         ceiling_position,
-        floor_position,
+        FullPositionBreakdown::default(),
     ))
 }
 
@@ -640,16 +640,16 @@ fn exit_vault(
         _,
         _,
         ceiling_position_coins,
-        floor_position_coins,
+        _,
         ceiling_position,
-        floor_position
+        _
     ) = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
     if total_deposit_tokens.is_zero() {
         return Err(TokenFactoryError::ZeroDepositTokens {});
     }
 
     let ceiling_liquidity = Decimal::from_str(&ceiling_position.position.unwrap().liquidity).unwrap();
-    let floor_liquidity = Decimal::from_str(&floor_position.position.unwrap().liquidity).unwrap();
+    // let floor_liquidity = Decimal::from_str(&floor_position.position.unwrap().liquidity).unwrap();
 
     //Assert the only token sent is the vault token
     if info.funds.len() != 1 {
@@ -688,11 +688,11 @@ fn exit_vault(
         ceiling_liquidity,
         withdrawal_ratio
     )? * Uint128::new(10u64.pow(18 as u32) as u128)).to_string();
-    let floor_liquidity_to_withdraw = (decimal_multiplication(
-        floor_liquidity,
-        withdrawal_ratio
-    )? * Uint128::new(10u64.pow(18 as u32) as u128)).to_string();
-    //Withdraw liquidity from both positions
+    // let floor_liquidity_to_withdraw = (decimal_multiplication(
+    //     floor_liquidity,
+    //     withdrawal_ratio
+    // )? * Uint128::new(10u64.pow(18 as u32) as u128)).to_string();
+    //Withdraw liquidity from ceiling positions\
     let ceiling_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
         position_id: config.range_position_ids.ceiling,
         sender: env.contract.address.to_string(),
@@ -700,13 +700,14 @@ fn exit_vault(
     }.into();
     //Add to msgs
     msgs.push(SubMsg::new(ceiling_position_withdraw_msg));
-    let floor_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
-        position_id: config.range_position_ids.floor,
-        sender: env.contract.address.to_string(),
-        liquidity_amount: floor_liquidity_to_withdraw,
-    }.into();
-    //Add to msgs
-    msgs.push(SubMsg::new(floor_position_withdraw_msg));
+    //Withdraw liquidity from floor position
+    // let floor_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
+    //     position_id: config.range_position_ids.floor,
+    //     sender: env.contract.address.to_string(),
+    //     liquidity_amount: floor_liquidity_to_withdraw,
+    // }.into();
+    // //Add to msgs
+    // msgs.push(SubMsg::new(floor_position_withdraw_msg));
     //Calculate the amount of tokens that will be withdrawn and should be sent to the user
     let mut user_withdrawn_coins = vec![];
     //Ceiling
@@ -723,30 +724,30 @@ fn exit_vault(
         });
     };
     //Floor
-    for coin in floor_position_coins {
-        //Calc amount
-        let amount = decimal_multiplication(
-            Decimal::from_ratio(coin.amount, Uint128::one()),
-            withdrawal_ratio
-        )?.to_uint_floor().to_string();
+    // for coin in floor_position_coins {
+    //     //Calc amount
+    //     let amount = decimal_multiplication(
+    //         Decimal::from_ratio(coin.amount, Uint128::one()),
+    //         withdrawal_ratio
+    //     )?.to_uint_floor().to_string();
 
-        //Check if the coin already exists in the withdrawn_coins array.
-        //If so, add the amount to the existing coin, else add a new coin.
-        let mut coin_exists = false;
-        user_withdrawn_coins.iter_mut().for_each(|withdrawn_coin| {
-            if withdrawn_coin.denom == coin.denom {
-                withdrawn_coin.amount += Uint128::from_str(&amount).unwrap();
-                coin_exists = true;
-            }
-        });
-        //Add to the user's withdrawn coins
-        if !coin_exists {
-            user_withdrawn_coins.push(Coin {
-                denom: coin.denom.clone(),
-                amount: Uint128::from_str(&amount).unwrap(),
-            });
-        }
-    };
+    //     //Check if the coin already exists in the withdrawn_coins array.
+    //     //If so, add the amount to the existing coin, else add a new coin.
+    //     let mut coin_exists = false;
+    //     user_withdrawn_coins.iter_mut().for_each(|withdrawn_coin| {
+    //         if withdrawn_coin.denom == coin.denom {
+    //             withdrawn_coin.amount += Uint128::from_str(&amount).unwrap();
+    //             coin_exists = true;
+    //         }
+    //     });
+    //     //Add to the user's withdrawn coins
+    //     if !coin_exists {
+    //         user_withdrawn_coins.push(Coin {
+    //             denom: coin.denom.clone(),
+    //             amount: Uint128::from_str(&amount).unwrap(),
+    //         });
+    //     }
+    // };
 
     if swap_to_cdt {
         
@@ -859,6 +860,8 @@ fn exit_vault(
 /// - Attempt to compound into ceiling or floor
 /// - If price is in the ceiling, swap and deposit into floor. If its above, swap to floor and deposit into both.
 /// - If price is in the floor, swap and deposit into ceiling. If its below, swap to ceiling and deposit into both.
+/// 
+/// EDIT: We only deposit into the ceiling now.
 fn manage_vault(
     deps: DepsMut,
     env: Env,
@@ -885,7 +888,7 @@ fn manage_vault(
         _,
         _,
         ceiling_position,
-        floor_position
+        _
     ) = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
 
     //CDT balance
@@ -907,16 +910,16 @@ fn manage_vault(
         }
     });
     //Add FLOOR spread rewards to the totals
-    floor_position.claimable_spread_rewards.into_iter().for_each(|coin| {
-        //If this runs at all it means the claims aren't an empty list
-        position_ids.push(config.range_position_ids.floor);
-        //Add to respective totals
-        if coin.denom == config.range_tokens.ceiling_deposit_token {
-            total_ceiling_tokens += Uint128::from_str(&coin.amount).unwrap();
-        } else if coin.denom == config.range_tokens.floor_deposit_token {
-            total_floor_tokens += Uint128::from_str(&coin.amount).unwrap();
-        }
-    });
+    // floor_position.claimable_spread_rewards.into_iter().for_each(|coin| {
+    //     //If this runs at all it means the claims aren't an empty list
+    //     position_ids.push(config.range_position_ids.floor);
+    //     //Add to respective totals
+    //     if coin.denom == config.range_tokens.ceiling_deposit_token {
+    //         total_ceiling_tokens += Uint128::from_str(&coin.amount).unwrap();
+    //     } else if coin.denom == config.range_tokens.floor_deposit_token {
+    //         total_floor_tokens += Uint128::from_str(&coin.amount).unwrap();
+    //     }
+    // });
 
     //Create claim spread fees msg
     if !position_ids.is_empty() {
@@ -929,75 +932,31 @@ fn manage_vault(
     }
 
     /////Is price in the ceiling or floor?///
-    //Above the ceiling, swap to floor & add to BOTH
+    //Above the ceiling, swap to floor & add to CEILING
     if cdt_price.price > Decimal::from_str("0.993").unwrap(){
         
         //Add to BOTH position
         if !total_floor_tokens.is_zero() {
             //Split the total_floor_tokens 50/50
-            let half_of_floor_token_total = total_floor_tokens / Uint128::new(2);
+            // let half_of_floor_token_total = total_floor_tokens / Uint128::new(2);
 
             //Add half to FLOOR position
-            let add_to_floor: CosmosMsg = CL::MsgAddToPosition {
-                position_id: config.range_position_ids.floor,
-                sender: env.contract.address.to_string(),
-                //CDT
-                amount0: String::from("0"),
-                //USDC
-                amount1: half_of_floor_token_total.to_string(),
-                token_min_amount0: String::from("0"),
-                token_min_amount1: String::from("0"),
-            }.into();
-            //Add to msgs
-            msgs.push(SubMsg::reply_on_success(add_to_floor, ADD_TO_FLOOR_REPLY_ID));
+            // let add_to_floor: CosmosMsg = CL::MsgAddToPosition {
+            //     position_id: config.range_position_ids.floor,
+            //     sender: env.contract.address.to_string(),
+            //     //CDT
+            //     amount0: String::from("0"),
+            //     //USDC
+            //     amount1: half_of_floor_token_total.to_string(),
+            //     token_min_amount0: String::from("0"),
+            //     token_min_amount1: String::from("0"),
+            // }.into();
+            // //Add to msgs
+            // msgs.push(SubMsg::reply_on_success(add_to_floor, ADD_TO_FLOOR_REPLY_ID));
             
-            //Add half to CEILING position
+            //Add total amount to CEILING position
             let add_to_ceiling: CosmosMsg = CL::MsgAddToPosition {
                 position_id: config.range_position_ids.ceiling,
-                sender: env.contract.address.to_string(),
-                //CDT
-                amount0: String::from("0"),
-                //USDC
-                amount1: half_of_floor_token_total.to_string(),
-                token_min_amount0: String::from("0"),
-                token_min_amount1: String::from("0"),
-            }.into();
-            //Add to msgs
-            msgs.push(SubMsg::reply_on_success(add_to_ceiling, ADD_TO_CEILING_REPLY_ID));
-        }
-
-        //Set swappable amount based on the rebalance_sale_max
-        let swappable_amount = decimal_multiplication(
-            rebalance_sale_max,
-            Decimal::from_ratio(total_ceiling_tokens, Uint128::one())
-        )?.to_uint_floor();
-
-        //Swap ceiling (CDT) to floor (USDC)
-        if !swappable_amount.is_zero() {
-            let swap_to_floor: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.osmosis_proxy_contract_addr.to_string(),
-                msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps {
-                    token_out: config.range_tokens.clone().floor_deposit_token,
-                    max_slippage: Decimal::percent(1), //we'd take whatever if this was only swapping yields but deposits get swapped as well
-                })?,
-                funds: vec![
-                    Coin {
-                        denom: config.range_tokens.ceiling_deposit_token.clone(),
-                        amount: swappable_amount,
-                    },
-                ],
-            });
-            //Add to msgs as SubMsg
-            msgs.push(SubMsg::reply_on_success(swap_to_floor, SWAP_TO_FLOOR_ADD_BOTH_REPLY_ID));
-            //& deposit into BOTH in a submsg post swap
-        }
-    }
-    //In the ceiling, so add to FLOOR
-    else if cdt_price.price >= Decimal::percent(99) && cdt_price.price <= Decimal::from_str("0.993").unwrap(){
-        //Add to FLOOR position
-        if !total_floor_tokens.is_zero() {
-            let add_to_floor: CosmosMsg = CL::MsgAddToPosition {
-                position_id: config.range_position_ids.floor,
                 sender: env.contract.address.to_string(),
                 //CDT
                 amount0: String::from("0"),
@@ -1007,38 +966,91 @@ fn manage_vault(
                 token_min_amount1: String::from("0"),
             }.into();
             //Add to msgs
-            msgs.push(SubMsg::reply_on_success(add_to_floor, ADD_TO_FLOOR_REPLY_ID));
+            msgs.push(SubMsg::reply_on_success(add_to_ceiling, ADD_TO_CEILING_REPLY_ID));
         }
 
         //Set swappable amount based on the rebalance_sale_max
-        let swappable_amount = decimal_multiplication(
-            rebalance_sale_max,
-            Decimal::from_ratio(total_ceiling_tokens, Uint128::one())
-        )?.to_uint_floor();
+        // let swappable_amount = decimal_multiplication(
+        //     rebalance_sale_max,
+        //     Decimal::from_ratio(total_ceiling_tokens, Uint128::one())
+        // )?.to_uint_floor();
 
-        //Swap ceiling (CDT) to floor (USDC)
-        if !swappable_amount.is_zero() {
-            let swap_to_floor: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.osmosis_proxy_contract_addr.to_string(),
-                msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps {
-                    token_out: config.range_tokens.clone().floor_deposit_token,
-                    max_slippage: Decimal::percent(1), //we'd take whatever if this was only swapping yields but deposits get swapped as well
-                })?,
-                funds: vec![
-                    Coin {
-                        denom: config.range_tokens.ceiling_deposit_token.clone(),
-                        amount: swappable_amount,
-                    },
-                ],
-            });
-            //Add to msgs as SubMsg
-            msgs.push(SubMsg::reply_on_success(swap_to_floor, SWAP_ADD_TO_FLOOR_REPLY_ID));
-            //& deposit into floor in a submsg post swap
-        }
+        // //Swap ceiling (CDT) to floor (USDC)
+        // if !swappable_amount.is_zero() {
+        //     let swap_to_floor: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        //         contract_addr: config.osmosis_proxy_contract_addr.to_string(),
+        //         msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps {
+        //             token_out: config.range_tokens.clone().floor_deposit_token,
+        //             max_slippage: Decimal::percent(1), //we'd take whatever if this was only swapping yields but deposits get swapped as well
+        //         })?,
+        //         funds: vec![
+        //             Coin {
+        //                 denom: config.range_tokens.ceiling_deposit_token.clone(),
+        //                 amount: swappable_amount,
+        //             },
+        //         ],
+        //     });
+        //     //Add to msgs as SubMsg
+        //     msgs.push(SubMsg::reply_on_success(swap_to_floor, SWAP_TO_FLOOR_ADD_BOTH_REPLY_ID));
+        //     //& deposit into BOTH in a submsg post swap
+        // }
 
-    } 
-    // if price is outside of the ceiling & not below the Floor, deposit all CDT to the ceiling
-    else if cdt_price.price < Decimal::percent(99) && cdt_price.price > Decimal::from_str("0.982").unwrap() {
+        //SINCE WE ARE REMOVING THE FLOOR WE'LL JUST NOT SWAP FOR NOW, ITS UNLIKELY WE GET ABOVE THE CEILING ANYWAY
+    }
+
+
+    //IF WE'RE IN THE CEILING WE'LL DO NO SWAPS. AGAIN, HIGHLY UNLIKELY ANYWAY DUE TO THE MANIC VAULTS REDEMPTION LOOPING 
+
+
+    //In the ceiling, so add to FLOOR
+    // else if cdt_price.price >= Decimal::percent(99) && cdt_price.price <= Decimal::from_str("0.993").unwrap(){
+    //     //Add to FLOOR position
+    //     if !total_floor_tokens.is_zero() {
+    //         let add_to_floor: CosmosMsg = CL::MsgAddToPosition {
+    //             position_id: config.range_position_ids.floor,
+    //             sender: env.contract.address.to_string(),
+    //             //CDT
+    //             amount0: String::from("0"),
+    //             //USDC
+    //             amount1: total_floor_tokens.to_string(),
+    //             token_min_amount0: String::from("0"),
+    //             token_min_amount1: String::from("0"),
+    //         }.into();
+    //         //Add to msgs
+    //         msgs.push(SubMsg::reply_on_success(add_to_floor, ADD_TO_FLOOR_REPLY_ID));
+    //     }
+
+    //     //Set swappable amount based on the rebalance_sale_max
+    //     let swappable_amount = decimal_multiplication(
+    //         rebalance_sale_max,
+    //         Decimal::from_ratio(total_ceiling_tokens, Uint128::one())
+    //     )?.to_uint_floor();
+
+    //     //Swap ceiling (CDT) to floor (USDC)
+    //     if !swappable_amount.is_zero() {
+    //         let swap_to_floor: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //             contract_addr: config.osmosis_proxy_contract_addr.to_string(),
+    //             msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps {
+    //                 token_out: config.range_tokens.clone().floor_deposit_token,
+    //                 max_slippage: Decimal::percent(1), //we'd take whatever if this was only swapping yields but deposits get swapped as well
+    //             })?,
+    //             funds: vec![
+    //                 Coin {
+    //                     denom: config.range_tokens.ceiling_deposit_token.clone(),
+    //                     amount: swappable_amount,
+    //                 },
+    //             ],
+    //         });
+    //         //Add to msgs as SubMsg
+    //         msgs.push(SubMsg::reply_on_success(swap_to_floor, SWAP_ADD_TO_FLOOR_REPLY_ID));
+    //         //& deposit into floor in a submsg post swap
+    //     }
+
+    // } 
+
+
+    // if price is outside of the ceiling, deposit all CDT to the ceiling
+    else if cdt_price.price < Decimal::percent(99) {
         //Add to CEILING position
         if !total_ceiling_tokens.is_zero() {
         
@@ -1084,73 +1096,74 @@ fn manage_vault(
         }
 
     }     
+    //THIS CONDITIONAL GETS MET BY THE UPDATED ONE ABOVE
     //Below the floor, add ceiling to BOTH
-    else {        
+    // else {        
         
-        //Add to BOTH position
-        if !total_ceiling_tokens.is_zero() {
-            //Split the total_floor_tokens 50/50
-            let half_of_ceiling_token_total = total_ceiling_tokens / Uint128::new(2);
+    //     //Add to BOTH position
+    //     if !total_ceiling_tokens.is_zero() {
+    //         //Split the total_floor_tokens 50/50
+    //         let half_of_ceiling_token_total = total_ceiling_tokens / Uint128::new(2);
 
-            //Add half to FLOOR position
-            let add_to_floor: CosmosMsg = CL::MsgAddToPosition {
-                position_id: config.range_position_ids.floor,
-                sender: env.contract.address.to_string(),
-                //CDT
-                amount0: half_of_ceiling_token_total.to_string(),
-                //USDC
-                amount1: String::from("0"),
-                token_min_amount0: String::from("0"),
-                token_min_amount1: String::from("0"),
-            }.into();
-            //Add to msgs
-            msgs.push(SubMsg::reply_on_success(add_to_floor, ADD_TO_FLOOR_REPLY_ID));
+    //         //Add half to FLOOR position
+    //         let add_to_floor: CosmosMsg = CL::MsgAddToPosition {
+    //             position_id: config.range_position_ids.floor,
+    //             sender: env.contract.address.to_string(),
+    //             //CDT
+    //             amount0: half_of_ceiling_token_total.to_string(),
+    //             //USDC
+    //             amount1: String::from("0"),
+    //             token_min_amount0: String::from("0"),
+    //             token_min_amount1: String::from("0"),
+    //         }.into();
+    //         //Add to msgs
+    //         msgs.push(SubMsg::reply_on_success(add_to_floor, ADD_TO_FLOOR_REPLY_ID));
             
-            //Add half to CEILING position
-            let add_to_ceiling: CosmosMsg = CL::MsgAddToPosition {
-                position_id: config.range_position_ids.ceiling,
-                sender: env.contract.address.to_string(),
-                //CDT
-                amount0: half_of_ceiling_token_total.to_string(),
-                //USDC
-                amount1: String::from("0"),
-                token_min_amount0: String::from("0"),
-                token_min_amount1: String::from("0"),
-            }.into();
-            //Add to msgs
-            msgs.push(SubMsg::reply_on_success(add_to_ceiling, ADD_TO_CEILING_REPLY_ID));
-        }
+    //         //Add half to CEILING position
+    //         let add_to_ceiling: CosmosMsg = CL::MsgAddToPosition {
+    //             position_id: config.range_position_ids.ceiling,
+    //             sender: env.contract.address.to_string(),
+    //             //CDT
+    //             amount0: half_of_ceiling_token_total.to_string(),
+    //             //USDC
+    //             amount1: String::from("0"),
+    //             token_min_amount0: String::from("0"),
+    //             token_min_amount1: String::from("0"),
+    //         }.into();
+    //         //Add to msgs
+    //         msgs.push(SubMsg::reply_on_success(add_to_ceiling, ADD_TO_CEILING_REPLY_ID));
+    //     }
 
-        //Set swappable amount based on the rebalance_sale_max
-        let swappable_amount = decimal_multiplication(
-            rebalance_sale_max,
-            Decimal::from_ratio(total_floor_tokens, Uint128::one())
-        )?.to_uint_floor();
+    //     //Set swappable amount based on the rebalance_sale_max
+    //     let swappable_amount = decimal_multiplication(
+    //         rebalance_sale_max,
+    //         Decimal::from_ratio(total_floor_tokens, Uint128::one())
+    //     )?.to_uint_floor();
 
-        //Swap floor (USDC) to ceiling (CDT)
-        if !swappable_amount.is_zero() {
+    //     //Swap floor (USDC) to ceiling (CDT)
+    //     if !swappable_amount.is_zero() {
                 
-            let swap_to_ceiling: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.osmosis_proxy_contract_addr.to_string(),
-                msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps {
-                    token_out: config.range_tokens.clone().ceiling_deposit_token,
-                    max_slippage: Decimal::percent(1), //we'd take whatever if this was only swapping yields but deposits get swapped as well
-                })?,
-                funds: vec![
-                    Coin {
-                        denom: config.range_tokens.floor_deposit_token.clone(),
-                        amount: swappable_amount,
-                    },
-                ],
-            });
-            //Add to msgs as SubMsg
-            msgs.push(SubMsg::reply_on_success(swap_to_ceiling, SWAP_TO_CEILING_ADD_BOTH_REPLY_ID));
-            //& deposit into BOTH in a submsg post swap
-        }
-    }
+    //         let swap_to_ceiling: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //             contract_addr: config.osmosis_proxy_contract_addr.to_string(),
+    //             msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps {
+    //                 token_out: config.range_tokens.clone().ceiling_deposit_token,
+    //                 max_slippage: Decimal::percent(1), //we'd take whatever if this was only swapping yields but deposits get swapped as well
+    //             })?,
+    //             funds: vec![
+    //                 Coin {
+    //                     denom: config.range_tokens.floor_deposit_token.clone(),
+    //                     amount: swappable_amount,
+    //                 },
+    //             ],
+    //         });
+    //         //Add to msgs as SubMsg
+    //         msgs.push(SubMsg::reply_on_success(swap_to_ceiling, SWAP_TO_CEILING_ADD_BOTH_REPLY_ID));
+    //         //& deposit into BOTH in a submsg post swap
+    //     }
+    // }
 
     if msgs.is_empty() {
-        return Err(TokenFactoryError::CustomError { val: String::from("Nothing to compound") })
+        return Err(TokenFactoryError::CustomError { val: String::from("Nothing to compound or we're in or above the ceiling (go loop the Manic Vault if so).") })
     }
 
     Ok(Response::new()
@@ -2559,7 +2572,30 @@ fn handle_cl_position_creation_reply(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
 
-    Ok(Response::default())
+    let config = CONFIG.load(deps.storage)?;
+    let mut msgs: Vec<SubMsg> = vec![];
+    //Create CL Querier
+    let cl_querier = CL::ConcentratedliquidityQuerier::new(&deps.querier);
+    //////Withdraw the floor position fully////////
+    /// 
+    // Get floor position liquidity
+    let floor_position_response: CL::PositionByIdResponse = cl_querier.position_by_id(config.range_position_ids.floor)?;
+    if floor_position_response.position.is_none() {
+        return Err(TokenFactoryError::CustomError { val: format!("Failed to query the floor position: {}", config.range_position_ids.floor) });
+    }
+    let floor_position = floor_position_response.position.unwrap();
+    let floor_liquidity = Decimal::from_str(&floor_position.position.unwrap().liquidity).unwrap();
+    //Withdraw liquidity from floor position
+    let floor_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
+        position_id: config.range_position_ids.floor,
+        sender: env.contract.address.to_string(),
+        liquidity_amount: floor_liquidity.to_string(),
+    }.into();
+    //Add to msgs
+    msgs.push(SubMsg::new(floor_position_withdraw_msg));
+
+
+    Ok(Response::default().add_submessages(msgs))
 }

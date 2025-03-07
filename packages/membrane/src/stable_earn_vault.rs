@@ -44,6 +44,9 @@ pub enum ExecuteMsg {
         /// This allows the caller to meter the potential slippage.
         max_mint_amount: Option<Uint128>,
     },
+    ///Close minimum debt. 
+    /// When debt is at the minimum exits & redemptions don't work so this will have the contract use ClosePosition to clear the debt.
+    CloseCDP { },
     /// Saves the current base token claim for 1 vault token
     CrankRealizedAPR { },
     //////////////CALLBACKS////////////////

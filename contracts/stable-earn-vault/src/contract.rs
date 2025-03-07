@@ -197,11 +197,56 @@ pub fn execute(
         ExecuteMsg::ExitVault {  } => accrue_before_exit(deps, env, info),
         ExecuteMsg::UnloopCDP { desired_collateral_withdrawal } => unloop_cdp(deps, env, info, desired_collateral_withdrawal),
         ExecuteMsg::LoopCDP { max_mint_amount } => loop_cdp(deps, env, info, max_mint_amount),
+        ExecuteMsg::CloseCDP { } => close_cdp_at_minimum_debt(deps, env, info),
         ExecuteMsg::CrankRealizedAPR { } => crank_realized_apr(deps, env, info),
         ///CALLBACKS///
         ExecuteMsg::RateAssurance { exit } => rate_assurance(deps, env, info, exit),
         ExecuteMsg::UpdateNonleveragedVaultTokens {  } => update_nonleveraged_vault_tokens(deps, env, info),
     }
+}
+
+/// When debt is at the minimum exits & redemptions don't work so this will have the contract use ClosePosition to clear the debt.
+fn close_cdp_at_minimum_debt(
+    deps: DepsMut,
+    env: Env,
+    _info: MessageInfo,
+) -> Result<Response, TokenFactoryError> {
+    //Load config
+    let config = CONFIG.load(deps.storage)?;
+    let mut msgs = vec![];
+
+    //Get debt amount
+    let (
+        running_credit_amount, 
+        _, 
+        _, 
+        _
+    ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut msgs)?;
+
+    //If debt is at the minimum, close the position.
+    //The minimum is actually 20 but we're going to act early.
+    if running_credit_amount <= Uint128::new(24_000_000) {
+        //Create close position msg
+        let close_position_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.cdp_contract_addr.to_string(),
+            msg: to_json_binary(&CDP_ExecuteMsg::ClosePosition { 
+                position_id: config.cdp_position_id,
+                close_percentage: Some(Decimal::percent(100)),
+                max_spread: config.swap_slippage,
+                send_to: None,
+            })?,
+            funds: vec![],
+        });
+
+        msgs.push(close_position_msg);
+    } else {
+        return Err(TokenFactoryError::CustomError { val: String::from("Debt is not 24, can't close CDP") });
+    }
+
+    //Return
+    Ok(Response::new()
+        .add_attribute("method", "close_cdp_at_minimum_debt")
+        .add_messages(msgs))
 }
 
 fn accrue_before_exit(

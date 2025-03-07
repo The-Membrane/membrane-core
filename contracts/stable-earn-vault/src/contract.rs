@@ -36,6 +36,7 @@ const LOOP_REPLY_ID: u64 = 3u64;
 const UNLOOP_REPLY_ID: u64 = 4u64;
 const EXIT_VAULT_STRAT_REPLY_ID: u64 = 5u64;
 const INITIATE_EXIT_REPLY_ID: u64 = 6u64;
+const CLOSE_REPLY_ID: u64 = 7u64;
 
 //Constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
@@ -150,7 +151,6 @@ pub fn instantiate(
     let denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: msg.vault_subdenom.clone() };
     //Create CDP deposit msg to get the position ID
     //Instantiatoor must send a vault token.
-    //This initial deposit means the position should never be empty due to user withdrawals.
     let cdp_deposit_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.cdp_contract_addr.to_string(),
         msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
@@ -213,7 +213,7 @@ fn close_cdp_at_minimum_debt(
 ) -> Result<Response, TokenFactoryError> {
     //Load config
     let config = CONFIG.load(deps.storage)?;
-    let mut msgs = vec![];
+    let mut msgs: Vec<SubMsg> = vec![];
 
     //Get debt amount
     let (
@@ -221,7 +221,7 @@ fn close_cdp_at_minimum_debt(
         _, 
         _, 
         _
-    ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut msgs)?;
+    ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut vec![])?;
 
     //If debt is at the minimum, close the position.
     //The minimum is actually 20 but we're going to act early.
@@ -238,7 +238,7 @@ fn close_cdp_at_minimum_debt(
             funds: vec![],
         });
 
-        msgs.push(close_position_msg);
+        msgs.push(SubMsg::reply_on_success(close_position_msg, CLOSE_REPLY_ID));
     } else {
         return Err(TokenFactoryError::CustomError { val: String::from("Debt is not 24, can't close CDP") });
     }
@@ -246,7 +246,7 @@ fn close_cdp_at_minimum_debt(
     //Return
     Ok(Response::new()
         .add_attribute("method", "close_cdp_at_minimum_debt")
-        .add_messages(msgs))
+        .add_submessages(msgs))
 }
 
 fn accrue_before_exit(
@@ -1867,6 +1867,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         UNLOOP_REPLY_ID => handle_unloop_reply(deps, env, msg),
         EXIT_VAULT_STRAT_REPLY_ID => handle_exit_deposit_token_vault_reply(deps, env, msg),
         INITIATE_EXIT_REPLY_ID => exit_vault(deps, env),
+        CLOSE_REPLY_ID => handle_close_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 } 
@@ -2136,6 +2137,42 @@ fn handle_loop_reply(
     }
 }
 
+/// - Send all vault tokens to the CDP contract & save the position ID in the msg reply
+fn handle_close_reply(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply,
+) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(result) => {
+            let config = CONFIG.load(deps.storage)?;
+
+            let vt_balance = deps.querier.query_balance(env.contract.address.to_string(), config.deposit_token.vault_token.clone())?.amount;
+
+            let cdp_deposit_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.cdp_contract_addr.to_string(),
+                msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
+                funds: vec![Coin {
+                    denom: config.deposit_token.vault_token.clone(),
+                    amount: vt_balance,
+                }],
+            });
+            let cdp_submsg = SubMsg::reply_on_success(cdp_deposit_msg, CDP_REPLY_ID);
+
+            //Create Response
+            let res = Response::new()
+                .add_submessage(cdp_submsg)
+                .add_attribute("method", "handle_close_cdp_reply")
+                .add_attribute("vt_balance", vt_balance.to_string());  
+
+            return Ok(res);
+
+        } //We only reply on success
+        Err(err) => return Err(StdError::GenericErr { msg: err }),
+    }
+}
+
+/// - Save the position ID from the CDP contract
 fn handle_cdp_reply(
     deps: DepsMut,
     env: Env,
@@ -2275,9 +2312,25 @@ fn get_buffer_amounts(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    //Delete old UNLOOP_PROPS
-    // UNLOOP_PROPS.remove(deps.storage);
-    //New struct will save on the next exit vault
+    let config = CONFIG.load(deps.storage)?;
 
-    Ok(Response::default())
+    let vt_balance = deps.querier.query_balance(env.contract.address.to_string(), config.deposit_token.vault_token.clone())?.amount;
+
+    let cdp_deposit_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.cdp_contract_addr.to_string(),
+        msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
+        funds: vec![Coin {
+            denom: config.deposit_token.vault_token.clone(),
+            amount: vt_balance,
+        }],
+    });
+    let cdp_submsg = SubMsg::reply_on_success(cdp_deposit_msg, CDP_REPLY_ID);
+
+    //Create Response
+    let res = Response::new()
+        .add_submessage(cdp_submsg)
+        .add_attribute("method", "handle_close_cdp")
+        .add_attribute("vt_balance", vt_balance.to_string());  
+
+    Ok(res)
 }

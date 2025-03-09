@@ -179,10 +179,13 @@ pub fn liquidate(
     //Update collateral_assets to reflect the fees
     target_position.collateral_assets = collateral_assets;
 
-    //If the user repaid the whole liquidation from the SP, we need to update the position here
-    if leftover_repayment.is_zero() && user_repay_amount == pre_user_repay_repay_amount {
+    //If the user repaid the whole liquidation from user funds, we need to update the position here
+    if leftover_repayment.is_zero() && user_repay_amount >= pre_user_repay_repay_amount {
         //Update the credit
-        target_position.credit_amount -= pre_user_repay_repay_amount.to_uint_floor();
+        target_position.credit_amount = match target_position.credit_amount.checked_sub(pre_user_repay_repay_amount.to_uint_floor()){
+            Ok(diff) => diff,
+            Err(_) => Uint128::zero(),
+        };
         //Collateral from fees is updated above
 
         //Update supply caps
@@ -537,15 +540,17 @@ fn per_asset_fulfillments(
         //Update collateral_assets to reflect the fee
         collateral_assets[num].asset.amount -= caller_fee_in_collateral_amount;
         //Add to list of liquidated assets
-        liquidated_assets.push(
-            cAsset {
-                asset: Asset {
-                    amount: caller_fee_in_collateral_amount,
-                    ..cAsset.clone().asset
-                },
-                ..cAsset.clone()
-            }
-        );
+        if caller_fee_in_collateral_amount > Uint128::zero() {
+            liquidated_assets.push(
+                cAsset {
+                    asset: Asset {
+                        amount: caller_fee_in_collateral_amount,
+                        ..cAsset.clone().asset
+                    },
+                    ..cAsset.clone()
+                }
+            );
+        }
         
         //Subtract Protocol fee from Position's claims
         let protocol_fee_in_collateral_amount = pre_user_repay_collateral_repay_amount * config.clone().liq_fee;
@@ -553,15 +558,17 @@ fn per_asset_fulfillments(
         //Update collateral_assets to reflect the fee
         collateral_assets[num].asset.amount -= protocol_fee_in_collateral_amount;
         //Add to list of liquidated assets
-        liquidated_assets.push(
-            cAsset {
-                asset: Asset {
-                    amount: protocol_fee_in_collateral_amount,
-                    ..cAsset.clone().asset
-                },
-                ..cAsset.clone()
-            }
-        );
+        if protocol_fee_in_collateral_amount > Uint128::zero() {
+            liquidated_assets.push(
+                cAsset {
+                    asset: Asset {
+                        amount: protocol_fee_in_collateral_amount,
+                        ..cAsset.clone().asset
+                    },
+                    ..cAsset.clone()
+                }
+            );
+        }
         
         //Subtract fees from leftover_position value
         //fee_value = total_fee_collateral_amount * collateral_price
@@ -578,14 +585,17 @@ fn per_asset_fulfillments(
                     amount: caller_fee_in_collateral_amount,
                     ..cAsset.clone().asset
                 };
-
-                caller_coins.push(asset_to_coin(asset)?);
+                if caller_fee_in_collateral_amount > Uint128::zero() {
+                    caller_coins.push(asset_to_coin(asset)?);
+                }
 
                 let asset = Asset {
                     amount: protocol_fee_in_collateral_amount,
                     ..cAsset.clone().asset
                 };
-                protocol_coins.push(asset_to_coin(asset)?);
+                if protocol_fee_in_collateral_amount > Uint128::zero() {
+                    protocol_coins.push(asset_to_coin(asset)?);
+                }
             }
         } 
 
@@ -674,9 +684,11 @@ fn per_asset_fulfillments(
     //Create Msg to send all native token liq fees for fn caller
     let msg = CosmosMsg::Bank(BankMsg::Send {
         to_address: fee_recipient.clone(),
-        amount: caller_coins,
+        amount: caller_coins.clone(),
     });
-    caller_fee_messages.push(msg);
+    if !caller_coins.is_empty(){
+        caller_fee_messages.push(msg);
+    }
     
     //Create Msg to send all native token liq fees for MBRN to the staking contract
     let protocol_fee_msg = CosmosMsg::Wasm(WasmMsg::Execute {

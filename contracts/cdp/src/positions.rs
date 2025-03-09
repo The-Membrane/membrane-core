@@ -844,7 +844,7 @@ pub fn liq_repay(
 
     //Add repay amount && user_repay_amount to total repaid
     //This makes the assumption that if the SP liquidation is successful, the user_repay_amount was too
-    liquidation_propagation.total_repaid +=  Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128));
+    liquidation_propagation.total_repaid += Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128));
 
     //Error if the caller fee is more than the total repaid value
     let repaid_value = basket.clone().credit_price.get_value(liquidation_propagation.clone().total_repaid.to_uint_floor())?;
@@ -868,7 +868,11 @@ pub fn liq_repay(
         let collateral_repay_amount = cAsset_prices[num].get_amount(collateral_repay_value)?;
 
         //Add fee %
-        let collateral_w_fee = collateral_repay_amount * (sp_liq_fee+Decimal::one());
+        let collateral_w_fee = min(
+            collateral_repay_amount * (sp_liq_fee+Decimal::one()),
+            target_position.collateral_assets[num].asset.amount
+        );
+        //This min accounts for rounding errors.
 
         //Set distribution asset
         let distribution_asset: Asset = Asset {

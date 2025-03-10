@@ -594,7 +594,8 @@ fn claim_and_compound_liquidations(
     msgs.push(claim_msg);
 
     
-    //If the claims include MBRN, create a burn message for it & filter it out of the swap
+    //If the claims include MBRN, create a burn message for it & filter it out of the swap.
+    //NOTE: This contract isn't authorized to burn so we'll just leave the MBRN in the contract for now.
     match claims.claims.clone()
         .into_iter()
         .enumerate()
@@ -623,7 +624,7 @@ fn claim_and_compound_liquidations(
         contract_addr: config.osmosis_proxy_contract.to_string(),
         msg: to_json_binary(&OsmosisProxyExecuteMsg::ExecuteSwaps {
             token_out: config.deposit_token.clone(),
-            max_slippage: Decimal::one(),
+            max_slippage: Decimal::percent(90),
         })?,
         funds: claims.claims.clone(),
     });

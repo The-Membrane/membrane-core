@@ -570,7 +570,7 @@ fn exit_vault(
 fn claim_and_compound_liquidations(
     deps: DepsMut,
     env: Env,
-    info: MessageInfo,
+    _info: MessageInfo,
 ) -> Result<Response, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
     let mut msgs = vec![];
@@ -600,16 +600,16 @@ fn claim_and_compound_liquidations(
         .enumerate()
         .find(|(_, claim)| claim.denom.to_string() == String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn")){
             Some((i, claim)) => {
-                let burn_mbrn_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.osmosis_proxy_contract.to_string(),
-                    msg: to_json_binary(&OsmosisProxyExecuteMsg::BurnTokens { 
-                        denom: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn"),
-                        amount: claim.amount,
-                        burn_from_address: env.contract.address.to_string(),
-                    })?,
-                    funds: vec![],
-                });
-                msgs.push(burn_mbrn_msg);
+                // let burn_mbrn_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                //     contract_addr: config.osmosis_proxy_contract.to_string(),
+                //     msg: to_json_binary(&OsmosisProxyExecuteMsg::BurnTokens { 
+                //         denom: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn"),
+                //         amount: claim.amount,
+                //         burn_from_address: env.contract.address.to_string(),
+                //     })?,
+                //     funds: vec![],
+                // });
+                // msgs.push(burn_mbrn_msg);
                 //Remove the MBRN claim
                 claims.claims.remove(i);
             },

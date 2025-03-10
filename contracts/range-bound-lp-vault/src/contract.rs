@@ -2613,5 +2613,42 @@ fn withdraw_floor_position(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
 
-    Ok(Response::default())
+    //create msgs
+    let mut msgs: Vec<SubMsg> = vec![];
+
+    //withdraw floor
+
+
+    let config = CONFIG.load(deps.storage)?;
+    let mut msgs: Vec<SubMsg> = vec![];
+    //Create CL Querier
+    let cl_querier = CL::ConcentratedliquidityQuerier::new(&deps.querier);
+    //////Withdraw the floor position fully////////
+    /// 
+    // Get floor position liquidity
+    let floor_position_response: CL::PositionByIdResponse = cl_querier.position_by_id(config.range_position_ids.floor)?;
+    if floor_position_response.position.is_none() {
+        return Err(TokenFactoryError::CustomError { val: format!("Failed to query the floor position: {}", config.range_position_ids.floor) });
+    }
+    let floor_position = floor_position_response.position.unwrap();
+    let floor_liquidity = Decimal::from_str(&floor_position.position.unwrap().liquidity).unwrap();
+    //Withdraw liquidity from floor position
+    let floor_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
+        position_id: config.range_position_ids.floor,
+        sender: env.contract.address.to_string(),
+        liquidity_amount: floor_liquidity.to_string(),
+    }.into();
+    //Add to msgs
+    msgs.push(SubMsg::new(floor_position_withdraw_msg));
+
+
+    //Create response
+    let res = Response::new()
+        .add_submessages(msgs)
+        .add_attribute("method", "withdraw_floor_position")
+        .add_attribute("floor_position_id", config.range_position_ids.floor.to_string())
+        .add_attribute("floor_liquidity", floor_liquidity.to_string());
+
+
+    Ok(res)
 }

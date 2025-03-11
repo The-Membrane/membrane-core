@@ -1084,14 +1084,14 @@ fn handle_compound_reply(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-        let config = CONFIG.load(deps.storage)?; 
+        // let config = CONFIG.load(deps.storage)?; 
 
-        //Automatically withdraw to stay unstaked & liquid
-        let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.stability_pool_contract.to_string(),
-            msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw { amount: Uint128::new(1758596820) })?,
-            funds: vec![],
-        });
+        // //Automatically withdraw to stay unstaked & liquid
+        // let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        //     contract_addr: config.stability_pool_contract.to_string(),
+        //     msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw { amount: Uint128::new(1758596820) })?,
+        //     funds: vec![],
+        // });
    
-    Ok(Response::default().add_message(withdraw_msg))
+    Ok(Response::default())
 }

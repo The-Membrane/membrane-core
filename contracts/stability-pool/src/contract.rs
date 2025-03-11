@@ -1445,7 +1445,10 @@ fn get_user_incentives(
         if deposit.user == user {
             match deposit.unstake_time {
                 Some(unstake_time) => {
-                    let time_elapsed = unstake_time - deposit.last_accrued;
+                    let time_elapsed = match unstake_time.checked_sub(deposit.last_accrued){
+                        Some(diff) => diff,
+                        None => 0u64
+                    };
                     let stake = deposit.amount * Uint128::one();
     
                     if time_elapsed != 0 {

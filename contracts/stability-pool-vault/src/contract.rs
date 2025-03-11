@@ -241,31 +241,9 @@ fn enter_vault(
 
     /////Send the deposit tokens to the yield strategy///
     let contract_balance_of_deposit_tokens = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
-    let total_balance_minus_new_deposit = contract_balance_of_deposit_tokens - deposit_amount;
-    //Calculate ratio of deposit tokens in the contract to the total deposit tokens
-    let ratio_of_tokens_in_contract = decimal_division(Decimal::from_ratio(total_balance_minus_new_deposit, Uint128::one()), Decimal::from_ratio(total_deposit_tokens, Uint128::one()))?;
 
     //Calculate what is sent and what is kept
-    let mut deposit_sent_to_yield: Uint128 = Uint128::zero();
-    let mut deposit_kept: Uint128 = Uint128::zero();
-    //If the ratio is less than the percent_to_keep_liquid, calculate the amount of deposit tokens to send to the yield strategy
-    if ratio_of_tokens_in_contract < config.percent_to_keep_liquid {
-        //Calculate the amount of deposit tokens that would make the ratio equal to the percent_to_keep_liquid
-        let desired_ratio_tokens = decimal_multiplication(Decimal::from_ratio(total_deposit_tokens, Uint128::one()), config.percent_to_keep_liquid)?;
-        let tokens_to_fill_ratio = desired_ratio_tokens.to_uint_floor() - total_balance_minus_new_deposit;
-        //How much do we send to the yield strategy
-        if tokens_to_fill_ratio >= deposit_amount {
-            deposit_kept = deposit_amount;
-        } else {
-            deposit_sent_to_yield = deposit_amount - tokens_to_fill_ratio;
-            deposit_kept = tokens_to_fill_ratio;
-        }
-    } else
-    //If the ratio to keep is past the threshold then send all the deposit tokens
-    {
-        deposit_sent_to_yield = deposit_amount;
-    }
-    // println!("{}, {}, {}", ratio_of_tokens_in_contract, config.percent_to_keep_liquid, deposit_sent_to_yield);
+    let mut deposit_sent_to_yield: Uint128 = contract_balance_of_deposit_tokens;
 
     //Send the deposit tokens to the yield strategy
     if !deposit_sent_to_yield.is_zero() {
@@ -302,7 +280,6 @@ fn enter_vault(
         .add_attribute("deposit_amount", deposit_amount)
         .add_attribute("vault_tokens_to_distribute", vault_tokens_to_distribute)
         .add_attribute("deposit_sent_to_yield", deposit_sent_to_yield)
-        .add_attribute("deposit_kept", deposit_kept)
         .add_messages(msgs);
 
     Ok(res)
@@ -1020,7 +997,7 @@ fn handle_compound_reply(
     msg: Reply,
 ) -> StdResult<Response> {
     match msg.result.into_result() {
-        Ok(result) => {
+        Ok(_result) => {
             //Load state
             let mut config = CONFIG.load(deps.storage)?; 
             let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
@@ -1084,11 +1061,19 @@ fn handle_compound_reply(
                 }],
             });
 
+            //Automatically withdraw to stay unstaked & liquid
+            let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.stability_pool_contract.to_string(),
+                msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw { amount: compounded_amount })?,
+                funds: vec![],
+            });
+
             //Create Response
             let res = Response::new()
                 .add_attribute("method", "handle_compound_reply")
                 .add_attribute("compounded_amount", compounded_amount)
-                .add_message(send_deposit_to_yield_msg);
+                .add_message(send_deposit_to_yield_msg)
+                .add_message(withdraw_msg);
 
             return Ok(res);
 
@@ -1099,6 +1084,14 @@ fn handle_compound_reply(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
+        let config = CONFIG.load(deps.storage)?; 
+
+        //Automatically withdraw to stay unstaked & liquid
+        let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.stability_pool_contract.to_string(),
+            msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw { amount: Uint128::new(1758596820) })?,
+            funds: vec![],
+        });
    
-    Ok(Response::default())
+    Ok(Response::default().add_message(withdraw_msg))
 }

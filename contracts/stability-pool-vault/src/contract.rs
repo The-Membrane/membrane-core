@@ -242,8 +242,8 @@ fn enter_vault(
     /////Send the deposit tokens to the yield strategy///
     let contract_balance_of_deposit_tokens = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
 
-    //Calculate what is sent and what is kept
-    let mut deposit_sent_to_yield: Uint128 = contract_balance_of_deposit_tokens;
+    //Calculate what is sent
+    let deposit_sent_to_yield: Uint128 = contract_balance_of_deposit_tokens;
 
     //Send the deposit tokens to the yield strategy
     if !deposit_sent_to_yield.is_zero() {
@@ -361,7 +361,7 @@ fn exit_vault(
         pre_btokens_per_one,
     })?;
     //Calculate the amount of deposit tokens to withdraw
-    let mut deposit_tokens_to_withdraw = calculate_base_tokens(
+    let deposit_tokens_to_withdraw = calculate_base_tokens(
         vault_tokens, 
         total_deposit_tokens, 
         total_vault_tokens

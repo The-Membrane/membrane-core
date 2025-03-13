@@ -2691,7 +2691,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     //Call withdraw ceiling as a query panic
     let withdraw_ceiling_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
         contract_addr: env.contract.address.to_string(), 
-        msg: to_binary(&ExecuteMsg::WithdrawCeilingPosition {}).unwrap(), 
+        msg: to_json_binary(&ExecuteMsg::WithdrawCeilingPosition {}).unwrap(), 
         funds: vec![] 
     });
     msgs.push(SubMsg::new(withdraw_ceiling_msg));

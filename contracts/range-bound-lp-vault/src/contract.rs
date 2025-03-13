@@ -2647,7 +2647,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
         //1 CDT
         tokens_provided: vec![Coin {
             denom: config.range_tokens.ceiling_deposit_token.clone(),
-            amount: ceiling_token,
+            amount: ceiling_token - Uint128::one(), //rounding error
         }.into()], 
         token_min_amount0: String::from("0"), 
         token_min_amount1: String::from("0")

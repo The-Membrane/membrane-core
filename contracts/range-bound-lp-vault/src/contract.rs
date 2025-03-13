@@ -2692,6 +2692,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     CONFIG.save(deps.storage, &config)?;
 
 ////////////Delete these//////
+// Manage should do nothing bc we're under the ceioing and under the buffer max
     let manage_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
         contract_addr: env.contract.address.to_string(), 
         msg: to_json_binary(&ExecuteMsg::ManageVault { rebalance_sale_max: None }).unwrap(), 

@@ -945,11 +945,9 @@ fn manage_vault(
         Ok(amount) => amount,
         Err(_) => Uint128::zero(),
     };
-    //Set the amount we're allowed to sell (i.e. the amount that isn't going to the ceiling)
-    let max_to_sell = match total_ceiling_tokens.checked_sub(amount_to_deposit_into_ceiling){
-        Ok(amount) => amount,
-        Err(_) => Uint128::zero(),
-    };
+    //Set the amount we're allowed to sell to rebalance into floor.
+    let max_to_sell = total_ceiling_tokens;
+    //Ceiling deposits & sales can't happen in tandem so we don't need to split this up.
 
 
     //Deposit excess CDT into the ceiling.
@@ -980,8 +978,6 @@ fn manage_vault(
         //Add to msgs
         msgs.push(SubMsg::reply_on_success(add_to_ceiling, ADD_TO_CEILING_REPLY_ID));
     } else 
-
-
     //In or above the ceiling, swap to floor & add to FLOOR
     if cdt_price.price >= Decimal::from_str("1").unwrap(){
 

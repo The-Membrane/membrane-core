@@ -40,14 +40,9 @@ pub enum ExecuteMsg {
     /// Deposits CDT revenue into the contract. 
     /// We use a msg enum bc the CDP needs it.
     DepositFee { },
-    /// 1) Takes deposited revenue from DepositFee & either adds it to the ceiling or swaps it all (or rebalance_sale_max) to add to the floor
-    /// 2) Redeposits LP rewards into LP (compound) if price is out of its range.
-    /// Flow: 
-    /// - ClaimSpreadFees
-    /// - Attempt to compound into ceiling or floor
-    /// - If price is in the ceiling, swap and deposit into floor
-    /// - If price is in the floor, swap and deposit into ceiling
     ManageVault { rebalance_sale_max: Option<Decimal> },
+    /// Withdraws the floor position 
+    WithdrawFloorPosition {  },
     /// Withdraws CDT from the ceiling to swap to USDC to deposit into the floor
     // BolsterFloorWithSwaps { max_swap_amount: Option<Uint128> },
     /// Set intents for a user. They must send vault tokens or have a non-zero balance in state.
@@ -68,6 +63,8 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         osmosis_proxy_contract_addr: Option<String>,
         oracle_contract_addr: Option<String>,
+        cdt_buffer: Option<Decimal>,
+        max_slippage: Option<Decimal>,
     },
     ///Saves the current base token claim for 1 vault token
     CrankRealizedAPR { },
@@ -75,8 +72,8 @@ pub enum ExecuteMsg {
     /// Only callable by the contract
     RateAssurance { },
     /// Temp Executable bc migration can't pass a CL Withdraw Msg:
-    /// Withdraws the floor position 
-    WithdrawFloorPosition {  },
+    /// Withdraws the ceiling position
+    WithdrawCeilingPosition { },
 }
 
 #[cw_serde]

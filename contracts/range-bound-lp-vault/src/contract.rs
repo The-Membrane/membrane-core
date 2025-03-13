@@ -169,7 +169,7 @@ pub fn execute(
         ExecuteMsg::RateAssurance { } => rate_assurance(deps, env, info),
         ExecuteMsg::DepositFee { } => deposit_fee(deps, env, info),
         ExecuteMsg::WithdrawFloorPosition {  } => withdraw_floor_position(deps, env, info),
-        ExecuteMsg::WithdrawCeilingPosition {  } => withdraw_ceiling_position(deps, env, info),
+        ExecuteMsg::GetTotalDepositTokens {  } => panic_total_deposit_tokens(deps, env, info),
     }
 }
 
@@ -2544,7 +2544,7 @@ fn withdraw_floor_position(
 }
 
 
-fn withdraw_ceiling_position(
+fn panic_total_deposit_tokens(
     deps: DepsMut,
     env: Env,
     _info: MessageInfo,
@@ -2579,8 +2579,6 @@ fn withdraw_ceiling_position(
 //Call withdraw ceiling as a query panic
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-
-
     let mut config = CONFIG.load(deps.storage)?;
         
     //Change ceiling range to 1.000001 - 1.00
@@ -2690,24 +2688,6 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     config.range_position_ids.floor = 0;
     //Save state
     CONFIG.save(deps.storage, &config)?;
-
-////////////Delete these//////
-// Manage should do nothing bc we're under the ceioing and under the buffer max
-    let manage_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
-        contract_addr: env.contract.address.to_string(), 
-        msg: to_json_binary(&ExecuteMsg::ManageVault { rebalance_sale_max: None }).unwrap(), 
-        funds: vec![] 
-    });
-    msgs.push(SubMsg::new(manage_msg));
-
-    //Call withdraw ceiling as a query panic
-    let withdraw_ceiling_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
-        contract_addr: env.contract.address.to_string(), 
-        msg: to_json_binary(&ExecuteMsg::WithdrawCeilingPosition {}).unwrap(), 
-        funds: vec![] 
-    });
-    msgs.push(SubMsg::new(withdraw_ceiling_msg));
-
 
     Ok(Response::default().add_submessages(msgs))
 }

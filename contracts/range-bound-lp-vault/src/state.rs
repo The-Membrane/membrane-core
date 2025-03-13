@@ -39,4 +39,4 @@ pub const CDP_REPAY_PROPAGATION: Item<RepayProp> = Item::new("repay_propagation"
 pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 pub const CDT_BUFFER: Item<Decimal> = Item::new("cdt_buffer");
 pub const MAX_SLIPPAGE: Item<Decimal> = Item::new("max_slippage");
-pub const CEILING_WITHDRAWN: Item<bool> = Item::new("ceiling_withdrawn");
+// pub const CEILING_WITHDRAWN: Item<bool> = Item::new("ceiling_withdrawn");

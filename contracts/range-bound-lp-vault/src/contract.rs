@@ -240,12 +240,11 @@ fn get_total_deposit_tokens(
         return Err(StdError::GenericErr { msg: format!("Failed to query the ceiling position: {}", config.range_position_ids.ceiling) });
     }
     let ceiling_position = ceiling_position_response.position.unwrap();
-    //
-    let floor_position_response: CL::PositionByIdResponse = cl_querier.position_by_id(config.range_position_ids.floor)?;
     //We won't always have a floor position
-    if !floor_position_response.position.is_none() {
+    let floor_position: CL::FullPositionBreakdown = match cl_querier.position_by_id(config.range_position_ids.floor){
+        Ok(floor_position_response) => {
+        
         let floor_position = floor_position_response.clone().position.unwrap();
-
 
         //Condense the floor position's possible coins into 1 array
         //Asset 0
@@ -286,8 +285,12 @@ fn get_total_deposit_tokens(
                 total_floor_tokens += Uint128::from_str(&coin.amount).unwrap();
             }
         });
-
-    }
+           floor_position
+        },
+        Err(_) => {
+             FullPositionBreakdown::default()
+        }
+    };
     //
     //Condense the ceiling position's possible coins into 1 array
     //Asset 0
@@ -357,7 +360,7 @@ fn get_total_deposit_tokens(
         ceiling_position_coins,
         floor_position_coins,
         ceiling_position,
-        floor_position_response.position.unwrap_or_default()    
+        floor_position    
     ))
 }
 

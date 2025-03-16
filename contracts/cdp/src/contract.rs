@@ -634,20 +634,6 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-//////THIS ISN'T FIXED YET//////
-/// MIGRATE ON THE NEXT UPGRADE/////
-    
-    /////Restore correct credit amount to basket///
-    let current_difference = Uint128::new(185343942318 - 103346541792); //81,997,400,526
-
-    let mut basket: Basket = BASKET.load(deps.storage)?;
-
-    //Update basket credit amount
-    basket.credit_asset.amount += current_difference;
-
-    //Save basket
-    BASKET.save(deps.storage, &basket)?;
-
     
     //Return response
     Ok(Response::default())

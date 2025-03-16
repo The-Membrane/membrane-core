@@ -1895,7 +1895,7 @@ fn handle_parse_purchase_intents_reply(
             let mut submsgs = vec![];
             let mut attrs = vec![];
             //Load state
-            // let config = CONFIG.load(deps.storage)?;
+            let config = CONFIG.load(deps.storage)?;
 
             //Load Intents propagation
             let intent_prop = INTENT_PROPAGATION.load(deps.storage)?;
@@ -1903,6 +1903,12 @@ fn handle_parse_purchase_intents_reply(
                         
             //Parse thru intents & send or compound the desired asset
             for intent in intent_prop.intents.purchase_intents.clone() {
+                //If the desired asset is CDT, USDC or MBRN, continue
+                if intent.desired_asset == config.range_tokens.ceiling_deposit_token 
+                || intent.desired_asset == config.range_tokens.floor_deposit_token
+                || intent.desired_asset == "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn" {
+                    continue;
+                }
                 //Get the balance of the desired asset
                 let desired_asset_balance = deps.querier.query_balance(env.contract.address.to_string(), intent.desired_asset.clone())?.amount;
                 

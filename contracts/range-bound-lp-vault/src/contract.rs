@@ -1044,6 +1044,7 @@ fn manage_vault(
 /// Set intents for a user. They must send vault tokens or have a non-zero balance in state.
 /// NOTE: Since the CDP will repay with these assets for you during liquidation, we don't have autoRepay intents.
 /// NOTE: You either purchase or compound an asset, can't split it.
+/// NOTE: Setting intents for CDT, MBRN or USDC will error
 fn set_intents(
     deps: DepsMut,
     env: Env,
@@ -1903,7 +1904,8 @@ fn handle_parse_purchase_intents_reply(
                         
             //Parse thru intents & send or compound the desired asset
             for intent in intent_prop.intents.purchase_intents.clone() {
-                //If the desired asset is CDT, USDC or MBRN, continue
+                //If the desired asset is CDT, USDC or MBRN, continue.
+                //These are assets that sit in the contract meaning the intent would send funds it doesn't own.
                 if intent.desired_asset == config.range_tokens.ceiling_deposit_token 
                 || intent.desired_asset == config.range_tokens.floor_deposit_token
                 || intent.desired_asset == "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn" {
@@ -2574,122 +2576,8 @@ fn panic_total_deposit_tokens(
     Ok(res)
 }
 
-
-//Set new ranges
-//withdraw ceiling & deposit to new range
-//withdraw floor
-//Call withdraw ceiling as a query panic
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    let mut config = CONFIG.load(deps.storage)?;
-        
-    //Change ceiling range to 1.000001 - 1.00
-    config.range_bounds.ceiling.lower_tick = -100;
-    config.range_bounds.ceiling.upper_tick = 100;
-
-    //Change floor range to 0.99 - 0.9899
-    config.range_bounds.floor.lower_tick = -100100;
-    config.range_bounds.floor.upper_tick = -100000;
-
-    //Save state
-    CONFIG.save(deps.storage, &config)?;
-    CDT_BUFFER.save(deps.storage, &Decimal::percent(50))?; //Set the buffer to 50%
-    MAX_SLIPPAGE.save(deps.storage, &Decimal::from_str("0.005").unwrap())?; //Set the max slippage to 0.5%
-
-    //Get total_deposit_tokens & prices
-    let (
-        _,
-        _,
-        _,
-        ceiling_position_coins,
-        _,
-        ceiling_position,
-        floor_position
-    ) = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
-
-    let mut msgs: Vec<SubMsg> = vec![];
-
-
-    //Are there CEILING spread rewards to claim?
-    if ceiling_position.claimable_spread_rewards.len() > 0 {
-        
-        let claim_spread_fees_msg: CosmosMsg = CL::MsgCollectSpreadRewards {
-            position_ids: vec![config.range_position_ids.ceiling],
-            sender: env.contract.address.to_string(),
-        }.into();
-        //Add to msgs
-        msgs.push(SubMsg::new(claim_spread_fees_msg));
-    };
-
-    //////Withdraw the ceiling position fully////////
-    let ceiling_liquidity = Decimal::from_str(&ceiling_position.position.unwrap().liquidity).unwrap();
-    let ceiling_liquidity_to_withdraw = (decimal_multiplication(
-        ceiling_liquidity,
-        Decimal::one()
-    )? * Uint128::new(10u64.pow(18 as u32) as u128)).to_string();
-    //Withdraw liquidity from ceiling position
-    let ceiling_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
-        position_id: config.range_position_ids.ceiling,
-        sender: env.contract.address.to_string(),
-        liquidity_amount: ceiling_liquidity_to_withdraw,
-    }.into();
-    //Add to msgs
-    msgs.push(SubMsg::new(ceiling_position_withdraw_msg));
-
-
-    //Find the ceiling token in the coins
-    let ceiling_token = ceiling_position_coins.into_iter().find(|coin| coin.denom == config.range_tokens.ceiling_deposit_token).unwrap().amount;
-
-    //Deposit the ceiling token that's being withdrawn into the new ceiling position range
-    //Ceiling
-    let ceiling_creation_msg: CosmosMsg = CL::MsgCreatePosition { 
-        pool_id: 1268u64, 
-        sender: env.contract.address.to_string(), 
-        lower_tick: config.range_bounds.ceiling.lower_tick, 
-        upper_tick: config.range_bounds.ceiling.upper_tick, 
-        //1 CDT
-        tokens_provided: vec![Coin {
-            denom: config.range_tokens.ceiling_deposit_token.clone(),
-            amount: ceiling_token - Uint128::one(), //rounding error
-        }.into()], 
-        token_min_amount0: String::from("0"), 
-        token_min_amount1: String::from("0")
-    }.into();
-    msgs.push(SubMsg::reply_on_success(ceiling_creation_msg, CL_POSITION_CREATION_REPLY_ID));
-
-    //Set ceiling position ID to 0 to allow it to be reset in the submsg
-    config.range_position_ids.ceiling = 0;
-
-    //Are there FLOOR spread rewards to claim?
-    if floor_position.claimable_spread_rewards.len() > 0 {
-        
-        let claim_spread_fees_msg: CosmosMsg = CL::MsgCollectSpreadRewards {
-            position_ids: vec![config.range_position_ids.floor],
-            sender: env.contract.address.to_string(),
-        }.into();
-        //Add to msgs
-        msgs.push(SubMsg::new(claim_spread_fees_msg));
-    };
-
-    //////Withdraw the floor position fully////////
-    let floor_liquidity = Decimal::from_str(&floor_position.position.unwrap().liquidity).unwrap();
-    let floor_liquidity_to_withdraw = (decimal_multiplication(
-        floor_liquidity,
-        Decimal::one()
-    )? * Uint128::new(10u64.pow(18 as u32) as u128)).to_string();
-    //Withdraw liquidity from floor position
-    let floor_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
-        position_id: config.range_position_ids.floor,
-        sender: env.contract.address.to_string(),
-        liquidity_amount: floor_liquidity_to_withdraw.clone(),
-    }.into();
-    //Add to msgs
-    msgs.push(SubMsg::new(floor_position_withdraw_msg));
-
-    //Set floor position ID to 0
-    config.range_position_ids.floor = 0;
-    //Save state
-    CONFIG.save(deps.storage, &config)?;
-
-    Ok(Response::default().add_submessages(msgs))
+   
+    Ok(Response::default())
 }

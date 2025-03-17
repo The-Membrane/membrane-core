@@ -1908,7 +1908,8 @@ fn handle_parse_purchase_intents_reply(
                 //These are assets that sit in the contract meaning the intent would send funds it doesn't own.
                 if intent.desired_asset == config.range_tokens.ceiling_deposit_token 
                 || intent.desired_asset == config.range_tokens.floor_deposit_token
-                || intent.desired_asset == "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn" {
+                || intent.desired_asset == "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn"
+                || intent.desired_asset == config.vault_token {
                     continue;
                 }
                 //Get the balance of the desired asset

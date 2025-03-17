@@ -952,7 +952,7 @@ fn manage_vault(
 
     //Deposit excess CDT into the ceiling.
     //Can't deposit if we're above the ceiling bc the Ceiling would be USDC
-    if !amount_to_deposit_into_ceiling.is_zero() && cdt_price.price < Decimal::from_str("1").unwrap(){
+    if !amount_to_deposit_into_ceiling.is_zero() && cdt_price.price < Decimal::from_str("0.9999").unwrap(){
         
         let add_to_ceiling: CosmosMsg = CL::MsgAddToPosition {
             position_id: config.range_position_ids.ceiling,
@@ -979,7 +979,7 @@ fn manage_vault(
         msgs.push(SubMsg::reply_on_success(add_to_ceiling, ADD_TO_CEILING_REPLY_ID));
     } else 
     //In or above the ceiling, swap to floor & add to FLOOR
-    if cdt_price.price >= Decimal::from_str("1").unwrap(){
+    if cdt_price.price >= Decimal::from_str("0.9999").unwrap(){
 
         //Set swappable amount based on the rebalance_sale_max
         let swappable_amount = decimal_multiplication(

@@ -297,6 +297,9 @@ fn loop_cdp(
     //Load config
     let config = CONFIG.load(deps.storage)?;
     let mut msgs = vec![];
+
+    //Disable looping in Prod
+    return Err(TokenFactoryError::CustomError { val: String::from("Looping disabled, this opportunity is shifting to the Rangebound LP.") });
     
     //Ensure price is above 99% of peg
     //We want to ensure loops keep redemptions at 99% of peg profitable or even

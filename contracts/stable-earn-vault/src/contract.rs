@@ -2315,25 +2315,6 @@ fn get_buffer_amounts(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    let config = CONFIG.load(deps.storage)?;
 
-    let vt_balance = deps.querier.query_balance(env.contract.address.to_string(), config.deposit_token.vault_token.clone())?.amount;
-
-    let cdp_deposit_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
-        funds: vec![Coin {
-            denom: config.deposit_token.vault_token.clone(),
-            amount: vt_balance,
-        }],
-    });
-    let cdp_submsg = SubMsg::reply_on_success(cdp_deposit_msg, CDP_REPLY_ID);
-
-    //Create Response
-    let res = Response::new()
-        .add_submessage(cdp_submsg)
-        .add_attribute("method", "handle_close_cdp")
-        .add_attribute("vt_balance", vt_balance.to_string());  
-
-    Ok(res)
+    Ok(Response::default())
 }

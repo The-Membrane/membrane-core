@@ -403,10 +403,8 @@ fn rate_assurance(
         total_vault_tokens
     )?;
 
-    //For deposit or withdraw, check that the rates are at max a cent increase to existing depositors.
-    //Withdrawals are done at a known conversion rate so the user knows what they're getting beforehand. 
-    //This just makes sure they are actually receiving tokens & depositors aren't losing money.
-    if btokens_per_one < token_rate_assurance.pre_btokens_per_one || btokens_per_one > token_rate_assurance.pre_btokens_per_one + Uint128::new(10_000u128) {
+    //For deposit or withdraw, check that the rates are static 
+    if btokens_per_one != token_rate_assurance.pre_btokens_per_one {
         return Err(TokenFactoryError::CustomError { val: format!("Deposit or withdraw rate assurance failed for base token conversion. pre: {:?} --- post: {:?}", token_rate_assurance.pre_btokens_per_one, btokens_per_one) });
     }
 
@@ -779,6 +777,37 @@ fn exit_vault(
             });
         }
     };
+
+
+
+    //Get tokens in the contract
+    let balance_of_ceiling_tokens = deps.querier.query_balance(env.contract.address.clone(), config.clone().range_tokens.ceiling_deposit_token)?.amount;
+    let balance_of_floor_tokens = deps.querier.query_balance(env.contract.address.clone(), config.clone().range_tokens.floor_deposit_token)?.amount;
+
+    //Calculate the ratio of tokens to withdraw for the user
+    let user_ceiling_tokens = decimal_multiplication(
+        Decimal::from_ratio(balance_of_ceiling_tokens, Uint128::one()),
+        withdrawal_ratio
+    )?.to_uint_floor();
+    let user_floor_tokens = decimal_multiplication(
+        Decimal::from_ratio(balance_of_floor_tokens, Uint128::one()),
+        withdrawal_ratio
+    )?.to_uint_floor();
+
+    //Add token balances to the user's withdrawn coins
+    if user_ceiling_tokens > Uint128::zero() {
+        user_withdrawn_coins.push(Coin {
+            denom: config.range_tokens.ceiling_deposit_token.clone(),
+            amount: user_ceiling_tokens,
+        });
+    }
+    if user_floor_tokens > Uint128::zero() {
+        user_withdrawn_coins.push(Coin {
+            denom: config.range_tokens.floor_deposit_token.clone(),
+            amount: user_floor_tokens,
+        });
+    }
+
 
     if swap_to_cdt {
         

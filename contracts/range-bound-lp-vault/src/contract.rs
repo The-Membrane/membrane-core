@@ -673,7 +673,10 @@ fn exit_vault(
     }
 
     let ceiling_liquidity = Decimal::from_str(&ceiling_position.position.unwrap().liquidity).unwrap();
-    let floor_liquidity = Decimal::from_str(&floor_position.position.unwrap().liquidity).unwrap();
+    let floor_liquidity = match floor_position.position {
+        Some(position) => Decimal::from_str(&position.liquidity).unwrap(),
+        None => Decimal::zero(),
+    };
 
     //Assert the only token sent is the vault token
     if info.funds.len() != 1 {

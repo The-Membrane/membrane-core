@@ -728,13 +728,15 @@ fn exit_vault(
     //Add to msgs
     msgs.push(SubMsg::new(ceiling_position_withdraw_msg));
     //Withdraw liquidity from floor position
-    let floor_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
-        position_id: config.range_position_ids.floor,
-        sender: env.contract.address.to_string(),
-        liquidity_amount: floor_liquidity_to_withdraw,
-    }.into();
-    //Add to msgs
-    msgs.push(SubMsg::new(floor_position_withdraw_msg));
+    if floor_liquidity != Decimal::zero() {
+        let floor_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
+            position_id: config.range_position_ids.floor,
+            sender: env.contract.address.to_string(),
+            liquidity_amount: floor_liquidity_to_withdraw,
+        }.into();
+        //Add to msgs
+        msgs.push(SubMsg::new(floor_position_withdraw_msg));
+    }
     //Calculate the amount of tokens that will be withdrawn and should be sent to the user
     let mut user_withdrawn_coins = vec![];
     //Ceiling

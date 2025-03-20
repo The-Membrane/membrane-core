@@ -403,8 +403,10 @@ fn rate_assurance(
         total_vault_tokens
     )?;
 
-    //For deposit or withdraw, check that the rates are static 
-    if btokens_per_one != token_rate_assurance.pre_btokens_per_one {
+    //For deposit or withdraw, check that the rates are at max a cent increase to existing depositors.
+    //Withdrawals are done at a known conversion rate so the user knows what they're getting beforehand. 
+    //This just makes sure they are actually receiving tokens & depositors aren't losing money.
+    if btokens_per_one < token_rate_assurance.pre_btokens_per_one || btokens_per_one > token_rate_assurance.pre_btokens_per_one + Uint128::new(10_000u128) {
         return Err(TokenFactoryError::CustomError { val: format!("Deposit or withdraw rate assurance failed for base token conversion. pre: {:?} --- post: {:?}", token_rate_assurance.pre_btokens_per_one, btokens_per_one) });
     }
 

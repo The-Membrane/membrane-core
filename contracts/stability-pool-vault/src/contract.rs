@@ -241,9 +241,30 @@ fn enter_vault(
 
     /////Send the deposit tokens to the yield strategy///
     let contract_balance_of_deposit_tokens = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
+    let total_balance_minus_new_deposit = contract_balance_of_deposit_tokens - deposit_amount;
+    //Calculate ratio of deposit tokens in the contract to the total deposit tokens
+    let ratio_of_tokens_in_contract = decimal_division(Decimal::from_ratio(total_balance_minus_new_deposit, Uint128::one()), Decimal::from_ratio(total_deposit_tokens, Uint128::one()))?;
 
-    //Calculate what is sent
-    let deposit_sent_to_yield: Uint128 = contract_balance_of_deposit_tokens;
+    //Calculate what is sent and what is kept
+    let mut deposit_sent_to_yield: Uint128 = Uint128::zero();
+    let mut deposit_kept: Uint128 = Uint128::zero();
+    //If the ratio is less than the percent_to_keep_liquid, calculate the amount of deposit tokens to send to the yield strategy
+    if ratio_of_tokens_in_contract < config.percent_to_keep_liquid {
+        //Calculate the amount of deposit tokens that would make the ratio equal to the percent_to_keep_liquid
+        let desired_ratio_tokens = decimal_multiplication(Decimal::from_ratio(total_deposit_tokens, Uint128::one()), config.percent_to_keep_liquid)?;
+        let tokens_to_fill_ratio = desired_ratio_tokens.to_uint_floor() - total_balance_minus_new_deposit;
+        //How much do we send to the yield strategy
+        if tokens_to_fill_ratio >= deposit_amount {
+            deposit_kept = deposit_amount;
+        } else {
+            deposit_sent_to_yield = deposit_amount - tokens_to_fill_ratio;
+            deposit_kept = tokens_to_fill_ratio;
+        }
+    } else
+    //If the ratio to keep is past the threshold then send all the deposit tokens
+    {
+        deposit_sent_to_yield = deposit_amount;
+    }
 
     //Send the deposit tokens to the yield strategy
     if !deposit_sent_to_yield.is_zero() {
@@ -259,12 +280,12 @@ fn enter_vault(
         msgs.push(send_deposit_to_yield_msg);
 
         //Automatically withdraw to stay unstaked & liquid
-        let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.stability_pool_contract.to_string(),
-            msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw { amount: deposit_sent_to_yield })?,
-            funds: vec![],
-        });
-        msgs.push(withdraw_msg);
+        // let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        //     contract_addr: config.stability_pool_contract.to_string(),
+        //     msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw { amount: deposit_sent_to_yield })?,
+        //     funds: vec![],
+        // });
+        // msgs.push(withdraw_msg);
     }
 
     //Add rate assurance callback msg
@@ -280,6 +301,7 @@ fn enter_vault(
         .add_attribute("deposit_amount", deposit_amount)
         .add_attribute("vault_tokens_to_distribute", vault_tokens_to_distribute)
         .add_attribute("deposit_sent_to_yield", deposit_sent_to_yield)
+        .add_attribute("deposit_kept", deposit_kept)
         .add_messages(msgs);
 
     Ok(res)
@@ -433,6 +455,11 @@ fn exit_vault(
             }), 
             burn_from_address: env.contract.address.to_string(),
         }.into();
+        let mut msgs = vec![];
+        //Only if burn is non-zero
+        if !vault_tokens_to_burn.is_zero() {
+            msgs.push(burn_vault_tokens_msg);
+        }
         //Send back the rest of the vault tokens
         let vault_tokens_to_send = match vault_tokens.checked_sub(vault_tokens_to_burn){
             Ok(v) => v,
@@ -469,7 +496,7 @@ fn exit_vault(
             .add_attribute("method", "exit_vault")
             .add_attribute("vault_tokens_burnt", vault_tokens_to_burn)
             .add_attribute("deposit_tokens_withdrawn", contract_balance_post_SP_withdrawal)
-            .add_message(burn_vault_tokens_msg)
+            .add_messages(msgs)
             .add_message(unstake_tokens_msg)
             .add_message(send_deposit_tokens_msg)
             .add_message(send_vault_tokens_msg)
@@ -1062,18 +1089,18 @@ fn handle_compound_reply(
             });
 
             //Automatically withdraw to stay unstaked & liquid
-            let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.stability_pool_contract.to_string(),
-                msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw { amount: compounded_amount })?,
-                funds: vec![],
-            });
+            // let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+            //     contract_addr: config.stability_pool_contract.to_string(),
+            //     msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw { amount: compounded_amount })?,
+            //     funds: vec![],
+            // });
 
             //Create Response
             let res = Response::new()
                 .add_attribute("method", "handle_compound_reply")
                 .add_attribute("compounded_amount", compounded_amount)
-                .add_message(send_deposit_to_yield_msg)
-                .add_message(withdraw_msg);
+                .add_message(send_deposit_to_yield_msg);
+                // .add_message(withdraw_msg);
 
             return Ok(res);
 
@@ -1084,5 +1111,19 @@ fn handle_compound_reply(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    Ok(Response::default())
+    //Send contract balance to SP
+    let config = CONFIG.load(deps.storage)?;
+    let contract_balance = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
+
+
+        //Send deopsit
+        let send_deposit_to_yield_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.stability_pool_contract.to_string(),
+            msg: to_json_binary(&StabilityPoolExecuteMsg::Deposit { user: None })?,
+            funds: vec![Coin {
+                denom: config.deposit_token.clone(),
+                amount: contract_balance,
+            }],
+        });
+    Ok(Response::default().add_message(send_deposit_to_yield_msg))
 }

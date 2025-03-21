@@ -944,7 +944,10 @@ fn handle_liq_reply(
             };
 
             //Query contract balances to find fees
-            let balances = deps.querier.query_all_balances(env.contract.address.clone())?;            
+            let balances = deps.querier.query_all_balances(env.contract.address.clone())?;         
+
+            //Filter out MBRN from balances
+            let balances = balances.into_iter().filter(|x| x.denom != "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn").collect::<Vec<Coin>>();   
 
             //Send fees to caller
             let fee_message: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {

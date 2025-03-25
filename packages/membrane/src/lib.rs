@@ -26,3 +26,4 @@ pub mod discount_vault;
 pub mod helpers;
 pub mod types;
 pub mod math;
+pub mod managed_market;

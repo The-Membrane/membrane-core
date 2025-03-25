@@ -234,7 +234,8 @@ pub fn execute(
             asset,
             max_borrow_LTV,
             max_LTV,
-        } => edit_cAsset(deps, info, asset, max_borrow_LTV, max_LTV),
+            hike_rates,
+        } => edit_cAsset(deps, info, asset, max_borrow_LTV, max_LTV, hike_rates),
         ExecuteMsg::EditBasket(edit) => edit_basket(deps, env, info,edit),
         ExecuteMsg::Liquidate {
             position_id,
@@ -277,6 +278,7 @@ fn edit_cAsset(
     asset: AssetInfo,
     max_borrow_LTV: Option<Decimal>,
     max_LTV: Option<Decimal>,
+    rate_hiked: Option<bool>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -345,6 +347,11 @@ fn edit_cAsset(
                     })
                 }
             }
+
+            if let Some(rate_hiked) = rate_hiked {
+                asset.hike_rates = Some(rate_hiked);
+                attrs.push(attr("rate_hiked", rate_hiked.to_string()));
+            }
             new_asset = asset;
         }
         None => {
@@ -364,6 +371,8 @@ fn edit_cAsset(
     basket.collateral_types.push(new_asset);
 
     BASKET.save(deps.storage, &basket)?;
+
+    panic!("{:?}", basket);
 
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
 }

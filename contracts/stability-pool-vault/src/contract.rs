@@ -1112,18 +1112,18 @@ fn handle_compound_reply(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
     //Send contract balance to SP
-    let config = CONFIG.load(deps.storage)?;
-    let contract_balance = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
+    // let config = CONFIG.load(deps.storage)?;
+    // let contract_balance = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
 
 
-        //Send deopsit
-        let send_deposit_to_yield_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.stability_pool_contract.to_string(),
-            msg: to_json_binary(&StabilityPoolExecuteMsg::Deposit { user: None })?,
-            funds: vec![Coin {
-                denom: config.deposit_token.clone(),
-                amount: contract_balance,
-            }],
-        });
-    Ok(Response::default().add_message(send_deposit_to_yield_msg))
+    //     //Send deopsit
+    //     let send_deposit_to_yield_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: config.stability_pool_contract.to_string(),
+    //         msg: to_json_binary(&StabilityPoolExecuteMsg::Deposit { user: None })?,
+    //         funds: vec![Coin {
+    //             denom: config.deposit_token.clone(),
+    //             amount: contract_balance,
+    //         }],
+    //     });
+    Ok(Response::default())
 }

@@ -153,6 +153,8 @@ pub enum ExecuteMsg {
         max_borrow_LTV: Option<Decimal>, 
         /// Point of liquidation
         max_LTV: Option<Decimal>,
+        /// Hike rates
+        hike_rates: Option<bool>,
     },
     //Callbacks; Only callable by the contract
     Callback(CallbackMsg),

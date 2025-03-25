@@ -1130,7 +1130,6 @@ fn query_user_conversion_rates(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    USER_STATS.remove(deps.storage, Addr::unchecked("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0"));
     
     Ok(Response::default())
 }

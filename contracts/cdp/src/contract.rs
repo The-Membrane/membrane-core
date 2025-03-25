@@ -372,8 +372,6 @@ fn edit_cAsset(
 
     BASKET.save(deps.storage, &basket)?;
 
-    panic!("{:?}", basket);
-
     Ok(Response::new().add_attributes(attrs).add_messages(msgs))
 }
 

@@ -26,7 +26,7 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     /// Enter the vault 100% CDT
     EnterVault {
-        leave_vault_tokens_in_vault: Option<LeaveTokens>,
+        // leave_vault_tokens_in_vault: Option<LeaveTokens>,
     },
     /// Exit vault in the current ratio of assets owned (LP + balances)
     /// The App can swap into a single token and give value options based on swap rate.
@@ -46,7 +46,7 @@ pub enum ExecuteMsg {
     /// NOTE: We don't use the asset price initiation.
     SetUserIntents { 
         intents: Option<RangeBoundUserIntents>,
-        reduce_vault_tokens: Option<ReduceTokens>,
+        // reduce_vault_tokens: Option<ReduceTokens>,
     },
     /// Fulfill intents for a user. Send fees to the caller.
     FulFillUserIntents { user: String },

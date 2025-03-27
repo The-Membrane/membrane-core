@@ -41,8 +41,6 @@ const SWAP_ADD_TO_CEILING_REPLY_ID: u64 = 2u64;
 const ADD_TO_FLOOR_REPLY_ID: u64 = 3u64;
 const ADD_TO_CEILING_REPLY_ID: u64 = 4u64;
 const CL_POSITION_CREATION_REPLY_ID: u64 = 5u64;
-// const SWAP_TO_FLOOR_ADD_BOTH_REPLY_ID: u64 = 6u64;
-// const SWAP_TO_CEILING_ADD_BOTH_REPLY_ID: u64 = 7u64;
 const SWAP_FOR_CDP_REPAY_REPLY_ID: u64 = 8u64;
 const SWAP_AFTER_EXIT_FOR_CDP_REPAY_REPLY_ID: u64 = 9u64;
 //Reply IDs for intents
@@ -50,6 +48,8 @@ const PURCHASE_POST_EXIT_REPLY_ID: u64 = 10u64;
 const PARSE_PURCHASE_INTENTS_REPLY_ID: u64 = 11u64;
 //
 const SEND_SWAPPED_USDC_TO_USER_REPLY_ID: u64 = 12u64;
+//
+const ENSURE_CEILING_INTACT_REPLY_ID: u64 = 13u64;
 const MANAGE_ERROR_DENIAL_REPLY_ID: u64 = 99u64;
 
 
@@ -169,6 +169,7 @@ pub fn execute(
         ExecuteMsg::RateAssurance { } => rate_assurance(deps, env, info),
         ExecuteMsg::DepositFee { } => deposit_fee(deps, env, info),
         ExecuteMsg::WithdrawFloorPosition {  } => withdraw_floor_position(deps, env, info),
+        ExecuteMsg::RefillBuffer {  } => refill_buffer(deps, env, info),
         ExecuteMsg::GetTotalDepositTokens {  } => panic_total_deposit_tokens(deps, env, info),
     }
 }
@@ -1693,14 +1694,13 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         SWAP_ADD_TO_CEILING_REPLY_ID => handle_swap_to_ceiling(deps, env, msg),
         ADD_TO_FLOOR_REPLY_ID => handle_add_to_floor_position(deps, env, msg),
         ADD_TO_CEILING_REPLY_ID => handle_add_to_ceiling_position(deps, env, msg),
-        // SWAP_TO_FLOOR_ADD_BOTH_REPLY_ID => handle_swap_to_floor_add_to_both_reply(deps, env, msg),
-        // SWAP_TO_CEILING_ADD_BOTH_REPLY_ID => handle_swap_to_ceiling_add_to_both_reply(deps, env, msg),
         CL_POSITION_CREATION_REPLY_ID => handle_cl_position_creation_reply(deps, env, msg),
         SWAP_AFTER_EXIT_FOR_CDP_REPAY_REPLY_ID => handle_repay_and_swap_after_exit_reply(deps, env, msg),
         SWAP_FOR_CDP_REPAY_REPLY_ID => handle_repay_after_swap_reply(deps, env, msg),
         PURCHASE_POST_EXIT_REPLY_ID => handle_purchase_post_exit_reply(deps, env, msg),
         PARSE_PURCHASE_INTENTS_REPLY_ID => handle_parse_purchase_intents_reply(deps, env, msg),
         SEND_SWAPPED_USDC_TO_USER_REPLY_ID => handle_send_swapped_usdc_to_user_reply(deps, env, msg),
+        ENSURE_CEILING_INTACT_REPLY_ID => handle_ensure_ceiling_intact_reply(deps, env, msg),
         MANAGE_ERROR_DENIAL_REPLY_ID => Ok(Response::new().add_attribute("method", "handle_error_denial")),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
@@ -2231,68 +2231,6 @@ fn handle_swap_add_to_floor(
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }
 }
-
-/// Get the tokens swapped to the floor & add them to BOTH positions
-// fn handle_swap_to_floor_add_to_both_reply(
-//     deps: DepsMut,
-//     env: Env,
-//     msg: Reply,
-// ) -> StdResult<Response> {
-//     match msg.result.into_result() {
-//         Ok(_) => {
-//             //Load state
-//             let config = CONFIG.load(deps.storage)?;
-
-//             //Get balance of floor tokens just swapped for
-//             let balance_of_floor_tokens = deps.querier.query_balance(env.contract.address.clone(), config.range_tokens.floor_deposit_token)?.amount;
-            
-//             //Add to FLOOR position
-//             if balance_of_floor_tokens.is_zero() {
-//                 return Err(StdError::GenericErr { msg: String::from("No balance of floor tokens received from the swap") });
-//             }
-//             //Split the total_floor_tokens 50/50
-//             let half_of_floor_token_total = balance_of_floor_tokens / Uint128::new(2);
-//             //Add half to FLOOR position
-//             let add_to_floor: CosmosMsg = CL::MsgAddToPosition {
-//                 position_id: config.range_position_ids.floor,
-//                 sender: env.contract.address.to_string(),
-//                 //CDT
-//                 amount0: String::from("0"),
-//                 //USDC
-//                 amount1: half_of_floor_token_total.to_string(),
-//                 token_min_amount0: String::from("0"),
-//                 token_min_amount1: String::from("0"),
-//             }.into();
-//             let add_to_floor_submsg = SubMsg::reply_on_success(add_to_floor, ADD_TO_FLOOR_REPLY_ID);
-
-//             //Add half to CEILING position
-//             let add_to_ceiling: CosmosMsg = CL::MsgAddToPosition {
-//                 position_id: config.range_position_ids.ceiling,
-//                 sender: env.contract.address.to_string(),
-//                 //CDT
-//                 amount0: String::from("0"),
-//                 //USDC
-//                 amount1: half_of_floor_token_total.to_string(),
-//                 token_min_amount0: String::from("0"),
-//                 token_min_amount1: String::from("0"),
-//             }.into();
-//             let add_to_ceiling_submsg = SubMsg::reply_on_success(add_to_ceiling, ADD_TO_CEILING_REPLY_ID);
-
-//             //Create Response
-//             let res = Response::new()
-//                 .add_submessage(add_to_floor_submsg)
-//                 .add_submessage(add_to_ceiling_submsg)
-//                 .add_attribute("method", "handle_swap_to_floor_add_to_both_reply")
-//                 .add_attribute("balance_of_floor_tokens_added_to_CL_position", balance_of_floor_tokens.to_string());
-
-//             return Ok(res);
-
-//         } //We only reply on success
-//         Err(err) => return Err(StdError::GenericErr { msg: err }),
-//     }
-// }
-
-
 // /// Set the new position ID for the floor position
 fn handle_add_to_floor_position(
     deps: DepsMut,
@@ -2375,66 +2313,6 @@ fn handle_swap_to_ceiling(
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }
 }
-
-/// Get the tokens swapped to the ceiling & add them to BOTH positions
-// fn handle_swap_to_ceiling_add_to_both_reply(
-//     deps: DepsMut,
-//     env: Env,
-//     msg: Reply,
-// ) -> StdResult<Response> {
-//     match msg.result.into_result() {
-//         Ok(_) => {
-//             //Load state
-//             let config = CONFIG.load(deps.storage)?;
-
-//             //Get balance of ceiling tokens just swapped for
-//             let balance_of_ceiling_tokens = deps.querier.query_balance(env.contract.address.clone(), config.range_tokens.ceiling_deposit_token)?.amount;
-            
-//             //Add to FLOOR position
-//             if balance_of_ceiling_tokens.is_zero() {
-//                 return Err(StdError::GenericErr { msg: String::from("No balance of ceiling_deposit_token tokens received from the swap") });
-//             }
-//             //Split the total_ceiling_tokens 50/50
-//             let half_of_ceiling_token_total = balance_of_ceiling_tokens / Uint128::new(2);
-//             //Add half to FLOOR position
-//             let add_to_floor: CosmosMsg = CL::MsgAddToPosition {
-//                 position_id: config.range_position_ids.floor,
-//                 sender: env.contract.address.to_string(),
-//                 //CDT
-//                 amount0: half_of_ceiling_token_total.to_string(),
-//                 //USDC
-//                 amount1: String::from("0"),
-//                 token_min_amount0: String::from("0"),
-//                 token_min_amount1: String::from("0"),
-//             }.into();
-//             let add_to_floor_submsg = SubMsg::reply_on_success(add_to_floor, ADD_TO_FLOOR_REPLY_ID);
-
-//             //Add half to CEILING position
-//             let add_to_ceiling: CosmosMsg = CL::MsgAddToPosition {
-//                 position_id: config.range_position_ids.ceiling,
-//                 sender: env.contract.address.to_string(),
-//                 //CDT
-//                 amount0: half_of_ceiling_token_total.to_string(),
-//                 //USDC
-//                 amount1: String::from("0"),
-//                 token_min_amount0: String::from("0"),
-//                 token_min_amount1: String::from("0"),
-//             }.into();
-//             let add_to_ceiling_submsg = SubMsg::reply_on_success(add_to_ceiling, ADD_TO_CEILING_REPLY_ID);
-
-//             //Create Response
-//             let res = Response::new()
-//                 .add_submessage(add_to_floor_submsg)
-//                 .add_submessage(add_to_ceiling_submsg)
-//                 .add_attribute("method", "handle_swap_to_ceiling_add_to_both_reply")
-//                 .add_attribute("balance_of_ceiling_tokens_added_to_CL_position", balance_of_ceiling_tokens.to_string());
-
-//             return Ok(res);
-
-//         } //We only reply on success
-//         Err(err) => return Err(StdError::GenericErr { msg: err }),
-//     }
-// }
 
 
 /// Set the new position ID for the ceiling position
@@ -2582,6 +2460,104 @@ fn withdraw_floor_position(
         .add_attribute("floor_liquidity", floor_liquidity.to_string());
 
     Ok(res)
+}
+
+//Refill buffer by withdrawing the ceiling
+fn refill_buffer(
+    deps: DepsMut,
+    env: Env,
+    _info: MessageInfo,
+) -> Result<Response, TokenFactoryError> {
+
+    let config = CONFIG.load(deps.storage)?;
+
+    //Get total_deposit_tokens & prices
+    let (
+        _,
+        _,
+        _,
+        _,
+        _,
+        ceiling_position,
+        _
+    ) = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
+
+    //Get the balance of CDT
+    let cdt_balance = deps.querier.query_balance(env.contract.address.clone(), config.range_tokens.ceiling_deposit_token.clone())?.amount;
+    //If CDT balance is non-zero, we don't need to refill
+    if !cdt_balance.is_zero() {
+        return Err(TokenFactoryError::Std(StdError::GenericErr { msg: String::from("No need to refill buffer, CDT balance is non-zero") }));
+    }
+    let mut msgs: Vec<SubMsg> = vec![];
+
+
+    //////Withdraw 50% of the ceiling position////////
+    let ceiling_liquidity = Decimal::from_str(&ceiling_position.position.unwrap().liquidity).unwrap();
+    let ceiling_liquidity_to_withdraw = (decimal_multiplication(
+        ceiling_liquidity,
+        Decimal::percent(50)
+    )? * Uint128::new(10u64.pow(18 as u32) as u128)).to_string();
+    //Withdraw liquidity from ceiling position
+    let ceiling_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
+        position_id: config.range_position_ids.ceiling,
+        sender: env.contract.address.to_string(),
+        liquidity_amount: ceiling_liquidity_to_withdraw.clone(),
+    }.into();
+    //Add to msgs
+    msgs.push(SubMsg::reply_on_success(ceiling_position_withdraw_msg, ENSURE_CEILING_INTACT_REPLY_ID));
+
+
+    //Create response
+    let res = Response::new()
+        .add_submessages(msgs)
+        .add_attribute("method", "refill_buffer")
+        .add_attribute("ceiling_position_id", config.range_position_ids.ceiling.to_string())
+        .add_attribute("ceiling_liquidity", ceiling_liquidity.to_string());
+
+    Ok(res)
+}
+
+/// Query total deposit tokens which will error if the ceiling got fully removed
+fn handle_ensure_ceiling_intact_reply(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply,
+) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+
+            let config = CONFIG.load(deps.storage)?;
+        
+            //Get total_deposit_tokens & prices
+            let (
+                total,
+                cdt_price,
+                usdc_price,
+                ceiling_position_coins,
+                floor_position_coins,
+                ceiling_position,
+                floor_position,
+            ) = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
+        
+        
+            //Create response
+            let res = Response::new().add_attributes(
+                vec![
+                    attr("total_deposit_tokens", total.to_string()),
+                    attr("cdt_price", cdt_price.price.to_string()),
+                    attr("usdc_price", usdc_price.price.to_string()),
+                    attr("ceiling_position_coins", format!("{:?}", ceiling_position_coins)),
+                    attr("floor_position_coins", format!("{:?}", floor_position_coins)),
+                    attr("ceiling_position", format!("{:?}", ceiling_position)),
+                    attr("floor_position", format!("{:?}", floor_position)),
+                    ]
+            );
+        
+            Ok(res)
+
+        } //We only reply on success
+        Err(err) => return Err(StdError::GenericErr { msg: err }),
+    }
 }
 
 

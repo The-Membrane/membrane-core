@@ -43,6 +43,8 @@ pub enum ExecuteMsg {
     ManageVault { rebalance_sale_max: Option<Decimal> },
     /// Withdraws the floor position 
     WithdrawFloorPosition {  },
+    /// Withdraws the ceiling position to refill the CDT buffer
+    RefillBuffer {  },
     /// Withdraws CDT from the ceiling to swap to USDC to deposit into the floor
     // BolsterFloorWithSwaps { max_swap_amount: Option<Uint128> },
     /// Set intents for a user. They must send vault tokens or have a non-zero balance in state.

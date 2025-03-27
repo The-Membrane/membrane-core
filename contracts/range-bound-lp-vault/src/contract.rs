@@ -850,13 +850,19 @@ fn exit_vault(
             //Add to msgs as SubMsg
             msgs.push(SubMsg::reply_on_success(swap_to_ceiling, SEND_SWAPPED_USDC_TO_USER_REPLY_ID));
         }
+
+        //Calc pre-swap CDT total
+        let pre_swap_cdt_total = deps.querier.query_balance(env.contract.address.to_string(), config.range_tokens.ceiling_deposit_token.clone())?.amount
+         - cdt_withdrawn_coins[0].amount;
+        //We subtract the withdrawn CDT to ensure the difference pre/post swap is only what the swap added.//
+
         //Save CDP REPAY PROP to save user info and contract balances
         CDP_REPAY_PROPAGATION.save(deps.storage, &RepayProp {
             user_info: UserInfo {
                 position_id: Uint128::zero(),
                 position_owner: send_to.clone(),
             },
-            prev_cdt_balance: deps.querier.query_balance(env.contract.address.to_string(), config.range_tokens.ceiling_deposit_token.clone())?.amount,
+            prev_cdt_balance: pre_swap_cdt_total,
             prev_usdc_balance: deps.querier.query_balance(env.contract.address.to_string(), config.range_tokens.floor_deposit_token.clone())?.amount,
         })?;
 

@@ -50,6 +50,7 @@ const PARSE_PURCHASE_INTENTS_REPLY_ID: u64 = 11u64;
 const SEND_SWAPPED_USDC_TO_USER_REPLY_ID: u64 = 12u64;
 //
 const ENSURE_CEILING_INTACT_REPLY_ID: u64 = 13u64;
+const SAVE_CDT_BALANCE_REPLY_ID: u64 = 14u64;
 const MANAGE_ERROR_DENIAL_REPLY_ID: u64 = 99u64;
 
 
@@ -706,10 +707,14 @@ fn exit_vault(
         pre_btokens_per_one,
     })?;
     //Calculate the amount of liquidity to withdraw
-    let withdrawal_ratio = decimal_division(
-        Decimal::from_ratio(vault_tokens, Uint128::one()),
-        Decimal::from_ratio(total_vault_tokens, Uint128::one()),
-    )?;
+    let withdrawal_ratio = if vault_tokens == total_vault_tokens {
+        Decimal::one()
+    } else {
+        decimal_division(
+            Decimal::from_ratio(vault_tokens, Uint128::one()),
+            Decimal::from_ratio(total_vault_tokens, Uint128::one()),
+        )?
+    };
     ///////////////////////////////////
     //Set ceiling & floor withdrawal amount
     let ceiling_liquidity_to_withdraw = (decimal_multiplication(
@@ -833,7 +838,7 @@ fn exit_vault(
                 amount: cdt_withdrawn_coins.clone(),
             }.into();
             //Add to msgs
-            msgs.push(SubMsg::new(send_deposit_tokens_msg));
+            msgs.push(SubMsg::reply_on_success(send_deposit_tokens_msg, SAVE_CDT_BALANCE_REPLY_ID));
         }
 
 
@@ -851,20 +856,17 @@ fn exit_vault(
             msgs.push(SubMsg::reply_on_success(swap_to_ceiling, SEND_SWAPPED_USDC_TO_USER_REPLY_ID));
         }
 
-        //Calc pre-swap CDT total
-        let pre_swap_cdt_total = deps.querier.query_balance(env.contract.address.to_string(), config.range_tokens.ceiling_deposit_token.clone())?.amount
-         - cdt_withdrawn_coins[0].amount;
-        //We subtract the withdrawn CDT to ensure the difference pre/post swap is only what the swap added.//
-
-        //Save CDP REPAY PROP to save user info and contract balances
-        CDP_REPAY_PROPAGATION.save(deps.storage, &RepayProp {
+         //Save CDP REPAY PROP to save user info.
+         //Contract balance will be saved in the CDT send reply.
+         CDP_REPAY_PROPAGATION.save(deps.storage, &RepayProp {
             user_info: UserInfo {
                 position_id: Uint128::zero(),
                 position_owner: send_to.clone(),
             },
-            prev_cdt_balance: pre_swap_cdt_total,
-            prev_usdc_balance: deps.querier.query_balance(env.contract.address.to_string(), config.range_tokens.floor_deposit_token.clone())?.amount,
+            prev_cdt_balance: Uint128::zero(),
+            prev_usdc_balance: Uint128::zero(),
         })?;
+
 
     } else {
         //Send the withdrawn tokens to the user
@@ -1706,9 +1708,41 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         PURCHASE_POST_EXIT_REPLY_ID => handle_purchase_post_exit_reply(deps, env, msg),
         PARSE_PURCHASE_INTENTS_REPLY_ID => handle_parse_purchase_intents_reply(deps, env, msg),
         SEND_SWAPPED_USDC_TO_USER_REPLY_ID => handle_send_swapped_usdc_to_user_reply(deps, env, msg),
+        SAVE_CDT_BALANCE_REPLY_ID => handle_save_cdt_balance(deps, env, msg),
         ENSURE_CEILING_INTACT_REPLY_ID => handle_ensure_ceiling_intact_reply(deps, env, msg),
         MANAGE_ERROR_DENIAL_REPLY_ID => Ok(Response::new().add_attribute("method", "handle_error_denial")),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
+    }
+}
+
+/// Save cdt balance for the user send reply
+fn handle_save_cdt_balance(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply,
+) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => { 
+
+            //Load state
+            let config = CONFIG.load(deps.storage)?;
+            let mut propagation_state = CDP_REPAY_PROPAGATION.load(deps.storage)?;      
+
+            propagation_state.prev_cdt_balance = deps.querier.query_balance(env.contract.address.to_string(), config.range_tokens.ceiling_deposit_token.clone())?.amount;
+            
+            //Save CDP REPAY PROP to save user info and contract balances
+            CDP_REPAY_PROPAGATION.save(deps.storage, &propagation_state)?;
+
+            //Create response
+            let res = Response::new()
+                .add_attribute("method", "handle_save_cdt_balance_reply")
+                .add_attribute("prev_cdt_balance", propagation_state.prev_cdt_balance.to_string());
+
+            Ok(res)
+    
+
+        } //We only reply on success
+        Err(err) => return Err(StdError::GenericErr { msg: err }),
     }
 }
 
@@ -2565,7 +2599,7 @@ fn handle_ensure_ceiling_intact_reply(
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }
 }
-
+      
 
 fn panic_total_deposit_tokens(
     deps: DepsMut,

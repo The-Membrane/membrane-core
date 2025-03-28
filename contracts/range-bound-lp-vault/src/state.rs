@@ -27,6 +27,12 @@ pub struct RepayProp {
     pub prev_cdt_balance: Uint128,
 }
 
+#[cw_serde]
+pub struct RateProp {
+    pub vt_exited: Uint128,
+    pub usdc_withdrawn: Uint128,
+}
+
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const VAULT_TOKEN: Item<Uint128> = Item::new("vault_token");
@@ -35,6 +41,8 @@ pub const TOKEN_RATE_ASSURANCE: Item<TokenRateAssurance> = Item::new("token_rate
 pub const USER_INTENT_STATE: Map<String, UserIntentState> = Map::new("user_intent_state");
 pub const INTENT_PROPAGATION: Item<IntentProp> = Item::new("intent_propagation");
 pub const CDP_REPAY_PROPAGATION: Item<RepayProp> = Item::new("repay_propagation");
+
+pub const RATE_ASSURANCE_BUFFER_INFO: Item<RateProp> = Item::new("rate_assurance_buffer_info");
 
 pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 pub const CDT_BUFFER: Item<Decimal> = Item::new("cdt_buffer");

@@ -15,7 +15,7 @@ use membrane::math::{decimal_multiplication, decimal_division};
 use membrane::oracle::PriceResponse;
 
 use crate::error::TokenFactoryError;
-use crate::state::{IntentProp, RepayProp, TokenRateAssurance, CDP_REPAY_PROPAGATION, CDT_BUFFER, CLAIM_TRACKER, CONFIG, INTENT_PROPAGATION, MAX_SLIPPAGE, OWNERSHIP_TRANSFER, TOKEN_RATE_ASSURANCE, USER_INTENT_STATE, VAULT_TOKEN};
+use crate::state::{IntentProp, RateProp, RepayProp, TokenRateAssurance, CDP_REPAY_PROPAGATION, CDT_BUFFER, CLAIM_TRACKER, CONFIG, INTENT_PROPAGATION, MAX_SLIPPAGE, OWNERSHIP_TRANSFER, RATE_ASSURANCE_BUFFER_INFO, TOKEN_RATE_ASSURANCE, USER_INTENT_STATE, VAULT_TOKEN};
 use membrane::range_bound_lp_vault::{
     Config, ExecuteMsg, InstantiateMsg, LeaveTokens, MigrateMsg, QueryMsg, ReduceTokens, UserIntentResponse
 };
@@ -407,6 +407,36 @@ fn rate_assurance(
 
     //For deposit or withdraw, check that the rates are static 
     if btokens_per_one != token_rate_assurance.pre_btokens_per_one {
+
+        //If this is an swap_To_cdt exit, this propoagation will be stateful and we can give it a buffer.
+        //This bufffer is the exitor "losing" but its actually just the 0.05% swap fee.
+        if let Ok(prop) = RATE_ASSURANCE_BUFFER_INFO.load(deps.storage){
+            //Get % of total vault tokens exited
+            let percent_exited = 
+                Decimal::from_ratio(prop.vt_exited, total_vault_tokens);
+            //Calc the swap fee from the withdrawn usdc
+            let swap_fee = decimal_multiplication(
+                Decimal::from_ratio(prop.usdc_withdrawn, Uint128::one()),
+                Decimal::from_str("0.0005").unwrap()//0.05%
+            )?;
+            //calc buffer as the swap fee's effect on the conversion rate
+            let buffer = decimal_multiplication(
+                percent_exited,
+                swap_fee
+            )?.to_uint_ceil();
+
+            //If the buffer is within the acceptable range, allow the rate change
+            if token_rate_assurance.pre_btokens_per_one + buffer >= btokens_per_one {
+                //Delete state
+                RATE_ASSURANCE_BUFFER_INFO.remove(deps.storage);
+                //Return
+                return Ok(Response::new());
+            }
+        }
+
+        //Delete state
+        RATE_ASSURANCE_BUFFER_INFO.remove(deps.storage);
+
         return Err(TokenFactoryError::CustomError { val: format!("Deposit or withdraw rate assurance failed for base token conversion. pre: {:?} --- post: {:?}", token_rate_assurance.pre_btokens_per_one, btokens_per_one) });
     }
 
@@ -850,10 +880,16 @@ fn exit_vault(
                     token_out: config.range_tokens.clone().ceiling_deposit_token,
                     max_slippage: Decimal::percent(1), //we'd take whatever if this was only swapping yields but its the full deposit
                 })?,
-                funds: usdc_withdrawn_coins,
+                funds: usdc_withdrawn_coins.clone(),
             });
             //Add to msgs as SubMsg
             msgs.push(SubMsg::reply_on_success(swap_to_ceiling, SEND_SWAPPED_USDC_TO_USER_REPLY_ID));
+
+            //Save Rate Assurance Propagation to save exit info.
+            RATE_ASSURANCE_BUFFER_INFO.save(deps.storage, &RateProp {
+                vt_exited: vault_tokens,
+                usdc_withdrawn: usdc_withdrawn_coins[0].amount,
+            })?;
         }
 
          //Save CDP REPAY PROP to save user info.

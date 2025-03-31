@@ -97,10 +97,6 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
-
-    //Hardcode liquidation
-    let current_LTV = Decimal::one();   
-    let insolvent = true;
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});

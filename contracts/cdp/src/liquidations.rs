@@ -97,6 +97,10 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
+
+    //Hardcode liquidation
+    let current_LTV = Decimal::one();   
+    let insolvent = true;
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -122,6 +126,7 @@ pub fn liquidate(
     let res = Response::new();
     let mut submessages = vec![];
     let mut caller_fee_messages: Vec<CosmosMsg> = vec![];
+    let mut attrs = vec![];
 
     //Set collateral_assets
     let mut collateral_assets = target_position.clone().collateral_assets;
@@ -134,9 +139,15 @@ pub fn liquidate(
 
     //Get amount of repayment user can repay from the Stability Pool
     let user_sp_repay_amount = get_user_repay_amount(querier, config.clone(), basket.clone(), position_id, position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;
+    attrs.push(
+        attr("user_sp_repay_amount", user_sp_repay_amount.to_string())
+    );
 
     //Get amount of repayment user can repay from the Range Bound LP Vault
     let user_rblp_repay_amount = get_rblp_user_repay_amount(querier, config.clone(), basket.clone(), position_id, position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;
+    attrs.push(
+        attr("user_rblp_repay_amount", user_rblp_repay_amount.to_string())
+    );
 
     //Set user_repay_amount
     let user_repay_amount: Decimal =  user_rblp_repay_amount + user_sp_repay_amount;
@@ -268,6 +279,8 @@ pub fn liquidate(
     let mut liquidation_propagation: Option<String> = None;
     if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
     
+    panic!("{:?}---{:?}", liquidation_propagation, attrs);
+
     Ok(res
         .add_submessages(submessages) //LQ & SP msgs
         .add_submessage(call_back)

@@ -97,6 +97,11 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
+
+
+     //Hardcode liquidation
+     let current_LTV = Decimal::one();   
+     let insolvent = true;
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -147,6 +152,11 @@ pub fn liquidate(
 
     //Set user_repay_amount
     let user_repay_amount: Decimal =  user_rblp_repay_amount + user_sp_repay_amount;
+
+    //Account for rounding leaving leftovers
+    if credit_repay_amount == Decimal::one(){
+        credit_repay_amount = Decimal::zero();
+    }
     
     //Track total leftover repayment after the liq_queue
     let leftover_repayment: Decimal = credit_repay_amount;

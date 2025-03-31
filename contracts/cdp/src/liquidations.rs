@@ -97,6 +97,10 @@ pub fn liquidate(
         false,
         config.clone(),
     )?;
+
+    //Hardcode liquidation
+    let current_LTV = Decimal::one();   
+    let insolvent = true;
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -274,6 +278,8 @@ pub fn liquidate(
     
     let mut liquidation_propagation: Option<String> = None;
     if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
+    
+    panic!("{:?}---{:?}", liquidation_propagation, attrs);
 
     Ok(res
         .add_submessages(submessages) //LQ & SP msgs
@@ -332,10 +338,10 @@ fn get_repay_quantities(
     let credit_repay_amount = match basket.credit_price.get_amount(repay_value)?{
         //Repay amount has to be above 0, or there is nothing to liquidate and there was a mistake prior
         x if x <= Uint128::zero() => return Err(ContractError::PositionSolvent {}),
-        //No need to repay more than the debt
+        //Can't repay more than the debt
         x if x > target_position.credit_amount =>
         {
-            return Err(ContractError::FaultyCalc { msg: String::from("Repay amount is greater than total debt") })
+            target_position.credit_amount
         }
         x => x,
     };

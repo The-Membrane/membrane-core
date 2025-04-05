@@ -1,8 +1,9 @@
 
+use std::option;
+
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, Uint128};
-use crate::types::{AssetOracleInfo, RangeBoundUserIntents, RangeBounds, RangePositions, RangeTokens, UserInfo, UserIntentState};
-
+use crate::types::{AssetOracleInfo, RangeBoundUserIntents, RangeBounds, RangePositions, RangeTokens, UserInfo, UserIntentState, BorrowOptions};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -24,36 +25,43 @@ pub struct InstantiateMsg {
 
 #[cw_serde]
 pub enum ExecuteMsg {
-    /// Enter the vault 100% CDT
-    EnterVault {
-        // leave_vault_tokens_in_vault: Option<LeaveTokens>,
+    SupplyCollateral {
+        /// Who owns the collateral? Defaults to sender.
+        owner: Option<String>
     },
-    /// Exit vault in the current ratio of assets owned (LP + balances)
-    /// The App can swap into a single token and give value options based on swap rate.
-    ExitVault {
+    WithdrawCollateral {
+        /// Who is the collateral token going to? Defaults to sender.
         send_to: Option<String>,
-        swap_to_cdt: bool
+        /// Withdraw amount. Defaults to all.
+        withdraw_amount: Option<Uint128>,
     },
-    /// Deposits CDT revenue into the contract. 
-    /// We use a msg enum bc the CDP needs it.
-    DepositFee { },
-    ManageVault { rebalance_sale_max: Option<Decimal> },
-    /// Withdraws the floor position 
-    WithdrawFloorPosition {  },
-    /// Withdraws CDT from the ceiling to swap to USDC to deposit into the floor
-    // BolsterFloorWithSwaps { max_swap_amount: Option<Uint128> },
-    /// Set intents for a user. They must send vault tokens or have a non-zero balance in state.
-    /// NOTE: We don't use the asset price initiation.
-    SetUserIntents { 
-        intents: Option<RangeBoundUserIntents>,
-        // reduce_vault_tokens: Option<ReduceTokens>,
+    SupplyDebt {
+        /// Who is the receipt token going to? Defaults to sender.
+        send_to: Option<String>
     },
-    /// Fulfill intents for a user. Send fees to the caller.
-    FulFillUserIntents { user: String },
-    /// Let CDP contract use VTs in user intents to repay debt.
-    RepayUserDebt { 
-        user_info: UserInfo,
-        repayment: Uint128, 
+    WithdrawDebt {
+        /// Who is the CDT going to? Defaults to sender.
+        send_to: Option<String>
+    },
+    Borrow {
+        /// Who is the CDT going to? Defaults to sender.
+        send_to: Option<String>,
+        /// Borrow amount or ltv
+        borrow_amount: BorrowOptions,
+    },
+    Repay { },
+    Liquidate {
+        position_owner: String,
+        /// Toggle if you want to take the caller's fee or not.
+        /// Advise managers not to take the fee.
+        take_fee: bool
+    },
+    ClosePosition {
+        position_owner: String,
+        close_percentage: Option<Decimal>,
+        max_spread: Decimal,
+        /// Who to send excess CDT from the spread coverage & available collateral if fully closed. Defaults to sender.
+        send_to: Option<String>,
     },
     /// Update the contract config
     UpdateConfig {
@@ -65,13 +73,12 @@ pub enum ExecuteMsg {
         rate_params: Option<RateParams>,
         borrow_fee: Option<Decimal>,
     },
-    ///Saves the current base token claim for 1 vault token
-    CrankRealizedAPR { },
     /// Assures that for deposits & withdrawals the conversion rate is static.
     /// Only callable by the contract
     RateAssurance { },
     /// Callback
     GetTotalDepositTokens { },
+    CheckBadDebt { },   
 }
 
 #[cw_serde]

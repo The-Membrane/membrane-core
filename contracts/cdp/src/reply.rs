@@ -361,7 +361,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 .map(|cAsset| cAsset.asset)
                 .collect::<Vec<Asset>>();
 
-            if assets_to_withdraw.len() > 0 {     
+            if assets_to_withdraw.len() > 0 && target_position.credit_amount.is_zero() {     
                 //Create WithdrawMsg
                 let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
                     contract_addr: env.contract.address.to_string(), 

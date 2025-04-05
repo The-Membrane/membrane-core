@@ -1162,3 +1162,10 @@ pub struct UserIntentState {
     ///Fee as a % of the yield
     pub fee_to_caller: Decimal, 
 }
+
+////////Managed Markets///////
+ #[cw_serde]
+pub struct BorrowOptions {
+    pub amount: Option<Uint128>,
+    pub ltv: Option<Decimal>,
+}

@@ -311,6 +311,7 @@ fn enter_vault(
 /// 1. We burn vault tokens
 /// 2. send the withdrawn deposit token to the user at a max of the buffer + withdrawable SP stake.
 ///NOTE: Can't Withdraw more than the buffer unless something is currently unstakeable.
+/// Distribute current claims and excess balances to the users.
 fn exit_vault(
     deps: DepsMut,
     env: Env,
@@ -318,42 +319,63 @@ fn exit_vault(
 ) -> Result<Response, TokenFactoryError> {
     let config = CONFIG.load(deps.storage)?;
     let mut assurance_msg = vec![];
+    let mut msgs = vec![];
 
     //Query claims from the Stability Pool.
-    //Error is there are claims.
-    //Catch the error if there aren't.
-    //We don't let users exit the vault if they have claims bc they'd lose claimable rewards.
-    let _claims: ClaimsResponse = match deps.querier.query_wasm_smart::<ClaimsResponse>(
+    //Users will claim their claims when they exit the vault in the event the claims can't be compounded.
+    let mut claims: ClaimsResponse = match deps.querier.query_wasm_smart::<ClaimsResponse>(
         config.stability_pool_contract.to_string(),
         &StabilityPoolQueryMsg::UserClaims {
             user: env.contract.address.to_string(),
         },
     ){
         Ok(claims) => {
-            if claims.claims.clone().into_iter().filter(|claim| claim.denom.to_string() != String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn")).collect::<Vec<Coin>>().len() > 0 as usize {
-                return Err(TokenFactoryError::ContractHasClaims { claims: claims.claims })
-            } else {
-                ClaimsResponse { claims: vec![] }
-            }
+            //Claim rewards from Stability Pool
+            let claim_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.stability_pool_contract.to_string(),
+                msg: to_json_binary(&StabilityPoolExecuteMsg::ClaimRewards { })?,
+                funds: vec![]
+            });
+            //Add the claim msg to msgs
+            msgs.push(claim_msg);
+            //Return claims
+            claims
         },
         Err(_) => ClaimsResponse { claims: vec![] },
     };
+    //Add current balances to claims
+    let contract_balance_of_claims = deps.querier.query_all_balances(env.contract.address.clone())?;
 
+    //Filter out the deposit token from the contract balance
+    let contract_balances = contract_balance_of_claims.into_iter()
+        .filter(|claim| claim.denom.to_string() != config.deposit_token)
+        .collect::<Vec<Coin>>();
 
-    //////CHECK WITHDRAWAL QUEUE///////
-    /// - We burn all VTs & simply add the user to a new state object called the withdrawal queue
-    /// - Withdrawals that aren't fulfilled by the buffer unstake from the SP & claim the unstake amount in the queue
-    /// - Whenever a user goes to exit, we check the queue & if they're in it, we set their withdrawal amount to the saved queue'd amount
-    /// -- Key here is that the queue is virtually FIFO so the withdrawals before the current user are subtracted from the contract's serviceable amount (rn this is called contract_balance_post_SP_withdrawal)
-    /// - If they send VTs && they're in the queue, we simply add the VT's backing to their potential total 
-    /// - All exits will need to calc the queue total and subtract it from the contract's serviceable amount 
-    /// -- but queue'd exits only subtract what's in front of them.
-    /// -- To make this easy we save the state as a vec! of WithdrawalQueue objects & use the enumerated index to split the array at the user's index
-
-    let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
-    if total_deposit_tokens.is_zero() {
-        return Err(TokenFactoryError::ZeroDepositTokens {});
+    
+    //Add the claims to the claims response
+    let mut claims_coins = claims.claims.clone();
+    //Add new coins and add to duplicate coins
+    for claim in contract_balances {
+        //Check if the claim already exists
+        let mut found = false;
+        for i in 0..claims_coins.len() {
+            if claims_coins[i].denom == claim.denom {
+                claims_coins[i].amount += claim.amount;
+                found = true;
+                break;
+            }
+        }
+        //If the claim doesn't exist, add it to the claims
+        if !found {
+            claims_coins.push(claim);
+        }
     }
+    //Save the claims
+    claims.claims = claims_coins;
+
+
+    //Get the total amount of vault tokens circulating
+    let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
 
     //Assert the only token sent is the vault token
     if info.funds.len() != 1 {
@@ -369,9 +391,14 @@ fn exit_vault(
         return Err(TokenFactoryError::ZeroAmount {});
     }
 
+    //Get the total amount of deposit tokens circulating
+    let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
+    if total_deposit_tokens.is_zero() {
+        return Err(TokenFactoryError::ZeroDepositTokens {});
+    }
+
+
     //////Calculate the amount of deposit tokens to withdraw////
-    //Get the total amount of vault tokens circulating
-    let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
     //Calc & save token rates
     let pre_btokens_per_one = calculate_base_tokens(
         Uint128::new(1_000_000_000_000), 
@@ -455,10 +482,19 @@ fn exit_vault(
             }), 
             burn_from_address: env.contract.address.to_string(),
         }.into();
-        let mut msgs = vec![];
         //Only if burn is non-zero
         if !vault_tokens_to_burn.is_zero() {
+            //Burn vault tokens
             msgs.push(burn_vault_tokens_msg);
+
+            //Distribute claims to the user based on the vault tokens we are taking from them
+            distribute_claims_to_user(
+                info.sender.to_string(),
+                claims,
+                vault_tokens_to_burn,
+                total_vault_tokens,
+                &mut msgs
+            )?;
         }
         //Send back the rest of the vault tokens
         let vault_tokens_to_send = match vault_tokens.checked_sub(vault_tokens_to_burn){
@@ -503,6 +539,15 @@ fn exit_vault(
             .add_messages(assurance_msg)
         );
     }
+
+
+    distribute_claims_to_user(
+        info.sender.to_string(),
+        claims,
+        vault_tokens,
+        total_vault_tokens,
+        &mut msgs
+    )?;
 
     //Send withdrawn tokens to the user (Contract buffer has enough to naked send)
     let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
@@ -569,6 +614,44 @@ fn exit_vault(
     Ok(res)
 }
 
+fn distribute_claims_to_user(
+    user: String,
+    claims: ClaimsResponse,
+    vault_tokens: Uint128,
+    total_vault_tokens: Uint128,
+    msgs: &mut Vec<CosmosMsg>,
+)-> StdResult<()>{
+
+    //Calculate the ratio of vault tokens that the user owns
+    let vault_tokens_ratio = decimal_division(
+        Decimal::from_ratio(vault_tokens, Uint128::one()), 
+        Decimal::from_ratio(total_vault_tokens, Uint128::one())
+    )?;
+    //Calculate the amount of each claim that the user owns
+    let mut claim_amounts: Vec<Coin> = vec![];
+    for claim in claims.claims.clone() {
+        //Calculate the amount of each claim that the user owns
+        let claim_amount = decimal_multiplication(
+            vault_tokens_ratio, 
+            Decimal::from_ratio(claim.amount, Uint128::one())
+        )?;
+        //Push the claim amount to the claim amounts vector
+        claim_amounts.push(Coin {
+            denom: claim.denom,
+            amount: claim_amount.to_uint_floor(),
+        });
+    }
+    //Create msg to send claims to the user
+    let send_claims_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+        to_address: user,
+        amount: claim_amounts,
+    });
+    //Add the send claims msg to msgs
+    msgs.push(send_claims_msg);
+
+    Ok(())
+}
+
 //Claim and compound liquidation rewards.
 //This doesn't compound distributed CDT from fees.
 fn claim_and_compound_liquidations(
@@ -628,7 +711,7 @@ fn claim_and_compound_liquidations(
         contract_addr: config.osmosis_proxy_contract.to_string(),
         msg: to_json_binary(&OsmosisProxyExecuteMsg::ExecuteSwaps {
             token_out: config.deposit_token.clone(),
-            max_slippage: Decimal::percent(90),
+            max_slippage: Decimal::percent(10),
         })?,
         funds: claims.claims.clone(),
     });
@@ -1040,10 +1123,6 @@ fn handle_compound_reply(
             // if current_balance - config.compound_activation_fee <= prev_balance {
             //     return Err(StdError::GenericErr { msg: "Contract needs to compound more than the compound fee".to_string() });
             // }
-            
-            //^The reason we don't error here is bc if the contract swaps past a 10% slippage and it errors
-            //, the contract will be stuck with depreciating assets. So its better to offload them and make up for the loss later.
-            //This will be a risk communicated to users in the UI.
             
             //Calc the amount of deposit tokens that were compounded
             let compounded_amount = current_balance - prev_balance;

@@ -203,11 +203,11 @@ fn update_config(
     }
     if let Some(new_unstaking_period) = update.unstaking_period {
         //Enforce unstaking period range of 1-7 days
-        if new_unstaking_period < 1 || new_unstaking_period > 7 {
-            return Err(ContractError::CustomError {
-                val: "Unstaking period must be between 1 and 7 days".to_string(),
-            });
-        }
+        // if new_unstaking_period < 1 || new_unstaking_period > 7 {
+        //     return Err(ContractError::CustomError {
+        //         val: "Unstaking period must be between 1 and 7 days".to_string(),
+        //     });
+        // }
         config.unstaking_period = new_unstaking_period;
     }
 

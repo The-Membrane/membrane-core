@@ -15,6 +15,7 @@ use membrane::liq_queue::{QueryMsg as LIQ_QueryMsg, ClaimsResponse as LQ_ClaimsR
 use membrane::governance::{QueryMsg as GOV_QueryMsg, Proposal};
 use membrane::oracle::QueryMsg as Oracle_QueryMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
+use membrane::staking::ExecuteMsg as Staking_ExecuteMsg;
 use membrane::types::{AssetInfo, Basket, UserInfo};
 use membrane::range_bound_lp_vault::QueryMsg as RB_QueryMsg;
 
@@ -723,9 +724,21 @@ fn claim_mbrn_from_points(
 
     //Send MBRN to user from the contract's balances.
     //NOTE: Using balance as the max means we won't use the config's max as a restriction.
-    let mbrn_send: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-        to_address:info.sender.clone().to_string(),
-        amount: vec![
+    // let mbrn_send: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+    //     to_address:info.sender.clone().to_string(),
+    //     amount: vec![
+    //         Coin {
+    //             denom: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn"), 
+    //             amount: mbrn_to_claim, 
+    //         }
+    //     ],
+    // });
+
+    //Stake the MBRN for the user
+    let mbrn_stake: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: "osmo1fty83rfxqs86jm5fmlql5e340e8pe0v9j8ez0lcc6zwt2amegwvsfp3gxj".to_string(),
+        msg: to_json_binary(&Staking_ExecuteMsg::Stake { user: Some(info.sender.clone().to_string()) })?,
+        funds: vec![
             Coin {
                 denom: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn"), 
                 amount: mbrn_to_claim, 
@@ -743,7 +756,7 @@ fn claim_mbrn_from_points(
 
     Ok(Response::new()
     .add_attributes(attrs)
-    .add_message(mbrn_send))
+    .add_message(mbrn_stake))
 }
 
 fn allocate_points(

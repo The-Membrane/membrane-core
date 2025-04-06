@@ -45,6 +45,11 @@ pub enum ExecuteMsg {
         /// Debt token amount
         restake_amount: Decimal,
     },
+    ///Unstake
+    Unstake {
+        /// Debt token amount
+        unstake_amount: Decimal,
+    },
     /// Claim ALL liquidation revenue && MBRN incentives
     ClaimRewards {},
     /// Use assets from an Asset pool to liquidate for a Position (Positions Contract)

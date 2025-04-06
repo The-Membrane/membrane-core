@@ -115,6 +115,7 @@ pub fn execute(
         }
         ExecuteMsg::Withdraw { amount } => withdraw(deps, env, info, amount),
         ExecuteMsg::Restake { restake_amount } => restake(deps, env, info, restake_amount),
+        ExecuteMsg::Unstake { unstake_amount } => unstake(deps, env, info, unstake_amount),
         ExecuteMsg::Liquidate { liq_amount } => liquidate(deps, info, liq_amount),
         ExecuteMsg::ClaimRewards {} => claim(deps, env, info),
         ExecuteMsg::Distribute {
@@ -484,7 +485,7 @@ fn withdrawal_from_state(
 
                 /////Check if deposit is withdrawable
                 if !skip_unstaking {
-                    //If deposit has been "unstaked" ie previously withdrawn, assert the unstaking period has passed before withdrawing
+                    //If deposit has been "unstaked", assert the unstaking period has passed before withdrawing
                     if deposit_item.unstake_time.is_some() {
                         //If time_elapsed is >= unstaking period
                         if env.block.time.seconds() - deposit_item.unstake_time.unwrap()
@@ -749,6 +750,99 @@ fn restake(
         attr("restake_amount", initial_restake.to_string()),
     ]))
 }
+
+
+/// Unstake.
+/// NOTE: Withdrawals will still unstake if the amount asked for isn't fully withdrawable.
+fn unstake(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    mut unstake_amount: Decimal,
+) -> Result<Response, ContractError> {
+    //Initialize variables
+    let initial_unstake = unstake_amount;
+    let mut incentives = Uint128::zero();
+    let mut error: Option<StdError> = None;
+
+    let mut asset_pool = ASSET.load(deps.storage)?;
+    let config = CONFIG.load(deps.storage)?;
+    
+    //Attempt restaking 
+    asset_pool.deposits = asset_pool
+        .deposits
+        .into_iter()
+        .map(|mut deposit| {
+            if deposit.user == info.clone().sender && !unstake_amount.is_zero() && deposit.unstake_time.is_none(){
+
+                //Accrue the deposit's incentives
+                incentives += match accrue_incentives(
+                    deps.storage, 
+                    deps.querier,
+                    env.clone(), 
+                    config.clone(),
+                    deposit.amount.to_uint_floor(), 
+                    &mut deposit){
+                        Ok(incentive) => incentive,
+                        Err(err) => {
+                            error = Some(err);
+                            Uint128::zero()
+                        }
+                    };
+
+                if deposit.amount >= unstake_amount {
+                    //Zero unstake_amount
+                    unstake_amount = Decimal::zero();
+
+                    //Unstake
+                    deposit.unstake_time = Some(env.block.time.seconds());
+                } else if deposit.amount < unstake_amount {
+                    //Sub from unstake_amount
+                    unstake_amount -= deposit.amount;
+
+                    //Unstake
+                    deposit.unstake_time = Some(env.block.time.seconds());
+                }
+            }
+            deposit
+        })
+        .collect::<Vec<Deposit>>();
+
+    //Return error from the accrue_incentives function if Some()
+    if let Some(error) = error {
+        return Err(ContractError::CustomError {
+            val: error.to_string(),
+        });
+    }
+
+    //Save accrued incentives to user claims
+    if !incentives.is_zero(){
+        USERS.update(
+            deps.storage,
+            info.sender,
+            |user_claims| -> Result<User, ContractError> {
+                match user_claims {
+                    Some(mut user) => {
+                        user.claimable_assets.add(&coin(incentives.u128(), config.clone().mbrn_denom))?;
+
+                        Ok(user)
+                    }
+                    None => {
+                        Ok(User {
+                            claimable_assets: Coins::from_str(&coin(incentives.u128(), config.clone().mbrn_denom).to_string())?,
+                })}}},
+        )?;
+    }
+
+    //Save new Deposits
+    ASSET.save(deps.storage, &asset_pool)?;
+
+    Ok(Response::new().add_attributes(vec![
+        attr("method", "restake"),
+        attr("unstake_amount", initial_unstake.to_string()),
+    ]))
+}
+
 
 /// Send repayments for the Positions contract.
 /// Positions contract sends back a distribute msg.
@@ -1581,16 +1675,6 @@ pub fn validate_assets(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    //Fix total CDT for AssetPool
-    let mut asset_pool = ASSET.load(deps.storage)?;
-    let mut total_cdt = Uint128::zero();
 
-    for deposit in asset_pool.deposits.clone() {
-        total_cdt += deposit.amount.to_uint_floor();
-    }
-
-    asset_pool.credit_asset.amount = total_cdt;
-    ASSET.save(deps.storage, &asset_pool)?;
-
-    Ok(Response::default().add_attribute("method", "migrate").add_attribute("total_cdt", total_cdt.to_string()))
+    Ok(Response::default())
 }

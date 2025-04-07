@@ -636,15 +636,13 @@ fn distribute_claims_to_user(
             Decimal::from_ratio(claim.amount, Uint128::one())
         )?;
         //Check if the claim amount is zero
-        if claim_amount.to_uint_floor().is_zero() {
-            continue;
+        if !claim_amount.to_uint_floor().is_zero() {
+            //Push the claim amount to the claim amounts vector
+            claim_amounts.push(Coin {
+                denom: claim.denom,
+                amount: claim_amount.to_uint_floor(),
+            });
         }
-        //else add to claims
-        //Push the claim amount to the claim amounts vector
-        claim_amounts.push(Coin {
-            denom: claim.denom,
-            amount: claim_amount.to_uint_floor(),
-        });
     }
     //Create msg to send claims to the user
     let send_claims_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {

@@ -563,6 +563,9 @@ fn exit_vault(
             amount: deposit_tokens_to_withdraw,
         }],
     });
+    if !deposit_tokens_to_withdraw.is_zero() {
+        msgs.push(send_deposit_tokens_msg);
+    }
     
     //Burn vault tokens
     let burn_vault_tokens_msg: CosmosMsg = TokenFactory::MsgBurn {
@@ -573,6 +576,11 @@ fn exit_vault(
         }), 
         burn_from_address: env.contract.address.to_string(),
     }.into();
+    //Only if burn is non-zero
+    if !vault_tokens.is_zero() {
+        //Burn vault tokens
+        msgs.push(burn_vault_tokens_msg);
+    }
 
     //Update the total vault tokens
     let new_vault_token_supply = match total_vault_tokens.checked_sub(vault_tokens){
@@ -604,6 +612,10 @@ fn exit_vault(
         })?,
         funds: vec![],
     });
+    //Add the unstake msg to msgs
+    if !unstake_amount.is_zero() {
+        msgs.push(unstake_tokens_msg);
+    }
 
 
     //Create Response 
@@ -612,9 +624,7 @@ fn exit_vault(
         .add_attribute("vault_tokens", vault_tokens)
         .add_attribute("deposit_tokens_to_withdraw", deposit_tokens_to_withdraw)
         .add_attribute("withdrawable_amount", withdrawable_amount)
-        .add_message(burn_vault_tokens_msg)
-        .add_message(unstake_tokens_msg)
-        .add_message(send_deposit_tokens_msg)
+        .add_messages(msgs)
         .add_messages(assurance_msg);
 
     Ok(res)
@@ -656,7 +666,6 @@ fn distribute_claims_to_user(
             to_address: user,
             amount: claim_amounts.clone(),
         });
-        panic!("{:?}", claim_amounts);
         //Add the send claims msg to msgs
         msgs.push(send_claims_msg);
     }

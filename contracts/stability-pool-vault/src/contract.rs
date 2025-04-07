@@ -644,13 +644,15 @@ fn distribute_claims_to_user(
             });
         }
     }
-    //Create msg to send claims to the user
-    let send_claims_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-        to_address: user,
-        amount: claim_amounts,
-    });
-    //Add the send claims msg to msgs
-    msgs.push(send_claims_msg);
+    if !claim_amounts.is_empty(){
+        //Create msg to send claims to the user
+        let send_claims_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+            to_address: user,
+            amount: claim_amounts,
+        });
+        //Add the send claims msg to msgs
+        msgs.push(send_claims_msg);
+    }
 
     Ok(())
 }

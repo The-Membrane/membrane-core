@@ -457,15 +457,21 @@ fn exit_vault(
             })?,
             funds: vec![],
         });
+        //Add the unstake msg to msgs
+        msgs.push(unstake_tokens_msg);
 
         //Send the contract's balance to the user
-        let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-            to_address: info.sender.to_string(),
-            amount: vec![Coin {
-                denom: config.deposit_token.clone(),
-                amount: contract_balance_post_SP_withdrawal,
-            }],
-        });
+        if !contract_balance_post_SP_withdrawal.is_zero() {
+
+            let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+                to_address: info.sender.to_string(),
+                amount: vec![Coin {
+                    denom: config.deposit_token.clone(),
+                    amount: contract_balance_post_SP_withdrawal,
+                }],
+            });
+            msgs.push(send_deposit_tokens_msg);
+        }
         
         //Calc the amount of vault tokens that back the withdrawable amount (contract_balance_post_SP_withdrawal)
         let vault_tokens_to_burn = calculate_vault_tokens(
@@ -508,6 +514,9 @@ fn exit_vault(
                 amount: vault_tokens_to_send,
             }],
         });
+        if !vault_tokens_to_send.is_zero() {
+            msgs.push(send_vault_tokens_msg);
+        }
         //Update the total vault tokens
         let new_vault_token_supply = match total_vault_tokens.checked_sub(vault_tokens_to_burn){
             Ok(v) => v,
@@ -533,9 +542,6 @@ fn exit_vault(
             .add_attribute("vault_tokens_burnt", vault_tokens_to_burn)
             .add_attribute("deposit_tokens_withdrawn", contract_balance_post_SP_withdrawal)
             .add_messages(msgs)
-            .add_message(unstake_tokens_msg)
-            .add_message(send_deposit_tokens_msg)
-            .add_message(send_vault_tokens_msg)
             .add_messages(assurance_msg)
         );
     }
@@ -648,8 +654,9 @@ fn distribute_claims_to_user(
         //Create msg to send claims to the user
         let send_claims_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
             to_address: user,
-            amount: claim_amounts,
+            amount: claim_amounts.clone(),
         });
+        panic!("{:?}", claim_amounts);
         //Add the send claims msg to msgs
         msgs.push(send_claims_msg);
     }

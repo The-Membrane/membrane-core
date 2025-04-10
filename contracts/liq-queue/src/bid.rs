@@ -343,6 +343,7 @@ pub fn retract_bid(
 /// Positions contract (owner) executes the liquidation and pays in the msg reply
 /// This operation returns a repay_amount based on the available bids on each
 /// premium slot, consuming bids from lowest to higher premium slots
+/// 
 #[allow(clippy::too_many_arguments)]
 pub fn execute_liquidation(
     deps: DepsMut,

@@ -1,7 +1,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_json_binary, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg
+    attr, to_json_binary, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg
 };
 use cw2::set_contract_version;
 use membrane::math::{decimal_multiplication, decimal_division};
@@ -307,23 +307,16 @@ fn enter_vault(
     Ok(res)
 }
 
-/// User sends vault_tokens to withdraw the deposit_token from the vault.
-/// 1. We burn vault tokens
-/// 2. send the withdrawn deposit token to the user at a max of the buffer + withdrawable SP stake.
-///NOTE: Can't Withdraw more than the buffer unless something is currently unstakeable.
-/// Distribute current claims and excess balances to the users.
-fn exit_vault(
-    deps: DepsMut,
+fn get_all_claims(
+    querier: QuerierWrapper,
+    config: Config,
     env: Env,
-    info: MessageInfo,
-) -> Result<Response, TokenFactoryError> {
-    let config = CONFIG.load(deps.storage)?;
-    let mut assurance_msg = vec![];
-    let mut msgs = vec![];
-
+    msgs: &mut Vec<CosmosMsg>,
+    filter_out_mbrn: bool,
+) -> StdResult<ClaimsResponse> {
     //Query claims from the Stability Pool.
     //Users will claim their claims when they exit the vault in the event the claims can't be compounded.
-    let mut claims: ClaimsResponse = match deps.querier.query_wasm_smart::<ClaimsResponse>(
+    let mut claims: ClaimsResponse = match querier.query_wasm_smart::<ClaimsResponse>(
         config.stability_pool_contract.to_string(),
         &StabilityPoolQueryMsg::UserClaims {
             user: env.contract.address.to_string(),
@@ -344,12 +337,19 @@ fn exit_vault(
         Err(_) => ClaimsResponse { claims: vec![] },
     };
     //Add current balances to claims
-    let contract_balance_of_claims = deps.querier.query_all_balances(env.contract.address.clone())?;
+    let contract_balance_of_claims = querier.query_all_balances(env.contract.address.clone())?;
 
     //Filter out the deposit token from the contract balance
-    let contract_balances = contract_balance_of_claims.into_iter()
+    let mut contract_balances = contract_balance_of_claims.clone().into_iter()
         .filter(|claim| claim.denom.to_string() != config.deposit_token)
         .collect::<Vec<Coin>>();
+
+    if filter_out_mbrn {
+        //Filter out MBRN from the contract balances
+        contract_balances = contract_balance_of_claims.into_iter()
+            .filter(|claim| claim.denom.to_string() != String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn"))
+            .collect::<Vec<Coin>>();
+    }
 
     
     //Add the claims to the claims response
@@ -373,6 +373,32 @@ fn exit_vault(
     //Save the claims
     claims.claims = claims_coins;
 
+    Ok(claims)
+
+}
+
+/// User sends vault_tokens to withdraw the deposit_token from the vault.
+/// 1. We burn vault tokens
+/// 2. send the withdrawn deposit token to the user at a max of the buffer + withdrawable SP stake.
+///NOTE: Can't Withdraw more than the buffer unless something is currently unstakeable.
+/// Distribute current claims and excess balances to the users.
+fn exit_vault(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, TokenFactoryError> {
+    let config = CONFIG.load(deps.storage)?;
+    let mut assurance_msg = vec![];
+    let mut msgs = vec![];
+
+    //Create the list of total claims
+    let claims = get_all_claims(
+        deps.querier,
+        config.clone(),
+        env.clone(),
+        &mut msgs,
+        false //we only filter out mbrn during compounds bc we don't want to sell it
+    )?;
 
     //Get the total amount of vault tokens circulating
     let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
@@ -683,48 +709,15 @@ fn claim_and_compound_liquidations(
     let mut config = CONFIG.load(deps.storage)?;
     let mut msgs = vec![];
 
-    //Query claims from the Stability Pool
-    let mut claims: ClaimsResponse = deps.querier.query_wasm_smart::<ClaimsResponse>(
-        config.stability_pool_contract.to_string(),
-        &StabilityPoolQueryMsg::UserClaims {
-            user: env.contract.address.to_string(),
-        },
+    //Create the list of total claims
+    let claims = get_all_claims(
+        deps.querier,
+        config.clone(),
+        env.clone(),
+        &mut msgs,
+        true //we only filter out mbrn during compounds bc we don't want to sell it
     )?;
-    //If there are no claims, the query will error//
 
-
-    //Claim rewards from Stability Pool
-    let claim_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.stability_pool_contract.to_string(),
-        msg: to_json_binary(&StabilityPoolExecuteMsg::ClaimRewards { })?,
-        funds: vec![]
-    });
-    msgs.push(claim_msg);
-
-    
-    //If the claims include MBRN, create a burn message for it & filter it out of the swap.
-    //NOTE: This contract isn't authorized to burn so we'll just leave the MBRN in the contract for now.
-    match claims.claims.clone()
-        .into_iter()
-        .enumerate()
-        .find(|(_, claim)| claim.denom.to_string() == String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn")){
-            Some((i, claim)) => {
-                // let burn_mbrn_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                //     contract_addr: config.osmosis_proxy_contract.to_string(),
-                //     msg: to_json_binary(&OsmosisProxyExecuteMsg::BurnTokens { 
-                //         denom: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn"),
-                //         amount: claim.amount,
-                //         burn_from_address: env.contract.address.to_string(),
-                //     })?,
-                //     funds: vec![],
-                // });
-                // msgs.push(burn_mbrn_msg);
-                //Remove the MBRN claim
-                claims.claims.remove(i);
-            },
-            None => {},
-    };
-    
 
     //Compound rewards by sending to the Router in the Osmosis proxy contract
     //...send as a submsg that checks that the contract has more of the deposit token than it started with

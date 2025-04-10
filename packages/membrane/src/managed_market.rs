@@ -19,7 +19,7 @@ pub struct InstantiateMsg {
     pub debt_supply_vault_token: String,
     pub pause_option: bool,
     pub supply_cap: Option<Uint128>,
-    pub borrow_cap: Option<Uint128>,
+    pub borrow_cap: BorrowCap,
 }
 
 
@@ -158,6 +158,10 @@ pub struct Config {
     pub supply_cap: Option<Uint128>,
     pub borrow_cap: BorrowCap,
     pub bad_debt: Uint128,
+    pub manager_fee: Decimal,
+    //Max slippage for liquidation swaps. If the swaps fail, liquidations fail. 
+    //If the swap quality is bad, we get inefficient liquidations & bad debt.
+    pub max_slippage: Decimal,
 }
 
 #[cw_serde]

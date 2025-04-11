@@ -3,7 +3,7 @@ use std::option;
 
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, Uint128};
-use crate::types::{AssetOracleInfo, RangeBoundUserIntents, RangeBounds, RangePositions, RangeTokens, UserInfo, UserIntentState, BorrowOptions};
+use crate::types::{AssetOracleInfo, UserPosition, RangeBounds, RangePositions, RangeTokens, UserInfo, UserIntentState, BorrowOptions};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -89,13 +89,21 @@ pub enum QueryMsg {
     GetDebtPrice { },
     GetCurrentInterestRate { },
     TestDebtAllowance { potential_total_debt: Uint128 },
+    GetUserPosition { user: String },
 }
 
+
 #[cw_serde]
-pub struct UserIntentResponse {
+pub struct UserPositionResponse {
     pub user: String,
-    pub intent: UserIntentState
+    pub position: UserPosition
 }
+
+// #[cw_serde]
+// pub struct UserIntentResponse {
+//     pub user: String,
+//     pub intent: UserIntentState
+// }
 #[cw_serde]
 pub struct RateKinkParams {
     pub rate_mulitplier: Decimal,

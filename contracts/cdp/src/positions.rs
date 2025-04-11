@@ -2762,6 +2762,23 @@ fn check_for_expunged(
     let mut passed = true;
     let mut invalid_withdraws = vec![];
 
+    //Does the position have expunged assets?
+    //If so, the withdrawal assets have to either fully withdraw the asset from the position or only withdraw expunged assets.
+
+
+    // Step 1: Gather all expunged assets (supply cap == 0)
+    let expunged_assets: Vec<AssetInfo> = basket.collateral_supply_caps
+        .iter()
+        .filter(|cap| cap.supply_cap_ratio.is_zero())
+        .map(|cap| cap.asset_info.clone())
+        .collect::<Vec<AssetInfo>>();
+
+    // Step 2: Check if all withdrawal assets are expunged
+    let all_withdrawn_assets_expunged = withdrawal_assets
+        .iter()
+        .all(|w| expunged_assets.contains(&w.info));
+
+
     //For any supply cap at 0
     for cap in basket.collateral_supply_caps {
 
@@ -2772,7 +2789,7 @@ fn check_for_expunged(
 
                 //Withdraw asset has to either..
                 //1) Only withdraw the asset
-                if withdrawal_assets[0].info.equal(&asset.info) && withdrawal_assets.len() == 1_usize{
+                if withdrawal_assets[0].info.equal(&asset.info) && withdrawal_assets.len() == 1_usize {
                     passed = true;
                 
                 //2) Fully withdraw the asset
@@ -2780,7 +2797,7 @@ fn check_for_expunged(
 
                     if withdrawal_asset.amount == asset.amount {
                         passed = true;
-                    }else {
+                    } else {
                         passed = false;
                         invalid_withdraws.push( asset.info.to_string() );
                     } 
@@ -2791,8 +2808,16 @@ fn check_for_expunged(
             }
         }
     }
+
+    // Step 3: For every expunged asset in position, require it to either be
+    //         fully withdrawn, partially withdrawn, or not withdrawn, but never
+    //         left behind while other assets are withdrawn.
+    if all_withdrawn_assets_expunged {
+        passed = true;
+    } 
+
     if !passed {
-        return Err( StdError::GenericErr { msg: format!("These assets need to be expunged from the positon: {:?}", invalid_withdraws) } )
+        return Err( StdError::GenericErr { msg: format!("These assets need to be expunged from the position: {:?}", invalid_withdraws) } )
     }
 
     Ok(())

@@ -122,7 +122,8 @@ pub fn update_basket_tally(
                 }
             }
 
-            if basket.collateral_supply_caps != vec![] && ratio > supply_caps[i].supply_cap_ratio && in_position {
+            //We skip the check if the supply cap is zero bc those are expunged assets.
+            if basket.collateral_supply_caps != vec![] && ratio > supply_caps[i].supply_cap_ratio && in_position && !supply_caps[i].supply_cap_ratio.is_zero(){
                 
                 return Err(ContractError::CustomError {
                     val: format!(

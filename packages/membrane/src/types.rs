@@ -1169,3 +1169,10 @@ pub struct BorrowOptions {
     pub amount: Option<Uint128>,
     pub ltv: Option<Decimal>,
 }
+
+#[cw_serde]
+pub struct UserPosition {
+    pub collateral_amount: Uint128,
+    pub debt_amount: Uint128,
+    pub rate_index: Decimal,
+}

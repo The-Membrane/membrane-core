@@ -477,18 +477,6 @@ fn exit_vault(
         &mut msgs
     )?;
 
-    //Send withdrawn tokens to the user (Contract buffer has enough to naked send)
-    // let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-    //     to_address: info.sender.to_string(),
-    //     amount: vec![Coin {
-    //         denom: config.deposit_token.clone(),
-    //         amount: deposit_tokens_to_withdraw,
-    //     }],
-    // });
-    // if !deposit_tokens_to_withdraw.is_zero() {
-    //     msgs.push(send_deposit_tokens_msg);
-    // }
-    
     //Burn vault tokens
     let burn_vault_tokens_msg: CosmosMsg = TokenFactory::MsgBurn {
         sender: env.contract.address.to_string(), 
@@ -536,6 +524,19 @@ fn exit_vault(
     if !deposit_tokens_to_withdraw.is_zero() {
         msgs.push(unstake_tokens_msg);
     }
+
+    //Send withdrawn tokens to the user post unstake
+    let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+        to_address: info.sender.to_string(),
+        amount: vec![Coin {
+            denom: config.deposit_token.clone(),
+            amount: deposit_tokens_to_withdraw,
+        }],
+    });
+    if !deposit_tokens_to_withdraw.is_zero() {
+        msgs.push(send_deposit_tokens_msg);
+    }
+    
 
 
     //Create Response 
@@ -603,13 +604,18 @@ fn claim_and_compound_liquidations(
     let mut msgs = vec![];
 
     //Create the list of total claims
-    let claims = get_all_claims(
+    let mut claims = get_all_claims(
         deps.querier,
         config.clone(),
         env.clone(),
         &mut msgs,
         true //we only filter out mbrn during compounds bc we don't want to sell it
     )?;
+
+    //Filter out claims if they are dust (i.e. 1)
+    claims.claims = claims.claims.clone().into_iter()
+        .filter(|claim| claim.amount > Uint128::new(1))
+        .collect::<Vec<Coin>>();
 
 
     //Compound rewards by sending to the Router in the Osmosis proxy contract

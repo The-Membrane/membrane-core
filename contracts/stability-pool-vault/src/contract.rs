@@ -339,9 +339,10 @@ fn get_all_claims(
     //Add current balances to claims
     let contract_balance_of_claims = querier.query_all_balances(env.contract.address.clone())?;
 
-    //Filter out the deposit token from the contract balance
+    //Filter out the deposit token & the vault token from the contract balance
     let mut contract_balances = contract_balance_of_claims.clone().into_iter()
         .filter(|claim| claim.denom.to_string() != config.deposit_token)
+        .filter(|claim| claim.denom.to_string() != config.vault_token)
         .collect::<Vec<Coin>>();
 
     if filter_out_mbrn {
@@ -351,7 +352,6 @@ fn get_all_claims(
             .collect::<Vec<Coin>>();
     }
 
-    
     //Add the claims to the claims response
     let mut claims_coins = claims.claims.clone();
     //Add new coins and add to duplicate coins
@@ -452,9 +452,9 @@ fn exit_vault(
         },
     )?;
     //Calc total TVL in the SP
-    let contract_SP_tvl: Uint128 = asset_pool.deposits.clone().into_iter()
-        .map(|deposit| deposit.amount)
-        .sum::<Decimal>().to_uint_floor();
+    // let contract_SP_tvl: Uint128 = asset_pool.deposits.clone().into_iter()
+    //     .map(|deposit| deposit.amount)
+    //     .sum::<Decimal>().to_uint_floor();
 
     
     //Parse deposits and calculate the amount of deposits that are withdrawable

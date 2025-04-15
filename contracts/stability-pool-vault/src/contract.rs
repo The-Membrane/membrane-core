@@ -452,126 +452,22 @@ fn exit_vault(
         },
     )?;
     //Calc total TVL in the SP
-    // let contract_SP_tvl: Uint128 = asset_pool.deposits.clone().into_iter()
-    //     .map(|deposit| deposit.amount)
-    //     .sum::<Decimal>().to_uint_floor();
+    let contract_SP_tvl: Uint128 = asset_pool.deposits.clone().into_iter()
+        .map(|deposit| deposit.amount)
+        .sum::<Decimal>().to_uint_floor();
 
     
     //Parse deposits and calculate the amount of deposits that are withdrawable
-    let withdrawable_amount = asset_pool.deposits.clone().into_iter()
-        // .filter(|deposit| deposit.unstake_time.is_some() && deposit.unstake_time.unwrap() + SECONDS_PER_DAY <= env.block.time.seconds())
-        .map(|deposit| deposit.amount)
-        .sum::<Decimal>().to_uint_floor();
+    // let withdrawable_amount = asset_pool.deposits.clone().into_iter()
+    //     .filter(|deposit| deposit.unstake_time.is_some() && deposit.unstake_time.unwrap() + SECONDS_PER_DAY <= env.block.time.seconds())
+    //     .map(|deposit| deposit.amount)
+    //     .sum::<Decimal>().to_uint_floor();
     
     //Check contract's balance of deposit tokens
-    let contract_balance_of_deposit_tokens = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
+    // let contract_balance_of_deposit_tokens = deps.querier.query_balance(env.contract.address.clone(), config.deposit_token.clone())?.amount;
 
     //Calc the total balance of liquid deposit tokens after the withdrawal
-    let contract_balance_post_SP_withdrawal = withdrawable_amount + contract_balance_of_deposit_tokens;
-
-    //If the contract will have less deposit tokens than the amount to withdraw
-    // - Send the contract's balance to the user
-    // - Withdraw the withdrawable_amount from the SP
-    // - Calc the amount of vault tokens that represent the deposit_tokens actually being sent to the user, burn these
-    // - Send back the rest of the vault tokens
-    if contract_balance_post_SP_withdrawal < deposit_tokens_to_withdraw {  
-        //Unstake 
-        let unstake_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.stability_pool_contract.to_string(),
-            msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw {
-                amount: withdrawable_amount,
-            })?,
-            funds: vec![],
-        });
-        //Add the unstake msg to msgs
-        msgs.push(unstake_tokens_msg);
-
-        //Send the contract's balance to the user
-        if !contract_balance_post_SP_withdrawal.is_zero() {
-
-            let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-                to_address: info.sender.to_string(),
-                amount: vec![Coin {
-                    denom: config.deposit_token.clone(),
-                    amount: contract_balance_post_SP_withdrawal,
-                }],
-            });
-            msgs.push(send_deposit_tokens_msg);
-        }
-        
-        //Calc the amount of vault tokens that back the withdrawable amount (contract_balance_post_SP_withdrawal)
-        let vault_tokens_to_burn = calculate_vault_tokens(
-            contract_balance_post_SP_withdrawal, 
-            total_deposit_tokens, 
-            total_vault_tokens
-        )?;
-        //Burn vault tokens
-        let burn_vault_tokens_msg: CosmosMsg = TokenFactory::MsgBurn {
-            sender: env.contract.address.to_string(), 
-            amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
-                denom: config.vault_token.clone(),
-                amount: vault_tokens_to_burn.to_string(),
-            }), 
-            burn_from_address: env.contract.address.to_string(),
-        }.into();
-        //Only if burn is non-zero
-        if !vault_tokens_to_burn.is_zero() {
-            //Burn vault tokens
-            msgs.push(burn_vault_tokens_msg);
-
-            //Distribute claims to the user based on the vault tokens we are taking from them
-            distribute_claims_to_user(
-                info.sender.to_string(),
-                claims,
-                vault_tokens_to_burn,
-                total_vault_tokens,
-                &mut msgs
-            )?;
-        }
-        //Send back the rest of the vault tokens
-        let vault_tokens_to_send = match vault_tokens.checked_sub(vault_tokens_to_burn){
-            Ok(v) => v,
-            Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to subtract vault tokens to send: {} - {}", vault_tokens, vault_tokens_to_burn) }),
-        };
-        let send_vault_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-            to_address: info.sender.to_string(),
-            amount: vec![Coin {
-                denom: config.vault_token.clone(),
-                amount: vault_tokens_to_send,
-            }],
-        });
-        if !vault_tokens_to_send.is_zero() {
-            msgs.push(send_vault_tokens_msg);
-        }
-        //Update the total vault tokens
-        let new_vault_token_supply = match total_vault_tokens.checked_sub(vault_tokens_to_burn){
-            Ok(v) => v,
-            Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to subtract vault token total supply: {} - {}", total_vault_tokens, vault_tokens) }),
-        };
-        VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
-        //Save the updated config
-        CONFIG.save(deps.storage, &config)?;
-
-        
-        //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw
-        if !new_vault_token_supply.is_zero() && total_deposit_tokens > deposit_tokens_to_withdraw {
-            //UNCOMMENT
-            assurance_msg.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: env.contract.address.to_string(),
-                msg: to_json_binary(&ExecuteMsg::RateAssurance {  })?,
-                funds: vec![],
-            }));
-        } 
-
-        return Ok(Response::new()
-            .add_attribute("method", "exit_vault")
-            .add_attribute("vault_tokens_burnt", vault_tokens_to_burn)
-            .add_attribute("deposit_tokens_withdrawn", contract_balance_post_SP_withdrawal)
-            .add_messages(msgs)
-            .add_messages(assurance_msg)
-        );
-    }
-
+    // let contract_balance_post_SP_withdrawal = withdrawable_amount + contract_balance_of_deposit_tokens;
 
     distribute_claims_to_user(
         info.sender.to_string(),
@@ -582,16 +478,16 @@ fn exit_vault(
     )?;
 
     //Send withdrawn tokens to the user (Contract buffer has enough to naked send)
-    let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
-        to_address: info.sender.to_string(),
-        amount: vec![Coin {
-            denom: config.deposit_token.clone(),
-            amount: deposit_tokens_to_withdraw,
-        }],
-    });
-    if !deposit_tokens_to_withdraw.is_zero() {
-        msgs.push(send_deposit_tokens_msg);
-    }
+    // let send_deposit_tokens_msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+    //     to_address: info.sender.to_string(),
+    //     amount: vec![Coin {
+    //         denom: config.deposit_token.clone(),
+    //         amount: deposit_tokens_to_withdraw,
+    //     }],
+    // });
+    // if !deposit_tokens_to_withdraw.is_zero() {
+    //     msgs.push(send_deposit_tokens_msg);
+    // }
     
     //Burn vault tokens
     let burn_vault_tokens_msg: CosmosMsg = TokenFactory::MsgBurn {
@@ -628,18 +524,16 @@ fn exit_vault(
         }));
     }
     
-    //Set unstake amount to either the desired withdrawal amount or the withdrawable amount
-    let unstake_amount = deposit_tokens_to_withdraw.min(withdrawable_amount);
     //Unstake the deposit tokens from the Stability Pool
     let unstake_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.stability_pool_contract.to_string(),
         msg: to_json_binary(&StabilityPoolExecuteMsg::Withdraw {
-            amount: unstake_amount,
+            amount: deposit_tokens_to_withdraw,
         })?,
         funds: vec![],
     });
     //Add the unstake msg to msgs
-    if !unstake_amount.is_zero() {
+    if !deposit_tokens_to_withdraw.is_zero() {
         msgs.push(unstake_tokens_msg);
     }
 
@@ -649,7 +543,6 @@ fn exit_vault(
         .add_attribute("method", "exit_vault")
         .add_attribute("vault_tokens", vault_tokens)
         .add_attribute("deposit_tokens_to_withdraw", deposit_tokens_to_withdraw)
-        .add_attribute("withdrawable_amount", withdrawable_amount)
         .add_messages(msgs)
         .add_messages(assurance_msg);
 

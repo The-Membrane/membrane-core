@@ -459,7 +459,7 @@ fn exit_vault(
     
     //Parse deposits and calculate the amount of deposits that are withdrawable
     let withdrawable_amount = asset_pool.deposits.clone().into_iter()
-        .filter(|deposit| deposit.unstake_time.is_some() && deposit.unstake_time.unwrap() + SECONDS_PER_DAY <= env.block.time.seconds())
+        // .filter(|deposit| deposit.unstake_time.is_some() && deposit.unstake_time.unwrap() + SECONDS_PER_DAY <= env.block.time.seconds())
         .map(|deposit| deposit.amount)
         .sum::<Decimal>().to_uint_floor();
     

@@ -1172,6 +1172,7 @@ pub struct BorrowOptions {
 
 #[cw_serde]
 pub struct UserPosition {
+    pub collateral_denom: String, 
     pub collateral_amount: Uint128,
     pub debt_amount: Uint128,
     pub rate_index: Decimal,

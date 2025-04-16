@@ -1190,7 +1190,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
         interest_rate: Decimal::percent(100_00),
         liquidation_execution: Decimal::percent(1_00),
         liquidation_claims: Decimal::percent(1_00),
-        governance_votes: Decimal::percent(100_00),
+        governance_votes: Decimal::percent(3_00),
         vault_yields: vec![
             VaultYield {
                 vault_address: String::from(RANGE_BOUND_VAULT),

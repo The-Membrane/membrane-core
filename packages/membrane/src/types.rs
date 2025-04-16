@@ -1190,6 +1190,7 @@ pub struct VaultMultiplier {
 }
 
 ///Multiplier for the points system
+#[cw_serde]
 pub struct PointsMultipliers {
     pub interest_rate: Decimal,
     pub vault_yields: Vec<VaultMultiplier>,

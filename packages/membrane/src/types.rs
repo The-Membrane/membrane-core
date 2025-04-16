@@ -1185,8 +1185,8 @@ pub struct UserPosition {
 pub struct VaultMultiplier {
     ///Vault Address
     pub vault_address: String,
-    //Saves denom for a single vault token
-    pub multiplier: String,
+    //multiplier
+    pub multiplier: Decimal,
 }
 
 ///Multiplier for the points system

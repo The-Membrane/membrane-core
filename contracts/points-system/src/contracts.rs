@@ -16,7 +16,7 @@ use membrane::governance::{QueryMsg as GOV_QueryMsg, Proposal};
 use membrane::oracle::QueryMsg as Oracle_QueryMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::staking::ExecuteMsg as Staking_ExecuteMsg;
-use membrane::types::{AssetInfo, Basket, UserInfo, PointsMultipliers};
+use membrane::types::{AssetInfo, Basket, UserInfo, PointsMultipliers, VaultMultiplier};
 use membrane::range_bound_lp_vault::QueryMsg as RB_QueryMsg;
 
 use crate::error::ContractError;
@@ -593,7 +593,7 @@ fn give_points(
                 config.clone(), 
                 range_bound_user_addr.clone(), 
                 basket.clone().credit_price, 
-                cdt_rev_made.clone().to_uint_floor()  * multiplier, 
+                cdt_rev_made.clone().to_uint_floor() * multiplier, 
                 vec![], 
                 vec![], 
                     vec![],
@@ -1192,7 +1192,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
         liquidation_claims: Decimal::percent(1_00),
         governance_votes: Decimal::percent(3_00),
         vault_yields: vec![
-            VaultYield {
+            VaultMultiplier {
                 vault_address: String::from(RANGE_BOUND_VAULT),
                 multiplier: Decimal::percent(10_00),
             },

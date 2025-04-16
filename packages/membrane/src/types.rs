@@ -1177,3 +1177,23 @@ pub struct UserPosition {
     pub debt_amount: Uint128,
     pub rate_index: Decimal,
 }
+
+//////////Points///////
+/// 
+
+#[cw_serde]
+pub struct VaultMultiplier {
+    ///Vault Address
+    pub vault_address: String,
+    //Saves denom for a single vault token
+    pub multiplier: String,
+}
+
+///Multiplier for the points system
+pub struct PointsMultipliers {
+    pub interest_rate: Decimal,
+    pub vault_yields: Vec<VaultMultiplier>,
+    pub liquidation_execution: Decimal,
+    pub liquidation_claims: Decimal,
+    pub governance_votes: Decimal,
+}

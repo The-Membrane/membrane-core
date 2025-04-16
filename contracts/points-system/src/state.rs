@@ -1,8 +1,8 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Uint128};
+use cosmwasm_std::{Addr, Decimal, Uint128};
 use cw_storage_plus::{Item, Map};
 
-use membrane::{points_system::{ClaimCheck, Config, UserStats, VaultConversionRate}, types::Asset};
+use membrane::{points_system::{ClaimCheck, Config, UserStats, VaultConversionRate}, types::PointsMultipliers};
 
 #[cw_serde]
 pub struct LiquidationPropagation {
@@ -26,11 +26,13 @@ pub struct VaultInfo {
 }
 
 
+
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const USER_STATS: Map<Addr, UserStats> = Map::new("user_stats"); 
 pub const CLAIM_CHECK: Item<ClaimCheck> = Item::new("claim_check");
 pub const LIQ_PROPAGATION: Item<LiquidationPropagation> = Item::new("cdp_balances");
 pub const USER_VAULT_CONVERSION_RATES: Map<Addr, Vec<VaultConversionRate>> = Map::new("user_vault_conversion_rates");
 pub const VAULT_INFO: Item<Vec<VaultInfo>> = Item::new("vault_info");
+pub const POINTS_MULTIPLIERS: Item<PointsMultipliers> = Item::new("points_multipliers");
 
 pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");

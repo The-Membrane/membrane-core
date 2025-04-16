@@ -1,7 +1,7 @@
 use cosmwasm_std::{Addr, Coin, Decimal, Uint128};
 use cosmwasm_schema::cw_serde;
 
-use crate::types::UserInfo;
+use crate::types::{UserInfo, PointsMultipliers};
 use crate::liq_queue::ClaimsResponse;
 
 #[cw_serde]
@@ -29,6 +29,7 @@ pub enum ExecuteMsg {
         mbrn_per_point: Option<Decimal>,
         max_mbrn_distribution: Option<Uint128>,
         points_per_dollar: Option<Decimal>,
+        points_multipliers: Option<PointsMultipliers>
     },
     /// Queries contracts to confirm & save current claims for the user
     CheckClaims {

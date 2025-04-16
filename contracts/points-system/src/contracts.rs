@@ -16,11 +16,11 @@ use membrane::governance::{QueryMsg as GOV_QueryMsg, Proposal};
 use membrane::oracle::QueryMsg as Oracle_QueryMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::staking::ExecuteMsg as Staking_ExecuteMsg;
-use membrane::types::{AssetInfo, Basket, UserInfo};
+use membrane::types::{AssetInfo, Basket, UserInfo, PointsMultipliers};
 use membrane::range_bound_lp_vault::QueryMsg as RB_QueryMsg;
 
 use crate::error::ContractError;
-use crate::state::{LiquidationPropagation, CLAIM_CHECK, CONFIG, LIQ_PROPAGATION, OWNERSHIP_TRANSFER, USER_STATS, USER_VAULT_CONVERSION_RATES};
+use crate::state::{LiquidationPropagation, POINTS_MULTIPLIERS, CLAIM_CHECK, CONFIG, LIQ_PROPAGATION, OWNERSHIP_TRANSFER, USER_STATS, USER_VAULT_CONVERSION_RATES};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "points_system";
@@ -96,7 +96,7 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig { owner, cdt_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar } => update_config(deps, info, owner, cdt_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar),
+        ExecuteMsg::UpdateConfig { owner, cdt_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar, points_multipliers } => update_config(deps, info, owner, cdt_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar, points_multipliers),
         ExecuteMsg::Liquidate { position_id, position_owner } => liquidate_for_user(deps, env, info, position_id, position_owner),
         ExecuteMsg::CheckClaims { cdp_repayment, sp_claims, lq_claims, vote, rangebound_user } => check_claims(deps, env, info, cdp_repayment, sp_claims, lq_claims, vote, rangebound_user),
         ExecuteMsg::GivePoints { cdp_repayment, sp_claims, lq_claims, vote, rangebound_user } => give_points(deps, env, info, cdp_repayment, sp_claims, lq_claims, vote, rangebound_user),
@@ -308,6 +308,19 @@ fn give_points(
     vote: Option<Vec<u64>>,
     rangebound_user: Option<String>,
 ) -> Result<Response, ContractError>{
+    //Load Points Multiplier
+    let points_multiplier: PointsMultipliers = match POINTS_MULTIPLIERS.load(deps.storage){
+        Ok(multiplier) => multiplier,
+        Err(_) => {
+            PointsMultipliers {
+                interest_rate: Decimal::one(),
+                vault_yields: vec![],
+                liquidation_execution: Decimal::one(),
+                liquidation_claims: Decimal::one(),
+                governance_votes: Decimal::one(),
+            }
+        }
+    };
     //Load config
     let config: Config = CONFIG.load(deps.storage)?;
     //Load Claim Check
@@ -564,6 +577,15 @@ fn give_points(
                 Decimal::from_ratio(underlying_deposit_token, Uint128::one()
             ))?;
 
+            //Find the points multiplier for the range bound vault
+            let mut multiplier = Decimal::one();
+            for vault in points_multiplier.vault_yields.clone() {
+                if vault.vault_address == RANGE_BOUND_VAULT {
+                    multiplier = vault.multiplier;
+                    break;
+                }
+            }
+
             //Add these points to the user's claimable points
             allocate_points(
                 deps.storage, 
@@ -571,10 +593,11 @@ fn give_points(
                 config.clone(), 
                 range_bound_user_addr.clone(), 
                 basket.clone().credit_price, 
-                cdt_rev_made.clone().to_uint_floor(), 
+                cdt_rev_made.clone().to_uint_floor()  * multiplier, 
                 vec![], 
                 vec![], 
-                    vec![]
+                    vec![],
+                    points_multiplier.clone()
             )?;
             attrs.push(attr("range_bound_yield", cdt_rev_made.to_string()));
 
@@ -605,10 +628,11 @@ fn give_points(
         config.clone(), 
         info.sender.clone(), 
         basket.clone().credit_price, 
-        revenue_paid, 
+        revenue_paid * points_multiplier.interest_rate, 
         sp_claim_diff.clone(), 
         lq_claim_diff.clone(), 
-        newly_voted_proposals.clone()
+        newly_voted_proposals.clone(),
+        points_multiplier.clone()
     )?;
 
     //Set attributes
@@ -684,7 +708,7 @@ fn claim_mbrn_from_points(
     };
 
     //Calculate MBRN to claim
-    let mut mbrn_to_claim = match user_stats.claimable_points.checked_mul(config.clone().mbrn_per_point){
+    let mbrn_to_claim = match user_stats.claimable_points.checked_mul(config.clone().mbrn_per_point){
         Ok(amount) => amount.to_uint_ceil(),
         Err(_) => return Err(ContractError::Std(StdError::generic_err("No MBRN to claim"))),
     };
@@ -769,6 +793,7 @@ fn allocate_points(
     sp_claim_diff: Vec<Coin>,
     lq_claim_diff: Vec<Coin>,
     newly_voted_proposals: Vec<u64>,
+    points_multipliers: PointsMultipliers
 ) -> StdResult<()> {
     //Concat the sp & lq claims
     let mut claim_diffs: Vec<Coin> = sp_claim_diff.clone();
@@ -802,7 +827,10 @@ fn allocate_points(
         //Find index of the denom in unique denoms
         if let Some(index) = unique_denoms.iter().position(|x| x == &AssetInfo::NativeToken { denom: coin.denom.clone() }){
             //Add the value of the claim to the total value
-            total_value += denoms_prices[index].get_value(coin.amount)?;
+            total_value += decimal_multiplication(
+                denoms_prices[index].get_value(coin.amount)?,
+                points_multipliers.liquidation_claims.clone()
+            )?;
         }
     }
     
@@ -810,7 +838,10 @@ fn allocate_points(
     total_value += cdt_price.get_value(revenue_paid)?;
 
     //Add $1 for each proposal voted
-    total_value += Decimal::from_ratio(newly_voted_proposals.len() as u64, 1u64);
+    total_value += decimal_multiplication(
+        Decimal::from_ratio(newly_voted_proposals.len() as u64, 1u64),
+        points_multipliers.governance_votes.clone()
+    )?;
 
     //Calculate points
     let points = decimal_multiplication(total_value, config.clone().points_per_dollar)?;
@@ -847,6 +878,7 @@ fn update_config(
     mbrn_per_point: Option<Decimal>,
     max_mbrn_distribution: Option<Uint128>,
     points_per_dollar: Option<Decimal>,  
+    points_multipliers: Option<PointsMultipliers>
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     let mut attrs = vec![attr("method", "update_config")];
@@ -909,6 +941,10 @@ fn update_config(
         config.points_per_dollar = amount;
         attrs.push(attr("points_per_dollar", amount.to_string()));
     }        
+    if let Some(multipliers) = points_multipliers {
+        POINTS_MULTIPLIERS.save(deps.storage, &multipliers)?;
+        attrs.push(attr("points_multipliers", format!("{:?}", multipliers)));
+    }
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
@@ -971,6 +1007,9 @@ fn handle_liq_reply(
             //Empty Liquidation Propagation
             LIQ_PROPAGATION.remove(deps.storage);
 
+            //Load points multipliers
+            let points_multiplier: PointsMultipliers = POINTS_MULTIPLIERS.load(deps.storage)?;
+
             //Allocate points to the Vault owner who got liquidated
             allocate_points(
                 deps.storage, 
@@ -978,10 +1017,11 @@ fn handle_liq_reply(
                 config.clone(), 
                 liquidation_propagation.clone().liquidatee, 
                 basket.clone().credit_price, 
-                liquidated_amount, 
+                liquidated_amount * points_multiplier.liquidation_execution,
                 vec![],                 
                 vec![],                 
-                vec![]
+                vec![],
+                points_multiplier.clone()
             )?;
 
             //Allocate points to the Liquidation caller
@@ -994,7 +1034,8 @@ fn handle_liq_reply(
                 Uint128::zero(), 
                 balances.clone(),
                 vec![],                 
-                vec![]
+                vec![],
+                points_multiplier.clone()
             )?;
             
             Ok(Response::new()
@@ -1143,6 +1184,21 @@ fn query_user_conversion_rates(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+
+    //Set initial points multipliers
+    let points_multiplier = PointsMultipliers {
+        interest_rate: Decimal::percent(100_00),
+        liquidation_execution: Decimal::percent(1_00),
+        liquidation_claims: Decimal::percent(1_00),
+        governance_votes: Decimal::percent(100_00),
+        vault_yields: vec![
+            VaultYield {
+                vault_address: String::from(RANGE_BOUND_VAULT),
+                multiplier: Decimal::percent(10_00),
+            },
+        ],
+    };
+    POINTS_MULTIPLIERS.save(deps.storage, &points_multiplier)?;
     
     Ok(Response::default())
 }

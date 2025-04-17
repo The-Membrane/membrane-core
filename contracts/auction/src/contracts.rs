@@ -10,7 +10,7 @@ use membrane::math::{decimal_division, decimal_multiplication, decimal_subtracti
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
-use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
+use membrane::cdp::{BasketPositionsResponse, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
 use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, DebtAuction, FeeAuction};
 use membrane::helpers::withdrawal_msg;
 use serde::de;
@@ -18,7 +18,7 @@ use serde::de;
 use crate::error::ContractError;
 use crate::state::{CONFIG, DEBT_AUCTION, FEE_AUCTIONS, OWNERSHIP_TRANSFER};
 
-// Contract name and version used for migration.
+// Contract name and version used for migration. 
 const CONTRACT_NAME: &str = "auctions";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -591,23 +591,31 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
         let mbrn_price = res[0].price;
 
         //Get credit price at peg to further incentivize recapitalization
-        let basket_credit_price = deps
+        let basket = deps
             .querier
             .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.clone().positions_contract.to_string(),
                 msg: to_binary(&CDPQueryMsg::GetBasket { })?,
-            }))?
-            .credit_price;
+            }))?;
+        let basket_credit_price = basket.credit_price;
 
         //Get discount
         let discount_ratio = get_discount_ratio(env, auction.auction_start_time, config.clone())?;
 
         //Mint MBRN for user
         let discounted_mbrn_price = decimal_multiplication(mbrn_price, discount_ratio)?;
+        if discounted_mbrn_price.is_zero() {
+            return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Discounted MBRN price is zero") }));
+        }
         let credit_value = basket_credit_price.get_value(swap_amount.to_uint_floor())?;
         let mbrn_mint_amount =
             decimal_division(credit_value, discounted_mbrn_price)? * Uint128::new(1u128);
 
+        //Ensure MBRN mint amount is not zero
+        if mbrn_mint_amount.is_zero() {
+            return Err(ContractError::Std(StdError::GenericErr { msg: String::from("MBRN mint amount is zero") }));
+        }
+        //Else
         let message = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.clone().osmosis_proxy.to_string(),
             msg: to_binary(&OsmoExecuteMsg::MintTokens {
@@ -643,12 +651,47 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                 }
 
                 //Update Position repayment
-                auction.repayment_positions[i].repayment -= repay_amount;
+                auction.repayment_positions[i].repayment = match auction.repayment_positions[i].repayment.checked_sub(repay_amount){
+                    Ok(val) => val,
+                    Err(_) => Uint128::zero(),
+                };
                 //Update swap amount
-                swap_amount -= repay_amount;
+                swap_amount = match swap_amount.checked_sub(repay_amount){
+                    Ok(val) => val,
+                    Err(_) => Uint128::zero(),
+                };
 
                 //Create Repay message
                 if !repay_amount.is_zero() {
+
+                    //Query the target position
+                    let positions: Vec<BasketPositionsResponse> = deps
+                        .querier
+                        .query::<Vec<BasketPositionsResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+                            contract_addr: config.clone().positions_contract.to_string(),
+                            msg: to_binary(&CDPQueryMsg::GetBasketPositions { 
+                                start_after: None, 
+                                limit: None, 
+                                user_info: Some(
+                                    UserInfo { 
+                                        position_id: position.clone().position_info.position_id,
+                                        position_owner: position.clone().position_info.position_owner,
+                                    }
+                                ), 
+                                user: None 
+                            })?,
+                        }))?;
+                    //Get the position info
+                    let target_position = positions[0].clone().positions[0].clone();
+
+                    //If position debt is 0, skip and update state
+                    if target_position.credit_amount.is_zero() {
+                        //Remove Position repayment
+                        auction.repayment_positions[i].repayment = Uint128::zero();
+                        continue;
+                    }
+
+                    //Send msg otherwise
                     let message = CosmosMsg::Wasm(WasmMsg::Execute {
                         contract_addr: config.clone().positions_contract.to_string(),
                         msg: to_binary(&CDPExecuteMsg::Repay {
@@ -656,7 +699,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                             position_owner: Some(
                                 position.clone().position_info.position_owner,
                             ),
-                            send_excess_to: None,
+                            send_excess_to: Some(config.clone().owner.to_string()),
                         })?,
                         funds: coins(repay_amount.u128(), coin.clone().denom),
                     });
@@ -706,13 +749,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                 }
 
                 //Get credit asset info
-                let credit_asset = deps
-                .querier
-                .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
-                    contract_addr: config.clone().positions_contract.to_string(),
-                    msg: to_binary(&CDPQueryMsg::GetBasket { })?,
-                }))?
-                .credit_asset.info;
+                let credit_asset = basket.credit_asset.info.clone();
 
                 //Create withdrawal msg
                 let msg = withdrawal_msg(

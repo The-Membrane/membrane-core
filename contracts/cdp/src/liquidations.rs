@@ -74,7 +74,7 @@ pub fn liquidate(
     }
 
     //Load state
-    let config: Config = CONFIG.load(storage)?;
+    let mut config: Config = CONFIG.load(storage)?;
     let valid_position_owner =
         validate_position_owner(api, info.clone(), Some(position_owner.clone()))?;
 
@@ -183,11 +183,16 @@ pub fn liquidate(
         Ok(value) => value,
         Err(_) => return Err(ContractError::CustomError { val: "Caller fee calculation failed".to_string() }),
     };
-    if caller_fee_value > leftover_position_value {
+    let protocol_fee_value = match decimal_multiplication(config.liq_fee, repay_value){
+        Ok(value) => value,
+        Err(_) => return Err(ContractError::CustomError { val: "Protocol fee calculation failed".to_string() }),
+    };
+    if caller_fee_value + protocol_fee_value > leftover_position_value {
         caller_fee = min(
             BAD_DEBT_CALLER_FEE, 
             decimal_division(leftover_position_value, repay_value)?,
         );
+        config.liq_fee = Decimal::zero();
     }
 
     //Calculate caller & protocol fees 
@@ -448,7 +453,10 @@ fn get_user_repay_amount(
             submessages.push(sub_msg);
 
             //Subtract Repay amount from credit_repay_amount for the liquidation
-            *credit_repay_amount = decimal_subtraction(*credit_repay_amount, user_repay_amount)?;
+            *credit_repay_amount = match decimal_subtraction(*credit_repay_amount, user_repay_amount){
+                Ok(res) => res,
+                Err(_) => return Err(StdError::GenericErr { msg: "SP credit repay amount calculation failed".to_string() }),
+            };
         }
     }
 
@@ -530,7 +538,10 @@ fn get_rblp_user_repay_amount(
         submessages.push(sub_msg);
 
         //Subtract Repay amount from credit_repay_amount for the liquidation
-        *credit_repay_amount = decimal_subtraction(*credit_repay_amount, user_repay_amount)?;
+        *credit_repay_amount = match decimal_subtraction(*credit_repay_amount, user_repay_amount){
+            Ok(res) => res,
+            Err(_) => return Err(StdError::GenericErr { msg: "RBLP credit repay amount calculation failed".to_string() }),
+        };
     }
 
     Ok( user_repay_amount )
@@ -589,7 +600,10 @@ fn per_asset_fulfillments(
         *caller_fee_value_paid = *caller_fee_value_paid + fee_value;
 
         //Update collateral_assets to reflect the fee
-        collateral_assets[num].asset.amount -= caller_fee_in_collateral_amount;
+        collateral_assets[num].asset.amount = match collateral_assets[num].asset.amount.checked_sub(caller_fee_in_collateral_amount){
+            Ok(res) => res,
+            Err(_) => return Err(StdError::GenericErr { msg: "Collateral fee amount calculation failed".to_string() }),
+        };
         //Add to list of liquidated assets
         if caller_fee_in_collateral_amount > Uint128::zero() {
             liquidated_assets.push(
@@ -607,7 +621,10 @@ fn per_asset_fulfillments(
         let protocol_fee_in_collateral_amount = pre_user_repay_collateral_repay_amount * config.clone().liq_fee;
         
         //Update collateral_assets to reflect the fee
-        collateral_assets[num].asset.amount -= protocol_fee_in_collateral_amount;
+        collateral_assets[num].asset.amount = match collateral_assets[num].asset.amount.checked_sub(protocol_fee_in_collateral_amount) {
+            Ok(res) => res,
+            Err(_) => return Err(StdError::GenericErr { msg: "Protocol fee amount calculation failed".to_string() }),
+        };
         //Add to list of liquidated assets
         if protocol_fee_in_collateral_amount > Uint128::zero() {
             liquidated_assets.push(
@@ -815,7 +832,10 @@ pub fn build_sp_submsgs(
         //if leftover_position_value is less than leftover_repay value + the SP fee, we liquidate what we can
         if leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))?{
             //Set Position value to the discounted value the SP will be distributed
-            leftover_position_value = decimal_division(leftover_position_value, (Decimal::one() + sp_liq_fee))?;
+            leftover_position_value = match decimal_division(leftover_position_value, (Decimal::one() + sp_liq_fee)){
+                Ok(res) => res,
+                Err(_) => return Err(ContractError::CustomError { val: "Leftover position value calculation (for SP) failed".to_string() }),
+            };
             //Set leftover_repayment to the amount of credit the Position value can pay
             leftover_repayment = Decimal::from_ratio(basket.credit_price.get_amount(leftover_position_value)?, Uint128::one());            
         }        

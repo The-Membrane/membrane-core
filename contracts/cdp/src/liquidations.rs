@@ -350,7 +350,14 @@ fn get_repay_quantities(
     let mut repay_value = if current_LTV >= Decimal::one() {
         total_value
     } else {
-        decimal_multiplication( decimal_division( decimal_subtraction(current_LTV, borrow_LTV)?, current_LTV)?, loan_value)?
+        decimal_multiplication( 
+            decimal_division(
+                 match decimal_subtraction(current_LTV, borrow_LTV){
+                    Ok(res) => res,
+                    Err(_) => return Err(ContractError::CustomError { val: "decimal_subtraction in repay_quantities failed".to_string() }),
+                 }, 
+                 current_LTV)?, 
+                 loan_value)?
     };
 
     //Assert repay_value is above the minimum, if not repay at least the minimum
@@ -711,8 +718,11 @@ fn per_asset_fulfillments(
                 
             //Calculate how much collateral we are sending to the liq_queue to liquidate
             let leftover: Uint128 = Uint128::from_str(&res.leftover_collateral)?;
-            let queue_asset_amount_paid: Uint128 =
-                collateral_repay_amount  - leftover;
+            let queue_asset_amount_paid: Uint128 = match 
+                collateral_repay_amount.checked_sub(leftover){
+                    Ok(res) => res,
+                    Err(_) => return Err(StdError::GenericErr { msg: "Queue asset amount paid calculation (for liq) failed".to_string() }),
+                };
 
             //Don't send a message if the amount is 0
             if queue_asset_amount_paid.is_zero() || Uint128::from_str(&res.total_debt_repaid)?.is_zero(){
@@ -806,7 +816,10 @@ pub fn build_sp_submsgs(
 ) -> Result<(Decimal), ContractError>{
 
     //Starts at what LQ is supposed to pay
-    let liq_queue_repayment = credit_repay_amount - leftover_repayment;
+    let liq_queue_repayment = match credit_repay_amount.checked_sub(leftover_repayment){
+        Ok(res) => res,
+        Err(_) => return Err(ContractError::CustomError { val: "Leftover repayment calculation (for build_sp_submsgs) failed".to_string() }),
+    };
     
     if config.stability_pool.is_some() && !leftover_repayment.is_zero() {        
         let sp_pool: AssetPool = querier.query_wasm_smart::<AssetPool>(

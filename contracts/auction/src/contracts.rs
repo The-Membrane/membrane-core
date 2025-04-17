@@ -665,6 +665,15 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                 if target_position.credit_amount.is_zero() {
                     //Remove Position repayment
                     auction.repayment_positions[i].repayment = Uint128::zero();
+                    //Update auction remaining_recapitalization amount
+                    auction.remaining_recapitalization = match auction
+                        .remaining_recapitalization
+                        .checked_sub(position.repayment)
+                    {
+                        Ok(val) => val,
+                        Err(_) => Uint128::zero(),
+                    };
+
                     continue;
                 }
 

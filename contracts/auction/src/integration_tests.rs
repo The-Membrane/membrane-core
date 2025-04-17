@@ -5,8 +5,9 @@ mod tests {
     use crate::helpers::DebtContract;
 
     use membrane::auction::{ExecuteMsg, InstantiateMsg, QueryMsg};
+    use membrane::cdp::{BasketPositionsResponse, PositionResponse};
     use membrane::oracle::PriceResponse;
-    use membrane::types::{Asset, AssetInfo, Basket, FeeAuction, DebtAuction};
+    use membrane::types::{Asset, AssetInfo, Basket, DebtAuction, FeeAuction, UserInfo};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
@@ -159,10 +160,16 @@ mod tests {
     #[serde(rename_all = "snake_case")]
     pub struct CDP_MockInstantiateMsg {}
 
-    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+    #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, JsonSchema)]
     #[serde(rename_all = "snake_case")]
     pub enum CDP_MockQueryMsg {
         GetBasket { },
+        GetBasketPositions {
+            start_after: Option<String>,
+            limit: Option<u32>,
+            user_info: Option<UserInfo>,
+            user: Option<String>,
+        },
     }
 
     pub fn cdp_contract() -> Box<dyn Contract<Empty>> {
@@ -207,8 +214,27 @@ mod tests {
                         credit_last_accrued: 0,
                         rates_last_accrued: 0,
                         oracle_set: false,
+                        revenue_destinations: Some(vec![]),
                     })?),
+                    CDP_MockQueryMsg::GetBasketPositions { start_after, limit, user_info, user } => {
+                        Ok(to_binary(&vec![
+                            BasketPositionsResponse {
+                                user: String::from("user"),
+                                positions: vec![
+                                    PositionResponse { 
+                                        position_id: Uint128::zero(), 
+                                        collateral_assets: vec![], 
+                                        cAsset_ratios: vec![], 
+                                        credit_amount: Uint128::zero(), 
+                                        avg_borrow_LTV: Decimal::zero(), 
+                                        avg_max_LTV: Decimal::zero()
+                                    }
+                                ]
+                            }
+                        ])?)
+                    }
                 }
+
             },
         );
         Box::new(contract)

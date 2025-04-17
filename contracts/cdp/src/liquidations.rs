@@ -597,10 +597,13 @@ fn per_asset_fulfillments(
         };
 
         //Subtract Caller fee from Position's claims
-        let caller_fee_in_collateral_amount = std::cmp::min(
-            pre_user_repay_collateral_repay_amount * caller_fee,
-            collateral_assets[num].asset.amount,
-        );
+        let mut caller_fee_in_collateral_amount = pre_user_repay_collateral_repay_amount * caller_fee;
+
+        //If the caller fee is greater than the amount of collateral the Position has, set it to 0 
+        //This is to prevent the caller fee from being greater than the value of the position
+        if caller_fee_in_collateral_amount >= collateral_assets[num].asset.amount {
+            caller_fee_in_collateral_amount = Uint128::zero();
+        }
         
         //Add to caller_fee_value_paid
         let fee_value = match collateral_price.get_value(caller_fee_in_collateral_amount){
@@ -628,11 +631,14 @@ fn per_asset_fulfillments(
         }
         
         //Subtract Protocol fee from Position's claims
-        let protocol_fee_in_collateral_amount = std::cmp::min(
-            pre_user_repay_collateral_repay_amount * config.clone().liq_fee,
-            collateral_assets[num].asset.amount,
-        );
-                
+        let mut protocol_fee_in_collateral_amount = pre_user_repay_collateral_repay_amount * config.clone().liq_fee;
+
+        //If the protocol fee is greater than the amount of collateral the Position has, set it to 0
+        //This is to prevent the protocol fee from being greater than the value of the position
+        if protocol_fee_in_collateral_amount >= collateral_assets[num].asset.amount {
+            protocol_fee_in_collateral_amount = Uint128::zero();
+        }
+        
         //Update collateral_assets to reflect the fee
         collateral_assets[num].asset.amount = match collateral_assets[num].asset.amount.checked_sub(protocol_fee_in_collateral_amount) {
             Ok(res) => res,

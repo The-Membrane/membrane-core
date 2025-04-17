@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::str::FromStr;
 
 use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Response, Decimal, CosmosMsg, attr, SubMsg, Addr, StdResult, StdError, to_binary, WasmMsg, QueryRequest, WasmQuery, BankMsg, Coin, ReplyOn};
@@ -22,6 +23,7 @@ use crate::risk_engine::update_basket_tally;
 use crate::state::{get_target_position, update_position, LiquidationPropagation, Timer, BASKET, CONFIG, FREEZE_TIMER, LIQUIDATION};
 
 pub const SECONDS_PER_DAY: u64 = 86400;
+pub const BAD_DEBT_CALLER_FEE: Decimal = Decimal::percent(1);
 
 /// Confirms insolvency and calculates repayment amount,
 /// then sends liquidation messages to the modules if they have funds.
@@ -86,7 +88,7 @@ pub fn liquidate(
     let (
         (insolvent, current_LTV, _available_fee), 
         (avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices_res, cAsset_ratios)
-    ) = insolvency_check(
+    ) = match insolvency_check(
         storage,
         env.clone(),
         querier,
@@ -96,7 +98,10 @@ pub fn liquidate(
         basket.clone().credit_price,
         false,
         config.clone(),
-    )?;
+    ){
+        Ok(res) => res,
+        Err(err) => return Err(ContractError::CustomError { val: String::from(format!("Insolvency check failed: {:?}", err)) }),
+    };
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -106,14 +111,17 @@ pub fn liquidate(
     let cAsset_prices = cAsset_prices_res.clone().into_iter().map(|price| price.price).collect::<Vec<Decimal>>();
     
     //Get repay value and repay_amount
-    let (pre_user_repay_repay_value, mut credit_repay_amount) = get_repay_quantities(
+    let (pre_user_repay_repay_value, mut credit_repay_amount) = match get_repay_quantities(
         config.clone(),
         basket.clone(),
         target_position.clone(),
         current_LTV,
         avg_borrow_LTV,
         total_value,
-    )?;
+    ){
+        Ok(res) => res,
+        Err(err) => return Err(ContractError::CustomError { val: String::from(format!("Repay quantities failed: {:?}", err)) }),
+    };
 
     // Don't send any funds here, only send UserInfo and repayment amounts.
     // We want to act on the reply status but since SubMsg state won't revert if we catch the error,
@@ -128,7 +136,10 @@ pub fn liquidate(
     let mut collateral_assets = target_position.clone().collateral_assets;
 
     //Dynamic fee that goes to the caller (info.sender): current_LTV - max_LTV
-    let caller_fee = decimal_subtraction(current_LTV, avg_max_LTV)?;
+    let mut caller_fee = match decimal_subtraction(current_LTV, avg_max_LTV){
+        Ok(res) => res,
+        Err(_) => return Err(ContractError::CustomError { val: "Caller fee calculation failed".to_string() }),
+    };
 
     //Set pre-user repay amount 
     let pre_user_repay_repay_amount = credit_repay_amount;
@@ -166,9 +177,22 @@ pub fn liquidate(
 
     let mut leftover_position_value = total_value;
 
+    //If caller fee * repay_value is greater than the leftover_position_value, hardcode it to 1%
+    //This is to prevent the caller fee from being greater than the value of the position
+    let caller_fee_value = match decimal_multiplication(caller_fee, repay_value){
+        Ok(value) => value,
+        Err(_) => return Err(ContractError::CustomError { val: "Caller fee calculation failed".to_string() }),
+    };
+    if caller_fee_value > leftover_position_value {
+        caller_fee = min(
+            BAD_DEBT_CALLER_FEE, 
+            decimal_division(leftover_position_value, repay_value)?,
+        );
+    }
+
     //Calculate caller & protocol fees 
     //and amount to send to the Liquidation Queue.
-    let (protocol_fee_msg, leftover_repayment) = per_asset_fulfillments(
+    let (protocol_fee_msg, leftover_repayment) = match per_asset_fulfillments(
         querier, 
         config.clone(), 
         basket.clone(), 
@@ -186,7 +210,10 @@ pub fn liquidate(
         &mut per_asset_repayment,
         &mut liquidated_assets,
         &mut caller_fee_value_paid,
-    )?;
+    ){
+        Ok(res) => res,
+        Err(err) => return Err(ContractError::CustomError { val: String::from(format!("Per asset fulfillments failed: {:?}", err)) }),
+    };
         
     //Update collateral_assets to reflect the fees
     target_position.collateral_assets = collateral_assets;
@@ -243,7 +270,7 @@ pub fn liquidate(
 
 
     //Build SP msgs
-    let ( leftover_repayment ) = build_sp_submsgs(
+    let ( leftover_repayment ) = match build_sp_submsgs(
         storage, 
         querier,
         env.clone(), 
@@ -261,7 +288,10 @@ pub fn liquidate(
         cAsset_ratios,
         cAsset_prices_res,
         caller_fee_value_paid,
-    )?;
+    ){
+        Ok(res) => res,
+        Err(err) => return Err(ContractError::CustomError { val: String::from(format!("SP submsgs failed: {:?}", err)) }),
+    };
 
     //Create the Bad debt callback message to be added as the last SubMsg
     let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -539,14 +569,23 @@ fn per_asset_fulfillments(
         let repay_amount_per_asset = fn_repayment * cAsset_ratios[num];
         
         let collateral_price = cAsset_prices[num].clone();
-        let collateral_repay_value = decimal_multiplication(pre_user_repay_repay_value, cAsset_ratios[num])?;
-        let pre_user_repay_collateral_repay_amount: Uint128 = collateral_price.get_amount(collateral_repay_value)?;
+        let collateral_repay_value = match decimal_multiplication(pre_user_repay_repay_value, cAsset_ratios[num]){
+            Ok(res) => res,
+            Err(_) => return Err(StdError::GenericErr { msg: "Collateral repay value (for fee) calculation failed".to_string() }),
+        };
+        let pre_user_repay_collateral_repay_amount: Uint128 = match collateral_price.get_amount(collateral_repay_value){
+            Ok(res) => res,
+            Err(_) => return Err(StdError::GenericErr { msg: "Collateral repay amount (for fee) calculation failed".to_string() }),
+        };
 
         //Subtract Caller fee from Position's claims
         let caller_fee_in_collateral_amount = pre_user_repay_collateral_repay_amount * caller_fee;
         
         //Add to caller_fee_value_paid
-        let fee_value = collateral_price.get_value(caller_fee_in_collateral_amount)?;
+        let fee_value = match collateral_price.get_value(caller_fee_in_collateral_amount){
+            Ok(res) => res,
+            Err(_) => return Err(StdError::GenericErr { msg: "Caller fee value calculation failed".to_string() }),
+        };
         *caller_fee_value_paid = *caller_fee_value_paid + fee_value;
 
         //Update collateral_assets to reflect the fee
@@ -587,7 +626,10 @@ fn per_asset_fulfillments(
         let fee_value = collateral_price.get_value((caller_fee_in_collateral_amount + protocol_fee_in_collateral_amount))?;
 
         //Remove fee_value from leftover_position_value
-        *leftover_position_value = decimal_subtraction(*leftover_position_value, fee_value)?;
+        *leftover_position_value = match decimal_subtraction(*leftover_position_value, fee_value){
+            Ok(res) => res,
+            Err(_) => return Err(StdError::GenericErr { msg: "Leftover position value calculation (for fee) failed".to_string() }),
+        };
         
         //Create msgs to caller as well as to liq_queue if.is_some()
         match cAsset.clone().asset.info {
@@ -615,8 +657,14 @@ fn per_asset_fulfillments(
         if basket.clone().liq_queue.is_some() && leftover_repayment > Uint128::zero(){
             //Repay amount using repay_value after the user's SP repayment            
             let collateral_price = cAsset_prices[num].clone();
-            let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num])?;
-            let mut collateral_repay_amount: Uint128 = collateral_price.get_amount(collateral_repay_value)?;
+            let collateral_repay_value = match decimal_multiplication(repay_value, cAsset_ratios[num]){
+                Ok(res) => res,
+                Err(_) => return Err(StdError::GenericErr { msg: "Collateral repay value calculation (for liq) failed".to_string() }),
+            };
+            let mut collateral_repay_amount: Uint128 = match collateral_price.get_amount(collateral_repay_value){
+                Ok(res) => res,
+                Err(_) => return Err(StdError::GenericErr { msg: "Collateral repay amount calculation (for liq) failed".to_string() }),
+            };
                         
             //if collateral repay amount is more than the Position has in assets, 
             //Set collateral_repay_amount to the amount the Position has in assets
@@ -665,13 +713,19 @@ fn per_asset_fulfillments(
             //value_paid_to_queue = queue_asset_amount_paid * collateral_price
             let value_paid_to_queue: Decimal = collateral_price.get_value(queue_asset_amount_paid)?;
 
-            *leftover_position_value = decimal_subtraction(*leftover_position_value, value_paid_to_queue)?;
+            *leftover_position_value = match decimal_subtraction(*leftover_position_value, value_paid_to_queue){
+                Ok(res) => res,
+                Err(_) => return Err(StdError::GenericErr { msg: "Leftover position value calculation (for liq) failed".to_string() }),
+            };
             
             //Calculate how much the queue repaid in credit
             let queue_credit_repaid = Uint128::from_str(&res.total_debt_repaid)?;
             //Subtract that from the running total for potential leftovers
             //i.e. after this function is over, this value will be the amount of credit that was not repaid
-            leftover_repayment = leftover_repayment.checked_sub(queue_credit_repaid)?;
+            leftover_repayment = match leftover_repayment.checked_sub(queue_credit_repaid){
+                Ok(res) => res,
+                Err(_) => return Err(StdError::GenericErr { msg: "Leftover repayment calculation (for liq) failed".to_string() }),
+            };
             //The LQ has repaid more than the query returned in the past so we'll handle any possible excess from the SP in the liq_repay
             
             //Create CosmosMsg

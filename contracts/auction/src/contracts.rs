@@ -640,6 +640,35 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
         //Calculate what positions can be repaid for
         for (i, position) in auction.repayment_positions.clone().into_iter().enumerate() {
             if !position.repayment.is_zero() && !swap_amount.is_zero() {
+
+                //Query the target position
+                let positions: Vec<BasketPositionsResponse> = deps
+                    .querier
+                    .query::<Vec<BasketPositionsResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
+                        contract_addr: config.clone().positions_contract.to_string(),
+                        msg: to_binary(&CDPQueryMsg::GetBasketPositions { 
+                            start_after: None, 
+                            limit: None, 
+                            user_info: Some(
+                                UserInfo { 
+                                    position_id: position.clone().position_info.position_id,
+                                    position_owner: position.clone().position_info.position_owner,
+                                }
+                            ), 
+                            user: None 
+                        })?,
+                    }))?;
+                //Get the position info
+                let target_position = positions[0].clone().positions[0].clone();
+
+                //If position debt is 0, skip and update state
+                if target_position.credit_amount.is_zero() {
+                    //Remove Position repayment
+                    auction.repayment_positions[i].repayment = Uint128::zero();
+                    continue;
+                }
+
+
                 let repay_amount: Uint128;
                 //Calc how much to repay for this position
                 if position.repayment >= swap_amount {
@@ -663,34 +692,6 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
 
                 //Create Repay message
                 if !repay_amount.is_zero() {
-
-                    //Query the target position
-                    let positions: Vec<BasketPositionsResponse> = deps
-                        .querier
-                        .query::<Vec<BasketPositionsResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-                            contract_addr: config.clone().positions_contract.to_string(),
-                            msg: to_binary(&CDPQueryMsg::GetBasketPositions { 
-                                start_after: None, 
-                                limit: None, 
-                                user_info: Some(
-                                    UserInfo { 
-                                        position_id: position.clone().position_info.position_id,
-                                        position_owner: position.clone().position_info.position_owner,
-                                    }
-                                ), 
-                                user: None 
-                            })?,
-                        }))?;
-                    //Get the position info
-                    let target_position = positions[0].clone().positions[0].clone();
-
-                    //If position debt is 0, skip and update state
-                    if target_position.credit_amount.is_zero() {
-                        //Remove Position repayment
-                        auction.repayment_positions[i].repayment = Uint128::zero();
-                        continue;
-                    }
-
                     //Send msg otherwise
                     let message = CosmosMsg::Wasm(WasmMsg::Execute {
                         contract_addr: config.clone().positions_contract.to_string(),

@@ -3,7 +3,7 @@ use std::option;
 
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Decimal, Uint128};
-use crate::{oracle::PriceResponse, types::{AssetOracleInfo, BorrowOptions, RangeBounds, RangePositions, RangeTokens, UserInfo, UserIntentState, UserPosition}};
+use crate::{oracle::PriceResponse, types::{AssetOracleInfo, BorrowOptions, ClaimTracker, RangeBounds, RangePositions, RangeTokens, UserInfo, UserIntentState, UserPosition}};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -110,7 +110,9 @@ pub enum ExecuteMsg {
         position_owner: String,
         /// Toggle if you want to take the caller's fee or not.
         /// Advise managers not to take the fee.
-        take_fee: bool
+        take_fee: bool,
+        /// Slippage for liquidation swaps
+        max_slippage: Option<Decimal>,
     },
     ///Accrue a users position to keep debt supplier earnings up to date.
     Accrue {
@@ -149,6 +151,8 @@ pub enum ExecuteMsg {
     /// Assures that for deposits & withdrawals the conversion rate is static.
     /// Only callable by the contract
     RateAssurance { },
+    ///Saves the current base token claim for 1 vault token
+    CrankRealizedAPR { },
     /// Callback
     GetTotalDepositTokens { },
     CheckBadDebt { },   
@@ -159,6 +163,13 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     #[returns(Config)]
     Config {},
+    #[returns(MarketParams)]
+    MarketParams { 
+        /// Market signifier
+        collateral_denom: String,
+    },
+    #[returns(ClaimTracker)]
+    ClaimTracker {},
     #[returns(PriceResponse)]
     GetCollateralPrice { asset: String },
     #[returns(PriceResponse)]
@@ -196,6 +207,13 @@ pub struct UserPositionResponse {
 //     pub user: String,
 //     pub intent: UserIntentState
 // }
+
+#[cw_serde]
+pub struct LTVRamp {
+    pub new_LTV: Decimal,
+    pub duration_in_hours: u64,
+}
+
 #[cw_serde]
 pub struct RateKinkParams {
     pub rate_mulitplier: Decimal,
@@ -217,13 +235,6 @@ pub struct CollateralParams {
     pub max_borrow_LTV: Decimal,
     pub liquidation_LTV: Decimal,
 }
-
-#[cw_serde]
-pub struct LTVRamp {
-    pub new_LTV: Decimal,
-    pub duration_in_hours: u64,
-}
-
 #[cw_serde]
 pub struct RateIndex {
     pub rate_index: Decimal,

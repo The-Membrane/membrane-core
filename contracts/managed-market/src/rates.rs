@@ -1,0 +1,343 @@
+use std::cmp::{max, min, Ordering};
+use std::str::FromStr;
+
+use cosmwasm_std::{attr, to_json_binary, Addr, Api, CosmosMsg, Decimal, DepsMut, Env, MessageInfo, Order, QuerierWrapper, Response, StdError, StdResult, Storage, Uint128, WasmMsg};
+
+use membrane::managed_market::{Config, ExecuteMsg, MarketParams};
+use membrane::stability_pool_vault::calculate_vault_tokens;
+use membrane::system_discounts::{QueryMsg as DiscountQueryMsg, UserDiscountResponse};
+use membrane::types::{cAsset, Basket, UserPosition, Rate, SupplyCap};
+use membrane::helpers::get_asset_liquidity;
+use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction};
+use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
+
+use crate::positions::get_total_debt_tokens;
+use crate::ContractError;
+use crate::state::{CONFIG, DEBT_VAULT_TOKEN, POSITIONS, MARKET_PARAMS};
+
+//Constants
+pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
+const MINIMUM_LIQUIDITY: Uint128 = Uint128::new(2_000_000_000_000u128);
+
+/// Accrue interest for a list of Positions
+pub fn external_accrue_call(
+    storage: &mut dyn Storage,
+    api: &dyn Api,
+    querier: QuerierWrapper,
+    info: MessageInfo,
+    env: Env,
+    position_owner: String,
+    collateral_denom: String,
+) -> Result<Response, ContractError>{
+    let mut config = CONFIG.load(storage)?;
+
+    //Get the position owner
+    let valid_position_owner = api.addr_validate(&position_owner)?;
+
+    //Get the user position
+    let mut user_position = POSITIONS.load(storage, (valid_position_owner.clone(), collateral_denom.clone()))?;
+        
+
+    //Get total vault tokens
+    let total_vault_tokens = DEBT_VAULT_TOKEN.load(storage)?;
+
+    //Initialize msgs
+    let mut msgs: Vec<CosmosMsg> = vec![];
+
+    //Previous debt amount
+    let previous_debt_amount = user_position.debt_amount;
+    
+    accrue(
+        storage, 
+        get_total_debt_tokens(config.clone())?, 
+        total_vault_tokens.clone(), 
+        env.clone(),            
+        &mut config.clone(),
+        &mut user_position,
+        &mut msgs
+    )?;
+
+    //Save the updated config
+    CONFIG.save(storage, &config)?;
+    //Save the updated user position
+    POSITIONS.save(storage, (valid_position_owner.clone(), collateral_denom.clone()), &user_position)?;
+
+    //Calc the accrued interest
+    let accrued_interest = user_position.debt_amount
+        .checked_sub(previous_debt_amount)
+        .map_err(|_| StdError::generic_err("Accrued interest is negative"))?;
+
+
+
+    Ok(Response::new()
+        .add_attributes(vec![
+            attr("method", "accrue"),
+            attr("position_owner", position_owner),
+            attr("collateral_denom", collateral_denom),
+            attr("accrued_interest", accrued_interest),
+        ]))
+}
+
+pub fn accumulate_interest_dec(decimal: Decimal, rate: Decimal, time_elapsed: u64) -> StdResult<Decimal> {
+
+    let applied_rate = rate.checked_mul(Decimal::from_ratio(
+        Uint128::from(time_elapsed),
+        Uint128::from(SECONDS_PER_YEAR),
+    ))?;
+
+    decimal_multiplication(decimal, applied_rate)
+}
+
+pub fn get_interest_rate(
+    market: MarketParams,
+    config: Config,
+) -> Result<Decimal, ContractError> {
+    ////Get debt utilization rate /////
+    let debt_utilization_rate = decimal_division(
+        Decimal::from_ratio(market.total_borrowed, Uint128::one()),
+        Decimal::from_ratio(config.total_debt_tokens, Uint128::one()),
+    )?;
+
+    //Get rate from the rate model
+    // - Linear IR growth until the kink (i.e. kink = 100%)
+    let kink = if let Some(rate_kink) = market.rate_params.rate_kink.clone() {
+        rate_kink.kink_starting_point_ratio
+    } else {
+        Decimal::one()
+    };
+    let pre_kink_rate = {
+        let percent_into_kink = decimal_division(
+            debt_utilization_rate,
+            kink,
+        )?;
+        let rate = decimal_multiplication(
+            market.rate_params.base_rate,
+            percent_into_kink,
+        )?;
+
+        rate
+    };
+
+    //Some means the util is GREATER THAN the kink
+    let kinked_rate = match debt_utilization_rate.checked_sub(kink){
+        Ok(percent_over_kink) => {
+            let rate_multipler = if let Some(rate_kink) = market.rate_params.rate_kink.clone() {
+                rate_kink.rate_mulitplier
+            } else {
+                Decimal::one()
+            };
+            //Multiply the percent over by the rate multiplier
+            let rate_to_add = decimal_multiplication(
+                percent_over_kink,
+                rate_multipler,
+            )?;
+            //Add the rate to the pre_kink_rate
+            match pre_kink_rate.checked_add(rate_to_add){
+                Ok(rate) => rate,
+                Err(_) => {
+                    return Err(ContractError::CustomError { val: format!("Failed to add rate: {} + {}", pre_kink_rate, rate_to_add) })
+                }
+            }
+        },
+        Err(_) => pre_kink_rate
+    };
+
+    //Cap the rate
+    Ok(min(kinked_rate, market.rate_params.rate_max))
+
+}
+
+fn get_market_collateral_types(
+    storage: &mut dyn Storage
+) -> Result<Vec<String>, ContractError> {
+
+    let market_collateral: Vec<String> = MARKET_PARAMS
+        .range(storage, None, None, Order::Ascending)
+        .map(|item| {
+            let (k, _) = item?;
+            Ok(k)
+        })
+        .collect::<Result<Vec<String>, ContractError>>()?;
+
+    Ok(market_collateral)
+}
+
+/// Accrue interest 
+pub fn accrue(
+    storage: &mut dyn Storage,
+    total_debt_tokens: Uint128,
+    total_vault_tokens: Uint128,
+    env: Env,
+    config: &mut Config,
+    user_position: &mut UserPosition,
+    msgs: &mut Vec<CosmosMsg>,
+) -> Result<(), ContractError> {
+    //Early return if we have no debt tokens
+    if config.total_debt_tokens.is_zero() {
+        return Ok(());
+    }
+
+    //Calc Time-elapsed and update last_Accrued
+    let mut time_elapsed = env.block.time.seconds() - config.global_rate_index.last_accrued;
+    //Cap the time elapsed to 30 days
+    // - This is to prevent the rate index from growing too large if the contract is inactive for a long time
+    // - This is a bit arbitrary, but we can change it later if needed
+    let max_time = 3600 * 24 * 30; // 30 days
+    time_elapsed = min(time_elapsed, max_time);
+
+    if config.global_rate_index.last_accrued == 0 {
+        time_elapsed = 0;
+    }
+    config.global_rate_index.last_accrued = env.block.time.seconds();
+    ///////////////////////////////////////////////////
+    /// 
+    //Map through ALL markets to accrue interest to the Market index & the global index
+    // - Market index changes will accrue user debt while global index changes will accrue to the supplied debt
+    // - If the user is in the market, we update their rate_index
+
+    // - Either way, we update the market's rate_index & the global rate_index
+
+
+
+
+    //Initialize manager revenue 
+    let mut manager_revenue = Uint128::zero();
+
+    //Map through all markets to get the market rate index
+    let global_collateral = get_market_collateral_types(storage)?;
+    for market_collateral in global_collateral {
+        //Get the market params
+        let mut market_params = MARKET_PARAMS.load(storage, market_collateral.clone())?;
+        
+
+        /////Accrue interest to the debt/////
+        
+        
+        /// Get interest rate //////
+        let interest_rate = get_interest_rate(market_params.clone(), config.clone())?;
+        //No negative rates
+        if interest_rate < Decimal::zero() {
+            return Err(ContractError::CustomError { val: format!("Interest rate is negative: {}", interest_rate) });
+        }
+        ////////////////////
+
+
+        //Accumulate rate on the rate_index
+        let accrued_rate = accumulate_interest_dec(
+            config.global_rate_index.rate_index,
+            interest_rate,
+            time_elapsed,
+        )?;
+        config.global_rate_index.rate_index += accrued_rate;
+        //Accumulate rate on the market's rate_index
+        let market_rate = accumulate_interest_dec(
+            market_params.market_rate_index.rate_index,
+            interest_rate,
+            time_elapsed,
+        )?;
+        market_params.market_rate_index.rate_index += market_rate;
+         
+
+
+        //If the user is in THIS market, update their rate index & debt amount
+        if user_position.collateral_denom == market_collateral {
+            //If user's rate index is zero, we set it to the market's rate index
+            if user_position.rate_index.is_zero() || user_position.debt_amount.is_zero() {
+                user_position.rate_index = market_params.market_rate_index.rate_index;
+            }
+            //Calc rate_of_change for the position's credit amount
+            let debt_rate_of_change = decimal_division(market_params.market_rate_index.rate_index, user_position.rate_index)?;
+            //Update user's rate_index
+            user_position.rate_index =  market_params.market_rate_index.rate_index;
+            
+            //Calc new_credit_amount
+            let new_credit_amount = decimal_multiplication(
+                Decimal::from_ratio(user_position.debt_amount, Uint128::one()), 
+                debt_rate_of_change
+            )?.to_uint_floor();
+
+                
+            if new_credit_amount > user_position.debt_amount {
+                //Calc accrued interest
+                let accrued_interest = new_credit_amount - user_position.debt_amount;
+
+                //Add accrued interest to the config's total debt token amount & total borrowed
+                config.total_debt_tokens += accrued_interest;
+                market_params.total_borrowed += accrued_interest;
+
+                //Set position's debt to the debt + accrued_interest
+                user_position.debt_amount = new_credit_amount;
+
+                //Calc manager revenue
+                let manager_fee = decimal_multiplication(
+                    Decimal::from_ratio(accrued_interest, Uint128::one()),
+                    config.manager_fee,
+                )?;
+                manager_revenue += manager_fee.to_uint_floor();
+            }
+
+        }
+        //We only accrue interest when a user is in the market.
+        //The rate index changes will accrue all the interest at once when the user interacts with their position.
+
+        //Technically we could accrue interest to the debt token during claims in order to allow claims of interest ahead of time, before user's actually accrue it...
+        //But this would be a bit more complex and we don't need to do this right now.
+        //Instead we'll just have management make accrue calls.
+    
+
+        //Save the updated market params
+        MARKET_PARAMS.save(storage, market_collateral.clone(), &market_params)?;
+    }
+
+
+
+
+
+
+
+
+
+    //Calculate the amount of vault tokens to mint to the manager as the fee
+    if manager_revenue > Uint128::zero() {
+        let vt_to_mint_to_manager = calculate_vault_tokens(
+            manager_revenue, 
+            total_debt_tokens, 
+            total_vault_tokens
+        )?;
+
+        //Mint the vault tokens to the manager
+        if !vt_to_mint_to_manager.is_zero() {
+            let mint_vault_tokens_msg: CosmosMsg = TokenFactory::MsgMint {
+                sender: env.contract.address.to_string(), 
+                amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+                    denom: config.debt_supply_vault_token.clone(),
+                    amount: vt_to_mint_to_manager.to_string(),
+                }), 
+                mint_to_address: config.owner.clone().to_string(),
+            }.into();
+            msgs.push(mint_vault_tokens_msg);
+        }
+
+
+        //Update vault token supply
+        let new_vault_token_supply = match total_vault_tokens.checked_add(vt_to_mint_to_manager){
+            Ok(v) => v,
+            Err(_) => return Err(ContractError::CustomError { val: format!("Failed to add vault token total supply: {} + {}", total_vault_tokens, vt_to_mint_to_manager) }),
+        };
+        //Update vault token supply
+        DEBT_VAULT_TOKEN.save(storage, &new_vault_token_supply)?;
+
+
+        //Add rate assurance callback msg
+        if !total_vault_tokens.is_zero() && !vt_to_mint_to_manager.is_zero() {
+            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: env.contract.address.to_string(),
+                msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+                funds: vec![],
+            }));
+        }
+
+    }
+
+    Ok(())
+}

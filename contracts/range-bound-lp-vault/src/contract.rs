@@ -11,7 +11,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 use cw_storage_plus::Bound;
-use membrane::math::{decimal_multiplication, decimal_division};
+use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::oracle::PriceResponse;
 
 use crate::error::TokenFactoryError;
@@ -2665,8 +2665,8 @@ fn refill_buffer(
         _,
         _,
         _,
-        _,
-        _,
+        ceiling_coins,
+        floor_coins,
         ceiling_position,
         _
     ) = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
@@ -2679,12 +2679,37 @@ fn refill_buffer(
     }
     let mut msgs: Vec<SubMsg> = vec![];
 
+    //Calculate the ratio of total coins in the ceiling////
+    let ceiling_coins = ceiling_coins.into_iter().map(|coin| coin.amount).collect::<Vec<Uint128>>();
+    let floor_coins = floor_coins.into_iter().map(|coin| coin.amount).collect::<Vec<Uint128>>();
+    let total_ceiling_coins = ceiling_coins.iter().sum::<Uint128>();
+    let total_floor_coins = floor_coins.iter().sum::<Uint128>();
+    let total_coins = total_ceiling_coins + total_floor_coins;
+    let ceiling_ratio = decimal_division(
+        Decimal::from_ratio(total_ceiling_coins, Uint128::one()),
+        Decimal::from_ratio(total_coins, Uint128::one()) 
+    )?;
 
-    //////Withdraw 50% of the ceiling position////////
+    //If the ceiling ratio is above 0.5, we can withdraw
+    if ceiling_ratio < Decimal::percent(50) {
+        return Err(TokenFactoryError::Std(StdError::GenericErr { msg: String::from("No space to refill buffer, ceiling ratio is below 50%") }));
+    }
+
+    //Calculate how much of the ceiling to withdraw.
+    //Goal is to cap the ratio at 50% of the total coins
+    //If the ceiling ratio is above 0.5, we can withdraw
+    let percent_over = match decimal_subtraction(ceiling_ratio, Decimal::percent(50)){
+        Ok(res) => res,
+        Err(err) => return Err(TokenFactoryError::Std(StdError::GenericErr { msg: String::from(err.to_string()) }))
+    };
+    let percent_to_withdraw = decimal_division(percent_over, ceiling_ratio)?;
+
+
+    //////Withdraw a portion of the ceiling position////////
     let ceiling_liquidity = Decimal::from_str(&ceiling_position.position.unwrap().liquidity).unwrap();
     let ceiling_liquidity_to_withdraw = (decimal_multiplication(
         ceiling_liquidity,
-        Decimal::percent(50)
+        percent_to_withdraw
     )? * Uint128::new(10u64.pow(18 as u32) as u128)).to_string();
     //Withdraw liquidity from ceiling position
     let ceiling_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
@@ -2701,7 +2726,8 @@ fn refill_buffer(
         .add_submessages(msgs)
         .add_attribute("method", "refill_buffer")
         .add_attribute("ceiling_position_id", config.range_position_ids.ceiling.to_string())
-        .add_attribute("ceiling_liquidity", ceiling_liquidity.to_string());
+        .add_attribute("ceiling_liquidity", ceiling_liquidity.to_string())
+        .add_attribute("percent_withdrawn", percent_to_withdraw.clone().to_string());
 
     Ok(res)
 }

@@ -18,7 +18,7 @@ pub mod vol_earn_vault;
 pub mod range_bound_lp_vault;
 pub mod mars_redbank;
 pub mod staking;
-pub mod margin_proxy;
+pub mod market_manager;
 pub mod points_system;
 pub mod system_discounts;
 pub mod launch;

@@ -979,7 +979,7 @@ fn manage_vault(
 
     //Get total_deposit_tokens & prices
     let (
-        total_deposit_tokens,
+        _,
         cdt_price,
         _,
         ceiling_position_coins,
@@ -1023,22 +1023,10 @@ fn manage_vault(
         Some(coin) => coin.amount,
         None => Uint128::zero(),
     };
-
-    //Create boolean to check if we're depositing into the ceiling
-    //Only deposit into the ceiling if the balance of CDT is > the desired buffer
-    let buffer_percent = CDT_BUFFER.load(deps.storage)?;
-    let ceiling_percent = Decimal::one() - buffer_percent;
-    let max_ceiling_amount = decimal_multiplication(
-        ceiling_percent,
-        Decimal::from_ratio(total_deposit_tokens, Uint128::one())
-    )?.to_uint_floor();
     //Deposit all resting CDT into the ceiling
-    let amount_to_deposit_into_ceiling = balance_of_ceiling_tokens;
-    //Set the amount we're allowed to sell to rebalance into floor.
-    // let max_to_sell = liquid_ceiling_tokens;
+    let amount_to_deposit_into_ceiling = liquid_ceiling_tokens;
     //Set the amount we're allowed to buy to rebalance into ceiling.
     let max_to_buy = liquid_floor_tokens;
-    //Ceiling deposits & sales can't happen in tandem so we don't need to split this up.
 
 
     //Deposit CDT into the ceiling.
@@ -1114,15 +1102,16 @@ fn manage_vault(
 
     if msgs.is_empty() {
         return Err(TokenFactoryError::CustomError { 
-            val: format!("Nothing to do. CDT Price: {}, Ceiling CDT: {} >= Ceiling Max: {}", 
-            cdt_price.price, ceiling_position_tokens, max_ceiling_amount) 
+            val: format!("Nothing to do. CDT Price: {}, Ceiling CDT: {}, Liquid CDT: {}", 
+            cdt_price.price, ceiling_position_tokens, liquid_ceiling_tokens) 
         });
     }
 
     Ok(Response::new()
     .add_attribute("method", "manage_vault")
+        .add_attribute("cdt_price", cdt_price.price.to_string())
         .add_attribute("liquid_ceiling_tokens", liquid_ceiling_tokens)
-        .add_attribute("max_ceiling_amount", max_ceiling_amount)
+        .add_attribute("ceiling_position_tokens", ceiling_position_tokens)
         .add_attribute("liquid_floor_tokens", liquid_floor_tokens)
         .add_submessages(msgs)
     )
@@ -2545,85 +2534,85 @@ fn withdraw_floor_position(
 }
 
 //Refill buffer by withdrawing the ceiling
-fn refill_buffer(
-    deps: DepsMut,
-    env: Env,
-    _info: MessageInfo,
-) -> Result<Response, TokenFactoryError> {
+// fn refill_buffer(
+//     deps: DepsMut,
+//     env: Env,
+//     _info: MessageInfo,
+// ) -> Result<Response, TokenFactoryError> {
 
-    let config = CONFIG.load(deps.storage)?;
+//     let config = CONFIG.load(deps.storage)?;
 
-    //Get total_deposit_tokens & prices
-    let (
-        _,
-        _,
-        _,
-        ceiling_coins,
-        floor_coins,
-        ceiling_position,
-        _
-    ) = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
+//     //Get total_deposit_tokens & prices
+//     let (
+//         _,
+//         _,
+//         _,
+//         ceiling_coins,
+//         floor_coins,
+//         ceiling_position,
+//         _
+//     ) = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
 
-    //Get the balance of CDT
-    let cdt_balance = deps.querier.query_balance(env.contract.address.clone(), config.range_tokens.ceiling_deposit_token.clone())?.amount;
-    //If CDT balance is non-zero, we don't need to refill
-    if !cdt_balance.is_zero() {
-        return Err(TokenFactoryError::Std(StdError::GenericErr { msg: String::from("No need to refill buffer, CDT balance is non-zero") }));
-    }
-    let mut msgs: Vec<SubMsg> = vec![];
+//     //Get the balance of CDT
+//     let cdt_balance = deps.querier.query_balance(env.contract.address.clone(), config.range_tokens.ceiling_deposit_token.clone())?.amount;
+//     //If CDT balance is non-zero, we don't need to refill
+//     if !cdt_balance.is_zero() {
+//         return Err(TokenFactoryError::Std(StdError::GenericErr { msg: String::from("No need to refill buffer, CDT balance is non-zero") }));
+//     }
+//     let mut msgs: Vec<SubMsg> = vec![];
 
-    //Calculate the ratio of total coins in the ceiling////
-    let ceiling_coins = ceiling_coins.into_iter().map(|coin| coin.amount).collect::<Vec<Uint128>>();
-    let floor_coins = floor_coins.into_iter().map(|coin| coin.amount).collect::<Vec<Uint128>>();
-    let total_ceiling_coins = ceiling_coins.iter().sum::<Uint128>();
-    let total_floor_coins = floor_coins.iter().sum::<Uint128>();
-    let total_coins = total_ceiling_coins + total_floor_coins;
-    let ceiling_ratio = decimal_division(
-        Decimal::from_ratio(total_ceiling_coins, Uint128::one()),
-        Decimal::from_ratio(total_coins, Uint128::one()) 
-    )?;
+//     //Calculate the ratio of total coins in the ceiling////
+//     let ceiling_coins = ceiling_coins.into_iter().map(|coin| coin.amount).collect::<Vec<Uint128>>();
+//     let floor_coins = floor_coins.into_iter().map(|coin| coin.amount).collect::<Vec<Uint128>>();
+//     let total_ceiling_coins = ceiling_coins.iter().sum::<Uint128>();
+//     let total_floor_coins = floor_coins.iter().sum::<Uint128>();
+//     let total_coins = total_ceiling_coins + total_floor_coins;
+//     let ceiling_ratio = decimal_division(
+//         Decimal::from_ratio(total_ceiling_coins, Uint128::one()),
+//         Decimal::from_ratio(total_coins, Uint128::one()) 
+//     )?;
 
-    //If the ceiling ratio is above 0.5, we can withdraw
-    if ceiling_ratio < Decimal::percent(50) {
-        return Err(TokenFactoryError::Std(StdError::GenericErr { msg: String::from("No space to refill buffer, ceiling ratio is below 50%") }));
-    }
+//     //If the ceiling ratio is above 0.5, we can withdraw
+//     if ceiling_ratio < Decimal::percent(50) {
+//         return Err(TokenFactoryError::Std(StdError::GenericErr { msg: String::from("No space to refill buffer, ceiling ratio is below 50%") }));
+//     }
 
-    //Calculate how much of the ceiling to withdraw.
-    //Goal is to cap the ratio at 50% of the total coins
-    //If the ceiling ratio is above 0.5, we can withdraw
-    let percent_over = match decimal_subtraction(ceiling_ratio, Decimal::percent(50)){
-        Ok(res) => res,
-        Err(err) => return Err(TokenFactoryError::Std(StdError::GenericErr { msg: String::from(err.to_string()) }))
-    };
-    let percent_to_withdraw = decimal_division(percent_over, ceiling_ratio)?;
-
-
-    //////Withdraw a portion of the ceiling position////////
-    let ceiling_liquidity = Decimal::from_str(&ceiling_position.position.unwrap().liquidity).unwrap();
-    let ceiling_liquidity_to_withdraw = (decimal_multiplication(
-        ceiling_liquidity,
-        percent_to_withdraw
-    )? * Uint128::new(10u64.pow(18 as u32) as u128)).to_string();
-    //Withdraw liquidity from ceiling position
-    let ceiling_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
-        position_id: config.range_position_ids.ceiling,
-        sender: env.contract.address.to_string(),
-        liquidity_amount: ceiling_liquidity_to_withdraw.clone(),
-    }.into();
-    //Add to msgs
-    msgs.push(SubMsg::reply_on_success(ceiling_position_withdraw_msg, ENSURE_CEILING_INTACT_REPLY_ID));
+//     //Calculate how much of the ceiling to withdraw.
+//     //Goal is to cap the ratio at 50% of the total coins
+//     //If the ceiling ratio is above 0.5, we can withdraw
+//     let percent_over = match decimal_subtraction(ceiling_ratio, Decimal::percent(50)){
+//         Ok(res) => res,
+//         Err(err) => return Err(TokenFactoryError::Std(StdError::GenericErr { msg: String::from(err.to_string()) }))
+//     };
+//     let percent_to_withdraw = decimal_division(percent_over, ceiling_ratio)?;
 
 
-    //Create response
-    let res = Response::new()
-        .add_submessages(msgs)
-        .add_attribute("method", "refill_buffer")
-        .add_attribute("ceiling_position_id", config.range_position_ids.ceiling.to_string())
-        .add_attribute("ceiling_liquidity", ceiling_liquidity.to_string())
-        .add_attribute("percent_withdrawn", percent_to_withdraw.clone().to_string());
+//     //////Withdraw a portion of the ceiling position////////
+//     let ceiling_liquidity = Decimal::from_str(&ceiling_position.position.unwrap().liquidity).unwrap();
+//     let ceiling_liquidity_to_withdraw = (decimal_multiplication(
+//         ceiling_liquidity,
+//         percent_to_withdraw
+//     )? * Uint128::new(10u64.pow(18 as u32) as u128)).to_string();
+//     //Withdraw liquidity from ceiling position
+//     let ceiling_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
+//         position_id: config.range_position_ids.ceiling,
+//         sender: env.contract.address.to_string(),
+//         liquidity_amount: ceiling_liquidity_to_withdraw.clone(),
+//     }.into();
+//     //Add to msgs
+//     msgs.push(SubMsg::reply_on_success(ceiling_position_withdraw_msg, ENSURE_CEILING_INTACT_REPLY_ID));
 
-    Ok(res)
-}
+
+//     //Create response
+//     let res = Response::new()
+//         .add_submessages(msgs)
+//         .add_attribute("method", "refill_buffer")
+//         .add_attribute("ceiling_position_id", config.range_position_ids.ceiling.to_string())
+//         .add_attribute("ceiling_liquidity", ceiling_liquidity.to_string())
+//         .add_attribute("percent_withdrawn", percent_to_withdraw.clone().to_string());
+
+//     Ok(res)
+// }
 
 /// Query total deposit tokens which will error if the ceiling got fully removed
 fn handle_ensure_ceiling_intact_reply(

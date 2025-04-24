@@ -43,12 +43,16 @@ pub const LIQUIDATE_REPLY_ID: u64 = 1u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 //Our Product roadmap is:
-// Exotic collateral (borrow fee)
+// Exotic collateral 
+// -- borrow fee
+// -- per user debt cap
+// -- keep max LTV and borrow LTV close so that liquidations are small and don't cause the market to crash
 // Leveraged blue chips (Pyth oracles)
 // -- Hands free leverage (SL & Loop intents) (*for borrower*)
 // -- Use liquidatibility & volatiility to increase interest rates *for borrower*
 // -- Fixed rate (*for borrower*), grants stability for strats
 // Interest rate arbs (redemptions, vault oracles)
+
 
 ///Launch markets
 /// - CULT
@@ -78,6 +82,13 @@ pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 ///V5
 /// - Arbitrary debt types (Not a fan, we'd just be doing this for revenue)
 /// - New oracle types (Pyth)
+/// 
+/// V6
+/// - Set a threshold (100k CDT), where revenue for any debt passed gets split to Membrane.
+// To reduce this split you buy MBRN.
+// The threshold should be high enough to pay over management costs. So small profit + management costs.
+/// 
+/// 
 
 //Constants
 const NOBLE_USDC_DENOM: &str = "ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4";

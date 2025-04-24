@@ -170,7 +170,7 @@ pub fn execute(
         ExecuteMsg::RateAssurance { } => rate_assurance(deps, env, info),
         ExecuteMsg::DepositFee { } => deposit_fee(deps, env, info),
         ExecuteMsg::WithdrawFloorPosition {  } => withdraw_floor_position(deps, env, info),
-        ExecuteMsg::RefillBuffer {  } => refill_buffer(deps, env, info),
+        // ExecuteMsg::RefillBuffer {  } => refill_buffer(deps, env, info),
         ExecuteMsg::GetTotalDepositTokens {  } => panic_total_deposit_tokens(deps, env, info),
     }
 }
@@ -1032,29 +1032,16 @@ fn manage_vault(
         ceiling_percent,
         Decimal::from_ratio(total_deposit_tokens, Uint128::one())
     )?.to_uint_floor();
-    //if the ceiling total is less than the max ceiling amount, deposit into the ceiling
-    let amount_to_deposit_into_ceiling = if ceiling_position_tokens < max_ceiling_amount {
-        //Set the amount to deposit into the ceiling
-        let amount = max_ceiling_amount - ceiling_position_tokens;
-        //Set the max to deposit as the contract balance of ceiling tokens
-        let max_to_deposit = if amount > balance_of_ceiling_tokens {
-            balance_of_ceiling_tokens
-        } else {
-            amount
-        };
-
-        max_to_deposit
-    } else {
-        Uint128::zero()
-    };
+    //Deposit all resting CDT into the ceiling
+    let amount_to_deposit_into_ceiling = balance_of_ceiling_tokens;
     //Set the amount we're allowed to sell to rebalance into floor.
-    let max_to_sell = liquid_ceiling_tokens;
+    // let max_to_sell = liquid_ceiling_tokens;
     //Set the amount we're allowed to buy to rebalance into ceiling.
     let max_to_buy = liquid_floor_tokens;
     //Ceiling deposits & sales can't happen in tandem so we don't need to split this up.
 
 
-    //Deposit excess CDT into the ceiling.
+    //Deposit CDT into the ceiling.
     //Can't deposit if we're above the ceiling bc the Ceiling would be USDC
     if !amount_to_deposit_into_ceiling.is_zero() && cdt_price.price < Decimal::from_str("0.9999").unwrap(){
         
@@ -1081,53 +1068,10 @@ fn manage_vault(
         
         //Add to msgs
         msgs.push(SubMsg::reply_on_success(add_to_ceiling, ADD_TO_CEILING_REPLY_ID));
-    } else 
-    //In or above the ceiling, swap to floor & add to FLOOR
-    if cdt_price.price >= Decimal::from_str("0.9999").unwrap(){
-
-        //Set swappable amount based on the rebalance_sale_max
-        let swappable_amount = decimal_multiplication(
-            rebalance_sale_max,
-            Decimal::from_ratio(max_to_sell, Uint128::one())
-        )?.to_uint_floor();
-
-        //Minimum slippage is 0.05% due to the swap fee (0.0005)
-        //So if we set max_slippage to 0.5%, the max price impact will be 1 -> 0.995 which allows 0.99 buys to be profitable.
-        //We don't want to kill the stability of the inside of the range by selling all the way down to 0.99.
-        //Nor do we want to hit our floor position immediately.
-
-        //Swap ceiling (CDT) to floor (USDC)
-        if !swappable_amount.is_zero() {
-            let swap_to_floor: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.osmosis_proxy_contract_addr.to_string(),
-                msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps {
-                    token_out: config.range_tokens.clone().floor_deposit_token,
-                    max_slippage: MAX_SLIPPAGE.load(deps.storage)?, 
-                })?,
-                funds: vec![
-                    Coin {
-                        denom: config.range_tokens.ceiling_deposit_token.clone(),
-                        amount: swappable_amount,
-                    },
-                ],
-            });
-
-            //Create claim spread fees msg
-            if !position_ids.is_empty() {
-                let claim_spread_fees_msg: CosmosMsg = CL::MsgCollectSpreadRewards {
-                    position_ids,
-                    sender: env.contract.address.to_string(),
-                }.into();
-                //Add to msgs
-                msgs.push(SubMsg::new(claim_spread_fees_msg));
-            }
-
-            //Add to msgs as SubMsg
-            msgs.push(SubMsg::reply_on_success(swap_to_floor, SWAP_ADD_TO_FLOOR_REPLY_ID));
-            //& deposit into floor in a submsg post swap
-        }
-    } else if cdt_price.price < Decimal::from_str("0.99").unwrap() && config.range_position_ids.floor == 0u64 {
-        //If price is under the top of the floor and we have USDC in the contract, buy CDT.
+    } 
+    else 
+    //If price is under the ceiling and we have USDC in the contract, buy CDT.
+    if cdt_price.price < Decimal::from_str("0.9999").unwrap() {
         //Set swappable amount based on the rebalance_sale_max
         let swappable_amount = decimal_multiplication(
             rebalance_sale_max,
@@ -1165,58 +1109,7 @@ fn manage_vault(
         }
 
         
-    } else if cdt_price.price > Decimal::from_str("0.99").unwrap() && !liquid_floor_tokens.is_zero(){
-        //If price is between the ranges and we have USDC in the contract, deposit it into the floor.
-
-        
-        //Create claim spread fees msg
-        if !position_ids.is_empty() {
-            let claim_spread_fees_msg: CosmosMsg = CL::MsgCollectSpreadRewards {
-                position_ids,
-                sender: env.contract.address.to_string(),
-            }.into();
-            //Add to msgs
-            msgs.push(SubMsg::new(claim_spread_fees_msg));
-        }
-
-        //If the floor position doesn't exist, we need to create it instead of add to it
-        if config.range_position_ids.floor == 0 {
-
-            //Floor
-            let floor_creation_msg: CosmosMsg = CL::MsgCreatePosition { 
-                pool_id: 1268u64,
-                sender: env.contract.address.to_string(), 
-                lower_tick: config.range_bounds.floor.lower_tick, 
-                upper_tick: config.range_bounds.floor.upper_tick, 
-                //USDC
-                tokens_provided: vec![Coin {
-                    denom: config.range_tokens.floor_deposit_token.clone(),
-                    amount: liquid_floor_tokens,
-                }.into()], 
-                token_min_amount0: String::from("0"), 
-                token_min_amount1: String::from("0")
-            }.into(); 
-            msgs.push(SubMsg::reply_on_success(floor_creation_msg, CL_POSITION_CREATION_REPLY_ID));
-
-        } else 
-        //Add to FLOOR position
-        {
-            let add_to_floor: CosmosMsg = CL::MsgAddToPosition {
-                position_id: config.range_position_ids.floor,
-                sender: env.contract.address.to_string(),
-                //CDT
-                amount0: String::from("0"),
-                //USDC
-                amount1: liquid_floor_tokens.to_string(),
-                token_min_amount0: String::from("0"),
-                token_min_amount1: String::from("0"),
-            }.into();
-            let add_to_floor_submsg = SubMsg::reply_on_success(add_to_floor, ADD_TO_FLOOR_REPLY_ID);
-            msgs.push(add_to_floor_submsg);
-        }
-
-
-    }
+    } 
 
 
     if msgs.is_empty() {

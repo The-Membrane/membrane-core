@@ -20,6 +20,9 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_LIMIT: u64 = 31u64;
 const INSTANTIATE_REPLY_ID: u64 = 1;
 
+//Todo
+// - Change market name
+
 //Config
 // - manager whitelist
 // - current managed market CODE_ID

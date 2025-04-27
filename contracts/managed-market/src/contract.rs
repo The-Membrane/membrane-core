@@ -60,6 +60,8 @@ pub fn instantiate(
     };
     CONFIG.save(deps.storage, &config)?;
 
+
+
     //Create the first market 
     let market = MarketParams {
         collateral_params: msg.clone().collateral_params,
@@ -76,6 +78,20 @@ pub fn instantiate(
         max_slippage: Decimal::percent(20),
         per_user_debt_cap: None
     };
+
+    //Param checks
+
+    if market.borrow_fee > Decimal::percent(10) {
+        return Err(ContractError::CustomError { val: String::from("Borrow fee cannot be greater than 10%") });
+    }
+    if market.collateral_params.max_borrow_LTV > Decimal::percent(100) || market.collateral_params.max_borrow_LTV >= market.collateral_params.liquidation_LTV {
+        return Err(ContractError::CustomError { val: String::from("Max borrow LTV cannot be greater than 100% or greater than/equal to liquidation LTV") });
+    }
+    
+    if market.collateral_params.liquidation_LTV.is_zero() || market.collateral_params.liquidation_LTV > Decimal::percent(100) || market.collateral_params.max_borrow_LTV >= market.collateral_params.liquidation_LTV {
+        return Err(ContractError::CustomError { val: String::from("Liquidation LTV cannot be 0, greater than 100% or less than / equal to max_borrow_LTV") });
+    }
+    //Save market 
     MARKET_PARAMS.save(deps.storage, market.clone().collateral_params.collateral_asset, &market)?;
 
     //Enable the pause state object
@@ -268,19 +284,29 @@ fn update_market(
     
     //Load market
     let mut market = MARKET_PARAMS.load(deps.storage, collateral_denom.clone())?;
+    //Update market
     if let Some(max_borrow_LTV) = max_borrow_LTV {
+        if max_borrow_LTV > Decimal::percent(100) || max_borrow_LTV >= market.collateral_params.liquidation_LTV {
+            return Err(ContractError::CustomError { val: String::from("Max borrow LTV cannot be greater than 100% or greater than/equal to liquidation LTV") });
+        }
         market.collateral_params.max_borrow_LTV = max_borrow_LTV;
         attrs.push(attr("max_borrow_LTV", format!("{:?}", max_borrow_LTV)));
     }
-    // if let Some(liquidation_LTV) = liquidation_LTV {
-    //     market.collateral_params.liquidation_LTV = liquidation_LTV;
-    //     attrs.push(attr("liquidation_LTV", format!("{:?}", liquidation_LTV)));
-    // }
+    if let Some(liquidation_LTV) = liquidation_LTV {
+        if liquidation_LTV.new_LTV.is_zero() || liquidation_LTV.new_LTV > Decimal::percent(100) || market.collateral_params.max_borrow_LTV >= liquidation_LTV.new_LTV {
+            return Err(ContractError::CustomError { val: String::from("Liquidation LTV cannot be 0, greater than 100% or less than / equal to max_borrow_LTV") });
+        }
+        // market.collateral_params.liquidation_LTV = liquidation_LTV;
+        // attrs.push(attr("liquidation_LTV", format!("{:?}", liquidation_LTV)));
+    }
     if let Some(rate_params) = rate_params {
         market.rate_params = rate_params.clone();
         attrs.push(attr("rate_params", format!("{:?}", rate_params)));
     }
     if let Some(borrow_fee) = borrow_fee {
+        if borrow_fee > Decimal::percent(10) {
+            return Err(ContractError::CustomError { val: String::from("Borrow fee cannot be greater than 10%") });
+        }
         market.borrow_fee = borrow_fee;
         attrs.push(attr("borrow_fee", format!("{:?}", borrow_fee)));
     }

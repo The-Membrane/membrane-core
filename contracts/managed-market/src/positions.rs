@@ -44,9 +44,7 @@ pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 
 //Todo:
-// - Change market name in UpdateMarket
-// - Set saftey net for LTV setting. nothing over 1 and borrow can't be over liq LTV.
-// -- and borrow fee can't be over 10%
+// - 
 
 //Our Product roadmap is:
 // Exotic collateral 

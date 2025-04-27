@@ -20,8 +20,12 @@ pub struct InstantiateMsg {
     pub borrow_fee: Decimal,
     pub whitelisted_collateral_suppliers: Option<Vec<String>>,
     pub pause_option: bool,
+    //Total debt supply cap for the market
     pub debt_supply_cap: Option<Uint128>,
+    //Total borrow cap for the market
     pub borrow_cap: BorrowCap,
+    //Per user debt cap for the market
+    pub per_user_debt_cap: Option<Uint128>,
 }
 
 
@@ -147,6 +151,7 @@ pub enum ExecuteMsg {
         borrow_cap: Option<BorrowCap>,
         max_slippage: Option<Decimal>,
         pool_for_oracle_and_liquidations: Option<AssetOracleInfo>,
+        per_user_debt_cap: Option<Option<Uint128>>,
     },
     /// Assures that for deposits & withdrawals the conversion rate is static.
     /// Only callable by the contract
@@ -170,6 +175,8 @@ pub enum QueryMsg {
     },
     #[returns(ClaimTracker)]
     ClaimTracker {},
+    #[returns(bool)]
+    ActionsPaused {},
     #[returns(PriceResponse)]
     GetCollateralPrice { asset: String },
     #[returns(PriceResponse)]
@@ -276,6 +283,7 @@ pub struct MarketParams {
     ///Set Whitelists to None to disable new capital
     pub whitelisted_collateral_suppliers: Option<Vec<String>>,
     pub borrow_cap: BorrowCap,
+    pub per_user_debt_cap: Option<Uint128>,
     //Max slippage for liquidation swaps. If the swaps fail, liquidations fail. 
     //If the swap quality is bad, we get inefficient liquidations & bad debt.
     pub max_slippage: Decimal,

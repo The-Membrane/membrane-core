@@ -774,6 +774,14 @@ pub fn borrow_cdt(
             None => borrowable_amount
         };
         let capped_borrow = min(theoretical_borrow, space_to_borrow);
+        //If the market has a per user borrow cap, check it
+        let capped_borrow = match market.per_user_debt_cap {
+            Some(cap) => {
+                //Calc space to borrow within the cap
+                cap.checked_sub(user_position.debt_amount).unwrap_or(Uint128::zero())
+            },
+            None => capped_borrow
+        };
         //Check contract balances for actual borrow amounts
         let contract_balance_of_debt = get_contract_balances(
             deps.querier,

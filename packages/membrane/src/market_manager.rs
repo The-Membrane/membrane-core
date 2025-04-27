@@ -11,8 +11,6 @@ pub struct PendingMarket {
     pub manager: String,
 }
 
-
-
 #[cw_serde]
 pub struct MarketItem {
     pub name: String,
@@ -38,6 +36,7 @@ pub struct MarketInstantiation {
     pub pause_option: bool,
     pub debt_supply_cap: Option<Uint128>,
     pub borrow_cap: BorrowCap,
+    pub per_user_debt_cap: Option<Uint128>,
 }
 
 

@@ -74,6 +74,7 @@ pub fn instantiate(
         whitelisted_collateral_suppliers: msg.clone().whitelisted_collateral_suppliers,
         borrow_cap: msg.clone().borrow_cap,
         max_slippage: Decimal::percent(20),
+        per_user_debt_cap: None
     };
     MARKET_PARAMS.save(deps.storage, market.clone().collateral_params.collateral_asset, &market)?;
 
@@ -143,8 +144,9 @@ pub fn execute(
             whitelisted_collateral_suppliers,
             borrow_cap,
             max_slippage,
+            per_user_debt_cap,
             pool_for_oracle_and_liquidations
-        } => update_market(deps, info, collateral_denom, max_borrow_LTV, liquidation_LTV, rate_params, borrow_fee, whitelisted_collateral_suppliers, borrow_cap, max_slippage, pool_for_oracle_and_liquidations),
+        } => update_market(deps, info, collateral_denom, max_borrow_LTV, liquidation_LTV, rate_params, borrow_fee, whitelisted_collateral_suppliers, borrow_cap, max_slippage, pool_for_oracle_and_liquidations, per_user_debt_cap),
         ExecuteMsg::SupplyCollateral { owner } => supply_collateral(deps, env, info, owner),
         ExecuteMsg::SupplyDebt { send_to } => supply_debt(deps, env, info, send_to),
         ExecuteMsg::Borrow { collateral_denom, send_to, borrow_amount } => borrow_cdt(deps, env, info, send_to, collateral_denom, borrow_amount),
@@ -246,6 +248,7 @@ fn update_market(
     borrow_cap: Option<BorrowCap>,
     max_slippage: Option<Decimal>,
     pool_for_oracle_and_liquidations: Option<AssetOracleInfo>,
+    per_user_debt_cap: Option<Option<Uint128>>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     let mut attrs = vec![
@@ -296,6 +299,10 @@ fn update_market(
     if let Some(pool_for_oracle_and_liquidations) = pool_for_oracle_and_liquidations {
         market.pool_for_oracle_and_liquidations = pool_for_oracle_and_liquidations.clone();
         attrs.push(attr("pool_for_oracle_and_liquidations", format!("{:?}", pool_for_oracle_and_liquidations)));
+    }
+    if let Some(per_user_debt_cap) = per_user_debt_cap {
+        market.per_user_debt_cap = per_user_debt_cap;
+        attrs.push(attr("per_user_debt_cap", format!("{:?}", per_user_debt_cap)));
     }
     //Save new market
     MARKET_PARAMS.save(deps.storage, collateral_denom.clone(), &market)?;
@@ -356,6 +363,10 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::MarketParams { collateral_denom } => to_json_binary(&match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
             Ok(market) => market,
             Err(err) => return Err(StdError::generic_err(format!("Error getting market params: {:?}", err))),
+        }),
+        QueryMsg::ActionsPaused {  } => to_json_binary(&match ACTIONS_PAUSED.load(deps.storage){
+            Ok(paused) => paused,
+            Err(err) => return Err(StdError::generic_err(format!("Error getting actions paused state: {:?}", err))),
         }),
         QueryMsg::GetCollateralPrice { asset } => to_json_binary(&match get_collateral_price(deps.storage, deps.querier, env, MARKET_PARAMS.load(deps.storage, asset)?){
             Ok(price) => price,

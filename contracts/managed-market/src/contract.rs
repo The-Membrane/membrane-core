@@ -55,7 +55,7 @@ pub fn instantiate(
         debt_supply_cap: msg.debt_supply_cap,
         bad_debt: Uint128::zero(),
         whitelisted_debt_suppliers: msg.clone().whitelisted_debt_suppliers,
-        debt_supply_vault_token: String::from("factory/".to_owned() + env.contract.address.as_str() + "/" + msg.clone().owner.as_str() + "/debt-suppliers"),
+        debt_supply_vault_token: String::from("factory/".to_owned() + env.contract.address.as_str() + "/debt-suppliers"),
         manager_fee: Decimal::percent(10),
     };
     CONFIG.save(deps.storage, &config)?;
@@ -109,7 +109,7 @@ pub fn instantiate(
     //ORACLE POOL ROUTE WILL BE APPENDED WITH CDT/USDC POOL 1268 FOR LIQUIDATIONS
     
     //Create Debt VT Msg
-    let debt_vt_denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: (msg.clone().owner.as_str().to_owned() + "/debt-suppliers").clone() };
+    let debt_vt_denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: String::from("/debt-suppliers")};
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")

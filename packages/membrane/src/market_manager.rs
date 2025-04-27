@@ -27,7 +27,7 @@ pub struct ManagerEdit {
 pub struct MarketInstantiation {
     pub name: String,
     pub whitelisted_debt_suppliers: Option<Vec<String>>,
-    pub debt_supply_vault_token: String,
+    // pub debt_supply_vault_token: String,
     pub collateral_params: CollateralParams,
     pub rate_params: RateParams,
     pub pool_for_oracle_and_liquidations: AssetOracleInfo,

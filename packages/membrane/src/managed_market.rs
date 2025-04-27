@@ -11,7 +11,7 @@ pub struct InstantiateMsg {
     pub owner: String,
     pub osmosis_proxy_contract: String,
     pub whitelisted_debt_suppliers: Option<Vec<String>>,
-    pub debt_supply_vault_token: String,
+    // pub debt_supply_vault_token: String,
 
 //////////////Market params////////
     pub collateral_params: CollateralParams,

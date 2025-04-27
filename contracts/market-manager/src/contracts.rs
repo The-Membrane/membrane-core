@@ -101,7 +101,7 @@ fn instantiate_market(
             owner: info.sender.to_string(),
             osmosis_proxy_contract: config.osmosis_proxy_contract.to_string(),
             whitelisted_debt_suppliers: params.clone().whitelisted_debt_suppliers,
-            debt_supply_vault_token: params.clone().debt_supply_vault_token,
+            // debt_supply_vault_token: params.clone().debt_supply_vault_token,
             collateral_params: params.clone().collateral_params,
             rate_params: params.clone().rate_params,
             pool_for_oracle_and_liquidations: params.clone().pool_for_oracle_and_liquidations,

@@ -5,7 +5,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
-use membrane::market_manager::{Config, ExecuteMsg, InstantiateMsg, ManagerEdit, MarketInstantiation, MarketItem, PendingMarket, QueryMsg};
+use membrane::market_manager::{Config, ExecuteMsg, InstantiateMsg, ManagerEdit, MarketInstantiation, MarketItem, MigrateMsg, PendingMarket, QueryMsg};
 use membrane::managed_market::InstantiateMsg as ManagedMarketInstantiateMsg;
 
 
@@ -280,4 +280,12 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_json_binary(&markets)
         }
     }
+}
+
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+    
+    //Return response
+    Ok(Response::default())
 }

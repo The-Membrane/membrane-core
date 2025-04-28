@@ -284,6 +284,15 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 
 #[cfg_attr(not(feature = "library"), entry_point)]
+pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+    match msg.id {
+        INSTANTIATE_REPLY_ID => handle_instantiate_reply(deps, env, msg),
+        id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
+    }
+}
+
+
+#[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     
     //Return response

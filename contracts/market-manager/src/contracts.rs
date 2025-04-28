@@ -5,6 +5,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
+use cw_storage_plus::Bound;
 use membrane::market_manager::{Config, ExecuteMsg, InstantiateMsg, ManagerEdit, MarketInstantiation, MarketItem, MigrateMsg, PendingMarket, QueryMsg};
 use membrane::managed_market::InstantiateMsg as ManagedMarketInstantiateMsg;
 
@@ -278,8 +279,37 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 .may_load(deps.storage, manager)?
                 .unwrap_or_default();
             to_json_binary(&markets)
+        },
+        QueryMsg::Managers { start_after, limit } => {
+            let managers = query_managers(deps, _env, start_after, limit)?;
+            to_json_binary(&managers)
         }
     }
+}
+
+//Query managers
+//Return the list of managers
+fn query_managers(
+    deps: Deps,
+    _env: Env,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<Vec<String>> {
+    let limit = limit.unwrap_or(MAX_LIMIT as u32);
+    let start = if let Some(start) = start_after {
+        Some(Bound::exclusive(start))
+    } else {
+        None
+    };
+
+    //Get the managers from the Keys of the MANAGED_MARKETS map
+    let managers = MANAGED_MARKETS
+        .keys(deps.storage, start, None, Order::Ascending)
+        .take(limit as usize)
+        .collect::<StdResult<Vec<String>>>()?;
+
+    //Return
+    Ok(managers)
 }
 
 

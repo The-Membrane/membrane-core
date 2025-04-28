@@ -81,6 +81,11 @@ pub enum QueryMsg {
         /// Manager address
         manager: String,
     },
+    #[returns(Vec<String>)]
+    Managers { 
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
 }
 
 

@@ -738,7 +738,7 @@ pub fn borrow_cdt(
 
     //Assert borrow is valid. 
     //Borrowable amount is capped by current LTV & borrowable LTV & borrow cap.
-    let borrowable_amount = {
+    let mut borrowable_amount = {
         let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone())?;
         let collateral_value = collateral_price.get_value(user_position.collateral_amount)?;
         let debt_value: Decimal = debt_price.get_value(user_position.debt_amount)?;
@@ -832,6 +832,27 @@ pub fn borrow_cdt(
         Err(_) => return Err(ContractError::CustomError { val: format!("Total Borrowed: {} + Borrow Amount: {}, underflow error", market.total_borrowed, borrowable_amount) }),
     };
     MARKET_PARAMS.save(deps.storage, collateral_denom.clone(), &market)?;
+
+    //If there is a borrow fee, subtract it from the borrowable amount
+    let borrow_fee = match market.borrow_fee.is_zero() {
+        false => {
+            let fee_amount = decimal_multiplication(
+                Decimal::from_ratio(borrowable_amount, Uint128::one()), 
+                market.borrow_fee
+            )?.to_uint_floor();
+            borrowable_amount = borrowable_amount.checked_sub(fee_amount).unwrap_or(Uint128::zero());
+
+            fee_amount
+        },
+        true => Uint128::zero()
+    };
+
+    //Add borrow fee to the config.total_debt_tokens
+    config.total_debt_tokens = match config.total_debt_tokens.checked_add(borrow_fee){
+        Ok(val) => val,
+        Err(_) => return Err(ContractError::CustomError { val: format!("Total Debt Tokens: {} + Borrow Fee: {}, underflow error", config.total_debt_tokens, borrow_fee) }),
+    };
+    //Update config state
     CONFIG.save(deps.storage, &config)?;
 
     //Send borrowed CDT

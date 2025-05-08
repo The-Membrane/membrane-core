@@ -3,7 +3,7 @@ use std::option;
 
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Decimal, Uint128};
-use crate::{oracle::PriceResponse, types::{AssetOracleInfo, BorrowOptions, ClaimTracker, RangeBounds, RangePositions, RangeTokens, UserInfo, UserIntentState, UserPosition}};
+use crate::{oracle::PriceResponse, types::{AssetOracleInfo, AutoCloseParams, BorrowOptions, ClaimTracker, RangeBounds, RangePositions, RangeTokens, UserHistory, UserInfo, UserIntentState, UserPosition}};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -18,6 +18,11 @@ pub struct InstantiateMsg {
     pub rate_params: RateParams,
     pub pool_for_oracle_and_liquidations: AssetOracleInfo,
     pub borrow_fee: Decimal,
+    /// Max slippage for liquidation swaps & TP/SL/AutoClose limits.
+    /// If the swaps fail, liquidations fail.
+    /// If the swap quality is bad, we get inefficient liquidations & bad debt.
+    /// For TP/SL/AutoClose, this is the max slippage 3rd-party users can use for unowned positions.
+    pub max_slippage: Decimal,
     pub whitelisted_collateral_suppliers: Option<Vec<String>>,
     pub pause_option: bool,
     //Total debt supply cap for the market
@@ -104,9 +109,24 @@ pub enum ExecuteMsg {
         /// Borrow amount or ltv
         borrow_amount: BorrowOptions,
     },
+    //we use LTV instead of price to account for interest rate accrual
+    EditUXBoosts {
+        /// Market signifier
+        collateral_denom: String,
+        /// LTV to set intents to loop at
+        loop_ltv: Option<Option<Decimal>>,
+        /// Params to allow "automated" position close
+        take_profit_params: Option<Option<AutoCloseParams>>,
+        /// Params to allow "automated" position close
+        stop_loss_params: Option<Option<AutoCloseParams>>,
+        /// Execution fee in colalteral (value)
+        collateral_value_fee_to_executor: Option<Decimal>, 
+    },
     Repay { 
         /// Market signifier
-        collateral_denom: String 
+        collateral_denom: String,
+        /// Who is the excess repaid CDT going to? Defaults to sender.
+        send_excess_to: Option<String>,
     },
     Liquidate {
         /// Market signifier
@@ -125,7 +145,9 @@ pub enum ExecuteMsg {
     },
     //
     ClosePosition {
-        position_owner: String,
+        /// Market signifier
+        collateral_denom: String,
+        position_owner: Option<String>,
         close_percentage: Option<Decimal>,
         max_spread: Decimal,
         /// Who to send excess CDT from the spread coverage & available collateral if fully closed. Defaults to sender.
@@ -168,11 +190,19 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     #[returns(Config)]
     Config {},
-    #[returns(MarketParams)]
-    MarketParams { 
+    #[returns(Vec<MarketParams>)]
+    MarketParams {
+        start_after: Option<String>,
+        limit: Option<u32>,
         /// Market signifier
-        collateral_denom: String,
+        collateral_denom: Option<String>,
     },
+    #[returns(Vec<String>)]
+    GetCollateralAssets {
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+    #[returns(Vec<UserHistory>)]
     #[returns(ClaimTracker)]
     ClaimTracker {},
     #[returns(bool)]
@@ -265,7 +295,7 @@ pub struct Config {
     pub bad_debt: Uint128,
     pub debt_supply_cap: Option<Uint128>,
     pub debt_supply_vault_token: String,
-    ///Set Whitelists to None to disable new capital
+    ///Set Whitelists to empty vec to disable new capital
     pub whitelisted_debt_suppliers: Option<Vec<String>>,
     pub manager_fee: Decimal,
 }

@@ -14,7 +14,7 @@ use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_
 use membrane::oracle::PriceResponse;
 use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::types::{
-    AssetInfo, BorrowOptions, UserPosition, VTClaimCheckpoint
+    Asset, AssetInfo, AutoCloseParams, BorrowOptions, UXBoosts, UserPosition, VTClaimCheckpoint
 };
 use membrane::managed_market::{Config, ExecuteMsg, MarketParams};
 use membrane::stability_pool_vault::{
@@ -29,7 +29,7 @@ use serde::de;
 
 
 use crate::rates::accrue;
-use crate::state::{LiquidationPropagation, TokenRateAssurance, ACTIONS_PAUSED, CLAIM_TRACKER, DEBT_VAULT_TOKEN, LIQUIDATION, MARKET_PARAMS, TOKEN_RATE_ASSURANCE};
+use crate::state::{ClosePositionPropagation, LiquidationPropagation, LoopPropagation, TokenRateAssurance, ACTIONS_PAUSED, CLAIM_TRACKER, CLOSE_POSITION, DEBT_VAULT_TOKEN, LIQUIDATION, LOOP_POSITION, MARKET_PARAMS, POSITION_UX_BOOSTS, TOKEN_RATE_ASSURANCE};
 // use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, CollateralVolatility, Timer, BASKET, CLOSE_POSITION, FREEZE_TIMER, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
 use crate::{
     state::{
@@ -40,20 +40,32 @@ use crate::{
 
 //Liquidation reply ids
 pub const LIQUIDATE_REPLY_ID: u64 = 1u64;
+pub const CLOSE_POSITION_REPLY_ID: u64 = 2u64;
+pub const LOOP_POSITION_REPLY_ID: u64 = 3u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 
 //Todo:
-// - 
+// - Close, Loop, SL, TP (DONE)
+// - Move UX state to separate object (DONE)
+// - Check TP logic to see if it stays after usage if position isn't removed (DONE)'
+// - Save purchase prices and amounts (DONE)
+// - Remove position data once closed (DONE)
+// - Calc avg price & total bought post final loop (DONE)
+// - Profit & Volume state (DONE)
+// - Calculate profits on close if there were loops (DONE)
 
 //Our Product roadmap is:
 // Exotic collateral 
 // -- borrow fee
 // -- per user debt cap
-// -- keep max LTV and borrow LTV close so that liquidations are small and don't cause the market to crash
+// -- keep max LTV and borrow LTV close so that liquidations are small but frequent nd don't cause the market to crash
+// Trading Strategies
+// - Take initial out
+// --- Strat struct implementation
 // Leveraged blue chips (Pyth oracles)
 // -- Hands free leverage (SL & Loop intents) (*for borrower*)
-// -- Use liquidatibility & volatiility to increase interest rates *for borrower*
+// -- Use liquidatibility & volatiility to increase interest rates *for supplier*
 // -- Fixed rate (*for borrower*), grants stability for strats
 // Interest rate arbs (redemptions, vault oracles)
 
@@ -70,12 +82,11 @@ pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 /// -- The problem with immut is that it puts the responsibility on the contract admin
 
 ///V2: 
-/// - STOP LOSS
-/// - LTV Ramping
-/// - Close Position
-/// - Borrow Fee
+// - per user debt cap (% of total supply)
+/// 
 
 ///V3
+/// - LTV Ramping
 /// - Liquidators can bring in their own CDT
 /// - Use the liquidation queue for liquidations & add the collateral to the queue on instantiation.
 /// 
@@ -499,8 +510,18 @@ pub fn withdraw_collateral(
         if frozen {return Err(ContractError::Frozen {  }) }
     }
 
+    //Set position_owner
+    let mut position_owner = info.sender.clone();
+
+    //If the contract is withdrawing for a user (i.e. ClosePosition), set the position owner to the recipient
+    if info.sender == env.contract.address && send_to.is_some(){
+        position_owner = deps.api.addr_validate(&send_to.clone().unwrap())?.clone();
+    } else if info.sender == env.contract.address && send_to.is_none(){
+        return Err(ContractError::CustomError { val: "Can't withdraw for the contract".to_string() });
+    }
+
     //Load user state
-    let mut user_position = POSITIONS.load(deps.storage, (info.sender.clone(), collateral_denom.clone()))?;
+    let mut user_position = POSITIONS.load(deps.storage, (position_owner.clone(), collateral_denom.clone()))?;
 
     //Return early if no collateral
     if user_position.collateral_amount.is_zero() {
@@ -508,7 +529,7 @@ pub fn withdraw_collateral(
     }
 
     //Set send to
-    let send_to = match send_to {
+    let send_to = match send_to.clone() {
         Some(send_to) => deps.api.addr_validate(&send_to)?,
         None => info.sender.clone(),
     };
@@ -564,27 +585,42 @@ pub fn withdraw_collateral(
 
     //Update state for user
     user_position.collateral_amount -= withdrawable_amount;
-    POSITIONS.save(deps.storage, (info.sender.clone(), collateral_denom.clone()), &user_position)?;
+
+    //If the user has no collateral left, remove them from state
+    if user_position.collateral_amount.is_zero() {
+        //Remove user from state
+        POSITIONS.remove(deps.storage, (position_owner.clone(), collateral_denom.clone()));
+        //Remove user from UX boosts
+        POSITION_UX_BOOSTS.remove(deps.storage, (position_owner.clone(), collateral_denom.clone()));
+    } else {
+        //Update user position
+        POSITIONS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &user_position)?;
+    }
 
     //Update state for config
     CONFIG.save(deps.storage, &config)?;
 
     //Send withdrawn assets
     let withdraw_coins = vec![Coin {
-        denom: market.collateral_params.collateral_asset,
+        denom: market.collateral_params.collateral_asset.clone(),
         amount: withdrawable_amount,
     }];
     let withdraw_collateral_message = CosmosMsg::Bank(BankMsg::Send {
         to_address: send_to.to_string(),
         amount: withdraw_coins,
     });
+    msgs.push(withdraw_collateral_message.clone());
 
     Ok(Response::new()
     .add_attributes(vec![
         attr("method", "withdraw_collateral"),
+        attr("withdrawn_amount", withdrawable_amount),
+        attr("collateral_denom", market.collateral_params.collateral_asset),
+        attr("position_owner", position_owner.to_string()),
+        attr("send_to", send_to.to_string()),
+        attr("new_position", format!("{:?}", user_position)),
     ])
-    .add_message(withdraw_collateral_message)
-.add_messages(msgs))
+    .add_messages(msgs))
 }
 
 pub fn get_collateral_price(
@@ -679,6 +715,86 @@ pub fn get_cdt_price(
         decimals: 6 })
 }
 
+pub fn edit_ux_boosts(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    collateral_denom: String,
+    loop_ltv: Option<Option<Decimal>>,
+    take_profit_params: Option<Option<AutoCloseParams>>,
+    stop_loss_params: Option<Option<AutoCloseParams>>,
+    collateral_value_fee_to_executor: Option<Decimal>, 
+) -> Result<Response, ContractError> {
+    //Load user state
+    let mut user_position_ux_boosts = POSITION_UX_BOOSTS.load(deps.storage, (info.sender.clone(), collateral_denom.to_string()))?;
+
+    //Load market
+    let market = match MARKET_PARAMS.load(deps.storage, collateral_denom.to_string()){
+        Ok(market) => market,
+        Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
+    };
+
+    //Set loop ltv
+    if let Some(loop_ltv) = loop_ltv {
+        //Can't be above max borrow ltv
+        if let Some(loop_ltv) = loop_ltv {
+            if loop_ltv > market.collateral_params.max_borrow_LTV {
+                return Err(ContractError::CustomError { val: format!("Loop ltv {} can't be higher than max borrow ltv {}", loop_ltv, market.collateral_params.max_borrow_LTV) });
+            }
+        }
+        user_position_ux_boosts.loop_ltv = loop_ltv;
+    }
+    //Set take profit ltv
+    if let Some(take_profit_params) = take_profit_params.clone() {
+        user_position_ux_boosts.take_profit_params = take_profit_params;
+    }
+    //Set stop loss ltv
+    if let Some(stop_loss_params) = stop_loss_params.clone() {
+        if let Some(stop_loss_params) = stop_loss_params.clone() {
+            if stop_loss_params.ltv > Decimal::one() {
+                return Err(ContractError::CustomError { val: "Stop loss can't be higher than 1".to_string() });
+            }
+
+            //Can't set stop loss higher than loop ltv
+            if let Some(loop_ltv) = user_position_ux_boosts.loop_ltv {
+                if stop_loss_params.ltv > loop_ltv {
+                    return Err(ContractError::CustomError { val: "Stop loss can't be higher than loop ltv".to_string() });
+                }
+            }
+            //Can't set stop loss higher than take profit ltv
+            if let Some(take_profit_params) = user_position_ux_boosts.take_profit_params.clone() {
+                if stop_loss_params.ltv > take_profit_params.ltv {
+                    return Err(ContractError::CustomError { val: "Stop loss can't be higher than take profit ltv".to_string() });
+                }
+            }
+            //Can't be above liquidation ltv
+            if stop_loss_params.ltv > market.collateral_params.liquidation_LTV {
+                return Err(ContractError::CustomError { val: "Stop loss can't be higher than liquidation ltv".to_string() });
+            }
+        }
+
+        user_position_ux_boosts.stop_loss_params = stop_loss_params;
+    }
+    //Set collateral value fee to executor
+    if let Some(collateral_value_fee_to_executor) = collateral_value_fee_to_executor {
+        user_position_ux_boosts.collateral_value_fee_to_executor = collateral_value_fee_to_executor;
+    }
+
+    //Save user state
+    POSITION_UX_BOOSTS.save(deps.storage, (info.sender.clone(), collateral_denom.to_string()), &user_position_ux_boosts)?;
+
+    Ok(Response::new()
+        .add_attributes(vec![
+            attr("method", "edit_ux_boosts"),
+            attr("loop_ltv", format!("{:?}", loop_ltv)),
+            attr("take_profit_params", format!("{:?}", take_profit_params)),
+            attr("stop_loss_params", format!("{:?}", stop_loss_params)),
+            attr("collateral_value_fee_to_executor", format!("{:?}", collateral_value_fee_to_executor)),
+            attr("collateral_bought_from_loops", format!("{:?}", user_position_ux_boosts.collateral_bought_from_loops )),
+
+        ]))
+}
+
 /// Borrow CDT from the market & add it as debt to the user's position
     /// Assert:
     /// - The contract isn't frozen (error)
@@ -708,16 +824,29 @@ pub fn borrow_cdt(
     if let Ok(frozen) = ACTIONS_PAUSED.load(deps.storage) { 
         if frozen {return Err(ContractError::Frozen {  }) }
     }
-    
+
+    //Set position_owner
+    let mut position_owner = info.sender.clone();
+
+    //If the contract is withdrawing for a user (i.e. ClosePosition), set the position owner to the recipient
+    if info.sender == env.contract.address && send_to.is_some(){
+        position_owner = deps.api.addr_validate(&send_to.clone().unwrap())?.clone();
+    } else if info.sender == env.contract.address && send_to.is_none(){
+        return Err(ContractError::CustomError { val: "Can't borrow for the contract".to_string() });
+    }
 
     //Load user state
-    let mut user_position = POSITIONS.load(deps.storage, (info.sender.clone(), collateral_denom.clone()))?;
+    let mut user_position = POSITIONS.load(deps.storage, (position_owner.clone(), collateral_denom.clone()))?;
 
     //Set send to
-    let send_to = match send_to {
+    let mut send_to = match send_to {
         Some(send_to) => deps.api.addr_validate(&send_to)?,
         None => info.sender.clone(),
     };
+    //If its the contract, set it to the contract address
+    if info.sender == env.contract.address {
+        send_to = env.contract.address.clone();
+    }
 
     let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
 
@@ -819,12 +948,13 @@ pub fn borrow_cdt(
         )?;
     }
 
-    //Update state for user
+    //////Update state for user/////
     user_position.debt_amount = match user_position.debt_amount.checked_add(borrowable_amount){
         Ok(val) => val,
         Err(_) => return Err(ContractError::CustomError { val: format!("User Debt Amount: {} + Borrow Amount: {}, underflow error", user_position.debt_amount, borrowable_amount) }),
     };
-    POSITIONS.save(deps.storage, (info.sender.clone(), collateral_denom.clone()), &user_position)?;
+    //Save user state
+    POSITIONS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &user_position)?;
 
     //Update state for config
     market.total_borrowed = match market.total_borrowed.checked_add(borrowable_amount){
@@ -864,6 +994,7 @@ pub fn borrow_cdt(
         to_address: send_to.to_string(),
         amount: borrow_coins,
     });
+    msgs.push(borrow_cdt_message.clone());
 
 
 
@@ -871,7 +1002,6 @@ pub fn borrow_cdt(
     .add_attributes(vec![
         attr("method", "borrow_cdt"),
     ])
-    .add_message(borrow_cdt_message)
 .add_messages(msgs))
 }
 
@@ -930,6 +1060,7 @@ pub fn repay_cdt(
     env: Env,
     info: MessageInfo,
     collateral_denom: String,
+    send_excess_to: Option<String>,
 ) -> Result<Response, ContractError> {    
     let mut config = CONFIG.load(deps.storage)?;
     let mut market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
@@ -991,12 +1122,18 @@ pub fn repay_cdt(
 
      //Send back excess repayment, defaults to the repaying address
      if !excess_repayment.is_zero() {
+        //Set send_excess_to
+        let send_excess_to = match send_excess_to {
+            Some(send_excess_to) => deps.api.addr_validate(&send_excess_to)?,
+            None => info.sender.clone(),
+        };
+        //Send excess repayment
         let excess_repayment_coins = vec![Coin {
             denom: CDT_DENOM.to_string(),
             amount: excess_repayment,
         }];
         let excess_repayment_message = CosmosMsg::Bank(BankMsg::Send {
-            to_address: info.sender.to_string(),
+            to_address: send_excess_to.to_string(),
             amount: excess_repayment_coins,
         });
         msgs.push(excess_repayment_message);
@@ -1032,7 +1169,7 @@ pub fn check_debt_liquidatibility(
 ) -> Result<(), ContractError> {
 
     //Get swap routes
-    let routes = get_swap_out_routes(market.clone())?;
+    let routes = get_swap_out_routes_to_cdt(market.clone())?;
 
     //Get debt value
     // let debt_value = debt_price.get_value(debt_amount)?;
@@ -1052,7 +1189,7 @@ pub fn check_debt_liquidatibility(
     Ok(())
 }
 
-fn get_swap_out_routes(
+fn get_swap_out_routes_to_cdt(
     market: MarketParams,
 ) -> Result<Vec<SwapAmountOutRoute>, ContractError> {
     
@@ -1078,7 +1215,7 @@ fn get_swap_out_routes(
     Ok(routes)
 }
 
-fn get_swap_in_routes(
+fn get_swap_in_routes_to_cdt(
     market: MarketParams,
 ) -> Result<Vec<SwapAmountInRoute>, ContractError> {
     
@@ -1105,7 +1242,7 @@ fn get_swap_in_routes(
 }
 
 
-fn create_swap_msg(
+fn create_swap_to_cdt_msg(
     env: Env,
     collateral_denom: String,
     collateral_amount: Uint128,
@@ -1130,6 +1267,65 @@ fn create_swap_msg(
         token_in: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
             amount: collateral_amount.to_string(),
             denom: collateral_denom
+        }),
+        token_out_min_amount: token_out_min_amount.to_string(),
+        
+    }.into();
+
+    Ok(msg)
+}
+
+fn get_swap_in_routes_to_collateral(
+    market: MarketParams,
+) -> Result<Vec<SwapAmountInRoute>, ContractError> {
+    
+    let mut routes = vec![];
+
+    // Add the CDT pool first (we're starting from CDT now)
+    routes.push(SwapAmountInRoute {
+        pool_id: 1268u64,
+        token_out_denom: NOBLE_USDC_DENOM.to_string(),
+    });
+
+    // Get the oracle pool
+    let oracle_pool = market.pool_for_oracle_and_liquidations;
+
+    // Reverse the oracle pool route (simulating CDT -> collateral)
+    oracle_pool.pools_for_osmo_twap.into_iter().rev().enumerate().for_each(|(i, pool)| {
+        routes.push(SwapAmountInRoute {
+            pool_id: pool.pool_id,
+            token_out_denom: pool.base_asset_denom.clone(),
+        });
+    });
+
+    Ok(routes)
+}
+
+fn create_swap_to_collateral_msg(
+    env: Env,
+    debt_denom: String,
+    debt_amount: Uint128,
+    collateral_price: PriceResponse,
+    debt_price: PriceResponse,
+    routes: Vec<SwapAmountInRoute>,
+    max_slippage: Decimal,
+) -> Result<CosmosMsg, ContractError> {
+    //Get token_in & token_out prices
+    let token_out_price = collateral_price.clone();
+    let token_in_price = debt_price.clone();
+
+    //Calculate min amount out
+    let token_in_value = token_in_price.get_value(debt_amount)?;
+    let token_out_min_value = decimal_multiplication(token_in_value, Decimal::one() - max_slippage)?;
+    let token_out_min_amount = token_out_price.get_amount(token_out_min_value)?;
+
+    //Create Msg
+    let msg: CosmosMsg = MsgSwapExactAmountIn {
+        sender: env.contract.address.to_string(),
+        routes,
+        token_in: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+            amount: debt_amount.to_string(),
+            denom: debt_denom
         }),
         token_out_min_amount: token_out_min_amount.to_string(),
         
@@ -1302,13 +1498,13 @@ pub fn liquidate(
 
 
     //Create swap msg for liquidations
-    let swap_msg = create_swap_msg(
+    let swap_msg = create_swap_to_cdt_msg(
         env.clone(), 
         market.clone().collateral_params.collateral_asset, 
         collateral_amount_to_liquidate, 
         collateral_price, 
         debt_price, 
-        get_swap_in_routes(market.clone())?, 
+        get_swap_in_routes_to_cdt(market.clone())?, 
         max_slippage,
     )?;
     //Reply on success to edit the user position based on the CDT that was swapped for & edit the config's total borrowed.
@@ -1485,135 +1681,359 @@ pub fn crank_realized_apr(
     ]))
 }
 
-
-// Sell position collateral to fully repay debts.
-// Max spread is used to ensure the full debt is repaid in lieu of slippage.
-// pub fn close_position(
-//     deps: DepsMut, 
-//     env: Env,
-//     info: MessageInfo,
-//     position_owner: String,
-//     close_percentage: Option<Decimal>,
-//     max_spread: Decimal,
-//     mut send_to: Option<String>,
-// ) -> Result<Response, ContractError>{
-    //Load Config
-//     let config: Config = CONFIG.load(deps.storage)?;
-
-
-//     //Check if frozen.
-//     //This ensures that if Freezes weren't enabled from the jump, the contract can't be frozen.
-//     if let Ok(frozen) = ACTIONS_PAUSED.load(deps.storage) { 
-//         if frozen {return Err(ContractError::Frozen {  }) }
-//     }
-
-
-//     //Load Basket
-//     let basket: Basket = BASKET.load(deps.storage)?;
-
-//     //Set close_percentage
-//     let close_percentage = match close_percentage {
-//         Some(close_percentage) => min(close_percentage, Decimal::one()),
-//         None => Decimal::one(),
-//     };
-
-//     //Load target_position, restrict to owner
-//     let (_i, target_position) = get_target_position(deps.storage, info.clone().sender, position_id)?;
-
-//     //Set close_amount
-//     let close_amount = target_position.credit_amount * close_percentage;
-
-//     //Calc collateral to sell
-//     //credit_amount * credit_price * (1 + max_spread)
-//     let total_collateral_value_to_sell = {
-//             decimal_multiplication(
-//                 basket.clone().credit_price.get_value(close_amount)?, 
-//                 (max_spread + Decimal::one())
-//             )?
-//     };
-
-//     //Max_spread is added to the collateral amount to ensure enough credit is purchased
-//     //Excess debt token gets sent back to the position_owner during repayment
-
-//     //Get cAsset_ratios for the target_position
-//     let (cAsset_ratios, cAsset_prices) = get_cAsset_ratios(deps.storage, env.clone(), deps.querier, target_position.clone().collateral_assets, config.clone(), Some(basket.clone()))?;
-
-//     let mut router_messages = vec![];
-//     let mut withdrawn_assets = vec![];
-
-//     //Calc collateral_amount_to_sell per asset & create router msg
-//     for (i, _collateral_ratio) in cAsset_ratios.clone().into_iter().enumerate(){
-
-//         //Calc collateral_amount_to_sell
-//         let mut collateral_amount_to_sell = {
-
-//             let collateral_value_to_sell = decimal_multiplication(total_collateral_value_to_sell, cAsset_ratios[i])?;
-
-//             let post_normalized_amount: Uint128 = match cAsset_prices[i].get_amount(collateral_value_to_sell){
-//                 Ok(amount) => amount,
-//                 Err(_e) => return Err(ContractError::CustomError { val: String::from("Collateral value to sell is too high to calculate an amount for due to the max spread creating an out of bounds error") })
-//             };
-
-//             post_normalized_amount
-//         };
-
-//         //Collateral to sell can't be more than the position owns
-//         if collateral_amount_to_sell > target_position.collateral_assets.clone()[i].asset.amount {
-//             collateral_amount_to_sell = target_position.collateral_assets.clone()[i].asset.amount;
-//         }
-
-//         //Set collateral asset
-//         let collateral_asset = target_position.clone().collateral_assets[i].clone().asset;
-
-//         //Add collateral_amount to list for propagation
-//         withdrawn_assets.push(Asset{
-//             amount: collateral_amount_to_sell,
-//             ..collateral_asset.clone()
-//         });
-
-//         //Create router subMsg to sell, repay in reply on success
-//         let router_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-//             contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
-//             msg: to_json_binary(&OsmoExecuteMsg::ExecuteSwaps { 
-//                 token_out: basket.clone().credit_asset.info.to_string(),
-//                 max_slippage: max_spread,
-//             })?,
-//             funds: vec![
-//                 Coin {
-//                     denom: collateral_asset.clone().info.to_string(),
-//                     amount: collateral_amount_to_sell,
-//                 }
-//             ],
-//         });
-//         router_messages.push(router_msg);
-//     }
-
-//     //Set send_to for WithdrawMsg in Reply
-//     if send_to.is_none() {
-//         send_to = Some(info.sender.to_string());
-//     }
-
-//     //Save CLOSE_POSITION_PROPAGATION
-//     CLOSE_POSITION.save(deps.storage, &ClosePositionPropagation {
-//         withdrawn_assets,
-//         position_info: UserInfo { 
-//             position_id, 
-//             position_owner: info.sender.to_string(),
-//         },
-//         send_to,
-//     })?;
-
-//     //The last router message is updated to a CLOSE_POSITION_REPLY to close the position after all sales and repayments are done.
-//     let sub_msg = SubMsg::reply_on_success(router_messages.pop().unwrap(), CLOSE_POSITION_REPLY_ID);    
-//     //Transform Router Msgs into SubMsgs so they run after LP Withdrawals
-//     let router_messages = router_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
-
-//     Ok(Response::new()
-//         .add_submessages(router_messages)
-//         .add_submessage(sub_msg)
-//         .add_attributes(vec![
-//         attr("position_id", position_id),
-//         attr("user", info.sender),
-//     ])) //If the sale incurred slippage and couldn't repay through the debt minimum, the subsequent withdraw msg will error and revert state 
-// }
  
+/// Sell position collateral to repay any % of debt.
+/// Max spread is used to ensure the full debt is repaid in lieu of slippage.
+pub fn close_position(
+    deps: DepsMut, 
+    env: Env,
+    info: MessageInfo,
+    collateral_denom: String,
+    close_percentage: Option<Decimal>,
+    mut max_spread: Decimal,
+    mut send_to: Option<String>,
+    //Close for a user that is not the sender. For SL and TP.
+    position_owner: Option<String>,
+) -> Result<Response, ContractError>{
+    //Load global state
+    let config: Config = CONFIG.load(deps.storage)?;
+    let market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
+        Ok(market) => market,
+        Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
+    };
+
+    //Initialize msgs
+    let mut msgs: Vec<CosmosMsg> = vec![];
+
+    //Get asset prices
+    let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone())?;
+    let debt_price = get_cdt_price(deps.querier, env.clone())?;
+
+    //Set close_percentage
+    let mut close_percentage = match close_percentage {
+        Some(close_percentage) => min(close_percentage, Decimal::one()),
+        None => Decimal::one(),
+    };
+
+    //Set position owner
+    let position_owner = match position_owner {
+        Some(position_owner) => deps.api.addr_validate(&position_owner)?,
+        None => info.sender.clone(),
+    };
+
+    //Mutate max spread.
+    //if the sender isn't the user, we don't go over the max slippage
+    if info.sender != position_owner {
+        max_spread = min(max_spread, market.max_slippage)
+    }
+
+    //Load target_position
+    let mut target_position = match POSITIONS.may_load(deps.storage, (position_owner.clone(), collateral_denom.clone()))? {
+        Some(target_position) => target_position,
+        None => return Err(ContractError::CustomError { val: format!("Position not found for user {} in the {} collateral market", position_owner, collateral_denom) }),
+    };
+
+
+    //If position owner is not the sender, make sure the position has SL and TP params ready to execute.
+    if position_owner != info.sender {
+        //Load Position's UX Boosts
+        let target_position_ux_boosts = match POSITION_UX_BOOSTS.load(deps.storage, (position_owner.clone(), collateral_denom.clone())){
+            Ok(target_position_ux_boosts) => target_position_ux_boosts,
+            Err(_) => return Err(ContractError::CustomError { val: format!("Position owner {} has no UX Boosts set", position_owner) }),
+        };
+        //Check if the position has SL or TP params set
+        if target_position_ux_boosts.stop_loss_params.is_none() && target_position_ux_boosts.take_profit_params.is_none() {
+            return Err(ContractError::CustomError { val: format!("Position owner {} has no SL or TP params set", position_owner) });
+        }
+
+        //Get position LTV 
+        let collateral_value = collateral_price.get_value(target_position.collateral_amount)?;
+        let debt_value = debt_price.get_value(target_position.debt_amount)?;
+        let position_LTV = decimal_division(debt_value, collateral_value)?;
+
+        ////If either are some, check that the set price has hit the target price.///
+        //SL
+        if let Some(stop_loss_params) = target_position_ux_boosts.stop_loss_params.clone() {
+            if position_LTV > stop_loss_params.ltv {
+                return Err(ContractError::CustomError { val: format!("Position owner {} has not hit the stop loss ltv of {}. Current ltv is {}", position_owner, stop_loss_params.ltv, position_LTV) });
+            }
+            //Update close percentage to the auto close params
+            close_percentage = min(stop_loss_params.percent_to_close, Decimal::one());
+            //Update the send_to to the auot close params
+            send_to = match stop_loss_params.send_to {
+                Some(send_to) => Some(send_to),
+                None => Some(position_owner.to_string()),
+            };
+        }
+        //TP 
+        if let Some(take_profit_params) = target_position_ux_boosts.take_profit_params.clone() {
+            if position_LTV < take_profit_params.ltv {
+                return Err(ContractError::CustomError { val: format!("Position owner {} has not hit the take profit ltv of {}. Current ltv is {}", position_owner, take_profit_params.ltv, position_LTV) });
+            }
+            //Update close percentage to the auto close params
+            close_percentage = min(take_profit_params.percent_to_close, Decimal::one());
+            //Update the send_to to the auot close params
+            send_to = match take_profit_params.send_to {
+                Some(send_to) => Some(send_to),
+                None => Some(position_owner.to_string()),
+            };
+        }
+
+        ////Send the executor the fee///
+        //Calculate the amount of collateral to send
+        let fee_collateral_amount = collateral_price.get_amount(target_position_ux_boosts.collateral_value_fee_to_executor)?;
+        //Update the position's state, subtract fee amount 
+        target_position.collateral_amount = match target_position.collateral_amount.checked_sub(fee_collateral_amount){
+            Ok(val) => val,
+            Err(_) => return Err(ContractError::CustomError { val: format!("Collateral amount to send: {} > User collateral amount: {}", fee_collateral_amount, target_position.collateral_amount) }),
+        };
+        //Send the fee to the executor
+        let fee_message = CosmosMsg::Bank(BankMsg::Send {
+            to_address: info.sender.to_string(),
+            amount: vec![Coin {
+                denom: collateral_denom.clone(),
+                amount: fee_collateral_amount,
+            }],
+        });
+        msgs.push(fee_message);
+
+    }
+
+    //Set send_to for withdrawal in Reply
+    if send_to.is_none() {
+        send_to = Some(position_owner.to_string());
+    }
+
+
+    //Set close_amount
+    let close_amount = target_position.debt_amount * close_percentage;
+
+    //Calc collateral to sell
+    //credit_amount * credit_price * (1 + max_spread)
+    let total_collateral_value_to_sell = {
+            decimal_multiplication(
+                debt_price.get_value(close_amount)?, 
+                (max_spread + Decimal::one())
+            )?
+    };
+    //Max_spread is added to the collateral amount to ensure enough credit is purchased
+    //Excess debt token gets sent back to the position_owner during repayment
+
+    //Calc collateral_amount_to_sell
+    let mut collateral_amount_to_sell = {
+
+        let collateral_value_to_sell = total_collateral_value_to_sell;
+
+        let post_normalized_amount: Uint128 = match collateral_price.get_amount(collateral_value_to_sell){
+            Ok(amount) => amount,
+            Err(_e) => return Err(ContractError::CustomError { val: String::from("Collateral value to sell is too high to calculate an amount for due to the max spread creating an out of bounds error") })
+        };
+
+        post_normalized_amount
+    };
+
+    //Collateral to sell can't be more than the position owns
+    if collateral_amount_to_sell > target_position.collateral_amount {
+        collateral_amount_to_sell = target_position.collateral_amount;
+    }
+
+    //Edit user state, subtract collateral_amount_to_sell 
+    target_position.collateral_amount = match target_position.collateral_amount.checked_sub(collateral_amount_to_sell){
+        Ok(val) => val,
+        Err(_) => return Err(ContractError::CustomError { val: format!("Collateral amount to sell: {} > User collateral amount: {}", collateral_amount_to_sell, target_position.collateral_amount) }),
+    };
+    //Save user state
+    POSITIONS.save(deps.storage, (info.sender.clone(), collateral_denom.clone()), &target_position)?;
+
+    //Create swap subMsg to sell, create repay & withdraw msgs in reply on success
+    let swap_msg = create_swap_to_cdt_msg(
+        env.clone(), 
+        market.clone().collateral_params.collateral_asset, 
+        collateral_amount_to_sell, 
+        collateral_price, 
+        debt_price, 
+        get_swap_in_routes_to_cdt(market.clone())?, 
+        max_spread,
+    )?;
+    let sub_msg = SubMsg::reply_on_success(swap_msg, CLOSE_POSITION_REPLY_ID);    
+
+    //Save CLOSE_POSITION_PROPAGATION
+    CLOSE_POSITION.save(deps.storage, &ClosePositionPropagation {
+        position_owner: position_owner.to_string(),
+        collateral_denom: collateral_denom.clone(),
+        send_to,
+        pre_close_debt_balance: get_contract_balances(
+            deps.querier, 
+            env.clone(), 
+        vec![AssetInfo::NativeToken { denom: CDT_DENOM.to_string() }])?[0],
+        collateral_swapped: collateral_amount_to_sell,
+    })?;
+
+    Ok(Response::new()
+        .add_messages(msgs)
+        .add_submessage(sub_msg)
+        .add_attributes(vec![
+        attr("collateral_denom", collateral_denom),
+        attr("msg_executor", info.sender),
+        attr("position_owner", position_owner),
+        attr("collateral_amount_to_sell", collateral_amount_to_sell),
+        attr("debt_amount_to_repay", close_amount),
+        attr("max_spread", max_spread.to_string()),
+    ])) 
+}
+
+pub fn loop_position(
+    deps: DepsMut, 
+    env: Env,
+    info: MessageInfo,
+    collateral_denom: String,   
+    //Loop for a user that is not the sender. For managed intents positions.
+    position_owner: Option<String>,
+    //Max slippage
+    max_slippage: Option<Decimal>,
+) -> Result<Response, ContractError>{
+    //Load global state
+    let config: Config = CONFIG.load(deps.storage)?;
+    let market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
+        Ok(market) => market,
+        Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
+    };
+
+    //Initialize msgs
+    let mut msgs: Vec<CosmosMsg> = vec![];
+
+    //Get asset prices
+    let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone())?;
+    let debt_price = get_cdt_price(deps.querier, env.clone())?;
+
+
+    //Set position owner
+    let position_owner = match position_owner {
+        Some(position_owner) => deps.api.addr_validate(&position_owner)?,
+        None => info.sender.clone(),
+    };
+
+    //Load target_position
+    let target_position = match POSITIONS.may_load(deps.storage, (position_owner.clone(), collateral_denom.clone()))? {
+        Some(target_position) => target_position,
+        None => return Err(ContractError::CustomError { val: format!("Position not found for user {} in the {} collateral market", position_owner, collateral_denom) }),
+    };
+
+    //Load target_position_ux_boosts
+    let target_position_ux_boosts = match POSITION_UX_BOOSTS.load(deps.storage, (position_owner.clone(), collateral_denom.clone())){
+        Ok(target_position_ux_boosts) => target_position_ux_boosts,
+        Err(_) => return Err(ContractError::CustomError { val: format!("Position owner {} has no UX Boosts set", position_owner) }),
+    };
+
+    //Set UX boost params
+    let loop_params = target_position_ux_boosts.clone();
+
+    //Get user's intended LTV
+    let intended_LTV = match loop_params.loop_ltv {
+        Some(intended_LTV) => min(intended_LTV, market.collateral_params.max_borrow_LTV),
+        None => return Err(ContractError::CustomError { val: format!("Position owner {} has no loop params set", position_owner) }),
+    };
+
+    //Transform LTV intent to multiplier intent
+    //ex: 60% LTV = 2.5x 
+    let intended_multiplier = match decimal_division(
+        Decimal::one(), 
+        Decimal::one() - intended_LTV
+    ){
+        Ok(val) => val,
+        Err(_) => return Err(ContractError::CustomError { val: format!("Failed to calculate multiplier from LTV") }),
+    };
+
+    //Get the sum of collateral bought from loops
+    let total_bought_from_loops = loop_params.collateral_bought_from_loops.iter().map(|collateral| collateral.amount_purchased).sum::<Uint128>();
+
+    //Calculate the looped exposure the position currently has
+    let current_multiplier = decimal_division(
+        Decimal::from_ratio(total_bought_from_loops + target_position.collateral_amount, Uint128::one()),
+        Decimal::from_ratio(target_position.collateral_amount, Uint128::one())
+    )?;
+
+    //Only loop if the multiplier is not within 3% of the intended
+    if current_multiplier < decimal_multiplication(intended_multiplier, Decimal::percent(97))? {
+        //Calc the current LTV
+        let collateral_value = collateral_price.get_value(target_position.collateral_amount)?;
+        let debt_value = debt_price.get_value(target_position.debt_amount)?;
+        let position_LTV = decimal_division(debt_value, collateral_value)?;
+
+        //Calc LTV space to loop
+        let LTV_space_to_loop = match decimal_subtraction(intended_LTV, position_LTV){
+            Ok(val) => { val },
+            Err(_) => return Err(ContractError::CustomError { val: format!("Failed to calculate LTV space to loop") }),
+        };
+        
+        //Calc amount of debt to mint
+        let debt_value_to_loop = decimal_multiplication(collateral_value, LTV_space_to_loop)?;
+        let debt_amount_to_mint = debt_price.get_amount(debt_value_to_loop)?;
+
+        //Create mint msg
+        let internal_mint_msg = ExecuteMsg::Borrow { 
+            collateral_denom: collateral_denom.clone(), 
+            send_to: Some(position_owner.to_string()), 
+            borrow_amount: BorrowOptions { amount: Some(debt_amount_to_mint), ltv: None }
+        };
+        let mint_msg = WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&internal_mint_msg)?,
+            funds: vec![],
+        };
+        msgs.push(mint_msg.into());
+
+        //Set max slippage
+        let max_slippage = match max_slippage {
+            Some(max_slippage) => { 
+                //if the sender isn't the user, we don't go over the max slippage
+                if info.sender != position_owner {
+                    min(max_slippage, market.max_slippage)
+                } else {
+                    max_slippage
+                }
+            },
+            None => market.max_slippage,
+        };
+
+        //Create swap to collateral SubMsg
+        let swap_msg = create_swap_to_collateral_msg(
+            env.clone(), 
+            CDT_DENOM.to_string(), 
+            debt_amount_to_mint, 
+            collateral_price, 
+            debt_price, 
+            get_swap_in_routes_to_collateral(market.clone())?, 
+            max_slippage,
+        )?;
+
+        let sub_msg = SubMsg::reply_on_success(swap_msg, LOOP_POSITION_REPLY_ID);
+
+        //Save LOOP_POSITION_PROPAGATION
+        LOOP_POSITION.save(deps.storage, &LoopPropagation {
+            position_owner: position_owner.to_string(),
+            collateral_denom: collateral_denom.clone(),
+            pre_loop_collateral_balance: get_contract_balances(
+                deps.querier, 
+                env.clone(), 
+                vec![AssetInfo::NativeToken { denom: collateral_denom.to_string() }])?[0],
+            intended_multiplier,
+        })?;
+
+        //Return
+        Ok(Response::new()
+            .add_messages(msgs)
+            .add_submessage(sub_msg)
+            .add_attributes(vec![
+                attr("collateral_denom", collateral_denom),
+                attr("msg_executor", info.sender),
+                attr("position_owner", position_owner),
+                attr("debt_amount_to_mint", debt_amount_to_mint),
+                attr("max_slippage", max_slippage.to_string()),
+            ]))
+
+    } else {
+        return Err(ContractError::CustomError { val: format!("Current multiplier {} is within 3% of the intended multiplier {}", current_multiplier, intended_multiplier) });
+    }
+
+}

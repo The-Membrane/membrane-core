@@ -1171,6 +1171,38 @@ pub struct BorrowOptions {
 }
 
 #[cw_serde]
+pub struct AutoCloseParams {
+    pub ltv: Decimal,
+    pub percent_to_close: Decimal,
+    pub send_to: Option<String>,
+}
+
+
+#[cw_serde]
+pub struct PurchaseData {
+    pub post_purchase_price: Decimal,
+    pub amount_purchased: Uint128,
+}
+
+
+#[cw_serde]
+pub struct UserHistory {
+    pub user: String,
+    pub profits: Decimal,
+    pub losses: Decimal,
+    pub volume: Decimal,
+}
+
+#[cw_serde]
+pub struct UXBoosts {
+    pub collateral_value_fee_to_executor: Decimal, 
+    pub loop_ltv: Option<Decimal>,
+    pub take_profit_params: Option<AutoCloseParams>,
+    pub stop_loss_params: Option<AutoCloseParams>,
+    pub collateral_bought_from_loops: Vec<PurchaseData>
+}
+
+#[cw_serde]
 pub struct UserPosition {
     pub collateral_denom: String, 
     pub collateral_amount: Uint128,

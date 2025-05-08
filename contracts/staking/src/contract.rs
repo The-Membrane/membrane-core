@@ -660,8 +660,10 @@ pub fn unstake(
                         break;
                     }
                 }
-                //Remove indices now that we've iterated through the delegations
-                for i in remove_indices.into_iter(){
+                
+                // Remove indices from the vector in reverse order to avoid index shifting issues
+                remove_indices.sort_unstable_by(|a, b| b.cmp(a));
+                for i in remove_indices {
                     staker_delegation_info.delegated_to.remove(i);
                 }
 

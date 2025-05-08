@@ -4,7 +4,7 @@ use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResu
 use cosmwasm_schema::cw_serde;
 use cw_storage_plus::{Item, Map};
 
-use membrane::types::{ClaimTracker, UserPosition};
+use membrane::types::{ClaimTracker, UXBoosts, UserHistory, UserPosition};
 use membrane::managed_market::{Config, MarketParams};
 
 use crate::ContractError;
@@ -34,21 +34,42 @@ pub struct LiquidationPropagation {
     pub pre_liquidation_cdt_balance: Uint128,
 }
 
+#[cw_serde]
+pub struct ClosePositionPropagation {
+    pub collateral_denom: String,
+    pub position_owner: String,
+    pub send_to: Option<String>,
+    pub pre_close_debt_balance: Uint128,
+    pub collateral_swapped: Uint128,
+}
+
+#[cw_serde]
+pub struct LoopPropagation {
+    pub position_owner: String,
+    pub collateral_denom: String,
+    pub pre_loop_collateral_balance: Uint128,
+    pub intended_multiplier: Decimal,
+}
+
 
 pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
 pub const CONFIG: Item<Config> = Item::new("config");
-
 pub const MARKET_PARAMS: Map<String, MarketParams> = Map::new("market_params");
-
 pub const DEBT_VAULT_TOKEN: Item<Uint128> = Item::new("debt_vault_token");
 
 pub const ACTIONS_PAUSED: Item<bool> = Item::new("actions_paused");
 pub const LTV_RAMP_TIMER: Item<u64> = Item::new("ltv_ramp_timer");
 pub const POSITIONS: Map<(Addr, String), UserPosition> = Map::new("user_position"); //(owner, collateral denom), position
+pub const POSITION_UX_BOOSTS: Map<(Addr, String), UXBoosts> = Map::new("user_ux_boosts"); //(owner, collateral denom), UX boosts
+pub const USER_HISTORY: Map<String, UserHistory> = Map::new("user_history"); // user, history
+
 pub const TOKEN_RATE_ASSURANCE: Item<TokenRateAssurance> = Item::new("token_rate_assurance");
 
 pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("liquidation_propagation");
+pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");
+pub const LOOP_POSITION: Item<LoopPropagation> = Item::new("loop_propagation");
+
 pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 pub const CLAIM_TRACKER: Item<ClaimTracker> = Item::new("claim_tracker");
 
@@ -71,6 +92,5 @@ pub const CLAIM_TRACKER: Item<ClaimTracker> = Item::new("claim_tracker");
 // //Reply State Propagations
 // pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");
 // pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("repay_propagation");
-// pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");
 // //Intents
 // pub const USER_INTENTS: Map<String, CDPUserIntents> = Map::new("user_intents");

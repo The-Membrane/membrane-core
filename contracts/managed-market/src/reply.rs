@@ -1,13 +1,15 @@
 use std::str::FromStr;
 
-use cosmwasm_std::{attr, to_binary, CosmosMsg, Decimal, DepsMut, Env, Reply, Response, StdError, StdResult, Uint128, WasmMsg};
+use cosmwasm_std::{attr, to_json_binary, CosmosMsg, Decimal, DepsMut, Env, Reply, Response, StdError, StdResult, Uint128, WasmMsg};
 
 use membrane::managed_market::{Config, ExecuteMsg, MarketParams};
-use membrane::types::{cAsset, Asset, AssetInfo, Basket};
+use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
+use membrane::oracle::PriceResponse;
+use membrane::types::{cAsset, Asset, AssetInfo, Basket, PurchaseData, UserHistory};
 use membrane::helpers::{asset_to_coin, get_contract_balances, withdrawal_msg};
 
-use crate::positions::CDT_DENOM;
-use crate::state::{LiquidationPropagation, CONFIG, LIQUIDATION, MARKET_PARAMS, POSITIONS};
+use crate::positions::{get_collateral_price, CDT_DENOM};
+use crate::state::{ClosePositionPropagation, LiquidationPropagation, LoopPropagation, CLOSE_POSITION, CONFIG, LIQUIDATION, LOOP_POSITION, MARKET_PARAMS, POSITIONS, POSITION_UX_BOOSTS, USER_HISTORY};
 
 //Liquidation reply
 //Reply on success to:
@@ -93,112 +95,319 @@ pub fn handle_liquidation_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResul
     }
 }
 
-// On success, update position claims & attempt to withdraw leftover using a WithdrawMsg
-// pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
-//     match msg.result.into_result() {
-//         Ok(_result) => {
-//             //Load Close Position Prop
-//             let state_propagation: ClosePositionPropagation = CLOSE_POSITION.load(deps.storage)?;
+/// On success
+/// - Repay the position
+/// - Withdraw the assets if the repayment would leave no debt left
+pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+            //Init msgs
+            let mut msgs: Vec<CosmosMsg> = vec![];
 
-//             //Create user info variables
-//             let valid_position_owner = deps.api.addr_validate(&state_propagation.position_info.position_owner)?;
-//             let position_id = state_propagation.position_info.position_id;             
+            //Load Close Position Prop
+            let close_prop: ClosePositionPropagation = CLOSE_POSITION.load(deps.storage)?;
 
-//             //Load State
-//             let basket: Basket = BASKET.load(deps.storage)?;
-//             let config: Config = CONFIG.load(deps.storage)?;
+            //Load position
+            let target_position = match POSITIONS.load(deps.storage, (deps.api.addr_validate(&close_prop.position_owner)?, close_prop.collateral_denom.clone())) {
+                Ok(position) => position,
+                Err(err) => return Err(StdError::GenericErr { msg: err.to_string() })
+            };
 
-//             //Query contract balance of the basket credit_asset
-//             let credit_asset_balance = get_contract_balances(
-//                 deps.querier, 
-//                 env.clone(), 
-//                 vec![basket.credit_asset.info.clone()]
-//             )?[0];
+            //Load position ux boosts
+            let target_position_ux_boosts = match POSITION_UX_BOOSTS.load(deps.storage, (deps.api.addr_validate(&close_prop.position_owner)?, close_prop.collateral_denom.clone())) {
+                Ok(position) => position,
+                Err(err) => return Err(StdError::GenericErr { msg: err.to_string() })
+            };
 
-//             //Create repay_msg
-//             let repay_msg = ExecuteMsg::Repay { 
-//                 position_id, 
-//                 position_owner: Some(valid_position_owner.clone().to_string()),
-//                 send_excess_to: Some(valid_position_owner.clone().to_string()),
-//             };
+            //If the collateral bought list is a single instance, we calculate proft made or loss from the swap 
+            if target_position_ux_boosts.collateral_bought_from_loops.len() == 1 {
+                //Load user history 
+                let mut user_history = match USER_HISTORY.load(deps.storage, close_prop.position_owner.clone()) {
+                    Ok(history) => history,
+                    Err(err) => {
+                        UserHistory {
+                            user: close_prop.position_owner.clone(),
+                            profits: Decimal::zero(),
+                            losses: Decimal::zero(),
+                            volume: Decimal::zero(),
+                        }
+                    }
+                };
+                //Get the average purchase price
+                let average_purchase_price = target_position_ux_boosts.collateral_bought_from_loops[0].post_purchase_price;
 
-//             //Create repay_msg with queried funds
-//             //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
-//             let repay_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
-//                 contract_addr: env.contract.address.to_string(), 
-//                 msg: to_binary(&repay_msg)?, 
-//                 funds: vec![asset_to_coin(
-//                     Asset { 
-//                         info: basket.credit_asset.info.clone(),
-//                         amount: credit_asset_balance.clone(),
-//                     })?]
-//             });
+                //Get the current price of the collateral
+                let current_price = get_collateral_price(
+                    deps.storage,
+                    deps.querier,
+                    env.clone(), 
+                    MARKET_PARAMS.load(deps.storage, close_prop.collateral_denom.clone())?,
+                ).map_err(|_| StdError::generic_err("Failed to get collateral price"))?;
+                //set loss to false
+                let mut loss = false;
+                //Calculate the profit made or loss from the swap
+                let price_difference = match decimal_subtraction(
+                    current_price.price,
+                    average_purchase_price
+                ){
+                    Ok(diff) => diff,
+                    Err(_) => {
+                        //Set as a loss
+                        loss = true;
+                        //Calculate the price difference
+                        decimal_subtraction(    
+                            average_purchase_price,
+                            current_price.price
+                        ).map_err(|_| StdError::generic_err("Failed to get price difference"))?
+                    }
+                    
+                };
+                //Create new PriceResponse
+                let price_response = PriceResponse {
+                    price: price_difference,
+                    decimals: current_price.decimals,
+                    prices: vec![],
+                };
 
-//             //Update position claims for each asset withdrawn + sold
-//             for withdrawn_collateral in state_propagation.clone().withdrawn_assets {
+                //Calculate the value of the profit or loss
+                let value_realized = price_response.get_value(close_prop.collateral_swapped)?;
+                if loss {
+                    //Add to position's losses
+                    user_history.losses += value_realized;
+                } else {
+                    //Add to position's profits
+                    user_history.profits += value_realized;
+                }
 
-//                 update_position_claims(
-//                     deps.storage, 
-//                     deps.querier, 
-//                     env.clone(), 
-//                     config.clone(),
-//                     position_id,
-//                     valid_position_owner.clone(), 
-//                     withdrawn_collateral.info, 
-//                     withdrawn_collateral.amount
-//                 )?;
-//             }
+                //Save user history
+                USER_HISTORY.save(deps.storage, close_prop.position_owner.clone(), &user_history)?;
+            }
 
-//             //Load position
-//             let (_i, target_position) = match get_target_position(
-//                 deps.storage, 
-//                 valid_position_owner.clone(), 
-//                 position_id, 
-//             ){
-//                 Ok(position) => position,
-//                 Err(err) => return Err(StdError::GenericErr { msg: err.to_string() })
-//             };
+            //Load State
+            // let config: Config = CONFIG.load(deps.storage)?;
 
-//             //Withdrawing everything thats left
-//             let assets_to_withdraw: Vec<Asset> = target_position.collateral_assets
-//                 .into_iter()
-//                 .filter(|cAsset| cAsset.asset.amount > Uint128::zero())
-//                 .map(|cAsset| cAsset.asset)
-//                 .collect::<Vec<Asset>>();
+            //Query contract balance of the debt denom
+            let post_close_debt_balance = get_contract_balances(
+                deps.querier, 
+                env.clone(), 
+                vec![
+                    AssetInfo::NativeToken { denom: CDT_DENOM.to_string() }
+                ]
+            )?[0];
 
-//             if assets_to_withdraw.len() > 0 && target_position.credit_amount.is_zero() {     
-//                 //Create WithdrawMsg
-//                 let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
-//                     contract_addr: env.contract.address.to_string(), 
-//                     msg: to_binary(& ExecuteMsg::Withdraw { 
-//                         position_id, 
-//                         assets: assets_to_withdraw, 
-//                         send_to: state_propagation.send_to, 
-//                     })?, 
-//                     funds: vec![],
-//                 });
+            //Create repay_msg
+            let repay_msg = ExecuteMsg::Repay { 
+                collateral_denom: close_prop.collateral_denom.clone(),
+                send_excess_to: close_prop.send_to.clone(),
+            };
 
-//                 //Response 
-//                 Ok(Response::new()
-//                     .add_message(repay_msg)
-//                     .add_attribute("amount_repaid", credit_asset_balance)
-//                     .add_message(withdraw_msg)
-//                     .add_attribute("sold_assets", format!("{:?}", state_propagation.withdrawn_assets))            
-//                 )
-//             } else {
-//                 //Response 
-//                 Ok(Response::new()
-//                     .add_message(repay_msg)
-//                     .add_attribute("amount_repaid", credit_asset_balance)
-//                     .add_attribute("sold_assets", format!("{:?}", state_propagation.withdrawn_assets))            
-//                 )
-//             }
-//         },
+            //Calculate the amount of debt tokens earned from the swap
+            let amount_swapped_for = match post_close_debt_balance.checked_sub(close_prop.pre_close_debt_balance){
+                Ok(amount) => amount,
+                Err(_) => {
+                    return Err(StdError::generic_err(format!("The new debt token balance is less than the previous debt token balance. {} < {}", post_close_debt_balance, close_prop.pre_close_debt_balance) ))
+                }
+            };
 
-//         Err(err) => {
-//             //Its reply on success only
-//             Ok(Response::new().add_attribute("error", err))
-//         }
-//     }
-// }
+            //Create repay_msg with swapped for funds
+            let repay_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: env.contract.address.to_string(), 
+                msg: to_json_binary(&repay_msg)?, 
+                funds: vec![asset_to_coin(
+                    Asset { 
+                        info: AssetInfo::NativeToken { denom: CDT_DENOM.to_string() },
+                        amount: amount_swapped_for,
+                    })?]
+            });
+            //Add to msgs
+            msgs.push(repay_msg.clone());
+
+
+            //If the debt will be zero post repayment, we withdraw all assets
+            let is_new_debt_zero = amount_swapped_for >= target_position.debt_amount;
+            if is_new_debt_zero {     
+                //Create WithdrawMsg
+                let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: env.contract.address.to_string(), 
+                    msg: to_json_binary(& ExecuteMsg::WithdrawCollateral { 
+                        collateral_denom: close_prop.collateral_denom.clone(), 
+                        send_to: close_prop.send_to.clone(), 
+                        //We set the withdraw amount to None, so we withdraw all assets
+                        withdraw_amount: None,
+                    } )?, 
+                    funds: vec![],
+                });
+
+                //Add to msgs
+                msgs.push(withdraw_msg.clone());
+            }
+
+            //Create response
+            let response = Response::new()
+                .add_messages(msgs)
+                .add_attribute("action", "close_position")
+                .add_attribute("position_owner", close_prop.position_owner)
+                .add_attribute("debt_recovered", amount_swapped_for)
+                .add_attribute("is_new_debt_zero", is_new_debt_zero.to_string())
+                .add_attribute("assets_sent_to", format!("{:?}", close_prop.send_to.clone()));
+
+            Ok(response)
+
+        },
+
+        Err(err) => {
+            //Its reply on success only
+            Ok(Response::new().add_attribute("error", err))
+        }
+    }
+}
+
+//Deposit collateral earned swapped for 
+// - Load the difference so we aren't using other user's collateral
+// Update collateral_bought_in_loopd
+// Save user position 
+pub fn handle_loop_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+            //Init msgs
+            let mut msgs: Vec<CosmosMsg> = vec![];
+
+
+            //Load Loop Position Prop
+            let loop_prop: LoopPropagation = LOOP_POSITION.load(deps.storage)?;
+
+            //Load position ux boosts
+            let mut target_position_ux_boosts = match POSITION_UX_BOOSTS.load(deps.storage, (deps.api.addr_validate(&loop_prop.position_owner)?, loop_prop.collateral_denom.clone())) {
+                Ok(position) => position,
+                Err(err) => return Err(StdError::GenericErr { msg: err.to_string() })
+            };
+
+            //Load position
+            let target_position = match POSITIONS.load(deps.storage, (deps.api.addr_validate(&loop_prop.position_owner)?, loop_prop.collateral_denom.clone())) {
+                Ok(position) => position,
+                Err(err) => return Err(StdError::GenericErr { msg: err.to_string() })
+            };
+
+            //Load State
+            // let config: Config = CONFIG.load(deps.storage)?;
+
+            //Query contract balance of the debt denom
+            let post_loop_collateral_balance = get_contract_balances(
+                deps.querier, 
+                env.clone(), 
+                vec![
+                    AssetInfo::NativeToken { denom: loop_prop.collateral_denom.clone().to_string() }
+                ]
+            )?[0];
+
+            //Create deposit_msg
+            let deposit_msg = ExecuteMsg::SupplyCollateral { owner: Some(loop_prop.position_owner.clone()) };
+
+            //Calculate the amount of debt tokens earned from the swap
+            let amount_swapped_for = match post_loop_collateral_balance.checked_sub(loop_prop.pre_loop_collateral_balance){
+                Ok(amount) => amount,
+                Err(_) => {
+                    return Err(StdError::generic_err(format!("The new collateral token balance is less than the previous collateral token balance. {} < {}", post_loop_collateral_balance, loop_prop.pre_loop_collateral_balance) ))
+                }
+            };
+
+            //Create deposit_msg with swapped_for funds
+            let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: env.contract.address.to_string(), 
+                msg: to_json_binary(&deposit_msg)?, 
+                funds: vec![asset_to_coin(
+                    Asset { 
+                        info: AssetInfo::NativeToken { denom: loop_prop.collateral_denom.to_string() },
+                        amount: amount_swapped_for,
+                    })?]
+            });
+            //Add to msgs
+            msgs.push(deposit_msg.clone());
+
+            //Get post purchase price
+            let post_purchase_price = get_collateral_price(
+                deps.storage,
+                deps.querier,
+                env, 
+                MARKET_PARAMS.load(deps.storage, loop_prop.collateral_denom.clone())?,
+            ).map_err(|_| StdError::generic_err("Failed to get collateral price"))?;
+
+            //Update user position's collateral bought in loops
+            target_position_ux_boosts.collateral_bought_from_loops.push(PurchaseData {
+                amount_purchased: amount_swapped_for,
+                post_purchase_price: post_purchase_price.price,
+            });
+
+            //Add the value purchased to the user history volume
+            let mut user_history = match USER_HISTORY.load(deps.storage, loop_prop.position_owner.clone()) {
+                Ok(history) => history,
+                Err(err) => {
+                    UserHistory {
+                        user: loop_prop.position_owner.clone(),
+                        profits: Decimal::zero(),
+                        losses: Decimal::zero(),
+                        volume: Decimal::zero(),
+                    }
+                }
+            };
+            //Calc value
+            let value_purchased = post_purchase_price.get_value(amount_swapped_for)?;
+            //Add to volume
+            user_history.volume += value_purchased;
+            //Save user history
+            USER_HISTORY.save(deps.storage, loop_prop.position_owner.clone(), &user_history)?;
+
+            //////////////CALCS TO CHECK IF THIS IS THE FINAL LOOP/////////////////////
+            //Get the sum of collateral bought from loops
+            let total_bought_from_loops = target_position_ux_boosts.collateral_bought_from_loops.iter().map(|collateral| collateral.amount_purchased).sum::<Uint128>();
+
+            //Calculate the looped exposure the position currently has
+            let current_multiplier = decimal_division(
+                Decimal::from_ratio(total_bought_from_loops + target_position.collateral_amount, Uint128::one()),
+                Decimal::from_ratio(target_position.collateral_amount, Uint128::one())
+            )?;
+
+            //////If this is the final loop, save the sum of purchases and the average purchase price/////
+            //This is the last loop if the multiplier is within 3% of the intended
+            if current_multiplier >= decimal_multiplication(loop_prop.intended_multiplier, Decimal::percent(97))? {
+
+                //Get the average purchase price
+                let average_purchase_price = match decimal_division(
+                    target_position_ux_boosts.collateral_bought_from_loops.iter().map(|collateral| collateral.post_purchase_price).sum::<Decimal>(),
+                     Decimal::from_ratio(target_position_ux_boosts.collateral_bought_from_loops.len() as u128, Uint128::one())
+                ){
+                    Ok(price) => price,
+                    Err(_) => {
+                        return Err(StdError::generic_err("Failed to get average purchase price"))
+                    }
+                };
+
+                //Set the list of collateral bought from loops to the average & the total bought
+                target_position_ux_boosts.collateral_bought_from_loops = vec![PurchaseData {
+                    amount_purchased: total_bought_from_loops,
+                    post_purchase_price: average_purchase_price,
+                }];
+                
+
+            }
+            //Save user position
+            POSITION_UX_BOOSTS.save(deps.storage, (deps.api.addr_validate(&loop_prop.position_owner)?, loop_prop.collateral_denom.clone()), &target_position_ux_boosts)?;
+
+            //Create response
+            let response = Response::new()
+                .add_messages(msgs)
+                .add_attribute("action", "loop_position")
+                .add_attribute("position_owner", loop_prop.position_owner)
+                .add_attribute("collateral_bought_in_loops", format!("{:?}", target_position_ux_boosts.collateral_bought_from_loops ));
+
+            Ok(response)
+
+        },
+
+        Err(err) => {
+            //Its reply on success only
+            Ok(Response::new().add_attribute("error", err))
+        }
+    }
+}
 

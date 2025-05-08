@@ -19,7 +19,7 @@ use membrane::types::{
 
 use crate::error::ContractError;
 use crate::positions::{
-    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, crank_realized_apr, get_cdt_price, get_collateral_price, get_total_debt_tokens, liquidate, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID
+    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, close_position, crank_realized_apr, edit_ux_boosts, get_cdt_price, get_collateral_price, get_total_debt_tokens, liquidate, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID
 };
 use crate::rates::{external_accrue_call, get_interest_rate};
 // use crate::query::{
@@ -75,7 +75,7 @@ pub fn instantiate(
         borrow_fee: msg.clone().borrow_fee,
         whitelisted_collateral_suppliers: msg.clone().whitelisted_collateral_suppliers,
         borrow_cap: msg.clone().borrow_cap,
-        max_slippage: Decimal::percent(20),
+        max_slippage: msg.clone().max_slippage,
         per_user_debt_cap: None
     };
 
@@ -163,15 +163,16 @@ pub fn execute(
             per_user_debt_cap,
             pool_for_oracle_and_liquidations
         } => update_market(deps, info, collateral_denom, max_borrow_LTV, liquidation_LTV, rate_params, borrow_fee, whitelisted_collateral_suppliers, borrow_cap, max_slippage, pool_for_oracle_and_liquidations, per_user_debt_cap),
+        ExecuteMsg::EditUXBoosts { collateral_denom, loop_ltv, take_profit_params, stop_loss_params, collateral_value_fee_to_executor } => edit_ux_boosts(deps, env, info, collateral_denom, loop_ltv, take_profit_params, stop_loss_params, collateral_value_fee_to_executor), 
         ExecuteMsg::SupplyCollateral { owner } => supply_collateral(deps, env, info, owner),
         ExecuteMsg::SupplyDebt { send_to } => supply_debt(deps, env, info, send_to),
         ExecuteMsg::Borrow { collateral_denom, send_to, borrow_amount } => borrow_cdt(deps, env, info, send_to, collateral_denom, borrow_amount),
         ExecuteMsg::Liquidate { collateral_denom, position_owner, take_fee, max_slippage } => liquidate(deps, env, info, collateral_denom, position_owner, take_fee, max_slippage),
         ExecuteMsg::WithdrawCollateral { collateral_denom, send_to, withdraw_amount } => withdraw_collateral(deps, env, info, send_to, collateral_denom, withdraw_amount),
         ExecuteMsg::WithdrawDebt { send_to } => withdraw_debt(deps, env, info, send_to),
-        ExecuteMsg::Repay { collateral_denom} => repay_cdt(deps, env, info, collateral_denom ),
+        ExecuteMsg::Repay { collateral_denom, send_excess_to } => repay_cdt(deps, env, info, collateral_denom, send_excess_to ),
         ExecuteMsg::Accrue { position_owner, collateral_denom } => external_accrue_call(deps.storage, deps.api, deps.querier, info, env, position_owner, collateral_denom),
-        ExecuteMsg::ClosePosition { position_owner, close_percentage, max_spread, send_to } => Err(ContractError::CustomError { val: String::from("ClosePosition not implemented") }),
+        ExecuteMsg::ClosePosition { collateral_denom, position_owner, close_percentage, max_spread, send_to } => close_position(deps, env, info, collateral_denom, close_percentage, max_spread, send_to, position_owner),
         ExecuteMsg::CrankRealizedAPR {  } => crank_realized_apr(deps, env, info),
         /////Callbacks/////
         ExecuteMsg::RateAssurance {  } => rate_assurance(deps, env, info),
@@ -386,9 +387,17 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::MarketParams { collateral_denom } => to_json_binary(&match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
+        QueryMsg::MarketParams { 
+            start_after,
+            limit,
+            collateral_denom
+         } => to_json_binary(&match get_market_params(deps, collateral_denom, start_after, limit){
             Ok(market) => market,
             Err(err) => return Err(StdError::generic_err(format!("Error getting market params: {:?}", err))),
+        }),
+        QueryMsg::GetCollateralAssets { start_after, limit } => to_json_binary(&match get_collateral_assets(deps, start_after, limit){
+            Ok(assets) => assets,
+            Err(err) => return Err(StdError::generic_err(format!("Error getting collateral assets: {:?}", err))),
         }),
         QueryMsg::ActionsPaused {  } => to_json_binary(&match ACTIONS_PAUSED.load(deps.storage){
             Ok(paused) => paused,
@@ -429,8 +438,63 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }),
         QueryMsg::ClaimTracker {} => to_json_binary(&CLAIM_TRACKER.load(deps.storage)?),
     }
+}
 
-    
+fn get_collateral_assets(
+    deps: Deps,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<Vec<String>> {
+    let limit = limit.unwrap_or(MAX_LIMIT) as usize;
+
+    let start = if let Some(start) = start_after {
+        let start_after_addr = deps.api.addr_validate(&start)?;
+        Some(Bound::exclusive(start_after_addr))
+    } else {
+        None
+    };
+
+    MARKET_PARAMS
+        .keys(deps.storage, start, None, Order::Ascending)
+        .take(limit)
+        .map(|item| {
+            let k = item?;
+            Ok(k)
+        })
+        .collect()
+}
+
+fn get_market_params(
+    deps: Deps,
+    collateral_denom: Option<String>,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<Vec<MarketParams>> {
+    //If some collateral denom, load single market
+    if let Some(collateral_denom) = collateral_denom {
+        let market = MARKET_PARAMS.load(deps.storage, collateral_denom.clone())?;
+        return Ok(vec![market]);
+    } 
+    //If no collateral denom, return all markets
+    else {
+        let limit = limit.unwrap_or(MAX_LIMIT) as usize;
+
+        let start = if let Some(start) = start_after {
+            let start_after_addr = deps.api.addr_validate(&start)?;
+            Some(Bound::exclusive(start_after_addr))
+        } else {
+            None
+        };
+
+        MARKET_PARAMS
+            .range(deps.storage, start, None, Order::Ascending)
+            .take(limit)
+            .map(|item| {
+                let (k, v) = item?;
+                Ok(v)
+            })
+            .collect()
+    }
 }
 
 fn get_user_positions(

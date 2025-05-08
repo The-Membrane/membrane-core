@@ -3,17 +3,19 @@ use std::option;
 
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Decimal, Uint128};
-use crate::{managed_market::{BorrowCap, CollateralParams, RateParams}, oracle::PriceResponse, types::{AssetOracleInfo, BorrowOptions, ClaimTracker, RangeBounds, RangePositions, RangeTokens, UserInfo, UserIntentState, UserPosition}};
+use crate::{managed_market::{BorrowCap, CollateralParams, MarketParams, RateParams, Config as MarketConfig}, oracle::PriceResponse, types::{AssetOracleInfo, BorrowOptions, ClaimTracker, RangeBounds, RangePositions, RangeTokens, UserInfo, UserIntentState, UserPosition}};
 
 #[cw_serde]
 pub struct PendingMarket {
     pub name: String,
+    pub socials: Vec<String>,
     pub manager: String,
 }
 
 #[cw_serde]
 pub struct MarketItem {
     pub name: String,
+    pub socials: Vec<String>,
     pub address: String,
 }
 
@@ -26,8 +28,9 @@ pub struct ManagerEdit {
 #[cw_serde]
 pub struct MarketInstantiation {
     pub name: String,
+    pub socials: Vec<String>,
     pub whitelisted_debt_suppliers: Option<Vec<String>>,
-    // pub debt_supply_vault_token: String,
+    pub max_slippage: Decimal,
     pub collateral_params: CollateralParams,
     pub rate_params: RateParams,
     pub pool_for_oracle_and_liquidations: AssetOracleInfo,
@@ -65,9 +68,18 @@ pub enum ExecuteMsg {
         managed_market_code_id: Option<u64>,
         edit_managers: Option<ManagerEdit>,
     },
+    /// Update the contract config
+    UpdateMarketItem {
+        market_address: String,
+        socials: Option<Vec<String>>,
+    },
     /// Let a manager instantiate a new market
     InstantiateMarket {
         params: MarketInstantiation,
+    },
+    /// Let a manager migrate an existing market
+    MigrateMarket {
+        market_address: String,
     },
 }
 
@@ -86,8 +98,25 @@ pub enum QueryMsg {
         start_after: Option<String>,
         limit: Option<u32>,
     },
+    //Returns all market params managed by a manager
+    #[returns(Vec<MarketData>)]
+    MarketParams { 
+        /// Manager
+        manager: String,
+        //Market contract
+        start_after: Option<String>,
+        //Market limiter
+        limit: Option<u32>,
+    },
 }
 
+#[cw_serde]
+pub struct MarketData {
+    pub name: String,
+    pub socials: Vec<String>,
+    pub config: MarketConfig,
+    pub params: MarketParams,
+}
 
 #[cw_serde]
 pub struct MigrateMsg {}

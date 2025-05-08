@@ -292,11 +292,6 @@ pub fn accrue(
 
 
 
-
-
-
-
-
     //Calculate the amount of vault tokens to mint to the manager as the fee
     if manager_revenue > Uint128::zero() {
         let vt_to_mint_to_manager = calculate_vault_tokens(

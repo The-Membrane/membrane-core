@@ -6,8 +6,8 @@ use cosmwasm_std::{
 use cw2::set_contract_version;
 
 use cw_storage_plus::Bound;
-use membrane::market_manager::{Config, ExecuteMsg, InstantiateMsg, ManagerEdit, MarketInstantiation, MarketItem, MigrateMsg, PendingMarket, QueryMsg};
-use membrane::managed_market::InstantiateMsg as ManagedMarketInstantiateMsg;
+use membrane::market_manager::{Config, ExecuteMsg, InstantiateMsg, ManagerEdit, MarketData, MarketInstantiation, MarketItem, MigrateMsg, PendingMarket, QueryMsg};
+use membrane::managed_market::{InstantiateMsg as ManagedMarketInstantiateMsg, Config as ManagedMarketConfig, MarketParams, QueryMsg as ManagedMarketQueryMsg};
 
 
 use crate::error::ContractError;
@@ -22,7 +22,7 @@ const MAX_LIMIT: u64 = 31u64;
 const INSTANTIATE_REPLY_ID: u64 = 1;
 
 //Todo
-// - Change market name
+// - Remove the initial test market instead of adding the social links to it
 
 //Config
 // - manager whitelist
@@ -79,8 +79,83 @@ pub fn execute(
         } => update_config(deps, info, owner, managed_market_code_id, edit_managers),
         ExecuteMsg::InstantiateMarket { params } => {
             instantiate_market(deps, _env, info, params)
-        }
+        },
+        ExecuteMsg::MigrateMarket { market_address } => {
+            migrate_market(deps, info, market_address)
+        },
+        ExecuteMsg::UpdateMarketItem { market_address, socials } => {
+            update_market_item(deps, info, market_address, socials)
+        },
     }
+}
+
+//Update market item of existing market
+// - This will be done by the manager of the market
+fn update_market_item(
+    deps: DepsMut,
+    info: MessageInfo,
+    market_address: String,
+    // Update the socials of the market
+    socials: Option<Vec<String>>,
+) -> Result<Response, ContractError> {
+
+    //Load the manager's (sender's) markets
+    let mut manager_markets = MANAGED_MARKETS.load(deps.storage, info.sender.clone().to_string())?;
+
+    //Check if the market is managed by the sender
+    let (index, _) = manager_markets.clone()
+        .into_iter()
+        .enumerate()
+        .find(|(_, m)| m.address == market_address)
+        .ok_or(ContractError::Unauthorized {})?;
+    
+    //Update the market item
+    if let Some(socials) = socials.clone() {
+        manager_markets[index].socials = socials;
+    }
+    //Save the updated market item
+    MANAGED_MARKETS.save(deps.storage, info.sender.clone().to_string(), &manager_markets)?;
+
+    Ok(Response::new()
+        .add_attribute("method", "update_market_item")
+        .add_attribute("market_address", market_address)
+        .add_attribute("manager", info.sender.to_string())
+        .add_attribute("socials", format!("{:?}", socials))
+    )
+
+}
+
+// Migrate an existing market
+// - This will be done by the manager of the market
+fn migrate_market(
+    deps: DepsMut,
+    info: MessageInfo,
+    market_address: String,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    //Load the manager's (sender's) markets
+    let manager_markets = MANAGED_MARKETS.load(deps.storage, info.sender.clone().to_string())?;
+
+    //Check if the market is managed by the sender
+    let _ = manager_markets
+        .iter()
+        .find(|m| m.address == market_address)
+        .ok_or(ContractError::Unauthorized {})?;
+    
+    //Create migration message
+    let msg = CosmosMsg::Wasm(WasmMsg::Migrate {
+        contract_addr: market_address.clone(),
+        new_code_id: config.managed_market_code_id,
+        msg: to_json_binary(&MigrateMsg {})?,
+    });
+
+    Ok(Response::new()
+        .add_message(msg)
+        .add_attribute("method", "migrate_market")
+        .add_attribute("market_address", market_address)
+        .add_attribute("manager", info.sender.to_string())
+    )
 }
 
 // Instantiate a new market
@@ -105,7 +180,7 @@ fn instantiate_market(
             owner: info.sender.to_string(),
             osmosis_proxy_contract: config.osmosis_proxy_contract.to_string(),
             whitelisted_debt_suppliers: params.clone().whitelisted_debt_suppliers,
-            // debt_supply_vault_token: params.clone().debt_supply_vault_token,
+            max_slippage: params.clone().max_slippage,
             collateral_params: params.clone().collateral_params,
             rate_params: params.clone().rate_params,
             pool_for_oracle_and_liquidations: params.clone().pool_for_oracle_and_liquidations,
@@ -126,9 +201,10 @@ fn instantiate_market(
     // This is a reply on success message, so we can get the contract address
     let msg = SubMsg::reply_on_success(msg, INSTANTIATE_REPLY_ID);
 
-    //SAve pending market info 
+    //Save pending market info 
     PENDING_MARKET.save(deps.storage, &PendingMarket {
         name: params.name.clone(),
+        socials: params.socials.clone(),
         manager: info.sender.to_string(),
     })?;
 
@@ -139,71 +215,6 @@ fn instantiate_market(
         .add_attribute("manager",  info.sender.to_string())
         .add_attribute("market_params", format!("{:?}", params))
     )
-}
-
-/// Save contract address for newly instantiated market
-pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
-    match msg.result.into_result() {
-        Ok(result) => {
-            let config = CONFIG.load(deps.storage)?;
-            
-            //Get contract address
-            let instantiate_event = result
-                .events
-                .iter()
-                .find(|e| {
-                    e.attributes
-                        .iter()
-                        .any(|attr| attr.key == "_contract_address")
-                })
-                .ok_or_else(|| {
-                    StdError::generic_err(format!("unable to find instantiate event"))
-                })?;
-
-            let contract_address = &instantiate_event
-                .attributes
-                .iter()
-                .find(|attr| attr.key == "_contract_address")
-                .unwrap()
-                .value;
-
-            let valid_address = deps.api.addr_validate(&contract_address)?;
-
-            //Save new address under the manager's state
-            let pending_market = PENDING_MARKET.load(deps.storage)?;
-
-            let mut manager_markets = MANAGED_MARKETS
-                .may_load(deps.storage, pending_market.manager.clone())?
-                .unwrap_or_default();
-
-            //Add new market to manager's state
-            manager_markets.push(MarketItem {
-                name: pending_market.name.clone(),
-                address: valid_address.to_string(),
-            });
-            MANAGED_MARKETS.save(
-                deps.storage,
-                pending_market.manager.clone(),
-                &manager_markets,
-            )?;
-            //Remove pending market
-            PENDING_MARKET.remove(deps.storage);
-            //Add attributes
-            let mut attrs = vec![
-                attr("method", "handle_instantiate_reply"),
-                attr("manager", pending_market.manager),
-                attr("market_name", pending_market.name),
-                attr("market_address", valid_address.to_string()),
-            ];
-            attrs.push(attr("managed_markets", format!("{:?}", manager_markets)));
-                       
-            Ok(Response::new()
-                .add_attributes(attrs)
-
-            )
-        },
-        Err(err) => return Err(StdError::GenericErr { msg: err }),
-    }    
 }
 
 
@@ -283,8 +294,99 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Managers { start_after, limit } => {
             let managers = query_managers(deps, _env, start_after, limit)?;
             to_json_binary(&managers)
-        }
+        },
+        QueryMsg::MarketParams { manager, start_after, limit } => {
+            let market_params = query_market_params(deps, _env, manager, start_after, limit)?;
+            to_json_binary(&market_params)
+        },
+
     }
+}
+
+
+//Query Markets managed by a manager
+//Return the list of managers
+fn query_market_params(
+    deps: Deps,
+    _env: Env,
+    // Manager
+    manager: String,
+    //Market contract
+    start_after: Option<String>,
+    //Market limiter
+    limit: Option<u32>,
+) -> StdResult<Vec<MarketData>> {
+    let limit = limit.unwrap_or(MAX_LIMIT as u32);
+    
+    //Get the markets from the MANAGED_MARKETS map
+    let markets = MANAGED_MARKETS
+        .may_load(deps.storage, manager)?
+        .unwrap_or_default();
+    //Limit the markets by finding the index of the start_after market
+    let start_index = if let Some(start_after) = start_after {
+        markets.iter().position(|m| m.address == start_after).unwrap_or(0)
+    } else {
+        0
+    };
+    //Limit the markets
+    let markets = markets
+        .into_iter()
+        .skip(start_index)
+        .take(limit as usize)
+        .collect::<Vec<_>>();
+
+    //For each market
+    // - Query the Market's config
+    // - Query the Market's collateral denoms
+    // - Query the Market's market params per collateral 
+    // - Create an instance of MarketData for each queried per collateral params
+    // - Return the list of MarketData
+    let mut market_data = vec![];
+    for market in markets {
+
+        let market_config: ManagedMarketConfig = deps.querier.query::<ManagedMarketConfig>(
+            &QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: market.address.clone(),
+                msg: to_json_binary(&ManagedMarketQueryMsg::Config {})?,
+            }),
+        )?;
+
+        // let collateral_denoms: Vec<String> = deps.querier.query::<Vec<String>>(
+        //     &QueryRequest::Wasm(WasmQuery::Smart {
+        //         contract_addr: market.address.clone(),
+        //         msg: to_json_binary(&ManagedMarketQueryMsg::GetCollateralAssets { 
+        //             start_after: None, 
+        //             limit: None
+        //         })?,
+        //     }),
+        // )?;
+
+        let market_params: Vec<MarketParams> = deps.querier.query::<Vec<MarketParams>>(
+            &QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: market.address.clone(),
+                msg: to_json_binary(&ManagedMarketQueryMsg::MarketParams {
+                    collateral_denom: None,
+                    start_after: None,
+                    limit: None,
+                })?,
+            }),
+        )?;
+
+        //Create MarketData
+        for params in market_params {
+            let data = MarketData {
+                name: market.name.clone(),
+                socials: market.socials.clone(),
+                config: market_config.clone(),
+                params: params,
+            };
+            market_data.push(data);
+        }        
+    }
+
+
+    //Return
+    Ok(market_data)
 }
 
 //Query managers
@@ -321,9 +423,79 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     }
 }
 
+/// Save contract address for newly instantiated market
+pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
+    match msg.result.into_result() {
+        Ok(result) => {
+            let config = CONFIG.load(deps.storage)?;
+            
+            //Get contract address
+            let instantiate_event = result
+                .events
+                .iter()
+                .find(|e| {
+                    e.attributes
+                        .iter()
+                        .any(|attr| attr.key == "_contract_address")
+                })
+                .ok_or_else(|| {
+                    StdError::generic_err(format!("unable to find instantiate event"))
+                })?;
+
+            let contract_address = &instantiate_event
+                .attributes
+                .iter()
+                .find(|attr| attr.key == "_contract_address")
+                .unwrap()
+                .value;
+
+            let valid_address = deps.api.addr_validate(&contract_address)?;
+
+            //Save new address under the manager's state
+            let pending_market = PENDING_MARKET.load(deps.storage)?;
+
+            let mut manager_markets = MANAGED_MARKETS
+                .may_load(deps.storage, pending_market.manager.clone())?
+                .unwrap_or_default();
+
+            //Add new market to manager's state
+            manager_markets.push(MarketItem {
+                name: pending_market.name.clone(),
+                socials: pending_market.socials.clone(),
+                address: valid_address.to_string(),
+            });
+            MANAGED_MARKETS.save(
+                deps.storage,
+                pending_market.manager.clone(),
+                &manager_markets,
+            )?;
+            //Remove pending market
+            PENDING_MARKET.remove(deps.storage);
+            //Add attributes
+            let mut attrs = vec![
+                attr("method", "handle_instantiate_reply"),
+                attr("manager", pending_market.manager),
+                attr("market_name", pending_market.name),
+                attr("market_address", valid_address.to_string()),
+            ];
+            attrs.push(attr("managed_markets", format!("{:?}", manager_markets)));
+                       
+            Ok(Response::new()
+                .add_attributes(attrs)
+
+            )
+        },
+        Err(err) => return Err(StdError::GenericErr { msg: err }),
+    }    
+}
+
+
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+
+    //Remove market for existing manager
+    todo!();
     
     //Return response
     Ok(Response::default())

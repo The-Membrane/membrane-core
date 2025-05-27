@@ -443,10 +443,6 @@ fn rate_assurance(
             if btokens_per_one - token_rate_assurance.pre_btokens_per_one <= epsilon {
                 return Ok(Response::new());
             }
-        } else if token_rate_assurance.pre_btokens_per_one > btokens_per_one {
-            if token_rate_assurance.pre_btokens_per_one - btokens_per_one <= epsilon {
-                return Ok(Response::new());
-            }
         }
 
         return Err(TokenFactoryError::CustomError { val: format!("Deposit or withdraw rate assurance failed for base token conversion. pre: {:?} --- post: {:?}", token_rate_assurance.pre_btokens_per_one, btokens_per_one) });

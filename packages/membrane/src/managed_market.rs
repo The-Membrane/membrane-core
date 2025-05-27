@@ -31,6 +31,8 @@ pub struct InstantiateMsg {
     pub borrow_cap: BorrowCap,
     //Per user debt cap for the market
     pub per_user_debt_cap: Option<Uint128>,
+    //Per collateral debt minimum
+    pub debt_minimum: Option<Uint128>,
 }
 
 
@@ -119,7 +121,7 @@ pub enum ExecuteMsg {
         take_profit_params: Option<Option<AutoCloseParams>>,
         /// Params to allow "automated" position close
         stop_loss_params: Option<Option<AutoCloseParams>>,
-        /// Execution fee in colalteral (value)
+        /// Execution fee in collateral (value)
         collateral_value_fee_to_executor: Option<Decimal>, 
     },
     Repay { 
@@ -153,10 +155,15 @@ pub enum ExecuteMsg {
         /// Who to send excess CDT from the spread coverage & available collateral if fully closed. Defaults to sender.
         send_to: Option<String>,
     },
+    /// Change user alias
+    ChangeAlias {
+        alias: String,
+    },
     /// Update the contract config
     UpdateConfig {
         owner: Option<String>,
         osmosis_proxy_contract_addr: Option<String>,
+        // oracle_contract_addr: Option<String>,
         pause_actions: Option<bool>,
         manager_fee: Option<Decimal>,
         whitelisted_debt_suppliers: Option<Option<Vec<String>>>,
@@ -174,6 +181,7 @@ pub enum ExecuteMsg {
         max_slippage: Option<Decimal>,
         pool_for_oracle_and_liquidations: Option<AssetOracleInfo>,
         per_user_debt_cap: Option<Option<Uint128>>,
+        debt_minimum: Option<Uint128>,
     },
     /// Assures that for deposits & withdrawals the conversion rate is static.
     /// Only callable by the contract
@@ -317,6 +325,8 @@ pub struct MarketParams {
     //Max slippage for liquidation swaps. If the swaps fail, liquidations fail. 
     //If the swap quality is bad, we get inefficient liquidations & bad debt.
     pub max_slippage: Decimal,
+    //Per collateral debt minimum
+    pub debt_minimum: Uint128,
 }
 
 #[cw_serde]

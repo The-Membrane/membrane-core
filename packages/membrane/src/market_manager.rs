@@ -40,6 +40,7 @@ pub struct MarketInstantiation {
     pub debt_supply_cap: Option<Uint128>,
     pub borrow_cap: BorrowCap,
     pub per_user_debt_cap: Option<Uint128>,
+    pub debt_minimum: Option<Uint128>,
 }
 
 
@@ -112,6 +113,7 @@ pub enum QueryMsg {
 
 #[cw_serde]
 pub struct MarketData {
+    pub address: String,
     pub name: String,
     pub socials: Vec<String>,
     pub config: MarketConfig,

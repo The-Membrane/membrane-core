@@ -68,7 +68,12 @@ pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 // -- Use liquidatibility & volatiility to increase interest rates *for supplier*
 // -- Fixed rate (*for borrower*), grants stability for strats
 // Interest rate arbs (redemptions, vault oracles)
+// Fixed rate, low leverage market for users who want low leverage over a long period of time
 
+//TODO:
+// - Add optional oracle contract
+// - Add optional swap contract. This will need checks that the contract returns the asset at appropriate slippage limits.
+// - LTV ramping
 
 ///Launch markets
 /// - CULT
@@ -717,7 +722,7 @@ pub fn get_cdt_price(
 
 pub fn edit_ux_boosts(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
     collateral_denom: String,
     loop_ltv: Option<Option<Decimal>>,
@@ -746,7 +751,31 @@ pub fn edit_ux_boosts(
     }
     //Set take profit ltv
     if let Some(take_profit_params) = take_profit_params.clone() {
-        user_position_ux_boosts.take_profit_params = take_profit_params;
+        user_position_ux_boosts.take_profit_params = take_profit_params.clone();
+        //If the close percentage leaves the position underneath the debt minimum, we error
+        if let Some(take_profit_params) = take_profit_params.clone() {
+            /////Calc debt left after close////
+            //Get the inverse of the close percentage
+            let inverse_close_percentage = match decimal_subtraction(Decimal::one(), take_profit_params.percent_to_close){
+                Ok(val) => val,
+                Err(_) => return Err(ContractError::CustomError { val: format!("Failed to calculate inverse close percentage: {:?} - {:?}", Decimal::one(), take_profit_params.percent_to_close) }),
+            };
+            //Load the user position
+            let user_position = match POSITIONS.load(deps.storage, (info.sender.clone(), collateral_denom.to_string())){
+                Ok(user_position) => user_position,
+                Err(_) => return Err(ContractError::CustomError { val: format!("User position not found") }),
+            };
+            //Get remaining debt
+            let remaining_debt = match decimal_multiplication(Decimal::from_ratio(user_position.debt_amount, Uint128::one()), inverse_close_percentage){
+                Ok(val) => val,
+                Err(_) => return Err(ContractError::CustomError { val: format!("Failed to calculate remaining debt: {:?} * {:?}", user_position.debt_amount, inverse_close_percentage) }),
+            };
+
+            //Assert that the remaining debt is above the minimum
+            if remaining_debt.to_uint_floor() < market.debt_minimum  {
+                return Err(ContractError::CustomError { val: format!("Take profit can't leave the position with less than the debt minimum") });
+            }
+        }
     }
     //Set stop loss ltv
     if let Some(stop_loss_params) = stop_loss_params.clone() {
@@ -771,8 +800,33 @@ pub fn edit_ux_boosts(
             if stop_loss_params.ltv > market.collateral_params.liquidation_LTV {
                 return Err(ContractError::CustomError { val: "Stop loss can't be higher than liquidation ltv".to_string() });
             }
-        }
 
+
+            //If the close percentage leaves the position underneath the debt minimum, we error
+            /////Calc debt left after close////
+            //Get the inverse of the close percentage
+            let inverse_close_percentage = match decimal_subtraction(Decimal::one(), stop_loss_params.percent_to_close){
+                Ok(val) => val,
+                Err(_) => return Err(ContractError::CustomError { val: format!("Failed to calculate inverse close percentage: {:?} - {:?}", Decimal::one(), stop_loss_params.percent_to_close) }),
+            };
+            //Load the user position
+            let user_position = match POSITIONS.load(deps.storage, (info.sender.clone(), collateral_denom.to_string())){
+                Ok(user_position) => user_position,
+                Err(_) => return Err(ContractError::CustomError { val: format!("User position not found") }),
+            };
+            //Get remaining debt
+            let remaining_debt = match decimal_multiplication(Decimal::from_ratio(user_position.debt_amount, Uint128::one()), inverse_close_percentage){
+                Ok(val) => val,
+                Err(_) => return Err(ContractError::CustomError { val: format!("Failed to calculate remaining debt: {:?} * {:?}", user_position.debt_amount, inverse_close_percentage) }),
+            };
+
+            //Assert that the remaining debt is above the minimum
+            if remaining_debt.to_uint_floor() < market.debt_minimum  {
+                return Err(ContractError::CustomError { val: format!("Take profit can't leave the position with less than the debt minimum") });
+            }
+
+        }
+        //Set stop loss params
         user_position_ux_boosts.stop_loss_params = stop_loss_params;
     }
     //Set collateral value fee to executor
@@ -953,6 +1007,10 @@ pub fn borrow_cdt(
         Ok(val) => val,
         Err(_) => return Err(ContractError::CustomError { val: format!("User Debt Amount: {} + Borrow Amount: {}, underflow error", user_position.debt_amount, borrowable_amount) }),
     };
+    //If the debt isn't > debt_minimum, error
+    if user_position.debt_amount < market.debt_minimum {
+        return Err(ContractError::CustomError { val: format!("User Debt Amount: {} < Debt Minimum: {}", user_position.debt_amount, market.debt_minimum) });
+    }
     //Save user state
     POSITIONS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &user_position)?;
 
@@ -1117,6 +1175,10 @@ pub fn repay_cdt(
             Uint128::zero()
         },
     };
+    //If the debt is under the minimmum, error
+    if user_position.debt_amount < market.debt_minimum {
+        return Err(ContractError::CustomError { val: format!("User Debt Amount: {} < Debt Minimum: {}", user_position.debt_amount, market.debt_minimum) });
+    }
     POSITIONS.save(deps.storage, (info.sender.clone(), collateral_denom.clone()), &user_position)?;
 
 

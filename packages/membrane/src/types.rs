@@ -1188,6 +1188,7 @@ pub struct PurchaseData {
 #[cw_serde]
 pub struct UserHistory {
     pub user: String,
+    pub alias: Option<String>,
     pub profits: Decimal,
     pub losses: Decimal,
     pub volume: Decimal,

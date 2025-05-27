@@ -437,6 +437,18 @@ fn rate_assurance(
         //Delete state
         RATE_ASSURANCE_BUFFER_INFO.remove(deps.storage);
 
+        // Allow a small buffer for rounding errors in non-swap exits
+        let epsilon = Uint128::new(1000); // 0.001 with 6 decimals
+        if btokens_per_one > token_rate_assurance.pre_btokens_per_one {
+            if btokens_per_one - token_rate_assurance.pre_btokens_per_one <= epsilon {
+                return Ok(Response::new());
+            }
+        } else if token_rate_assurance.pre_btokens_per_one > btokens_per_one {
+            if token_rate_assurance.pre_btokens_per_one - btokens_per_one <= epsilon {
+                return Ok(Response::new());
+            }
+        }
+
         return Err(TokenFactoryError::CustomError { val: format!("Deposit or withdraw rate assurance failed for base token conversion. pre: {:?} --- post: {:?}", token_rate_assurance.pre_btokens_per_one, btokens_per_one) });
     }
 
@@ -755,7 +767,7 @@ fn exit_vault(
         floor_liquidity,
         withdrawal_ratio
     )? * Uint128::new(10u64.pow(18 as u32) as u128)).to_string();
-    //Withdraw liquidity from ceiling positions\
+    //Withdraw liquidity from ceiling position
     let ceiling_position_withdraw_msg: CosmosMsg = CL::MsgWithdrawPosition {
         position_id: config.range_position_ids.ceiling,
         sender: env.contract.address.to_string(),

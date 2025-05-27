@@ -190,6 +190,7 @@ fn instantiate_market(
             debt_supply_cap: params.clone().debt_supply_cap,
             borrow_cap: params.clone().borrow_cap,
             per_user_debt_cap: params.clone().per_user_debt_cap,
+            debt_minimum: params.clone().debt_minimum,
             
             
         })?,
@@ -375,6 +376,7 @@ fn query_market_params(
         //Create MarketData
         for params in market_params {
             let data = MarketData {
+                address: market.address.clone(),
                 name: market.name.clone(),
                 socials: market.socials.clone(),
                 config: market_config.clone(),
@@ -495,7 +497,7 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
 
     //Remove market for existing manager
-    todo!();
+    MANAGED_MARKETS.remove(deps.storage, "osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0".to_string());
     
     //Return response
     Ok(Response::default())

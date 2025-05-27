@@ -14,7 +14,7 @@ use membrane::helpers::{assert_sent_native_token_balance, get_contract_balances}
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::managed_market::{BorrowCap, Config, ExecuteMsg, InstantiateMsg, LTVRamp, MarketParams, MigrateMsg, QueryMsg, RateIndex, RateParams, UserPositionResponse};
 use membrane::types::{
-    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, ClaimTracker, UserInfo, VTClaimCheckpoint
+    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, ClaimTracker, UserHistory, UserInfo, VTClaimCheckpoint
 };
 
 use crate::error::ContractError;
@@ -25,7 +25,7 @@ use crate::rates::{external_accrue_call, get_interest_rate};
 // use crate::query::{
 //     query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint, query_user_intent_state
 // };
-use crate::state::{ ContractVersion, ACTIONS_PAUSED, CLAIM_TRACKER, CONFIG, CONTRACT, DEBT_VAULT_TOKEN, MARKET_PARAMS, OWNERSHIP_TRANSFER, POSITIONS};
+use crate::state::{ ContractVersion, ACTIONS_PAUSED, CLAIM_TRACKER, CONFIG, CONTRACT, DEBT_VAULT_TOKEN, MARKET_PARAMS, OWNERSHIP_TRANSFER, POSITIONS, USER_HISTORY};
 
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
 
@@ -76,7 +76,8 @@ pub fn instantiate(
         whitelisted_collateral_suppliers: msg.clone().whitelisted_collateral_suppliers,
         borrow_cap: msg.clone().borrow_cap,
         max_slippage: msg.clone().max_slippage,
-        per_user_debt_cap: None
+        per_user_debt_cap: msg.clone().per_user_debt_cap,
+        debt_minimum: msg.clone().debt_minimum.unwrap_or_else(|| Uint128::one()),
     };
 
     //Param checks
@@ -161,8 +162,9 @@ pub fn execute(
             borrow_cap,
             max_slippage,
             per_user_debt_cap,
-            pool_for_oracle_and_liquidations
-        } => update_market(deps, info, collateral_denom, max_borrow_LTV, liquidation_LTV, rate_params, borrow_fee, whitelisted_collateral_suppliers, borrow_cap, max_slippage, pool_for_oracle_and_liquidations, per_user_debt_cap),
+            pool_for_oracle_and_liquidations,
+            debt_minimum
+        } => update_market(deps, info, collateral_denom, max_borrow_LTV, liquidation_LTV, rate_params, borrow_fee, whitelisted_collateral_suppliers, borrow_cap, max_slippage, pool_for_oracle_and_liquidations, per_user_debt_cap, debt_minimum),
         ExecuteMsg::EditUXBoosts { collateral_denom, loop_ltv, take_profit_params, stop_loss_params, collateral_value_fee_to_executor } => edit_ux_boosts(deps, env, info, collateral_denom, loop_ltv, take_profit_params, stop_loss_params, collateral_value_fee_to_executor), 
         ExecuteMsg::SupplyCollateral { owner } => supply_collateral(deps, env, info, owner),
         ExecuteMsg::SupplyDebt { send_to } => supply_debt(deps, env, info, send_to),
@@ -174,12 +176,45 @@ pub fn execute(
         ExecuteMsg::Accrue { position_owner, collateral_denom } => external_accrue_call(deps.storage, deps.api, deps.querier, info, env, position_owner, collateral_denom),
         ExecuteMsg::ClosePosition { collateral_denom, position_owner, close_percentage, max_spread, send_to } => close_position(deps, env, info, collateral_denom, close_percentage, max_spread, send_to, position_owner),
         ExecuteMsg::CrankRealizedAPR {  } => crank_realized_apr(deps, env, info),
+        ExecuteMsg::ChangeAlias { alias } => change_alias(deps, env, info, alias),
         /////Callbacks/////
         ExecuteMsg::RateAssurance {  } => rate_assurance(deps, env, info),
         ExecuteMsg::GetTotalDepositTokens {  } => panic!("{:?}", get_total_debt_tokens(CONFIG.load(deps.storage)?)?),
         ExecuteMsg::CheckBadDebt {  } => check_and_fulfill_bad_debt(deps, env),
 
     }
+}
+
+/// Change user alias
+fn change_alias(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    alias: String,
+) -> Result<Response, ContractError> {
+    ///Get user history
+    let mut user_history = match USER_HISTORY.load(deps.storage, info.sender.clone().to_string()){
+        Ok(history) => history,
+        Err(_) => {
+            UserHistory {
+                alias: Some(alias),
+                user: info.sender.clone().to_string(),
+                volume: Decimal::zero(),
+                profits: Decimal::zero(),
+                losses: Decimal::zero(),
+                
+
+            }
+        }
+    };
+    //update alias
+    user_history.alias = Some(alias);
+    USER_HISTORY.save(deps.storage, info.sender, &user_history)?;
+
+    Ok(Response::new().add_attributes(vec![
+        attr("method", "change_alias"),
+        attr("alias", alias),
+    ]))
 }
 
 /// Update contract config
@@ -266,6 +301,7 @@ fn update_market(
     max_slippage: Option<Decimal>,
     pool_for_oracle_and_liquidations: Option<AssetOracleInfo>,
     per_user_debt_cap: Option<Option<Uint128>>,
+    debt_minimum: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     let mut attrs = vec![
@@ -330,6 +366,10 @@ fn update_market(
     if let Some(per_user_debt_cap) = per_user_debt_cap {
         market.per_user_debt_cap = per_user_debt_cap;
         attrs.push(attr("per_user_debt_cap", format!("{:?}", per_user_debt_cap)));
+    }
+    if let Some(debt_minimum) = debt_minimum {
+        market.debt_minimum = debt_minimum;
+        attrs.push(attr("debt_minimum", format!("{:?}", debt_minimum)));
     }
     //Save new market
     MARKET_PARAMS.save(deps.storage, collateral_denom.clone(), &market)?;

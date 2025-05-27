@@ -127,6 +127,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     Err(err) => {
                         UserHistory {
                             user: close_prop.position_owner.clone(),
+                            alias: None,
                             profits: Decimal::zero(),
                             losses: Decimal::zero(),
                             volume: Decimal::zero(),
@@ -174,9 +175,13 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 if loss {
                     //Add to position's losses
                     user_history.losses += value_realized;
+                    //Add to user history volume
+                    user_history.volume += value_realized;  
                 } else {
                     //Add to position's profits
                     user_history.profits += value_realized;
+                    //Add to user history volume
+                    user_history.volume += value_realized;
                 }
 
                 //Save user history
@@ -344,6 +349,7 @@ pub fn handle_loop_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
                 Err(err) => {
                     UserHistory {
                         user: loop_prop.position_owner.clone(),
+                        alias: None,
                         profits: Decimal::zero(),
                         losses: Decimal::zero(),
                         volume: Decimal::zero(),

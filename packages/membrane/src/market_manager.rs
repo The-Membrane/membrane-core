@@ -69,10 +69,11 @@ pub enum ExecuteMsg {
         managed_market_code_id: Option<u64>,
         edit_managers: Option<ManagerEdit>,
     },
-    /// Update the contract config
+    /// Update the market data
     UpdateMarketItem {
         market_address: String,
         socials: Option<Vec<String>>,
+        name: Option<String>,
     },
     /// Let a manager instantiate a new market
     InstantiateMarket {

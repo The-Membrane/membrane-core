@@ -83,8 +83,8 @@ pub fn execute(
         ExecuteMsg::MigrateMarket { market_address } => {
             migrate_market(deps, info, market_address)
         },
-        ExecuteMsg::UpdateMarketItem { market_address, socials } => {
-            update_market_item(deps, info, market_address, socials)
+        ExecuteMsg::UpdateMarketItem { market_address, socials, name } => {
+            update_market_item(deps, info, market_address, socials, name)
         },
     }
 }
@@ -97,6 +97,8 @@ fn update_market_item(
     market_address: String,
     // Update the socials of the market
     socials: Option<Vec<String>>,
+    // Update the name of the market
+    name: Option<String>,
 ) -> Result<Response, ContractError> {
 
     //Load the manager's (sender's) markets
@@ -112,6 +114,9 @@ fn update_market_item(
     //Update the market item
     if let Some(socials) = socials.clone() {
         manager_markets[index].socials = socials;
+    }
+    if let Some(name) = name.clone() {
+        manager_markets[index].name = name;
     }
     //Save the updated market item
     MANAGED_MARKETS.save(deps.storage, info.sender.clone().to_string(), &manager_markets)?;

@@ -197,7 +197,7 @@ fn change_alias(
         Ok(history) => history,
         Err(_) => {
             UserHistory {
-                alias: Some(alias),
+                alias: Some(alias.clone()),
                 user: info.sender.clone().to_string(),
                 volume: Decimal::zero(),
                 profits: Decimal::zero(),
@@ -208,8 +208,8 @@ fn change_alias(
         }
     };
     //update alias
-    user_history.alias = Some(alias);
-    USER_HISTORY.save(deps.storage, info.sender, &user_history)?;
+    user_history.alias = Some(alias.clone());
+    USER_HISTORY.save(deps.storage, info.sender.to_string(), &user_history)?;
 
     Ok(Response::new().add_attributes(vec![
         attr("method", "change_alias"),

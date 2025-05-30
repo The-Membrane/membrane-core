@@ -126,7 +126,7 @@ pub fn instantiate(
     //ORACLE POOL ROUTE WILL BE APPENDED WITH CDT/USDC POOL 1268 FOR LIQUIDATIONS
     
     //Create Debt VT Msg
-    let debt_vt_denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: String::from("/debt-suppliers")};
+    let debt_vt_denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: String::from("debt-suppliers")};
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")

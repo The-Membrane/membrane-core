@@ -12,7 +12,7 @@ use cosmwasm_std::{
 use membrane::helpers::{validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances};
 use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_subtraction};
 use membrane::oracle::PriceResponse;
-use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
+// use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::types::{
     Asset, AssetInfo, AutoCloseParams, BorrowOptions, UXBoosts, UserPosition, VTClaimCheckpoint
 };
@@ -731,7 +731,25 @@ pub fn edit_ux_boosts(
     collateral_value_fee_to_executor: Option<Decimal>, 
 ) -> Result<Response, ContractError> {
     //Load user state
-    let mut user_position_ux_boosts = POSITION_UX_BOOSTS.load(deps.storage, (info.sender.clone(), collateral_denom.to_string()))?;
+    let mut user_position_ux_boosts = match POSITION_UX_BOOSTS.load(deps.storage, (info.sender.clone(), collateral_denom.to_string())) {
+        Ok(val) => val,
+        Err(_) => {
+            // If not found, check if user has a position
+            match POSITIONS.load(deps.storage, (info.sender.clone(), collateral_denom.to_string())) {
+                Ok(_user_position) => {
+                    // Set to default UXBoosts
+                    UXBoosts {
+                        collateral_value_fee_to_executor: Decimal::zero(),
+                        loop_ltv: None,
+                        take_profit_params: None,
+                        stop_loss_params: None,
+                        collateral_bought_from_loops: vec![],
+                    }
+                },
+                Err(e) => return Err(ContractError::CustomError { val: format!("Failed to load user UX boosts and no position found: {}", e) }),
+            }
+        }
+    };
 
     //Load market
     let market = match MARKET_PARAMS.load(deps.storage, collateral_denom.to_string()){
@@ -2022,6 +2040,8 @@ pub fn loop_position(
         let debt_value = debt_price.get_value(target_position.debt_amount)?;
         let position_LTV = decimal_division(debt_value, collateral_value)?;
 
+        println!("position_LTV: {:?}", position_LTV);
+        println!("intended_LTV: {:?}", intended_LTV);
         //Calc LTV space to loop
         let LTV_space_to_loop = match decimal_subtraction(intended_LTV, position_LTV){
             Ok(val) => { val },

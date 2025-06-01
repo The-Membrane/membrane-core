@@ -155,6 +155,12 @@ pub enum ExecuteMsg {
         /// Who to send excess CDT from the spread coverage & available collateral if fully closed. Defaults to sender.
         send_to: Option<String>,
     },
+    /// Loop a position for a user. For managed intents positions.
+    LoopPosition {
+        collateral_denom: String,
+        position_owner: Option<String>,
+        max_slippage: Option<Decimal>,
+    },
     /// Change user alias
     ChangeAlias {
         alias: String,

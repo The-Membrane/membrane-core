@@ -19,7 +19,7 @@ use membrane::types::{
 
 use crate::error::ContractError;
 use crate::positions::{
-    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, close_position, crank_realized_apr, edit_ux_boosts, get_cdt_price, get_collateral_price, get_total_debt_tokens, liquidate, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID
+    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, close_position, crank_realized_apr, edit_ux_boosts, get_cdt_price, get_collateral_price, get_total_debt_tokens, liquidate, loop_position, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID
 };
 use crate::rates::{external_accrue_call, get_interest_rate};
 // use crate::query::{
@@ -175,6 +175,7 @@ pub fn execute(
         ExecuteMsg::Repay { collateral_denom, send_excess_to } => repay_cdt(deps, env, info, collateral_denom, send_excess_to ),
         ExecuteMsg::Accrue { position_owner, collateral_denom } => external_accrue_call(deps.storage, deps.api, deps.querier, info, env, position_owner, collateral_denom),
         ExecuteMsg::ClosePosition { collateral_denom, position_owner, close_percentage, max_spread, send_to } => close_position(deps, env, info, collateral_denom, close_percentage, max_spread, send_to, position_owner),
+        ExecuteMsg::LoopPosition { collateral_denom, position_owner, max_slippage } => loop_position(deps, env, info, collateral_denom, position_owner, max_slippage),ExecuteMsg::LoopPosition { collateral_denom, position_owner, max_slippage } => loop_position(deps, env, info, collateral_denom, position_owner, max_slippage),
         ExecuteMsg::CrankRealizedAPR {  } => crank_realized_apr(deps, env, info),
         ExecuteMsg::ChangeAlias { alias } => change_alias(deps, env, info, alias),
         /////Callbacks/////
@@ -236,7 +237,12 @@ fn update_config(
     //Assert Authority
     if info.sender != config.owner {
         //Check if ownership transfer is in progress & transfer if so
-        let new_owner = OWNERSHIP_TRANSFER.load(deps.storage)?;
+        let new_owner = match OWNERSHIP_TRANSFER.load(deps.storage) {
+            Ok(val) => val,
+            Err(_) => {
+                return Err(ContractError::CustomError { val: "No ownership transfer in progress".to_string() });
+            }
+        };
         if info.sender == new_owner {
             config.owner = info.sender;
         } else {

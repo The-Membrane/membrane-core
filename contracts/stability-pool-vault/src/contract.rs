@@ -81,7 +81,7 @@ pub fn execute(
         ExecuteMsg::UpdateConfig { owner, percent_to_keep_liquid, osmosis_proxy_contract } => update_config(deps, info, owner, percent_to_keep_liquid, osmosis_proxy_contract),
         ExecuteMsg::EnterVault { } => enter_vault(deps, env, info),
         ExecuteMsg::ExitVault {  } => exit_vault(deps, env, info),
-        ExecuteMsg::Compound { } => claim_and_compound_liquidations(deps, env, info),
+        ExecuteMsg::Compound { indices } => claim_and_compound_liquidations(deps, env, info, indices),
         ExecuteMsg::CrankRealizedAPR { } => crank_realized_apr(deps, env, info),
         ExecuteMsg::RateAssurance { } => rate_assurance(deps, env, info),
     }
@@ -599,6 +599,8 @@ fn claim_and_compound_liquidations(
     deps: DepsMut,
     env: Env,
     _info: MessageInfo,
+    // Indices to skip
+    indices: Option<Vec<u32>>,
 ) -> Result<Response, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
     let mut msgs = vec![];
@@ -617,6 +619,16 @@ fn claim_and_compound_liquidations(
         .filter(|claim| claim.amount > Uint128::new(1))
         .collect::<Vec<Coin>>();
 
+    //Convert list  of indices to usize
+    let indices = indices.unwrap_or(vec![]).into_iter().map(|index| index as usize).collect::<Vec<usize>>();
+
+    //Filter out claims if they are in the indices vector
+    if !indices.is_empty() {
+        claims.claims = claims.claims.clone().into_iter().enumerate()   
+            .filter(|(index, _)| !indices.contains(&index))
+            .map(|(_, claim)| claim)
+            .collect::<Vec<Coin>>();
+    }
 
     //Compound rewards by sending to the Router in the Osmosis proxy contract
     //...send as a submsg that checks that the contract has more of the deposit token than it started with

@@ -19,9 +19,10 @@ use membrane::types::{
 
 use crate::error::ContractError;
 use crate::positions::{
-    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, close_position, crank_realized_apr, edit_ux_boosts, get_cdt_price, get_collateral_price, get_total_debt_tokens, liquidate, loop_position, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID
+    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, close_position, crank_realized_apr, edit_ux_boosts, get_cdt_price, get_collateral_price, get_total_debt_tokens, liquidate, loop_position, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQUIDATE_REPLY_ID, LOOP_POSITION_REPLY_ID
 };
 use crate::rates::{external_accrue_call, get_interest_rate};
+use crate::reply::{handle_close_position_reply, handle_liquidation_reply, handle_loop_position_reply};
 // use crate::query::{
 //     query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint, query_user_intent_state
 // };
@@ -175,7 +176,7 @@ pub fn execute(
         ExecuteMsg::Repay { collateral_denom, send_excess_to } => repay_cdt(deps, env, info, collateral_denom, send_excess_to ),
         ExecuteMsg::Accrue { position_owner, collateral_denom } => external_accrue_call(deps.storage, deps.api, deps.querier, info, env, position_owner, collateral_denom),
         ExecuteMsg::ClosePosition { collateral_denom, position_owner, close_percentage, max_spread, send_to } => close_position(deps, env, info, collateral_denom, close_percentage, max_spread, send_to, position_owner),
-        ExecuteMsg::LoopPosition { collateral_denom, position_owner, max_slippage } => loop_position(deps, env, info, collateral_denom, position_owner, max_slippage),ExecuteMsg::LoopPosition { collateral_denom, position_owner, max_slippage } => loop_position(deps, env, info, collateral_denom, position_owner, max_slippage),
+        ExecuteMsg::LoopPosition { collateral_denom, position_owner, max_slippage } => loop_position(deps, env, info, collateral_denom, position_owner, max_slippage),
         ExecuteMsg::CrankRealizedAPR {  } => crank_realized_apr(deps, env, info),
         ExecuteMsg::ChangeAlias { alias } => change_alias(deps, env, info, alias),
         /////Callbacks/////
@@ -390,7 +391,9 @@ fn update_market(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
-        // 99u64 => handle_rblp_query(deps, env, msg),
+        CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
+        LIQUIDATE_REPLY_ID => handle_liquidation_reply(deps, env, msg),
+        LOOP_POSITION_REPLY_ID => handle_loop_position_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }

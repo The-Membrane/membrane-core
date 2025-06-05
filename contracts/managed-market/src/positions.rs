@@ -56,22 +56,22 @@ pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 // - Calculate profits on close if there were loops (DONE)
 
 //Our Product roadmap is:
-// Exotic collateral 
+// 1) Exotic collateral 
 // -- borrow fee
 // -- per user debt cap
 // -- keep max LTV and borrow LTV close so that liquidations are small but frequent nd don't cause the market to crash
-// Trading Strategies
+// 2) Trading Strategies
 // - Take initial out
 // --- Strat struct implementation
-// Leveraged blue chips (Pyth oracles)
+// 3) Leveraged blue chips (Pyth oracles)
 // -- Hands free leverage (SL & Loop intents) (*for borrower*)
 // -- Use liquidatibility & volatiility to increase interest rates *for supplier*
 // -- Fixed rate (*for borrower*), grants stability for strats
-// Interest rate arbs (redemptions, vault oracles)
-// Fixed rate, low leverage market for users who want low leverage over a long period of time
+// 4) Fixed rate, low leverage market for users who want low leverage over a long period of time
+// 5) Interest rate arbs (redemptions, vault oracles)
 
 //TODO:
-// - Add optional oracle contract
+// - Add optional oracle contract 
 // - Add optional swap contract. This will need checks that the contract returns the asset at appropriate slippage limits.
 // - LTV ramping
 
@@ -160,30 +160,39 @@ pub fn supply_collateral(
         };
     }
 
+    //Init attrs
+    let mut attrs = vec![
+        attr("method", "supply_collateral"),
+        attr("collateral_amount", info.funds[0].amount.to_string()),
+        attr("collateral_denom", market.clone().collateral_params.collateral_asset),
+        attr("owner", owner.to_string()),
+    ];
+
     //Update user state 
     //Check & assert deposit asset
     POSITIONS.update(deps.storage, (owner.clone(), info.funds[0].denom.clone()), |position: Option<UserPosition>| -> Result<UserPosition, ContractError> {
         match position {
                 Some(mut position) => {
                     position.collateral_amount += info.funds[0].amount;
+                    attrs.push(attr("user_state", format!("{:?}", position)));
                     return Ok(position)
                 },
                 None => {
-                    return Ok(UserPosition {
+                    let user_position = UserPosition {
                         collateral_denom: market.collateral_params.collateral_asset,
                         collateral_amount: info.funds[0].amount,
                         debt_amount: Uint128::zero(),
                         rate_index: Decimal::zero(),
-                    })
+                    };
+                    attrs.push(attr("user_state", format!("{:?}", user_position)));
+                    return Ok(user_position)
                 }
         }
 
     })?;
 
     Ok(Response::new()
-    .add_attributes(vec![
-        attr("method", "supply_collateral"),
-    ]))
+    .add_attributes(attrs))
 }
 
 /// Deposit debt to receive receipt tokens.
@@ -790,7 +799,7 @@ pub fn edit_ux_boosts(
             };
 
             //Assert that the remaining debt is above the minimum
-            if remaining_debt.to_uint_floor() < market.debt_minimum  {
+            if remaining_debt.to_uint_floor() < market.debt_minimum && !inverse_close_percentage.is_zero() {
                 return Err(ContractError::CustomError { val: format!("Take profit can't leave the position with less than the debt minimum") });
             }
         }
@@ -1260,7 +1269,7 @@ pub fn check_debt_liquidatibility(
         routes, //routes are the oracle pool plus 1268 the CDT pool
         debt_amount.to_string(),
     )?;
-    
+    // println!("res: {:?}", res);
     //This doesn't account for individual position liquidatibility
     if Uint128::from_str(&res.token_in_amount).unwrap() > collateral_amount {
         return Err(ContractError::NoLiquidatibility {  });

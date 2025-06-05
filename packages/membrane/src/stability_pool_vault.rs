@@ -17,7 +17,10 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     EnterVault { },
     ExitVault { },
-    Compound { },
+    Compound {
+        ///Optional indices to compound
+        indices: Option<Vec<u32>>,
+    },
     UpdateConfig {
         owner: Option<String>,
         percent_to_keep_liquid: Option<Decimal>,

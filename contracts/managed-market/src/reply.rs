@@ -114,79 +114,80 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             };
 
             //Load position ux boosts
-            let target_position_ux_boosts = match POSITION_UX_BOOSTS.load(deps.storage, (deps.api.addr_validate(&close_prop.position_owner)?, close_prop.collateral_denom.clone())) {
-                Ok(position) => position,
-                Err(err) => return Err(StdError::GenericErr { msg: err.to_string() })
+            if let Ok(target_position_ux_boosts) = POSITION_UX_BOOSTS.load(deps.storage, (deps.api.addr_validate(&close_prop.position_owner)?, close_prop.collateral_denom.clone())) {
+                
+                //If the collateral bought list is a single instance, we calculate proft made or loss from the swap.
+                //A single instance means this is the data from the final loop.
+                if target_position_ux_boosts.collateral_bought_from_loops.len() == 1 {
+                    //Load user history 
+                    let mut user_history = match USER_HISTORY.load(deps.storage, close_prop.position_owner.clone()) {
+                        Ok(history) => history,
+                        Err(_) => {
+                            UserHistory {
+                                user: close_prop.position_owner.clone(),
+                                alias: None,
+                                profits: Decimal::zero(),
+                                losses: Decimal::zero(),
+                                volume: Decimal::zero(),
+                            }
+                        }
+                    };
+                    //Get the average purchase price
+                    let average_purchase_price = target_position_ux_boosts.collateral_bought_from_loops[0].post_purchase_price;
+
+                    //Get the current price of the collateral
+                    let current_price = get_collateral_price(
+                        deps.storage,
+                        deps.querier,
+                        env.clone(), 
+                        MARKET_PARAMS.load(deps.storage, close_prop.collateral_denom.clone())?,
+                    ).map_err(|_| StdError::generic_err("Failed to get collateral price"))?;
+                    //set loss to false
+                    let mut loss = false;
+                    //Calculate the profit made or loss from the swap
+                    let price_difference = match decimal_subtraction(
+                        current_price.price,
+                        average_purchase_price
+                    ){
+                        Ok(diff) => diff,
+                        Err(_) => {
+                            //Set as a loss
+                            loss = true;
+                            //Calculate the price difference
+                            decimal_subtraction(    
+                                average_purchase_price,
+                                current_price.price
+                            ).map_err(|_| StdError::generic_err("Failed to get price difference"))?
+                        }
+                        
+                    };
+                    //Create new PriceResponse
+                    let price_response = PriceResponse {
+                        price: price_difference,
+                        decimals: current_price.decimals,
+                        prices: vec![],
+                    };
+
+                    //Calculate the value of the profit or loss
+                    let value_realized = price_response.get_value(close_prop.collateral_swapped)?;
+                    if loss {
+                        //Add to position's losses
+                        user_history.losses += value_realized;
+                        //Add to user history volume
+                        user_history.volume += value_realized;  
+                    } else {
+                        //Add to position's profits
+                        user_history.profits += value_realized;
+                        //Add to user history volume
+                        user_history.volume += value_realized;
+                    }
+
+                    //Save user history
+                    USER_HISTORY.save(deps.storage, close_prop.position_owner.clone(), &user_history)?;
+                }
+                
             };
 
-            //If the collateral bought list is a single instance, we calculate proft made or loss from the swap 
-            if target_position_ux_boosts.collateral_bought_from_loops.len() == 1 {
-                //Load user history 
-                let mut user_history = match USER_HISTORY.load(deps.storage, close_prop.position_owner.clone()) {
-                    Ok(history) => history,
-                    Err(err) => {
-                        UserHistory {
-                            user: close_prop.position_owner.clone(),
-                            alias: None,
-                            profits: Decimal::zero(),
-                            losses: Decimal::zero(),
-                            volume: Decimal::zero(),
-                        }
-                    }
-                };
-                //Get the average purchase price
-                let average_purchase_price = target_position_ux_boosts.collateral_bought_from_loops[0].post_purchase_price;
-
-                //Get the current price of the collateral
-                let current_price = get_collateral_price(
-                    deps.storage,
-                    deps.querier,
-                    env.clone(), 
-                    MARKET_PARAMS.load(deps.storage, close_prop.collateral_denom.clone())?,
-                ).map_err(|_| StdError::generic_err("Failed to get collateral price"))?;
-                //set loss to false
-                let mut loss = false;
-                //Calculate the profit made or loss from the swap
-                let price_difference = match decimal_subtraction(
-                    current_price.price,
-                    average_purchase_price
-                ){
-                    Ok(diff) => diff,
-                    Err(_) => {
-                        //Set as a loss
-                        loss = true;
-                        //Calculate the price difference
-                        decimal_subtraction(    
-                            average_purchase_price,
-                            current_price.price
-                        ).map_err(|_| StdError::generic_err("Failed to get price difference"))?
-                    }
-                    
-                };
-                //Create new PriceResponse
-                let price_response = PriceResponse {
-                    price: price_difference,
-                    decimals: current_price.decimals,
-                    prices: vec![],
-                };
-
-                //Calculate the value of the profit or loss
-                let value_realized = price_response.get_value(close_prop.collateral_swapped)?;
-                if loss {
-                    //Add to position's losses
-                    user_history.losses += value_realized;
-                    //Add to user history volume
-                    user_history.volume += value_realized;  
-                } else {
-                    //Add to position's profits
-                    user_history.profits += value_realized;
-                    //Add to user history volume
-                    user_history.volume += value_realized;
-                }
-
-                //Save user history
-                USER_HISTORY.save(deps.storage, close_prop.position_owner.clone(), &user_history)?;
-            }
 
             //Load State
             // let config: Config = CONFIG.load(deps.storage)?;
@@ -200,18 +201,18 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 ]
             )?[0];
 
-            //Create repay_msg
-            let repay_msg = ExecuteMsg::Repay { 
-                collateral_denom: close_prop.collateral_denom.clone(),
-                send_excess_to: close_prop.send_to.clone(),
-            };
-
             //Calculate the amount of debt tokens earned from the swap
             let amount_swapped_for = match post_close_debt_balance.checked_sub(close_prop.pre_close_debt_balance){
                 Ok(amount) => amount,
                 Err(_) => {
                     return Err(StdError::generic_err(format!("The new debt token balance is less than the previous debt token balance. {} < {}", post_close_debt_balance, close_prop.pre_close_debt_balance) ))
                 }
+            };
+
+            //Create repay_msg
+            let repay_msg = ExecuteMsg::Repay { 
+                collateral_denom: close_prop.collateral_denom.clone(),
+                send_excess_to: close_prop.send_to.clone(),
             };
 
             //Create repay_msg with swapped for funds
@@ -305,9 +306,6 @@ pub fn handle_loop_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
                 ]
             )?[0];
 
-            //Create deposit_msg
-            let deposit_msg = ExecuteMsg::SupplyCollateral { owner: Some(loop_prop.position_owner.clone()) };
-
             //Calculate the amount of debt tokens earned from the swap
             let amount_swapped_for = match post_loop_collateral_balance.checked_sub(loop_prop.pre_loop_collateral_balance){
                 Ok(amount) => amount,
@@ -315,6 +313,11 @@ pub fn handle_loop_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
                     return Err(StdError::generic_err(format!("The new collateral token balance is less than the previous collateral token balance. {} < {}", post_loop_collateral_balance, loop_prop.pre_loop_collateral_balance) ))
                 }
             };
+
+
+            //Create deposit_msg
+            let deposit_msg = ExecuteMsg::SupplyCollateral { owner: Some(loop_prop.position_owner.clone()) };
+
 
             //Create deposit_msg with swapped_for funds
             let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
@@ -346,7 +349,7 @@ pub fn handle_loop_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
             //Add the value purchased to the user history volume
             let mut user_history = match USER_HISTORY.load(deps.storage, loop_prop.position_owner.clone()) {
                 Ok(history) => history,
-                Err(err) => {
+                Err(_) => {
                     UserHistory {
                         user: loop_prop.position_owner.clone(),
                         alias: None,

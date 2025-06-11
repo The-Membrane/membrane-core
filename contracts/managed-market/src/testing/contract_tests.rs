@@ -4,14 +4,17 @@ mod tests {
 
     use super::*;
     use cosmwasm_std::{
-        testing::{mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage},
-        from_binary, coins, Addr, Decimal, Uint128, Coin, StdError, StdResult,
-        Reply, SubMsgResponse, SubMsgResult, Event, Response as CwResponse,
+        coins, from_binary, from_json, testing::{mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage}, Addr, Coin, Decimal, Event, Reply, Response as CwResponse, StdError, StdResult, SubMsgResponse, SubMsgResult, Uint128
     };
+    use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
     use crate::contract::{instantiate, execute, query, reply};
     use membrane::{managed_market::{BorrowCap, CollateralParams, Config, ExecuteMsg, InstantiateMsg, MarketParams, QueryMsg, RateParams, UserPositionResponse}, types::{AssetOracleInfo, BorrowOptions, TWAPPoolInfo, UserPosition}};
-    use crate::state::{CONFIG, POSITIONS};
+    use crate::state::{CONFIG, POSITIONS, LTV_RAMP_TIMER, MARKET_PARAMS};
     use crate::testing::mock_querier::custom_mock_deps;
+    use membrane::managed_market::LTVRamp;
+    use membrane::market_manager::Config as MarketManagerConfig;
+    use membrane::market_manager::QueryMsg as MMQueryMsg;
+    use cosmwasm_std::{to_binary, WasmQuery, QueryRequest, SystemResult, ContractResult, CosmosMsg, WasmMsg};
 
 
         pub const CDT_DENOM: &str = "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt";
@@ -161,7 +164,8 @@ mod tests {
             pause_actions: Some(true),
             manager_fee: None, 
             whitelisted_debt_suppliers: None, 
-            debt_supply_cap: None
+            debt_supply_cap: None,
+            markets_manager_contract: None
         };
         let admin_info = mock_info("owner", &[]);
         let res = execute(deps.as_mut(), env.clone(), admin_info.clone(), update_msg).unwrap();
@@ -180,7 +184,8 @@ mod tests {
             pause_actions: Some(false),
             manager_fee: None, 
             whitelisted_debt_suppliers: None, 
-            debt_supply_cap: None
+            debt_supply_cap: None,
+            markets_manager_contract: None
         };
         let res = execute(deps.as_mut(), env.clone(), admin_info.clone(), update_msg).unwrap();
         // Failure: Sender not whitelisted
@@ -270,6 +275,7 @@ fn test_withdraw_collateral_happy_path_and_failures() {
         manager_fee: None,
         whitelisted_debt_suppliers: None,
         debt_supply_cap: None,
+        markets_manager_contract: None
     };
     execute(deps.as_mut(), env.clone(), info.clone(), pause_msg).unwrap();
 
@@ -338,6 +344,7 @@ fn test_supply_debt_happy_path_and_failures() {
         manager_fee: None,
         whitelisted_debt_suppliers: None,
         debt_supply_cap: Some(Some(Uint128::new(1_000_001))), // Just 1 more
+        markets_manager_contract: None
     };
     execute(deps.as_mut(), env.clone(), info.clone(), update_msg).unwrap();
 
@@ -466,6 +473,7 @@ fn test_withdraw_debt_happy_path_and_failures() {
         manager_fee: None,
         whitelisted_debt_suppliers: None,
         debt_supply_cap: None,
+        markets_manager_contract: None
     };
     execute(deps.as_mut(), env.clone(), admin_info, pause_msg).unwrap();
 
@@ -1064,6 +1072,7 @@ fn test_pausing_unpausing_and_config_updates() {
         manager_fee: None,
         whitelisted_debt_suppliers: None,
         debt_supply_cap: None,
+        markets_manager_contract: None
     };
     let pause_result = execute(deps.as_mut(), env.clone(), info.clone(), pause_msg);
     assert!(pause_result.is_ok());
@@ -1087,6 +1096,7 @@ fn test_pausing_unpausing_and_config_updates() {
         manager_fee: None,
         whitelisted_debt_suppliers: None,
         debt_supply_cap: None,
+        markets_manager_contract: None
     };
     let unpause_result = execute(deps.as_mut(), env.clone(), info.clone(), unpause_msg);
     assert!(unpause_result.is_ok());
@@ -1104,6 +1114,7 @@ fn test_pausing_unpausing_and_config_updates() {
         manager_fee: None,
         whitelisted_debt_suppliers: None,
         debt_supply_cap: None,
+        markets_manager_contract: None
     };
     let result = execute(deps.as_mut(), env.clone(), bad_info, pause_msg);
     assert!(result.is_err());
@@ -1119,6 +1130,7 @@ fn test_pausing_unpausing_and_config_updates() {
         manager_fee: Some(Decimal::percent(3)),
         whitelisted_debt_suppliers: Some(Some(vec!["new_debt_guy".to_string()])),
         debt_supply_cap: Some(Some(Uint128::new(123456))),
+        markets_manager_contract: None
     };
     let result = execute(deps.as_mut(), env.clone(), info.clone(), update_msg);
     assert!(result.is_ok());
@@ -1136,7 +1148,8 @@ fn test_pausing_unpausing_and_config_updates() {
         pause_actions: None, 
         manager_fee: None, 
         whitelisted_debt_suppliers: None, 
-        debt_supply_cap: None };
+        debt_supply_cap: None,
+        markets_manager_contract: None };
     let new_owner_info = mock_info("new_owner", &[]);
     let result = execute(deps.as_mut(), env.clone(), new_owner_info, accept_msg);
     assert!(result.is_ok());
@@ -1354,6 +1367,151 @@ fn test_non_owner_cannot_close_position_unless_allowed_by_uxboosts() {
     assert!(edit_result.is_ok());
     let close_result = execute(deps.as_mut(), env.clone(), close_info, close_msg);
     assert!(close_result.is_ok());
+}
+
+#[test]
+fn test_ltv_ramping() {
+    let mut deps = custom_mock_deps();
+    let mut env = mock_env();
+    let info = mock_info("owner", &[]);
+
+    // Instantiate contract
+    let msg = default_instantiate_msg();
+    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+    // Check initial liquidation LTV
+    let market: membrane::managed_market::MarketParams = MARKET_PARAMS.load(&deps.storage, "atom".to_string()).unwrap();
+    assert_eq!(market.collateral_params.liquidation_LTV, Decimal::percent(60));
+
+    // Initiate an LTV ramp to 70% over 1 hour
+    let ramp = LTVRamp {
+        new_LTV: Decimal::percent(70),
+        duration_in_hours: 1,
+    };
+    let update_msg = ExecuteMsg::UpdateMarket {
+        collateral_denom: "atom".to_string(),
+        max_borrow_LTV: None,
+        liquidation_LTV: Some(ramp.clone()),
+        rate_params: None,
+        borrow_fee: None,
+        whitelisted_collateral_suppliers: None,
+        borrow_cap: None,
+        max_slippage: None,
+        pool_for_oracle_and_liquidations: None,
+        per_user_debt_cap: None,
+        debt_minimum: None,
+    };
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), update_msg).unwrap();
+    // Check that the timer is set
+    let timer = LTV_RAMP_TIMER.load(&deps.storage, "atom".to_string()).unwrap();
+    assert_eq!(timer.new_LTV, Decimal::percent(70));
+    assert_eq!(timer.end_time, timer.start_time + 3600);
+
+    // The LTV should not be updated yet
+    let market = MARKET_PARAMS.load(&deps.storage, "atom".to_string()).unwrap();
+    assert_eq!(market.collateral_params.liquidation_LTV, Decimal::percent(60));
+
+    // Simulate time passing beyond the ramp duration
+    env.block.time = env.block.time.plus_seconds(3601);
+    let update_msg = ExecuteMsg::UpdateMarket {
+        collateral_denom: "atom".to_string(),
+        max_borrow_LTV: None,
+        liquidation_LTV: None,
+        rate_params: None,
+        borrow_fee: None,
+        whitelisted_collateral_suppliers: None,
+        borrow_cap: None,
+        max_slippage: None,
+        pool_for_oracle_and_liquidations: None,
+        per_user_debt_cap: None,
+        debt_minimum: None,
+    };
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), update_msg).unwrap();
+    // println!("res: {:?}, Decimal: {}", res, Decimal::percent(70).to_string());
+    // Should emit ltv_ramp_completed attribute
+    assert!(res.attributes.iter().any(|a| a.key == "ltv_ramp_completed" && a.value == "Decimal(0.7)".to_string()));
+    // The LTV should now be updated
+    let market = MARKET_PARAMS.load(&deps.storage, "atom".to_string()).unwrap();
+    assert_eq!(market.collateral_params.liquidation_LTV, Decimal::percent(70));
+    // The timer should be removed
+    assert!(LTV_RAMP_TIMER.may_load(&deps.storage, "atom".to_string()).unwrap().is_none());
+}
+
+#[test]
+fn test_markets_manager_revenue() {
+    use membrane::market_manager::Config as MarketManagerConfig;
+    use membrane::market_manager::QueryMsg as MMQueryMsg;
+    use cosmwasm_std::{to_binary, CosmosMsg, WasmMsg};
+
+    let mut deps = custom_mock_deps();
+    let env = mock_env();
+    let info = mock_info("owner", &[]);
+    // Set the manager fee to 2%
+    deps.querier.set_manager_fee(Decimal::percent(2));
+
+    // Instantiate contract with a dummy markets_manager_contract address
+    let mut msg = default_instantiate_msg();
+    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    // Set a markets_manager_contract address via config update
+    let update_msg = ExecuteMsg::UpdateConfig {
+        owner: None,
+        osmosis_proxy_contract_addr: None,
+        pause_actions: None,
+        manager_fee: None,
+        whitelisted_debt_suppliers: None,
+        debt_supply_cap: None,
+        markets_manager_contract: Some("manager_contract".to_string()),
+    };
+    execute(deps.as_mut(), env.clone(), info.clone(), update_msg).unwrap();
+    // Supply collateral and debt as usual
+    let deposit_info = mock_info("collateral_guy", &[Coin {
+        denom: "atom".to_string(),
+        amount: Uint128::new(1_000_000),
+    }]);
+    let msg = ExecuteMsg::SupplyCollateral { owner: None };
+    execute(deps.as_mut(), env.clone(), deposit_info.clone(), msg).unwrap();
+    let deposit_info = mock_info("debt_guy", &[Coin {
+        denom: CDT_DENOM.to_string(),
+        amount: Uint128::new(1_000_000),
+    }]);
+    let msg = ExecuteMsg::SupplyDebt { send_to: None };
+    execute(deps.as_mut(), env.clone(), deposit_info.clone(), msg).unwrap();
+    deps.querier.base.update_balance(
+        "cosmos2contract".to_string(),
+        vec![Coin {
+            denom: CDT_DENOM.to_string(),
+            amount: Uint128::new(1_000_000),
+        }],
+    );
+    // Borrow to create a debt position
+    let borrow_info = mock_info("collateral_guy", &[]);
+    let borrow_msg = ExecuteMsg::Borrow {
+        collateral_denom: "atom".to_string(),
+        send_to: None,
+        borrow_amount: membrane::types::BorrowOptions {
+            amount: Some(Uint128::new(100_000)),
+            ltv: None,
+        },
+    };
+    execute(deps.as_mut(), env.clone(), borrow_info.clone(), borrow_msg.clone()).unwrap();
+    // Skip time to accrue interest
+    let mut env2 = env.clone();
+    env2.block.time = env2.block.time.plus_seconds(3600 * 24 * 10); // 10 days
+    // Accrue interest (this should trigger the manager fee logic)
+    let accrue_info = mock_info("owner", &[]);
+    let accrue_msg = ExecuteMsg::Accrue {
+        collateral_denom: "atom".to_string(),
+        position_owner: "collateral_guy".to_string(),
+    };
+    let accrue_result = execute(deps.as_mut(), env2.clone(), accrue_info, accrue_msg);
+    assert!(accrue_result.is_ok());
+    let resp = accrue_result.unwrap();
+    //Assert there are 3 messages
+    assert_eq!(resp.messages.len(), 3);
+    // 1 is a guaranteed rate assurance callback
+    // 1 is revenue to the manager
+    // 1 is revenue to membrane
+
 }
 
 }

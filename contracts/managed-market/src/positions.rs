@@ -20,7 +20,7 @@ use membrane::managed_market::{Config, ExecuteMsg, MarketParams};
 use membrane::stability_pool_vault::{
     calculate_base_tokens, calculate_vault_tokens
 };
-
+use membrane::market_manager::{Config as MarketManagerConfig, QueryMsg as MarketManagerQueryMsg};
 use osmosis_std::types::osmosis::twap::v1beta1 as TWAP;
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
 use osmosis_std::types::osmosis::poolmanager::v1beta1::{MsgSwapExactAmountIn, SwapAmountInRoute};
@@ -251,7 +251,7 @@ pub fn supply_debt(
     //Get total_debt_tokens
     let total_debt_tokens = get_total_debt_tokens(config.clone())?;
     //Get total_vault_tokens
-    // let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
+    let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
 
     //Ensure the deposit doesn't push the market over supply caps
     if let Some(debt_supply_cap) = config.debt_supply_cap {
@@ -261,23 +261,30 @@ pub fn supply_debt(
         }
     }
 
+    //Get markets manager fee
+    let markets_manager_fee = query_markets_manager_fee(deps.querier, config.markets_manager_contract.to_string())?;
+
     //Accrue to make sure current suppliers get their yield
-    //This is done to ensure that config's total_debt_tokens is up to date
-    // accrue(
-    //     deps.storage,
-    //     total_debt_tokens,
-    //     total_vault_tokens,
-    //     env.clone(), 
-    //     &mut config, 
-    //     &mut UserPosition { 
-    //         collateral_denom: String::from(""),
-    //         collateral_amount: Uint128::zero(), 
-    //         debt_amount: Uint128::zero(), 
-    //         rate_index: Decimal::zero()
-    //     },
-    //     &mut msgs
-    // )?;
+    // This is done to ensure that config's total_debt_tokens is up to date
+    accrue(
+        deps.storage,
+        total_debt_tokens,
+        total_vault_tokens,
+        env.clone(), 
+        &mut config, 
+        &mut UserPosition { 
+            collateral_denom: String::from(""),
+            collateral_amount: Uint128::zero(), 
+            debt_amount: Uint128::zero(), 
+            rate_index: Decimal::zero()
+        },
+        &mut msgs,
+        markets_manager_fee
+    )?;
     
+
+    //Get total_debt_tokens
+    let total_debt_tokens = get_total_debt_tokens(config.clone())?;
     //Get total_vault_tokens
     let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
 
@@ -379,23 +386,27 @@ pub fn withdraw_debt(
         };
     }
 
+    //Get markets manager fee
+    let markets_manager_fee = query_markets_manager_fee(deps.querier, config.markets_manager_contract.to_string())?;
+
     //Accrue to make sure withdrawing suppliers get their yield.
     //This is done to ensure that config's total_debt_tokens is up to date.
-    // let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
-    // accrue(
-    //     deps.storage,
-    //     get_total_debt_tokens(config.clone())?,
-    //     total_vault_tokens,
-    //     env.clone(), 
-    //     &mut config, 
-    //     &mut UserPosition { 
-    //         collateral_denom: String::from(""),
-    //         collateral_amount: Uint128::zero(), 
-    //         debt_amount: Uint128::zero(), 
-    //         rate_index: Decimal::zero(),
-    //     },
-    //     &mut msgs
-    // )?;
+    let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
+    accrue(
+        deps.storage,
+        get_total_debt_tokens(config.clone())?,
+        total_vault_tokens,
+        env.clone(), 
+        &mut config, 
+        &mut UserPosition { 
+            collateral_denom: String::from(""),
+            collateral_amount: Uint128::zero(), 
+            debt_amount: Uint128::zero(), 
+            rate_index: Decimal::zero(),
+        },
+        &mut msgs,
+        markets_manager_fee
+    )?;
     //Check & assert vault token
     //Assert the sender sent the vault token only
     if info.funds.len() != 1 || info.funds[0].denom != config.debt_supply_vault_token {
@@ -550,6 +561,9 @@ pub fn withdraw_collateral(
 
     let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
 
+    //Get markets manager fee
+    let markets_manager_fee = query_markets_manager_fee(deps.querier, config.markets_manager_contract.to_string())?;
+
     //Accrue if debt is owed
     accrue(
         deps.storage,
@@ -558,7 +572,8 @@ pub fn withdraw_collateral(
         env.clone(), 
         &mut config, 
         &mut user_position,
-        &mut msgs
+        &mut msgs,
+        markets_manager_fee
     )?;
 
     //Assert withdraw is valid. 
@@ -909,7 +924,7 @@ pub fn borrow_cdt(
     //Set position_owner
     let mut position_owner = info.sender.clone();
 
-    //If the contract is withdrawing for a user (i.e. ClosePosition), set the position owner to the recipient
+    //If the contract is borrowing for a user (i.e. LoopPosition), set the position owner to the recipient
     if info.sender == env.contract.address && send_to.is_some(){
         position_owner = deps.api.addr_validate(&send_to.clone().unwrap())?.clone();
     } else if info.sender == env.contract.address && send_to.is_none(){
@@ -931,6 +946,9 @@ pub fn borrow_cdt(
 
     let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
 
+    //Get markets manager fee
+    let markets_manager_fee = query_markets_manager_fee(deps.querier, config.markets_manager_contract.to_string())?;
+
     //Accrue.
     //Even without debt, this keeps everyones's state up to date
     accrue(
@@ -940,7 +958,8 @@ pub fn borrow_cdt(
         env.clone(), 
         &mut config,
         &mut user_position,
-        &mut msgs
+        &mut msgs,
+        markets_manager_fee
     )?;
 
     let debt_price = get_cdt_price(deps.querier, env.clone())?;
@@ -1176,6 +1195,9 @@ pub fn repay_cdt(
 
     let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
 
+    //Get markets manager fee
+    let markets_manager_fee = query_markets_manager_fee(deps.querier, config.markets_manager_contract.to_string())?;
+
     //Accrue.
     //Even without debt, this keeps everyones's state up to date
     accrue(
@@ -1185,7 +1207,8 @@ pub fn repay_cdt(
         env.clone(), 
         &mut config, 
         &mut user_position,
-        &mut msgs
+        &mut msgs,
+        markets_manager_fee
     )?;    
 
 
@@ -1511,6 +1534,9 @@ pub fn liquidate(
 
     let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
 
+    //Get markets manager fee
+    let markets_manager_fee = query_markets_manager_fee(deps.querier, config.markets_manager_contract.to_string())?;
+
     //Accrue.
     //Even without debt, this keeps everyones's state up to date
     accrue(
@@ -1520,7 +1546,8 @@ pub fn liquidate(
         env.clone(), 
         &mut config, 
         &mut user_position,
-        &mut msgs
+        &mut msgs,
+        markets_manager_fee
     )?;    
 
 
@@ -1770,6 +1797,15 @@ pub fn crank_realized_apr(
     ]))
 }
 
+pub fn query_markets_manager_fee(
+    querier: QuerierWrapper,
+    markets_manager_contract: String,
+) -> Result<Decimal, ContractError> {
+    let config: MarketManagerConfig = querier.query_wasm_smart::<MarketManagerConfig>(markets_manager_contract, &MarketManagerQueryMsg::Config {})?;
+
+    Ok(config.managed_market_fee)
+    
+}
  
 /// Sell position collateral to repay any % of debt.
 /// Max spread is used to ensure the full debt is repaid in lieu of slippage.
@@ -1982,7 +2018,7 @@ pub fn loop_position(
     max_slippage: Option<Decimal>,
 ) -> Result<Response, ContractError>{
     //Load global state
-    let config: Config = CONFIG.load(deps.storage)?;
+    let _config: Config = CONFIG.load(deps.storage)?;
     let market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
         Ok(market) => market,
         Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
@@ -2049,8 +2085,6 @@ pub fn loop_position(
         let debt_value = debt_price.get_value(target_position.debt_amount)?;
         let position_LTV = decimal_division(debt_value, collateral_value)?;
 
-        println!("position_LTV: {:?}", position_LTV);
-        println!("intended_LTV: {:?}", intended_LTV);
         //Calc LTV space to loop
         let LTV_space_to_loop = match decimal_subtraction(intended_LTV, position_LTV){
             Ok(val) => { val },
@@ -2128,3 +2162,6 @@ pub fn loop_position(
     }
 
 }
+
+
+

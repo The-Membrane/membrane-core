@@ -11,7 +11,7 @@ use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
 
-use crate::positions::get_total_debt_tokens;
+use crate::positions::{get_total_debt_tokens, query_markets_manager_fee};
 use crate::ContractError;
 use crate::state::{CONFIG, DEBT_VAULT_TOKEN, POSITIONS, MARKET_PARAMS};
 
@@ -47,6 +47,11 @@ pub fn external_accrue_call(
     //Previous debt amount
     let previous_debt_amount = user_position.debt_amount;
     
+
+    //Get markets manager fee
+    let markets_manager_fee = query_markets_manager_fee(querier, config.markets_manager_contract.to_string())?;
+
+    //Accrue interest
     accrue(
         storage, 
         get_total_debt_tokens(config.clone())?, 
@@ -54,7 +59,8 @@ pub fn external_accrue_call(
         env.clone(),            
         &mut config.clone(),
         &mut user_position,
-        &mut msgs
+        &mut msgs,
+        markets_manager_fee
     )?;
 
     //Save the updated config
@@ -75,7 +81,7 @@ pub fn external_accrue_call(
             attr("position_owner", position_owner),
             attr("collateral_denom", collateral_denom),
             attr("accrued_interest", accrued_interest),
-        ]))
+        ]).add_messages(msgs))
 }
 
 pub fn accumulate_interest_dec(decimal: Decimal, rate: Decimal, time_elapsed: u64) -> StdResult<Decimal> {
@@ -165,12 +171,13 @@ fn get_market_collateral_types(
 /// Accrue interest 
 pub fn accrue(
     storage: &mut dyn Storage,
-    total_debt_tokens: Uint128,
+    _total_debt_tokens: Uint128,
     total_vault_tokens: Uint128,
     env: Env,
     config: &mut Config,
     user_position: &mut UserPosition,
     msgs: &mut Vec<CosmosMsg>,
+    fee_to_membrane: Decimal
 ) -> Result<(), ContractError> {
     //Early return if we have no debt tokens
     if config.total_debt_tokens.is_zero() {
@@ -202,7 +209,7 @@ pub fn accrue(
 
     //Initialize manager revenue 
     let mut manager_revenue = Uint128::zero();
-
+    let mut membrane_revenue = Uint128::zero();
     //Map through all markets to get the market rate index
     let global_collateral = get_market_collateral_types(storage)?;
     for market_collateral in global_collateral {
@@ -256,7 +263,7 @@ pub fn accrue(
                 debt_rate_of_change
             )?.to_uint_floor();
 
-                
+
             if new_credit_amount > user_position.debt_amount {
                 //Calc accrued interest
                 let accrued_interest = new_credit_amount - user_position.debt_amount;
@@ -268,12 +275,21 @@ pub fn accrue(
                 //Set position's debt to the debt + accrued_interest
                 user_position.debt_amount = new_credit_amount;
 
+
                 //Calc manager revenue
                 let manager_fee = decimal_multiplication(
                     Decimal::from_ratio(accrued_interest, Uint128::one()),
                     config.manager_fee,
                 )?;
                 manager_revenue += manager_fee.to_uint_floor();
+
+                //Calc revenue to membrane
+                let membrane_fee = decimal_multiplication(
+                    Decimal::from_ratio(accrued_interest, Uint128::one()),
+                    fee_to_membrane,
+                )?;
+                membrane_revenue += membrane_fee.to_uint_floor();
+
             }
 
         }
@@ -293,10 +309,11 @@ pub fn accrue(
 
 
     //Calculate the amount of vault tokens to mint to the manager as the fee
-    if manager_revenue > Uint128::zero() {
+    if manager_revenue > Uint128::zero() || membrane_revenue > Uint128::zero() {
+        //////////Manager Revenue//////////
         let vt_to_mint_to_manager = calculate_vault_tokens(
             manager_revenue, 
-            total_debt_tokens, 
+            get_total_debt_tokens(config.clone())?, 
             total_vault_tokens
         )?;
 
@@ -319,7 +336,37 @@ pub fn accrue(
             Ok(v) => v,
             Err(_) => return Err(ContractError::CustomError { val: format!("Failed to add vault token total supply: {} + {}", total_vault_tokens, vt_to_mint_to_manager) }),
         };
+
+        //////////Protocol Revenue//////////
+        //Calculate the amount of vault tokens to mint to the MarketsManager Contract
+        let vt_to_mint_to_membrane = calculate_vault_tokens(
+            membrane_revenue, 
+            get_total_debt_tokens(config.clone())?, 
+            new_vault_token_supply
+        )?;
+
+        //Mint membrane revenue to MarketsManager Contract
+        if vt_to_mint_to_membrane > Uint128::zero() {
+            let mint_vault_tokens_msg: CosmosMsg = TokenFactory::MsgMint {
+                sender: env.contract.address.to_string(), 
+                amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+                    denom: config.debt_supply_vault_token.clone(),
+                    amount: vt_to_mint_to_membrane.to_string(),
+                }), 
+                mint_to_address: config.markets_manager_contract.clone().to_string(),
+            }.into();
+            msgs.push(mint_vault_tokens_msg);
+        }
+
+
         //Update vault token supply
+        let new_vault_token_supply= match new_vault_token_supply.checked_add(vt_to_mint_to_membrane){
+            Ok(v) => v,
+            Err(_) => return Err(ContractError::CustomError { val: format!("Failed to add vault token total supply: {} + {}", new_vault_token_supply, vt_to_mint_to_membrane) }),
+        };
+
+
+        //////////Save vault token supply//////////
         DEBT_VAULT_TOKEN.save(storage, &new_vault_token_supply)?;
 
 

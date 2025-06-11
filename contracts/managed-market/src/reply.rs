@@ -123,13 +123,14 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     let mut user_history = match USER_HISTORY.load(deps.storage, close_prop.position_owner.clone()) {
                         Ok(history) => history,
                         Err(_) => {
-                            UserHistory {
+                            vec![UserHistory {
+                                collateral_denom: close_prop.collateral_denom.clone(),
                                 user: close_prop.position_owner.clone(),
                                 alias: None,
                                 profits: Decimal::zero(),
                                 losses: Decimal::zero(),
                                 volume: Decimal::zero(),
-                            }
+                            }]
                         }
                     };
                     //Get the average purchase price
@@ -171,15 +172,25 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     //Calculate the value of the profit or loss
                     let value_realized = price_response.get_value(close_prop.collateral_swapped)?;
                     if loss {
-                        //Add to position's losses
-                        user_history.losses += value_realized;
-                        //Add to user history volume
-                        user_history.volume += value_realized;  
-                    } else {
-                        //Add to position's profits
-                        user_history.profits += value_realized;
-                        //Add to user history volume
-                        user_history.volume += value_realized;
+                        //Find the user history for the collateral denom and add to losses & volume
+                        user_history.iter_mut().enumerate().for_each(|(index, history)| {
+                            if history.collateral_denom == close_prop.collateral_denom {
+                                //Add to losses
+                                history.losses += value_realized;
+                                //Add to volume
+                                history.volume += value_realized;
+                            }
+                        });
+                    } else {    
+                        //Find the user history for the collateral denom and add to profits & volume
+                        user_history.iter_mut().enumerate().for_each(|(index, history)| {
+                            if history.collateral_denom == close_prop.collateral_denom {
+                                //Add to profits
+                                history.profits += value_realized;
+                                //Add to volume
+                                history.volume += value_realized;
+                            }
+                        });
                     }
 
                     //Save user history
@@ -350,19 +361,24 @@ pub fn handle_loop_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
             let mut user_history = match USER_HISTORY.load(deps.storage, loop_prop.position_owner.clone()) {
                 Ok(history) => history,
                 Err(_) => {
-                    UserHistory {
+                    vec![UserHistory {
+                        collateral_denom: loop_prop.collateral_denom.clone(),
                         user: loop_prop.position_owner.clone(),
                         alias: None,
                         profits: Decimal::zero(),
                         losses: Decimal::zero(),
                         volume: Decimal::zero(),
-                    }
+                    }]
                 }
             };
             //Calc value
             let value_purchased = post_purchase_price.get_value(amount_swapped_for)?;
             //Add to volume
-            user_history.volume += value_purchased;
+            user_history.iter_mut().enumerate().for_each(|(index, history)| {
+                if history.collateral_denom == loop_prop.collateral_denom {
+                    history.volume += value_purchased;
+                }
+            });
             //Save user history
             USER_HISTORY.save(deps.storage, loop_prop.position_owner.clone(), &user_history)?;
 

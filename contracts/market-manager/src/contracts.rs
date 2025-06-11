@@ -53,6 +53,7 @@ pub fn instantiate(
             .map(|addr| deps.api.addr_validate(&addr))
             .collect::<Result<Vec<_>, _>>()?,
         osmosis_proxy_contract: deps.api.addr_validate(&msg.osmosis_proxy_contract)?,
+        managed_market_fee: Decimal::percent(5),
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -76,7 +77,8 @@ pub fn execute(
             owner,
             managed_market_code_id,
             edit_managers,
-        } => update_config(deps, info, owner, managed_market_code_id, edit_managers),
+            managed_market_fee,
+        } => update_config(deps, info, owner, managed_market_code_id, edit_managers, managed_market_fee),
         ExecuteMsg::InstantiateMarket { params } => {
             instantiate_market(deps, _env, info, params)
         },
@@ -231,6 +233,7 @@ fn update_config(
     owner: Option<String>,
     managed_market_code_id: Option<u64>,
     edit_managers: Option<ManagerEdit>,
+    managed_market_fee: Option<Decimal>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     let mut attrs = vec![attr("method", "update_config")];
@@ -278,7 +281,10 @@ fn update_config(
         OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?;
         attrs.push(attr("owner_transfer", valid_addr));   
     }
-    
+    if let Some(fee) = managed_market_fee {
+        config.managed_market_fee = fee;
+        attrs.push(attr("managed_market_fee", fee.to_string()));
+    }
     //Save Config
     CONFIG.save(deps.storage, &config)?;
     attrs.push(attr("updated_config", format!("{:?}", config)));
@@ -501,9 +507,18 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
 
-    //Remove market for existing manager
-    MANAGED_MARKETS.remove(deps.storage, "osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0".to_string());
-    
+    let config = Config {
+        owner: deps.api.addr_validate("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w")?,
+        managed_market_code_id: 1618,
+        manager_whitelist: vec![
+            deps.api.addr_validate("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w")?,
+            deps.api.addr_validate("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0")?,
+        ],
+        osmosis_proxy_contract: deps.api.addr_validate("osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd")?,
+        managed_market_fee: Decimal::percent(5),
+    };
+    CONFIG.save(deps.storage, &config)?;
+
     //Return response
     Ok(Response::default())
 }

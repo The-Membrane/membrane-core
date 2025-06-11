@@ -5,7 +5,7 @@ use std::str::FromStr;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_json_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, QueryRequest, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg, WasmQuery
+    attr, to_json_binary, Addr, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, QueryRequest, Reply, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg, WasmQuery
 };
 
 use cw_storage_plus::Bound;
@@ -26,7 +26,7 @@ use crate::reply::{handle_close_position_reply, handle_liquidation_reply, handle
 // use crate::query::{
 //     query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint, query_user_intent_state
 // };
-use crate::state::{ ContractVersion, ACTIONS_PAUSED, CLAIM_TRACKER, CONFIG, CONTRACT, DEBT_VAULT_TOKEN, MARKET_PARAMS, OWNERSHIP_TRANSFER, POSITIONS, USER_HISTORY};
+use crate::state::{ ContractVersion, LTVRampTimer, ACTIONS_PAUSED, CLAIM_TRACKER, CONFIG, CONTRACT, DEBT_VAULT_TOKEN, LTV_RAMP_TIMER, MARKET_PARAMS, OWNERSHIP_TRANSFER, POSITIONS, POSITION_UX_BOOSTS, USER_HISTORY};
 
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
 
@@ -47,6 +47,7 @@ pub fn instantiate(
     
     let config = Config {
         owner: deps.api.addr_validate(&msg.owner)?,
+        markets_manager_contract: info.sender.clone(),
         osmosis_proxy_contract: deps.api.addr_validate(&msg.osmosis_proxy_contract)?,
         global_rate_index: RateIndex {
             rate_index: Decimal::one(),
@@ -147,12 +148,13 @@ pub fn execute(
     match msg {
         ExecuteMsg::UpdateConfig {
             owner,
+            markets_manager_contract,
             osmosis_proxy_contract_addr,
             pause_actions,
             manager_fee,
             whitelisted_debt_suppliers,
             debt_supply_cap
-        } => update_config(deps, info, owner, osmosis_proxy_contract_addr, pause_actions, manager_fee, whitelisted_debt_suppliers, debt_supply_cap),
+        } => update_config(deps, info, owner, markets_manager_contract, osmosis_proxy_contract_addr, pause_actions, manager_fee, whitelisted_debt_suppliers, debt_supply_cap),
         ExecuteMsg::UpdateMarket {
             collateral_denom,
             max_borrow_LTV,
@@ -165,7 +167,7 @@ pub fn execute(
             per_user_debt_cap,
             pool_for_oracle_and_liquidations,
             debt_minimum
-        } => update_market(deps, info, collateral_denom, max_borrow_LTV, liquidation_LTV, rate_params, borrow_fee, whitelisted_collateral_suppliers, borrow_cap, max_slippage, pool_for_oracle_and_liquidations, per_user_debt_cap, debt_minimum),
+        } => update_market(deps, info, env, collateral_denom, max_borrow_LTV, liquidation_LTV, rate_params, borrow_fee, whitelisted_collateral_suppliers, borrow_cap, max_slippage, pool_for_oracle_and_liquidations, per_user_debt_cap, debt_minimum),
         ExecuteMsg::EditUXBoosts { collateral_denom, loop_ltv, take_profit_params, stop_loss_params, collateral_value_fee_to_executor } => edit_ux_boosts(deps, env, info, collateral_denom, loop_ltv, take_profit_params, stop_loss_params, collateral_value_fee_to_executor), 
         ExecuteMsg::SupplyCollateral { owner } => supply_collateral(deps, env, info, owner),
         ExecuteMsg::SupplyDebt { send_to } => supply_debt(deps, env, info, send_to),
@@ -178,7 +180,7 @@ pub fn execute(
         ExecuteMsg::ClosePosition { collateral_denom, position_owner, close_percentage, max_spread, send_to } => close_position(deps, env, info, collateral_denom, close_percentage, max_spread, send_to, position_owner),
         ExecuteMsg::LoopPosition { collateral_denom, position_owner, max_slippage } => loop_position(deps, env, info, collateral_denom, position_owner, max_slippage),
         ExecuteMsg::CrankRealizedAPR {  } => crank_realized_apr(deps, env, info),
-        ExecuteMsg::ChangeAlias { alias } => change_alias(deps, env, info, alias),
+        ExecuteMsg::ChangeAlias { collateral_denom, alias } => change_alias(deps, env, info, collateral_denom, alias),
         /////Callbacks/////
         ExecuteMsg::RateAssurance {  } => rate_assurance(deps, env, info),
         ExecuteMsg::GetTotalDepositTokens {  } => panic!("{:?}", get_total_debt_tokens(CONFIG.load(deps.storage)?)?),
@@ -190,27 +192,31 @@ pub fn execute(
 /// Change user alias
 fn change_alias(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
+    collateral_denom: String,
     alias: String,
 ) -> Result<Response, ContractError> {
     ///Get user history
     let mut user_history = match USER_HISTORY.load(deps.storage, info.sender.clone().to_string()){
         Ok(history) => history,
         Err(_) => {
-            UserHistory {
+            vec![UserHistory {
+                collateral_denom: collateral_denom.clone(),
                 alias: Some(alias.clone()),
                 user: info.sender.clone().to_string(),
                 volume: Decimal::zero(),
                 profits: Decimal::zero(),
                 losses: Decimal::zero(),
-                
-
-            }
+            }]
         }
     };
-    //update alias
-    user_history.alias = Some(alias.clone());
+    //Find the collateral denom in the user history & update alias
+    user_history.iter_mut().for_each(|history| {
+        if history.collateral_denom == collateral_denom {
+            history.alias = Some(alias.clone());
+        }
+    });
     USER_HISTORY.save(deps.storage, info.sender.to_string(), &user_history)?;
 
     Ok(Response::new().add_attributes(vec![
@@ -224,6 +230,7 @@ fn update_config(
     deps: DepsMut,
     info: MessageInfo,
     owner: Option<String>,
+    markets_manager_contract: Option<String>,
     osmosis_proxy_contract_addr: Option<String>,
     pause_actions: Option<bool>,
     manager_fee: Option<Decimal>,
@@ -257,6 +264,12 @@ fn update_config(
         //Set owner transfer state
         OWNERSHIP_TRANSFER.save(deps.storage, &valid_addr)?; 
         attrs.push(attr("owner_transfer", valid_addr));
+    }
+    if let Some(markets_manager_contract) = markets_manager_contract {
+
+        let valid_addr = deps.api.addr_validate(&markets_manager_contract)?;
+        config.markets_manager_contract = valid_addr.clone();
+        attrs.push(attr("markets_manager_contract", valid_addr));
     }
 
     if pause_actions.is_some() {
@@ -293,11 +306,29 @@ fn update_config(
     Ok(Response::new().add_attributes(attrs))
 }
 
+/// Sets up the LTV ramp timer in state
+fn setup_ltv_ramp_timer(
+    storage: &mut dyn Storage,
+    env: Env,
+    ltv_ramp: &LTVRamp,
+    collateral_denom: String,
+) -> Result<(), ContractError> {
+    let start_time = env.block.time.seconds();
+    let end_time = start_time + (ltv_ramp.duration_in_hours * 3600);
+    let timer = LTVRampTimer {
+        start_time,
+        end_time,
+        new_LTV: ltv_ramp.new_LTV,
+    };
+    LTV_RAMP_TIMER.save(storage, collateral_denom.clone(), &timer)?;
+    Ok(())
+}
 
 /// Update market config
 fn update_market(
     deps: DepsMut,
     info: MessageInfo,
+    env: Env,
     collateral_denom: String,
     max_borrow_LTV: Option<Decimal>,
     liquidation_LTV: Option<LTVRamp>,
@@ -314,6 +345,18 @@ fn update_market(
     let mut attrs = vec![
         attr("method", "update_market"),
     ];
+
+    //Check if the ltv timer is complete
+    if let Ok(ltv_timer) = LTV_RAMP_TIMER.load(deps.storage, collateral_denom.clone()) {
+        if ltv_timer.end_time < env.block.time.seconds() {
+            //If the timer is complete, set the LTV to the new LTV
+        let mut market = MARKET_PARAMS.load(deps.storage, collateral_denom.clone())?;
+        market.collateral_params.liquidation_LTV = ltv_timer.new_LTV;
+        MARKET_PARAMS.save(deps.storage, collateral_denom.clone(), &market)?;
+        LTV_RAMP_TIMER.remove(deps.storage, collateral_denom.clone());
+            attrs.push(attr("ltv_ramp_completed", format!("{:?}", ltv_timer.new_LTV)));
+        }
+    }
 
     //Assert Authority
     if info.sender != config.owner {
@@ -340,8 +383,9 @@ fn update_market(
         if liquidation_LTV.new_LTV.is_zero() || liquidation_LTV.new_LTV > Decimal::percent(100) || market.collateral_params.max_borrow_LTV >= liquidation_LTV.new_LTV {
             return Err(ContractError::CustomError { val: String::from("Liquidation LTV cannot be 0, greater than 100% or less than / equal to max_borrow_LTV") });
         }
-        // market.collateral_params.liquidation_LTV = liquidation_LTV;
-        // attrs.push(attr("liquidation_LTV", format!("{:?}", liquidation_LTV)));
+        //Set up the LTV ramping timer
+        setup_ltv_ramp_timer(deps.storage, env.clone(), &liquidation_LTV, collateral_denom.clone())?;
+        attrs.push(attr("liquidation_LTV", format!("{:?}", liquidation_LTV)));
     }
     if let Some(rate_params) = rate_params {
         market.rate_params = rate_params.clone();
@@ -485,9 +529,53 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             Ok(positions) => positions,
             Err(err) => return Err(StdError::generic_err(format!("Error getting user positions: {:?}", err))),
         }),
+        QueryMsg::GetUserHistory { collateral_denom, user, start_after, limit } => to_json_binary(&match get_user_history(deps, env, collateral_denom, user, start_after, limit){
+            Ok(history) => history,
+            Err(err) => return Err(StdError::generic_err(format!("Error getting user history: {:?}", err))),
+        }),
+        QueryMsg::GetUserUXBoosts { collateral_denom, user } => to_json_binary(&match POSITION_UX_BOOSTS.load(deps.storage, (deps.api.addr_validate(&user)?, collateral_denom.clone())){
+            Ok(ux_boosts) => ux_boosts,
+            Err(err) => return Err(StdError::generic_err(format!("Error getting user ux boosts: {:?}", err))),
+        }),
         QueryMsg::ClaimTracker {} => to_json_binary(&CLAIM_TRACKER.load(deps.storage)?),
     }
 }
+
+//Get user history
+fn get_user_history(
+    deps: Deps,
+    env: Env,
+    collateral_denom: String,
+    user: Option<String>,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<Vec<UserHistory>> {
+
+    //if user is Some, return single user's history
+    if let Some(user) = user {
+        return Ok(USER_HISTORY.load(deps.storage, user)?);
+    }
+
+    //Get limit
+    let limit = limit.unwrap_or(MAX_LIMIT) as usize;
+
+    //Get start
+    let start = if let Some(start) = start_after {
+        let start_after_addr = deps.api.addr_validate(&start)?;
+        Some(Bound::exclusive(start_after_addr))
+    } else {
+        None
+    };
+
+    USER_HISTORY
+        .range(deps.storage, start, None, Order::Ascending)
+        .take(limit)
+        .flat_map(|item| match item {
+            Ok((_k, v)) => v.into_iter().map(Ok).collect::<Vec<_>>(),
+            Err(e) => vec![Err(e)],
+        })
+        .collect()
+}   
 
 fn get_collateral_assets(
     deps: Deps,
@@ -592,6 +680,7 @@ fn get_user_positions(
     }
     
 }
+
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {

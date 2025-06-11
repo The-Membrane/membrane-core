@@ -50,6 +50,7 @@ pub struct Config {
     pub managed_market_code_id: u64,
     pub manager_whitelist: Vec<Addr>,
     pub osmosis_proxy_contract: Addr,
+    pub managed_market_fee: Decimal,
 }
 
 #[cw_serde]
@@ -68,6 +69,7 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         managed_market_code_id: Option<u64>,
         edit_managers: Option<ManagerEdit>,
+        managed_market_fee: Option<Decimal>,
     },
     /// Update the market data
     UpdateMarketItem {

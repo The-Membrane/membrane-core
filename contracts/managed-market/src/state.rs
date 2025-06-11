@@ -51,6 +51,14 @@ pub struct LoopPropagation {
     pub intended_multiplier: Decimal,
 }
 
+#[cw_serde]
+pub struct LTVRampTimer {
+    pub start_time: u64,
+    pub end_time: u64,
+    pub new_LTV: Decimal,
+}
+
+
 
 pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
@@ -59,10 +67,10 @@ pub const MARKET_PARAMS: Map<String, MarketParams> = Map::new("market_params");
 pub const DEBT_VAULT_TOKEN: Item<Uint128> = Item::new("debt_vault_token");
 
 pub const ACTIONS_PAUSED: Item<bool> = Item::new("actions_paused");
-pub const LTV_RAMP_TIMER: Item<u64> = Item::new("ltv_ramp_timer");
+pub const LTV_RAMP_TIMER: Map<String, LTVRampTimer> = Map::new("ltv_ramp_timer");
 pub const POSITIONS: Map<(Addr, String), UserPosition> = Map::new("user_position"); //(owner, collateral denom), position
 pub const POSITION_UX_BOOSTS: Map<(Addr, String), UXBoosts> = Map::new("user_ux_boosts"); //(owner, collateral denom), UX boosts
-pub const USER_HISTORY: Map<String, UserHistory> = Map::new("user_history"); // user, history
+pub const USER_HISTORY: Map<String, Vec<UserHistory>> = Map::new("user_history"); // user, history
 
 pub const TOKEN_RATE_ASSURANCE: Item<TokenRateAssurance> = Item::new("token_rate_assurance");
 

@@ -3,7 +3,7 @@ use std::option;
 
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Decimal, Uint128};
-use crate::{oracle::PriceResponse, types::{AssetOracleInfo, AutoCloseParams, BorrowOptions, ClaimTracker, RangeBounds, RangePositions, RangeTokens, UserHistory, UserInfo, UserIntentState, UserPosition}};
+use crate::{oracle::PriceResponse, types::{AssetOracleInfo, AutoCloseParams, BorrowOptions, ClaimTracker, RangeBounds, RangePositions, RangeTokens, UserHistory, UserInfo, UserIntentState, UserPosition, UXBoosts}};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -159,15 +159,19 @@ pub enum ExecuteMsg {
     LoopPosition {
         collateral_denom: String,
         position_owner: Option<String>,
+        /// Max slippage but if not owner, max slippage is config's max slippage
         max_slippage: Option<Decimal>,
     },
     /// Change user alias
     ChangeAlias {
+        /// Market signifier
+        collateral_denom: String,
         alias: String,
     },
     /// Update the contract config
     UpdateConfig {
         owner: Option<String>,
+        markets_manager_contract: Option<String>,
         osmosis_proxy_contract_addr: Option<String>,
         // oracle_contract_addr: Option<String>,
         pause_actions: Option<bool>,
@@ -217,6 +221,19 @@ pub enum QueryMsg {
         limit: Option<u32>,
     },
     #[returns(Vec<UserHistory>)]
+    GetUserHistory { 
+        /// Market signifier
+        collateral_denom: String,
+        user: Option<String>,
+        start_after: Option<String>,
+        limit: Option<u32>,
+    },
+    #[returns(UXBoosts)]
+    GetUserUXBoosts { 
+        /// Market signifier
+        collateral_denom: String,
+        user: String,
+    },
     #[returns(ClaimTracker)]
     ClaimTracker {},
     #[returns(bool)]
@@ -251,8 +268,8 @@ pub enum QueryMsg {
 pub struct UserPositionResponse {
     pub user: String,
     pub position: UserPosition
-}
-
+} 
+ 
 // #[cw_serde]
 // pub struct UserIntentResponse {
 //     pub user: String,
@@ -302,6 +319,7 @@ pub struct BorrowCap {
 #[cw_serde]
 pub struct Config {
     pub owner: Addr,
+    pub markets_manager_contract: Addr,
     pub osmosis_proxy_contract: Addr,
     pub global_rate_index: RateIndex,
     /// This includes supplied CDT & CDT accrued from interest to make sure debt suppliers always withdraw their full share.

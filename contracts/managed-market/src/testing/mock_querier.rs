@@ -8,12 +8,16 @@ use osmosis_std::types::osmosis::poolmanager::v1beta1::EstimateSwapExactAmountOu
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::MsgMintResponse;
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::MsgBurnResponse;
 use std::cell::RefCell;
+use membrane::market_manager::Config as MarketManagerConfig;
+use membrane::market_manager::QueryMsg as MMQueryMsg;
+use cosmwasm_std::Addr;
 
 /// CustomMockQuerier simulates Osmosis module queries for contract unit tests.
 pub struct CustomMockQuerier {
     pub base: MockQuerier,
     pub collateral_twap: RefCell<cosmwasm_std::Decimal>,
     pub debt_twap: RefCell<cosmwasm_std::Decimal>,
+    pub manager_fee: RefCell<Option<cosmwasm_std::Decimal>>,
     // You can add fields here to control mock responses per test
 }
 
@@ -23,6 +27,7 @@ impl CustomMockQuerier {
             base,
             collateral_twap: RefCell::new(cosmwasm_std::Decimal::from_ratio(123u128, 100u128)),
             debt_twap: RefCell::new(cosmwasm_std::Decimal::one()),
+            manager_fee: RefCell::new(None),
         }
     }
     pub fn set_collateral_twap(&self, price: cosmwasm_std::Decimal) {
@@ -36,11 +41,30 @@ impl CustomMockQuerier {
         self.set_collateral_twap(collateral);
         self.set_debt_twap(debt);
     }
+    pub fn set_manager_fee(&self, fee: cosmwasm_std::Decimal) {
+        *self.manager_fee.borrow_mut() = Some(fee);
+    }
 }
 
 impl cosmwasm_std::Querier for CustomMockQuerier {
     fn raw_query(&self, bin_request: &[u8]) -> QuerierResult {
         let request: QueryRequest<cosmwasm_std::Empty> = cosmwasm_std::from_slice(bin_request).unwrap();
+        // Handle manager contract fee query
+        if let QueryRequest::Wasm(cosmwasm_std::WasmQuery::Smart { contract_addr, msg, .. }) = &request {
+            if contract_addr == "manager_contract" {
+                if let Ok(MMQueryMsg::Config {}) = cosmwasm_std::from_binary(msg) {
+                    let fee = self.manager_fee.borrow().unwrap_or(cosmwasm_std::Decimal::zero());
+                    let resp = MarketManagerConfig {
+                        owner: Addr::unchecked("owner"),
+                        managed_market_code_id: 0,
+                        manager_whitelist: vec![],
+                        osmosis_proxy_contract: Addr::unchecked("proxy"),
+                        managed_market_fee: fee,
+                    };
+                    return SystemResult::Ok(ContractResult::Ok(to_binary(&resp).unwrap()));
+                }
+            }
+        }
         // Handle TWAP query
         if let QueryRequest::Stargate { path, data } = &request {
             if path == "/osmosis.twap.v1beta1.Query/GeometricTwapToNow" {

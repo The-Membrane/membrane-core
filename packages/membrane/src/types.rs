@@ -1187,6 +1187,7 @@ pub struct PurchaseData {
 
 #[cw_serde]
 pub struct UserHistory {
+    pub collateral_denom: String,
     pub user: String,
     pub alias: Option<String>,
     pub profits: Decimal,

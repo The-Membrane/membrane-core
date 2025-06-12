@@ -684,7 +684,24 @@ fn get_user_positions(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    
+    let config = Config {
+        owner: deps.api.addr_validate("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0")?,
+        markets_manager_contract: deps.api.addr_validate("osmo1tmqefg7v9zhtj2hlsrtn3mp8zz83x9lxtedlzesnky4c74l4g9ws29dqxr")?,
+        osmosis_proxy_contract: deps.api.addr_validate("osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd")?,
+        global_rate_index: RateIndex {
+            rate_index: Decimal::from_str("1")?,
+            last_accrued: 1748799825u64,
+        },
+        total_debt_tokens: Uint128::from(2_000_000u128),
+        debt_supply_cap: Some(Uint128::from(20_000_000u128)),
+        bad_debt: Uint128::zero(),
+        whitelisted_debt_suppliers: None,
+        debt_supply_vault_token: "factory/osmo1fftkmw6hwsw54aw9l0jfxkzzysvq23h6vqgk8cx32aedy6jxucmqpz27zj/debt-suppliers".to_string(),
+        manager_fee: Decimal::from_str("0.05")?,
+    };
+
+    CONFIG.save(deps.storage, &config)?;
+
     //Return response
     Ok(Response::default())
 }

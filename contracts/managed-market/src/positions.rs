@@ -344,6 +344,8 @@ pub fn supply_debt(
     Ok(Response::new()
     .add_attributes(vec![
         attr("method", "supply_debt"),
+        attr("debt_amount", supplied_amount.to_string()),
+        attr("vault_tokens_minted", vault_tokens_to_send.to_string()),
     ]).add_messages(msgs))
 }
 
@@ -648,8 +650,7 @@ pub fn withdraw_collateral(
         attr("position_owner", position_owner.to_string()),
         attr("send_to", send_to.to_string()),
         attr("new_position", format!("{:?}", user_position)),
-    ])
-    .add_messages(msgs))
+    ])) 
 }
 
 pub fn get_collateral_price(
@@ -1002,7 +1003,8 @@ pub fn borrow_cdt(
         let space_to_borrow = match market.borrow_cap.fixed_cap {
             Some(cap) => {
                 //Calc space to borrow within the cap
-                cap.checked_sub(market.total_borrowed).unwrap_or(Uint128::zero())
+                let space = cap.checked_sub(market.total_borrowed).unwrap_or(Uint128::zero());
+                space
             },
             None => borrowable_amount
         };
@@ -1011,7 +1013,8 @@ pub fn borrow_cdt(
         let capped_borrow = match market.per_user_debt_cap {
             Some(cap) => {
                 //Calc space to borrow within the cap
-                cap.checked_sub(user_position.debt_amount).unwrap_or(Uint128::zero())
+                let space = cap.checked_sub(user_position.debt_amount).unwrap_or(Uint128::zero());
+                min(capped_borrow, space)
             },
             None => capped_borrow
         };
@@ -1105,6 +1108,8 @@ pub fn borrow_cdt(
     Ok(Response::new()
     .add_attributes(vec![
         attr("method", "borrow_cdt"),
+        attr("borrowed_amount", borrowable_amount),
+        attr("borrow_fee", borrow_fee),
     ])
 .add_messages(msgs))
 }
@@ -1116,7 +1121,6 @@ fn calc_borrow_amount(
     debt_price: PriceResponse,
     collateral_value: Decimal,
 ) -> Result<Uint128, ContractError> {
-
     //Calculate borrow amount
     let borrow_amount = if let Some(borrow_amount) = borrow_options.amount {
         borrow_amount
@@ -1190,8 +1194,14 @@ pub fn repay_cdt(
     let mut excess_repayment = Uint128::zero();
     let mut msgs = vec![];
 
+    //Set position owner
+    let position_owner = match info.sender != env.contract.address {
+        true => info.sender.clone(),
+        false => deps.api.addr_validate(&send_excess_to.clone().unwrap())?,
+    };
+
     //Load user state
-    let mut user_position = POSITIONS.load(deps.storage, (info.sender.clone(), collateral_denom.clone()))?;
+    let mut user_position = POSITIONS.load(deps.storage, (position_owner.clone(), collateral_denom.clone()))?;
 
     let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
 
@@ -1211,7 +1221,6 @@ pub fn repay_cdt(
         markets_manager_fee
     )?;    
 
-
     //Update state for user
     //Calculate the amount of debt that can be repaid
     user_position.debt_amount = match user_position.debt_amount.checked_sub(repay_amount){
@@ -1226,18 +1235,17 @@ pub fn repay_cdt(
         },
     };
     //If the debt is under the minimmum, error
-    if user_position.debt_amount < market.debt_minimum {
+    if user_position.debt_amount < market.debt_minimum && user_position.debt_amount > Uint128::zero() {
         return Err(ContractError::CustomError { val: format!("User Debt Amount: {} < Debt Minimum: {}", user_position.debt_amount, market.debt_minimum) });
     }
-    POSITIONS.save(deps.storage, (info.sender.clone(), collateral_denom.clone()), &user_position)?;
-
+    POSITIONS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &user_position)?;
 
      //Send back excess repayment, defaults to the repaying address
      if !excess_repayment.is_zero() {
         //Set send_excess_to
         let send_excess_to = match send_excess_to {
             Some(send_excess_to) => deps.api.addr_validate(&send_excess_to)?,
-            None => info.sender.clone(),
+            None => position_owner.clone(),
         };
         //Send excess repayment
         let excess_repayment_coins = vec![Coin {
@@ -1292,7 +1300,6 @@ pub fn check_debt_liquidatibility(
         routes, //routes are the oracle pool plus 1268 the CDT pool
         debt_amount.to_string(),
     )?;
-    // println!("res: {:?}", res);
     //This doesn't account for individual position liquidatibility
     if Uint128::from_str(&res.token_in_amount).unwrap() > collateral_amount {
         return Err(ContractError::NoLiquidatibility {  });

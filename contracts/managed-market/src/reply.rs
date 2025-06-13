@@ -171,6 +171,9 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 
                     //Calculate the value of the profit or loss
                     let value_realized = price_response.get_value(close_prop.collateral_swapped)?;
+                    //Calculate the volume based on the current price
+                    let volume = current_price.get_value(close_prop.collateral_swapped)?;
+
                     if loss {
                         //Find the user history for the collateral denom and add to losses & volume
                         user_history.iter_mut().enumerate().for_each(|(index, history)| {
@@ -178,7 +181,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                                 //Add to losses
                                 history.losses += value_realized;
                                 //Add to volume
-                                history.volume += value_realized;
+                                history.volume += volume;
                             }
                         });
                     } else {    
@@ -188,7 +191,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                                 //Add to profits
                                 history.profits += value_realized;
                                 //Add to volume
-                                history.volume += value_realized;
+                                history.volume += volume;
                             }
                         });
                     }
@@ -226,6 +229,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 send_excess_to: close_prop.send_to.clone(),
             };
 
+
             //Create repay_msg with swapped for funds
             let repay_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: env.contract.address.to_string(), 
@@ -236,6 +240,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                         amount: amount_swapped_for,
                     })?]
             });
+
             //Add to msgs
             msgs.push(repay_msg.clone());
 
@@ -289,7 +294,6 @@ pub fn handle_loop_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
             //Init msgs
             let mut msgs: Vec<CosmosMsg> = vec![];
 
-
             //Load Loop Position Prop
             let loop_prop: LoopPropagation = LOOP_POSITION.load(deps.storage)?;
 
@@ -308,7 +312,7 @@ pub fn handle_loop_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
             //Load State
             // let config: Config = CONFIG.load(deps.storage)?;
 
-            //Query contract balance of the debt denom
+            //Query contract balance of the collateral denom
             let post_loop_collateral_balance = get_contract_balances(
                 deps.querier, 
                 env.clone(), 

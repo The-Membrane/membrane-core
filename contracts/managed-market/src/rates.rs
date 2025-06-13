@@ -50,7 +50,6 @@ pub fn external_accrue_call(
 
     //Get markets manager fee
     let markets_manager_fee = query_markets_manager_fee(querier, config.markets_manager_contract.to_string())?;
-
     //Accrue interest
     accrue(
         storage, 
@@ -380,6 +379,7 @@ pub fn accrue(
         }
 
     }
+
 
     Ok(())
 }

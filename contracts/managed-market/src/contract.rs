@@ -14,7 +14,7 @@ use membrane::helpers::{assert_sent_native_token_balance, get_contract_balances}
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::managed_market::{BorrowCap, Config, ExecuteMsg, InstantiateMsg, LTVRamp, MarketParams, MigrateMsg, QueryMsg, RateIndex, RateParams, UserPositionResponse};
 use membrane::types::{
-    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, ClaimTracker, UserHistory, UserInfo, VTClaimCheckpoint
+    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, ClaimTracker, UserHistory, UserInfo, VTClaimCheckpoint, UserPosition
 };
 
 use crate::error::ContractError;
@@ -443,43 +443,11 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     }
 }
 
-/// Handle RBLP query
-// fn handle_rblp_query(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response>{
-//     //Query target position
-//     let target_position = match get_target_position(deps.storage, Addr::unchecked("osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n"), Uint128::new(1u128)){
-//         Ok((_i, pos)) => pos,
-//         Err(_) => panic!("No target position found"),
-//     };
-
-
-//     //Query RBLP's UserIntentState to see if the user has funds sitting in the vault
-//     let user_intents: Vec<UserIntentResponse> = match deps.querier
-//         .query::<Vec<UserIntentResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-//             contract_addr: "osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx".to_string(),
-//             msg: to_json_binary(&RBLP_QueryMsg::GetUserIntent { 
-//                 start_after: None, 
-//                 limit: None, 
-//                 users: vec!["osmo1988s5h45qwkaqch8km4ceagw2e08vdw28mwk4n".to_string()],
-//             })?,
-//         })){
-//             Ok(res) => res,
-//             Err(_) => vec![],
-//         };
-//     let user_intent: UserIntentResponse = if user_intents.len() > 0 {user_intents[0].clone()} else {
-//         panic!("UserIntent: {:?}, Target Position: {:?}", Vec::<UserIntentResponse>::new(), target_position);
-//     };
-
-//     panic!("UserIntent: {:?}, Target Position: {:?}", user_intent, target_position);
-
-    
-//     //Return response
-//     Ok(Response::new())
-// }
-
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
+        QueryMsg::TotalVaultTokens {  } => to_json_binary(&DEBT_VAULT_TOKEN.load(deps.storage)?),
         QueryMsg::MarketParams { 
             start_after,
             limit,
@@ -684,24 +652,18 @@ fn get_user_positions(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    let config = Config {
-        owner: deps.api.addr_validate("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0")?,
-        markets_manager_contract: deps.api.addr_validate("osmo1tmqefg7v9zhtj2hlsrtn3mp8zz83x9lxtedlzesnky4c74l4g9ws29dqxr")?,
-        osmosis_proxy_contract: deps.api.addr_validate("osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd")?,
-        global_rate_index: RateIndex {
-            rate_index: Decimal::from_str("1")?,
-            last_accrued: 1748799825u64,
-        },
-        total_debt_tokens: Uint128::from(2_000_000u128),
-        debt_supply_cap: Some(Uint128::from(20_000_000u128)),
-        bad_debt: Uint128::zero(),
-        whitelisted_debt_suppliers: None,
-        debt_supply_vault_token: "factory/osmo1fftkmw6hwsw54aw9l0jfxkzzysvq23h6vqgk8cx32aedy6jxucmqpz27zj/debt-suppliers".to_string(),
-        manager_fee: Decimal::from_str("0.05")?,
+    use membrane::types::UserPosition;
+    use cosmwasm_std::Decimal;
+    // Save the provided user position
+    let user_addr = deps.api.addr_validate("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0")?;
+    let collateral_denom = "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn".to_string();
+    let user_position = UserPosition {
+        collateral_denom: collateral_denom.clone(),
+        collateral_amount: Uint128::new(409_547_601),
+        debt_amount: Uint128::new(66_727),
+        rate_index: Decimal::one(),
     };
-
-    CONFIG.save(deps.storage, &config)?;
-
+    POSITIONS.save(deps.storage, (user_addr, collateral_denom), &user_position)?;
     //Return response
     Ok(Response::default())
 }

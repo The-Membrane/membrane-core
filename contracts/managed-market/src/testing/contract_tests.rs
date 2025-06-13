@@ -4,11 +4,11 @@ mod tests {
 
     use super::*;
     use cosmwasm_std::{
-        coins, from_binary, from_json, testing::{mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage}, Addr, Coin, Decimal, Event, Reply, Response as CwResponse, StdError, StdResult, SubMsgResponse, SubMsgResult, Uint128
+        coins, from_binary, from_json, testing::{mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage}, Addr, Coin, Decimal, DepsMut, Event, MemoryStorage, OwnedDeps, Reply, Response as CwResponse, StdError, StdResult, SubMsgResponse, SubMsgResult, Uint128
     };
     use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
-    use crate::contract::{instantiate, execute, query, reply};
-    use membrane::{managed_market::{BorrowCap, CollateralParams, Config, ExecuteMsg, InstantiateMsg, MarketParams, QueryMsg, RateParams, UserPositionResponse}, types::{AssetOracleInfo, BorrowOptions, TWAPPoolInfo, UserPosition}};
+    use crate::{contract::{execute, instantiate, query, reply}, testing::mock_querier::CustomMockQuerier};
+    use membrane::{managed_market::{self, BorrowCap, CollateralParams, Config, ExecuteMsg, InstantiateMsg, MarketParams, QueryMsg, RateParams, UserPositionResponse}, types::{AssetOracleInfo, BorrowOptions, TWAPPoolInfo, UserPosition, UserHistory}};
     use crate::state::{CONFIG, POSITIONS, LTV_RAMP_TIMER, MARKET_PARAMS};
     use crate::testing::mock_querier::custom_mock_deps;
     use membrane::managed_market::LTVRamp;
@@ -68,11 +68,41 @@ mod tests {
         }
     }
 
+    /// Helper to instantiate contract with a given manager fee and set the manager contract address
+    fn test_instantiate_with_manager_fee(
+        deps: &mut OwnedDeps<MemoryStorage, MockApi, CustomMockQuerier>,
+        env: &cosmwasm_std::Env,
+        info: &cosmwasm_std::MessageInfo,
+        fee: Decimal,
+    ) {
+        deps.querier.set_manager_fee(fee);
+        let mut msg = default_instantiate_msg();
+        let update_msg = ExecuteMsg::UpdateConfig {
+            owner: None,
+            osmosis_proxy_contract_addr: None,
+            pause_actions: None,
+            manager_fee: None,
+            whitelisted_debt_suppliers: None,
+            debt_supply_cap: None,
+            markets_manager_contract: Some("manager_contract".to_string()),
+        };
+        instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        let _ = crate::contract::execute(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            update_msg,
+        );
+    }
+
     #[test]
     fn test_supply_collateral_happy_path_and_failures() {
         let mut deps = custom_mock_deps();
         let env = mock_env();
         let info = mock_info("owner", &[]);
+
+        // Use helper to instantiate with manager fee and contract
+        test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
         // Instantiate contract
         let msg = default_instantiate_msg();
@@ -86,7 +116,7 @@ mod tests {
 
         let msg = ExecuteMsg::SupplyCollateral { owner: None };
         let res = execute(deps.as_mut(), env.clone(), deposit_info.clone(), msg).unwrap();
-        assert_eq!(res.messages.len(), 0);
+        assert_eq!(format!("{:?}", res), "Response { messages: [], attributes: [Attribute { key: \"method\", value: \"supply_collateral\" }, Attribute { key: \"collateral_amount\", value: \"1000000\" }, Attribute { key: \"collateral_denom\", value: \"atom\" }, Attribute { key: \"owner\", value: \"collateral_guy\" }, Attribute { key: \"user_state\", value: \"UserPosition { collateral_denom: \\\"atom\\\", collateral_amount: Uint128(1000000), debt_amount: Uint128(0), rate_index: Decimal(0) }\" }], events: [], data: None }");
 
         // Check state updated
         let value: Vec<UserPositionResponse> =
@@ -135,7 +165,7 @@ mod tests {
             },
         };
         let borrow_result = execute(deps.as_mut(), env.clone(), borrow_info.clone(), borrow_msg.clone());
-        assert!(borrow_result.is_ok());
+        assert_eq!(format!("{:?}", borrow_result), "Ok(Response { messages: [SubMsg { id: 0, msg: Bank(Send { to_address: \"collateral_guy\", amount: [Coin { 99000 \"factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt\" }] }), gas_limit: None, reply_on: Never }], attributes: [Attribute { key: \"method\", value: \"borrow_cdt\" }, Attribute { key: \"borrowed_amount\", value: \"99000\" }, Attribute { key: \"borrow_fee\", value: \"1000\" }], events: [], data: None })");
         
 
 
@@ -202,10 +232,11 @@ fn test_withdraw_collateral_happy_path_and_failures() {
     let mut deps = custom_mock_deps();
     let env = mock_env();
     let info = mock_info("owner", &[]);
+    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
     // Instantiate contract
-    let msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    // let msg = default_instantiate_msg();
+    // instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
     // Supply collateral first
     let deposit_info = mock_info("collateral_guy", &[Coin {
@@ -222,7 +253,8 @@ fn test_withdraw_collateral_happy_path_and_failures() {
         withdraw_amount: Some(Uint128::new(400_000)),
     };
     let withdraw_info = mock_info("collateral_guy", &[]);
-    execute(deps.as_mut(), env.clone(), withdraw_info.clone(), withdraw_msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), withdraw_info.clone(), withdraw_msg.clone()).unwrap();
+    assert_eq!(format!("{:?}", res), "Response { messages: [], attributes: [Attribute { key: \"method\", value: \"withdraw_collateral\" }, Attribute { key: \"withdrawn_amount\", value: \"400000\" }, Attribute { key: \"collateral_denom\", value: \"atom\" }, Attribute { key: \"position_owner\", value: \"collateral_guy\" }, Attribute { key: \"send_to\", value: \"collateral_guy\" }, Attribute { key: \"new_position\", value: \"UserPosition { collateral_denom: \\\"atom\\\", collateral_amount: Uint128(600000), debt_amount: Uint128(0), rate_index: Decimal(0) }\" }], events: [], data: None }");
 
     // Query and check user position
     let value: Vec<UserPositionResponse> =
@@ -293,10 +325,11 @@ fn test_supply_debt_happy_path_and_failures() {
     let mut deps = custom_mock_deps();
     let env = mock_env();
     let info = mock_info("owner", &[]);
+    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
-    // Instantiate contract
-    let msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    // // Instantiate contract
+    // let msg = default_instantiate_msg();
+    // instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
     // Happy Path: Supply valid debt token
     let supplier = "debt_guy";
@@ -305,13 +338,18 @@ fn test_supply_debt_happy_path_and_failures() {
         amount: Uint128::new(1_000_000),
     }]);
     let msg = ExecuteMsg::SupplyDebt { send_to: None };
-    execute(deps.as_mut(), env.clone(), deposit_info.clone(), msg.clone()).unwrap();
+    let res = execute(deps.as_mut(), env.clone(), deposit_info.clone(), msg.clone()).unwrap();
+    assert_eq!(format!("{:?}", res), "Response { messages: [SubMsg { id: 0, msg: Stargate { type_url: \"/osmosis.tokenfactory.v1beta1.MsgMint\", value: Binary(0a0f636f736d6f7332636f6e747261637412370a26666163746f72792f636f736d6f7332636f6e74726163742f646562742d737570706c69657273120d313030303030303030303030301a08646562745f677579) }, gas_limit: None, reply_on: Never }], attributes: [Attribute { key: \"method\", value: \"supply_debt\" }, Attribute { key: \"debt_amount\", value: \"1000000\" }, Attribute { key: \"vault_tokens_minted\", value: \"1000000000000\" }], events: [], data: None }");
 
     // Check config: total_debt_tokens updated
     let config: Config = from_binary(
         &query(deps.as_ref(), env.clone(), QueryMsg::Config {}).unwrap()
     ).unwrap();
     assert_eq!(config.total_debt_tokens, Uint128::new(1_000_000));
+
+    //Query total vault tokens
+    let total_vault_tokens: Uint128 = from_binary(&query(deps.as_ref(), env.clone(), QueryMsg::TotalVaultTokens {}).unwrap()).unwrap();
+    assert_eq!(total_vault_tokens, Uint128::new(1_000_000_000_000));
  
     // Failure: Multiple assets sent
     let multi = mock_info(supplier, &[
@@ -334,7 +372,7 @@ fn test_supply_debt_happy_path_and_failures() {
     // Failure: Not whitelisted
     let badguy = mock_info("unwhitelisted", &[Coin::new(1_000, CDT_DENOM)]);
     let err = execute(deps.as_mut(), env.clone(), badguy, msg.clone()).unwrap_err();
-    assert_eq!(err.to_string(),  "Custom Error val: \"Sender (\"unwhitelisted\") not whitelisted to supply debt\"".to_string());
+    assert_eq!(err.to_string(),  "Custom Error val: \"Sender (\\\"unwhitelisted\\\") not whitelisted to supply debt\"".to_string());
 
     // Failure: Supply cap exceeded
     let update_msg = ExecuteMsg::UpdateConfig {
@@ -358,10 +396,11 @@ fn test_withdraw_debt_happy_path_and_failures() {
     let mut deps = custom_mock_deps();
     let env = mock_env();
     let admin_info = mock_info("owner", &[]);
+    test_instantiate_with_manager_fee(&mut deps, &env, &admin_info, Decimal::zero());
 
     // Instantiate
-    let msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), admin_info.clone(), msg).unwrap();
+    // let msg = default_instantiate_msg();
+    // instantiate(deps.as_mut(), env.clone(), admin_info.clone(), msg).unwrap();
 
 
     // Happy Path: Supply valid debt token
@@ -397,14 +436,10 @@ fn test_withdraw_debt_happy_path_and_failures() {
         msg.clone(),
     )
     .unwrap();
-    assert_eq!(res.messages.len(), 3); // Burn, send, rate assurance
-
-    // Config check: total_debt_tokens adjusted
-    let config: Config = from_binary(
-        &query(deps.as_ref(), env.clone(), QueryMsg::Config {}).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(config.total_debt_tokens, Uint128::new(500_000));
+    assert_eq!(format!("{:?}", res), "Response { messages: [SubMsg { id: 0, msg: Stargate { type_url: \"/osmosis.tokenfactory.v1beta1.MsgBurn\", value: Binary(0a0f636f736d6f7332636f6e747261637412360a26666163746f72792f636f736d6f7332636f6e74726163742f646562742d737570706c69657273120c3530303030303030303030301a0f636f736d6f7332636f6e7472616374) }, gas_limit: None, reply_on: Never }, SubMsg { id: 0, msg: Bank(Send { to_address: \"debt_guy\", amount: [Coin { 500000 \"factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt\" }] }), gas_limit: None, reply_on: Never }, SubMsg { id: 0, msg: Wasm(Execute { contract_addr: \"cosmos2contract\", msg: {\"rate_assurance\":{}}, funds: [] }), gas_limit: None, reply_on: Never }], attributes: [Attribute { key: \"method\", value: \"withdraw_debt\" }, Attribute { key: \"vault_tokens_burnt\", value: \"500000000000\" }, Attribute { key: \"base_tokens_withdrawn\", value: \"500000\" }], events: [], data: None }");
+    // Query total vault tokens
+    let total_vault_tokens: Uint128 = from_binary(&query(deps.as_ref(), env.clone(), QueryMsg::TotalVaultTokens {}).unwrap()).unwrap();
+    assert_eq!(total_vault_tokens, Uint128::new(500_000_000_000));
 
     // Failure: Withdraw more than balance
     let msg = ExecuteMsg::WithdrawDebt {
@@ -463,7 +498,7 @@ fn test_withdraw_debt_happy_path_and_failures() {
     .unwrap_err();
     assert_eq!(
         err.to_string(),
-        "Custom Error val: \"Sender (\"random_guy\") not whitelisted to supply debt, so they can't withdraw either.\""
+        "Custom Error val: \"Sender (\\\"random_guy\\\") not whitelisted to supply debt, so they can't withdraw either.\""
     );
     // Failure: Paused actions
     let pause_msg = ExecuteMsg::UpdateConfig {
@@ -502,10 +537,7 @@ fn test_borrow_cdt_happy_path_and_failures() {
     let mut deps = custom_mock_deps();
     let env = mock_env();
     let info = mock_info("owner", &[]);
-
-    // Instantiate contract
-    let msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
     // Supply collateral first (must be whitelisted)
     let deposit_info = mock_info("collateral_guy", &[Coin {
@@ -543,7 +575,15 @@ fn test_borrow_cdt_happy_path_and_failures() {
         },
     };
     let borrow_result = execute(deps.as_mut(), env.clone(), borrow_info.clone(), borrow_msg.clone());
-    assert!(borrow_result.is_ok());
+    assert_eq!(format!("{:?}", borrow_result), "Ok(Response { messages: [SubMsg { id: 0, msg: Bank(Send { to_address: \"collateral_guy\", amount: [Coin { 99000 \"factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt\" }] }), gas_limit: None, reply_on: Never }], attributes: [Attribute { key: \"method\", value: \"borrow_cdt\" }, Attribute { key: \"borrowed_amount\", value: \"99000\" }, Attribute { key: \"borrow_fee\", value: \"1000\" }], events: [], data: None })");
+    //Quert user position state to assert debt
+    let user_position: Vec<UserPositionResponse> = from_binary(&query(deps.as_ref(), env.clone(), QueryMsg::GetUserPositions {
+        user: Some("collateral_guy".to_string()),
+        collateral_denom: "atom".to_string(),
+        start_after: None,
+        limit: None,
+    }).unwrap()).unwrap();
+    assert_eq!(user_position[0].position.debt_amount, Uint128::new(100_000));
 
     // Failure: Not enough collateral (simulate by using a different user with no position)
     let borrow_info = mock_info("random_guy", &[]);
@@ -577,10 +617,7 @@ fn test_repay_cdt_happy_path_and_failures() {
     let mut deps = custom_mock_deps();
     let env = mock_env();
     let info = mock_info("owner", &[]);
-
-    // Instantiate contract
-    let msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
     // Supply collateral first
     let deposit_info = mock_info("collateral_guy", &[Coin {
@@ -628,7 +665,15 @@ fn test_repay_cdt_happy_path_and_failures() {
         send_excess_to: None,
     };
     let repay_result = execute(deps.as_mut(), env.clone(), repay_info.clone(), repay_msg.clone());
-    assert!(repay_result.is_ok());
+    assert_eq!(format!("{:?}", repay_result), "Ok(Response { messages: [], attributes: [Attribute { key: \"method\", value: \"repay_cdt\" }, Attribute { key: \"repaid_amount\", value: \"50000\" }, Attribute { key: \"excess_repayment\", value: \"0\" }], events: [], data: None })");
+    // Query user position to check debt amount
+    let user_position: Vec<UserPositionResponse> = from_binary(&query(deps.as_ref(), env.clone(), QueryMsg::GetUserPositions {
+        user: Some("collateral_guy".to_string()),
+        collateral_denom: "atom".to_string(),
+        start_after: None,
+        limit: None,
+    }).unwrap()).unwrap();
+    assert_eq!(user_position[0].position.debt_amount, Uint128::new(50_000));
 
     // Over-repayment: Repay more than debt (should return excess)
     let repay_info = mock_info("collateral_guy", &[Coin {
@@ -682,10 +727,7 @@ fn test_liquidation_happy_path_and_failures() {
     let mut deps = custom_mock_deps();
     let env = mock_env();
     let info = mock_info("owner", &[]);
-
-    // Instantiate contract
-    let msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
     // Supply collateral first
     let deposit_info = mock_info("collateral_guy", &[Coin {
@@ -817,10 +859,7 @@ fn test_edit_ux_boosts_and_loop_happy_path_and_failures() {
     let mut deps = custom_mock_deps();
     let env = mock_env();
     let info = mock_info("owner", &[]);
-
-    // Instantiate contract
-    let msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
     // Supply collateral first
     let deposit_info = mock_info("collateral_guy", &[Coin {
@@ -900,7 +939,14 @@ fn test_edit_ux_boosts_and_loop_happy_path_and_failures() {
         assert!(loop_result.is_ok());
     // }
 
-
+    //Update contract balance of collateral
+    deps.querier.base.update_balance(
+        "cosmos2contract".to_string(),
+        vec![Coin {
+            denom: "atom".to_string(),
+            amount: Uint128::new(100_000),
+        }],
+    );
     let resp = loop_result.unwrap();
     let submsg = resp.messages.iter().find(|m| m.id != 0).expect("Should have a SubMsg");
     // Simulate the reply logic
@@ -916,7 +962,7 @@ fn test_edit_ux_boosts_and_loop_happy_path_and_failures() {
     let reply_resp = reply_result.unwrap();
     assert!(reply_resp.attributes.iter().any(|a| a.key == "action" && a.value == "loop_position"));
 
-    //Change intended LTV to 51%: over borrow LTV
+    // Change intended LTV to 51%: over borrow LTV
     let edit_info = mock_info("collateral_guy", &[]);
     let edit_msg = ExecuteMsg::EditUXBoosts {
         collateral_denom: "atom".to_string(),
@@ -939,6 +985,69 @@ fn test_edit_ux_boosts_and_loop_happy_path_and_failures() {
     };
     let loop_result = execute(deps.as_mut(), env.clone(), loop_info, loop_msg);
     assert!(loop_result.is_err());
+
+    // Query UserHistory for volume calculation after loop
+    let user_history: Vec<UserHistory> = from_binary(&query(deps.as_ref(), env.clone(), QueryMsg::GetUserHistory {
+        collateral_denom: "atom".to_string(),
+        user: Some("collateral_guy".to_string()),
+        start_after: None,
+        limit: None,
+    }).unwrap()).unwrap();
+    // There should be at least one entry and volume should be > 0
+    assert!(!user_history.is_empty());
+    println!("user_history: {:?}", user_history);
+    assert!(user_history.iter().any(|h| h.volume > Decimal::zero()));
+
+    // Simulate a price change to $2 for the collateral
+    deps.querier.set_collateral_twap(Decimal::percent(200)); // $2.00
+
+    // Close the position for 'collateral_guy'
+    let close_info = mock_info("collateral_guy", &[]);
+    let close_msg = ExecuteMsg::ClosePosition {
+        collateral_denom: "atom".to_string(),
+        position_owner: None,
+        close_percentage: None,
+        max_spread: Decimal::percent(2),
+        send_to: None,
+    };
+    let close_result = execute(deps.as_mut(), env.clone(), close_info.clone(), close_msg.clone());
+    assert!(close_result.is_ok());
+    let resp = close_result.unwrap();
+    let submsg = resp.messages.iter().find(|m| m.id != 0).expect("Should have a SubMsg");
+    // Mimic a swap for debt by updating contract balance before reply
+    deps.querier.base.update_balance(
+        "cosmos2contract".to_string(),
+        vec![Coin {
+            denom: CDT_DENOM.to_string(),
+            amount: Uint128::new(2_000_000),
+        }],
+    );
+    // Simulate the reply logic for the close position
+    let reply_msg = Reply {
+        id: submsg.id,
+        result: SubMsgResult::Ok(SubMsgResponse {
+            events: vec![Event::new("wasm")],
+            data: None,
+        }),
+    };
+    let reply_result = reply(deps.as_mut(), env.clone(), reply_msg);
+    assert!(reply_result.is_ok());
+    let reply_resp = reply_result.unwrap();
+    assert!(reply_resp.attributes.iter().any(|a| a.key == "action" && a.value == "close_position"));
+    // Run the extracted submsgs to simulate their execution
+    run_submsgs(&mut deps, &env, &close_info, &reply_resp.messages);
+
+    // Query UserHistory for profit/loss after close
+    let user_history: Vec<UserHistory> = from_binary(&query(deps.as_ref(), env.clone(), QueryMsg::GetUserHistory {
+        collateral_denom: "atom".to_string(),
+        user: Some("collateral_guy".to_string()),
+        start_after: None,
+        limit: None,
+    }).unwrap()).unwrap();
+    println!("user_history after close: {:?}", user_history);
+    assert!(!user_history.is_empty());
+    assert!(user_history.iter().any(|h| h.volume > Decimal::zero()));
+    assert!(user_history.iter().any(|h| h.profits > Decimal::zero() || h.losses > Decimal::zero()));
 }
 
 #[test]
@@ -946,10 +1055,7 @@ fn test_rate_accrual_and_crank_realized_apr_happy_path_and_failures() {
     let mut deps = custom_mock_deps();
     let mut env = mock_env();
     let info = mock_info("owner", &[]);
-
-    // Instantiate contract
-    let msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
     // Supply collateral first
     let deposit_info = mock_info("collateral_guy", &[Coin {
@@ -1059,10 +1165,7 @@ fn test_pausing_unpausing_and_config_updates() {
     let mut deps = custom_mock_deps();
     let env = mock_env();
     let info = mock_info("owner", &[]);
-
-    // Instantiate contract
-    let msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
     // Pause actions (happy path)
     let pause_msg = ExecuteMsg::UpdateConfig {
@@ -1170,10 +1273,11 @@ fn test_close_position_happy_path_and_failures() {
     let mut deps = custom_mock_deps();
     let env = mock_env();
     let info = mock_info("owner", &[]);
+    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
     // Instantiate contract
-    let msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    // let msg = default_instantiate_msg();
+    // instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
     // Supply collateral
     let deposit_info = mock_info("collateral_guy", &[Coin {
@@ -1210,7 +1314,7 @@ fn test_close_position_happy_path_and_failures() {
         },
     };
     let borrow_result = execute(deps.as_mut(), env.clone(), borrow_info.clone(), borrow_msg.clone());
-    println!("borrow_result: {:?}", borrow_result);
+    // println!("borrow_result: {:?}", borrow_result);
     assert!(borrow_result.is_ok());
 
     // Happy Path: Close position (full close)
@@ -1223,11 +1327,19 @@ fn test_close_position_happy_path_and_failures() {
         send_to: None,
     };
     let close_result = execute(deps.as_mut(), env.clone(), close_info.clone(), close_msg.clone());
-    assert!(close_result.is_ok());
+    assert_eq!(format!("{:?}", close_result), "Ok(Response { messages: [SubMsg { id: 2, msg: Stargate { type_url: \"/osmosis.poolmanager.v1beta1.MsgSwapExactAmountIn\", value: Binary(0a0f636f736d6f7332636f6e74726163741248080112446962632f34393841303735314337393841304439413338394141333639313132334441444135374441413446453136354435433735383934353035423837364241364534125108f409124c666163746f72792f6f736d6f317337393468397278676779746a61336134706d77756c35337539386b30367a793271747264766a6e667578727568377338796a733663797867642f756364741a0d0a0461746f6d1205383239323622053939393539) }, gas_limit: None, reply_on: Success }], attributes: [Attribute { key: \"collateral_denom\", value: \"atom\" }, Attribute { key: \"msg_executor\", value: \"collateral_guy\" }, Attribute { key: \"position_owner\", value: \"collateral_guy\" }, Attribute { key: \"collateral_amount_to_sell\", value: \"82926\" }, Attribute { key: \"debt_amount_to_repay\", value: \"100000\" }, Attribute { key: \"max_spread\", value: \"0.02\" }], events: [], data: None })");
+
+    // Mimic a swap for debt by updating contract balance before reply
+    deps.querier.base.update_balance(
+        "cosmos2contract".to_string(),
+        vec![Coin {
+            denom: CDT_DENOM.to_string(),
+            amount: Uint128::new(1_101_000),
+        }],
+    );
+    // Simulate the reply logic for the close position
     let resp = close_result.unwrap();
-    // Find the SubMsg for the swap (should be reply_on_success)
     let submsg = resp.messages.iter().find(|m| m.id != 0).expect("Should have a SubMsg");
-    // Simulate the reply logic
     let reply_msg = Reply {
         id: submsg.id,
         result: SubMsgResult::Ok(SubMsgResponse {
@@ -1235,21 +1347,24 @@ fn test_close_position_happy_path_and_failures() {
             data: None,
         }),
     };
-    // Add debt to the contract to sim a swap.
-    //use update balance to add debt to the contract
-    deps.querier.base.update_balance(
-        "cosmos2contract".to_string(),
-        vec![Coin {
-            denom: CDT_DENOM.to_string(),
-            amount: Uint128::new(2_000_000),
-        }],
-    );
     let reply_result = reply(deps.as_mut(), env.clone(), reply_msg);
-    println!("reply_result: {:?}", reply_result);
     assert!(reply_result.is_ok());
-    // Optionally, check for expected attributes or state changes
-    let reply_resp = reply_result.unwrap();
-    assert!(reply_resp.attributes.iter().any(|a| a.key == "action" && a.value == "close_position"));
+    assert_eq!(format!("{:?}", reply_result), "Ok(Response { messages: [SubMsg { id: 0, msg: Wasm(Execute { contract_addr: \"cosmos2contract\", msg: {\"repay\":{\"collateral_denom\":\"atom\",\"send_excess_to\":\"collateral_guy\"}}, funds: [Coin { 101000 \"factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt\" }] }), gas_limit: None, reply_on: Never }, SubMsg { id: 0, msg: Wasm(Execute { contract_addr: \"cosmos2contract\", msg: {\"withdraw_collateral\":{\"collateral_denom\":\"atom\",\"send_to\":\"collateral_guy\",\"withdraw_amount\":null}}, funds: [] }), gas_limit: None, reply_on: Never }], attributes: [Attribute { key: \"action\", value: \"close_position\" }, Attribute { key: \"position_owner\", value: \"collateral_guy\" }, Attribute { key: \"debt_recovered\", value: \"101000\" }, Attribute { key: \"is_new_debt_zero\", value: \"true\" }, Attribute { key: \"assets_sent_to\", value: \"Some(\\\"collateral_guy\\\")\" }], events: [], data: None })");
+    // Run the extracted submsgs to simulate their execution
+    if let Ok(resp) = &reply_result {
+        run_submsgs(&mut deps, &env, &info, &resp.messages);
+    }
+
+    // Query user position to confirm it is closed (should return not found error)
+    let user_position_result = query(deps.as_ref(), env.clone(), QueryMsg::GetUserPositions {
+        user: Some("collateral_guy".to_string()),
+        collateral_denom: "atom".to_string(),
+        start_after: None,
+        limit: None,
+    });
+    assert!(user_position_result.is_err());
+    let err_str = user_position_result.unwrap_err().to_string();
+    assert_eq!(err_str, "Generic error: Error getting user positions: NotFound { kind: \"membrane::types::UserPosition\" }");
 
     // Failure: Close non-existent position
     let close_info = mock_info("random_guy", &[]);
@@ -1263,7 +1378,18 @@ fn test_close_position_happy_path_and_failures() {
     let close_result = execute(deps.as_mut(), env.clone(), close_info, close_msg);
     assert!(close_result.is_err());
     let err_str = close_result.unwrap_err().to_string();
-    assert!(err_str.contains("not found") || err_str.contains("Position not found"));
+    assert!(err_str.contains("NotFound") || err_str.contains("Position not found"));
+
+    // Query UserHistory for profit/loss after close
+    // let user_history: Vec<UserHistory> = from_binary(&query(deps.as_ref(), env.clone(), QueryMsg::GetUserHistory {
+    //     collateral_denom: "atom".to_string(),
+    //     user: Some("collateral_guy".to_string()),
+    //     start_after: None,
+    //     limit: None,
+    // }).unwrap()).unwrap();
+    // // There should be at least one entry and either profits or losses should be > 0
+    // assert!(!user_history.is_empty());
+    // assert!(user_history.iter().any(|h| h.profits > Decimal::zero() || h.losses > Decimal::zero()));
 }
 
 #[test]
@@ -1271,10 +1397,7 @@ fn test_non_owner_cannot_close_position_unless_allowed_by_uxboosts() {
     let mut deps = custom_mock_deps();
     let env = mock_env();
     let info = mock_info("owner", &[]);
-
-    // Instantiate contract
-    let msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
     // Supply collateral
     let deposit_info = mock_info("collateral_guy", &[Coin {
@@ -1366,7 +1489,53 @@ fn test_non_owner_cannot_close_position_unless_allowed_by_uxboosts() {
     let edit_result = execute(deps.as_mut(), env.clone(), edit_info, edit_msg);
     assert!(edit_result.is_ok());
     let close_result = execute(deps.as_mut(), env.clone(), close_info, close_msg);
-    assert!(close_result.is_ok());
+    assert_eq!(format!("{:?}", close_result), "Ok(Response { messages: [SubMsg { id: 0, msg: Bank(Send { to_address: \"not_owner\", amount: [Coin { 0 \"atom\" }] }), gas_limit: None, reply_on: Never }, SubMsg { id: 2, msg: Stargate { type_url: \"/osmosis.poolmanager.v1beta1.MsgSwapExactAmountIn\", value: Binary(0a0f636f736d6f7332636f6e74726163741248080112446962632f34393841303735314337393841304439413338394141333639313132334441444135374441413446453136354435433735383934353035423837364241364534125108f409124c666163746f72792f6f736d6f317337393468397278676779746a61336134706d77756c35337539386b30367a793271747264766a6e667578727568377338796a733663797867642f756364741a0d0a0461746f6d1205383239323622053939393539) }, gas_limit: None, reply_on: Success }], attributes: [Attribute { key: \"collateral_denom\", value: \"atom\" }, Attribute { key: \"msg_executor\", value: \"not_owner\" }, Attribute { key: \"position_owner\", value: \"collateral_guy\" }, Attribute { key: \"collateral_amount_to_sell\", value: \"82926\" }, Attribute { key: \"debt_amount_to_repay\", value: \"100000\" }, Attribute { key: \"max_spread\", value: \"0.02\" }], events: [], data: None })");
+    // Mimic a swap for debt by updating contract balance before reply
+    deps.querier.base.update_balance(
+        "cosmos2contract".to_string(),
+        vec![Coin {
+            denom: CDT_DENOM.to_string(),
+            amount: Uint128::new(2_101_000),
+        }],
+    );
+    // Simulate the reply logic for the close position
+    let resp = close_result.unwrap();
+    let submsg = resp.messages.iter().find(|m| m.id != 0).expect("Should have a SubMsg");
+    let reply_msg = Reply {
+        id: submsg.id,
+        result: SubMsgResult::Ok(SubMsgResponse {
+            events: vec![Event::new("wasm")],
+            data: None,
+        }),
+    };
+    let reply_result = reply(deps.as_mut(), env.clone(), reply_msg);
+    assert!(reply_result.is_ok());
+    let reply_resp = reply_result.unwrap();
+    assert!(reply_resp.attributes.iter().any(|a| a.key == "action" && a.value == "close_position"));
+    // Run the extracted submsgs to simulate their execution
+    run_submsgs(&mut deps, &env, &info, &reply_resp.messages);
+    // Query user position to confirm it is closed (should return not found error)
+    let user_position_result = query(deps.as_ref(), env.clone(), QueryMsg::GetUserPositions {
+        user: Some("collateral_guy".to_string()),
+        collateral_denom: "atom".to_string(),
+        start_after: None,
+        limit: None,
+    });
+    //Parse the result÷
+    assert!(user_position_result.is_err());
+    let err_str = user_position_result.unwrap_err().to_string();
+    assert_eq!(err_str, "Generic error: Error getting user positions: NotFound { kind: \"membrane::types::UserPosition\" }");
+
+    // Query UserHistory for profit/loss after close
+    // let user_history: Vec<UserHistory> = from_binary(&query(deps.as_ref(), env.clone(), QueryMsg::GetUserHistory {
+    //     collateral_denom: "atom".to_string(),
+    //     user: Some("collateral_guy".to_string()),
+    //     start_after: None,
+    //     limit: None,
+    // }).unwrap()).unwrap();
+    // // There should be at least one entry and either profits or losses should be > 0
+    // assert!(!user_history.is_empty());
+    // assert!(user_history.iter().any(|h| h.profits > Decimal::zero() || h.losses > Decimal::zero()));
 }
 
 #[test]
@@ -1374,10 +1543,7 @@ fn test_ltv_ramping() {
     let mut deps = custom_mock_deps();
     let mut env = mock_env();
     let info = mock_info("owner", &[]);
-
-    // Instantiate contract
-    let msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
     // Check initial liquidation LTV
     let market: membrane::managed_market::MarketParams = MARKET_PARAMS.load(&deps.storage, "atom".to_string()).unwrap();
@@ -1447,22 +1613,22 @@ fn test_markets_manager_revenue() {
     let env = mock_env();
     let info = mock_info("owner", &[]);
     // Set the manager fee to 2%
-    deps.querier.set_manager_fee(Decimal::percent(2));
+    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::percent(2));
 
     // Instantiate contract with a dummy markets_manager_contract address
-    let mut msg = default_instantiate_msg();
-    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    // let mut msg = default_instantiate_msg();
+    // instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
     // Set a markets_manager_contract address via config update
-    let update_msg = ExecuteMsg::UpdateConfig {
-        owner: None,
-        osmosis_proxy_contract_addr: None,
-        pause_actions: None,
-        manager_fee: None,
-        whitelisted_debt_suppliers: None,
-        debt_supply_cap: None,
-        markets_manager_contract: Some("manager_contract".to_string()),
-    };
-    execute(deps.as_mut(), env.clone(), info.clone(), update_msg).unwrap();
+    // let update_msg = ExecuteMsg::UpdateConfig {
+    //     owner: None,
+    //     osmosis_proxy_contract_addr: None,
+    //     pause_actions: None,
+    //     manager_fee: None,
+    //     whitelisted_debt_suppliers: None,
+    //     debt_supply_cap: None,
+    //     markets_manager_contract: Some("manager_contract".to_string()),
+    // };
+    // execute(deps.as_mut(), env.clone(), info.clone(), update_msg).unwrap();
     // Supply collateral and debt as usual
     let deposit_info = mock_info("collateral_guy", &[Coin {
         denom: "atom".to_string(),
@@ -1496,22 +1662,43 @@ fn test_markets_manager_revenue() {
     execute(deps.as_mut(), env.clone(), borrow_info.clone(), borrow_msg.clone()).unwrap();
     // Skip time to accrue interest
     let mut env2 = env.clone();
-    env2.block.time = env2.block.time.plus_seconds(3600 * 24 * 10); // 10 days
+    env2.block.time = env2.block.time.plus_seconds(3600 * 24 * 1000); // 10 days
     // Accrue interest (this should trigger the manager fee logic)
     let accrue_info = mock_info("owner", &[]);
-    let accrue_msg = ExecuteMsg::Accrue {
-        collateral_denom: "atom".to_string(),
-        position_owner: "collateral_guy".to_string(),
-    };
+    let accrue_msg = ExecuteMsg::Accrue { collateral_denom: "atom".to_string(), position_owner: ("collateral_guy".to_string()) };
     let accrue_result = execute(deps.as_mut(), env2.clone(), accrue_info, accrue_msg);
     assert!(accrue_result.is_ok());
     let resp = accrue_result.unwrap();
     //Assert there are 3 messages
+    println!("resp: {:?}", resp);
     assert_eq!(resp.messages.len(), 3);
     // 1 is a guaranteed rate assurance callback
     // 1 is revenue to the manager
     // 1 is revenue to membrane
 
+    assert_eq!(format!("{:?}", resp), "Response { messages: [SubMsg { id: 0, msg: Wasm(Execute { contract_addr: \"cosmos2contract\", msg: {\"rate_assurance\":{}}, funds: [] }), gas_limit: None, reply_on: Never }, SubMsg { id: 0, msg: Bank(Send { to_address: \"manager_contract\", amount: [Coin { 2739 \"factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt\" }] }), gas_limit: None, reply_on: Never }, SubMsg { id: 0, msg: Bank(Send { to_address: \"membrane_revenue\", amount: [Coin { 2739 \"factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt\" }] }), gas_limit: None, reply_on: Never }], attributes: [Attribute { key: \"method\", value: \"accrue\" }, Attribute { key: \"interest_accrued\", value: \"136956\" }, Attribute { key: \"manager_fee\", value: \"2739\" }, Attribute { key: \"membrane_fee\", value: \"2739\" }], events: [], data: None }");
+}
+
+// Helper to extract and run SubMsgs with Wasm Execute messages
+fn run_submsgs(
+    deps: &mut OwnedDeps<MemoryStorage, MockApi, CustomMockQuerier>,
+    env: &cosmwasm_std::Env,
+    info: &cosmwasm_std::MessageInfo,
+    submsgs: &[cosmwasm_std::SubMsg],
+) {
+    use cosmwasm_std::{CosmosMsg, WasmMsg, Binary};
+    for submsg in submsgs {
+        if let CosmosMsg::Wasm(WasmMsg::Execute { contract_addr, msg, funds }) = &submsg.msg {
+            // For simplicity, assume all WasmMsg::Execute are for this contract
+            // and msg is a JSON-encoded ExecuteMsg
+            let exec_msg: managed_market::ExecuteMsg = cosmwasm_std::from_binary(msg).unwrap();
+            let exec_info = cosmwasm_std::MessageInfo {
+                sender: Addr::unchecked("cosmos2contract"),
+                funds: funds.clone(),
+            };
+            let _ = crate::contract::execute(deps.as_mut(), env.clone(), exec_info, exec_msg);
+        }
+    }
 }
 
 }

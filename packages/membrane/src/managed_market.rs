@@ -208,6 +208,8 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     #[returns(Config)]
     Config {},
+    #[returns(Uint128)]
+    TotalVaultTokens { },
     #[returns(Vec<MarketParams>)]
     MarketParams {
         start_after: Option<String>,

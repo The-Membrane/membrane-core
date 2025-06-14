@@ -652,18 +652,18 @@ fn get_user_positions(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    use membrane::types::UserPosition;
-    use cosmwasm_std::Decimal;
-    // Save the provided user position
-    let user_addr = deps.api.addr_validate("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0")?;
-    let collateral_denom = "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn".to_string();
-    let user_position = UserPosition {
-        collateral_denom: collateral_denom.clone(),
-        collateral_amount: Uint128::new(409_547_601),
-        debt_amount: Uint128::new(66_727),
-        rate_index: Decimal::one(),
-    };
-    POSITIONS.save(deps.storage, (user_addr, collateral_denom), &user_position)?;
+    // use membrane::types::UserPosition;
+    // use cosmwasm_std::Decimal;
+    // // Save the provided user position
+    // let user_addr = deps.api.addr_validate("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0")?;
+    // let collateral_denom = "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn".to_string();
+    // let user_position = UserPosition {
+    //     collateral_denom: collateral_denom.clone(),
+    //     collateral_amount: Uint128::new(409_547_601),
+    //     debt_amount: Uint128::new(66_727),
+    //     rate_index: Decimal::one(),
+    // };
+    // POSITIONS.save(deps.storage, (user_addr, collateral_denom), &user_position)?;
     //Return response
     Ok(Response::default())
 }

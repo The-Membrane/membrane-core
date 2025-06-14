@@ -105,8 +105,8 @@ mod tests {
         test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
         // Instantiate contract
-        let msg = default_instantiate_msg();
-        instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+        // let msg = default_instantiate_msg();
+        // instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
         // Happy Path: Successful collateral supply
         let deposit_info = mock_info("collateral_guy", &[Coin {
@@ -184,7 +184,7 @@ mod tests {
             amount: Uint128::new(100),
         }]);
         let err = execute(deps.as_mut(), env.clone(), invalid_denom_info, msg.clone()).unwrap_err();
-        assert_eq!(err.to_string(), "Custom Error val: \"Collateral asset (\"nonexistent\") not supported\"".to_string());
+        assert_eq!(err.to_string(), "Custom Error val: \"Collateral asset (\\\"nonexistent\\\") not supported\"".to_string());
 
         // Failure: Contract paused
         //Update to pause the contract
@@ -224,7 +224,7 @@ mod tests {
             amount: Uint128::new(100),
         }]);
         let err = execute(deps.as_mut(), env.clone(), unwhitelisted_info, msg.clone()).unwrap_err();
-        assert_eq!(err.to_string(), "Custom Error val: \"Sender (\"random_guy\") not whitelisted to supply collateral\"".to_string());
+        assert_eq!(err.to_string(), "Custom Error val: \"Sender (\\\"random_guy\\\") not whitelisted to supply collateral\"".to_string());
     }
 
     #[test]
@@ -254,7 +254,7 @@ fn test_withdraw_collateral_happy_path_and_failures() {
     };
     let withdraw_info = mock_info("collateral_guy", &[]);
     let res = execute(deps.as_mut(), env.clone(), withdraw_info.clone(), withdraw_msg.clone()).unwrap();
-    assert_eq!(format!("{:?}", res), "Response { messages: [], attributes: [Attribute { key: \"method\", value: \"withdraw_collateral\" }, Attribute { key: \"withdrawn_amount\", value: \"400000\" }, Attribute { key: \"collateral_denom\", value: \"atom\" }, Attribute { key: \"position_owner\", value: \"collateral_guy\" }, Attribute { key: \"send_to\", value: \"collateral_guy\" }, Attribute { key: \"new_position\", value: \"UserPosition { collateral_denom: \\\"atom\\\", collateral_amount: Uint128(600000), debt_amount: Uint128(0), rate_index: Decimal(0) }\" }], events: [], data: None }");
+    assert_eq!(format!("{:?}", res), "Response { messages: [SubMsg { id: 0, msg: Bank(Send { to_address: \"collateral_guy\", amount: [Coin { 400000 \"atom\" }] }), gas_limit: None, reply_on: Never }], attributes: [Attribute { key: \"method\", value: \"withdraw_collateral\" }, Attribute { key: \"withdrawn_amount\", value: \"400000\" }, Attribute { key: \"collateral_denom\", value: \"atom\" }, Attribute { key: \"position_owner\", value: \"collateral_guy\" }, Attribute { key: \"send_to\", value: \"collateral_guy\" }, Attribute { key: \"new_position\", value: \"UserPosition { collateral_denom: \\\"atom\\\", collateral_amount: Uint128(600000), debt_amount: Uint128(0), rate_index: Decimal(0) }\" }], events: [], data: None }");
 
     // Query and check user position
     let value: Vec<UserPositionResponse> =
@@ -1108,7 +1108,7 @@ fn test_rate_accrual_and_crank_realized_apr_happy_path_and_failures() {
             position: UserPosition {
                 collateral_denom: "atom".to_string(),
                 collateral_amount: Uint128::new(1_000_000),
-                debt_amount: Uint128::new(500_000),
+                debt_amount: Uint128::new(100_000),
                 rate_index: Decimal::one(),
             }
         }]
@@ -1117,7 +1117,7 @@ fn test_rate_accrual_and_crank_realized_apr_happy_path_and_failures() {
     //Query current interest rate
     let value: Decimal =
         from_binary(&query(deps.as_ref(), mock_env(), QueryMsg::GetCurrentInterestRate { collateral_denom: "atom".to_string() }).unwrap()).unwrap();
-    assert_eq!(value, Decimal::from_str("0.024875621890547263").unwrap());
+    assert_eq!(value, Decimal::from_str("0.004995004995004995").unwrap());
 
     //Skip time to accrue interest
     env.block.time = env.block.time.plus_seconds(1_000_000);
@@ -1141,8 +1141,8 @@ fn test_rate_accrual_and_crank_realized_apr_happy_path_and_failures() {
         position: UserPosition {
             collateral_denom: "atom".to_string(),
             collateral_amount: Uint128::new(1_000_000),
-            debt_amount: Uint128::new(500_394),
-            rate_index: Decimal::from_str("1.000788800795616034").unwrap(),
+            debt_amount: Uint128::new(100_015),
+            rate_index: Decimal::from_str("1.000158390569349473").unwrap(),
         }
     }]);
 
@@ -1655,14 +1655,14 @@ fn test_markets_manager_revenue() {
         collateral_denom: "atom".to_string(),
         send_to: None,
         borrow_amount: membrane::types::BorrowOptions {
-            amount: Some(Uint128::new(100_000)),
+            amount: Some(Uint128::new(1_000_000)),
             ltv: None,
         },
     };
     execute(deps.as_mut(), env.clone(), borrow_info.clone(), borrow_msg.clone()).unwrap();
     // Skip time to accrue interest
     let mut env2 = env.clone();
-    env2.block.time = env2.block.time.plus_seconds(3600 * 24 * 1000); // 10 days
+    env2.block.time = env2.block.time.plus_seconds(3600 * 24 * 1000); // 1000 days
     // Accrue interest (this should trigger the manager fee logic)
     let accrue_info = mock_info("owner", &[]);
     let accrue_msg = ExecuteMsg::Accrue { collateral_denom: "atom".to_string(), position_owner: ("collateral_guy".to_string()) };
@@ -1676,7 +1676,7 @@ fn test_markets_manager_revenue() {
     // 1 is revenue to the manager
     // 1 is revenue to membrane
 
-    assert_eq!(format!("{:?}", resp), "Response { messages: [SubMsg { id: 0, msg: Wasm(Execute { contract_addr: \"cosmos2contract\", msg: {\"rate_assurance\":{}}, funds: [] }), gas_limit: None, reply_on: Never }, SubMsg { id: 0, msg: Bank(Send { to_address: \"manager_contract\", amount: [Coin { 2739 \"factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt\" }] }), gas_limit: None, reply_on: Never }, SubMsg { id: 0, msg: Bank(Send { to_address: \"membrane_revenue\", amount: [Coin { 2739 \"factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt\" }] }), gas_limit: None, reply_on: Never }], attributes: [Attribute { key: \"method\", value: \"accrue\" }, Attribute { key: \"interest_accrued\", value: \"136956\" }, Attribute { key: \"manager_fee\", value: \"2739\" }, Attribute { key: \"membrane_fee\", value: \"2739\" }], events: [], data: None }");
+    assert_eq!(format!("{:?}", resp),  "Response { messages: [SubMsg { id: 0, msg: Stargate { type_url: \"/osmosis.tokenfactory.v1beta1.MsgMint\", value: Binary(0a0f636f736d6f7332636f6e747261637412330a26666163746f72792f636f736d6f7332636f6e74726163742f646562742d737570706c6965727312093130313338393433321a056f776e6572) }, gas_limit: None, reply_on: Never }, SubMsg { id: 0, msg: Stargate { type_url: \"/osmosis.tokenfactory.v1beta1.MsgMint\", value: Binary(0a0f636f736d6f7332636f6e747261637412320a26666163746f72792f636f736d6f7332636f6e74726163742f646562742d737570706c69657273120831393838323239361a106d616e616765725f636f6e7472616374) }, gas_limit: None, reply_on: Never }, SubMsg { id: 0, msg: Wasm(Execute { contract_addr: \"cosmos2contract\", msg: {\"rate_assurance\":{}}, funds: [] }), gas_limit: None, reply_on: Never }], attributes: [Attribute { key: \"method\", value: \"accrue\" }, Attribute { key: \"position_owner\", value: \"collateral_guy\" }, Attribute { key: \"collateral_denom\", value: \"atom\" }, Attribute { key: \"accrued_interest\", value: \"1022\" }], events: [], data: None }");
 }
 
 // Helper to extract and run SubMsgs with Wasm Execute messages

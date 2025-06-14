@@ -192,6 +192,7 @@ pub fn supply_collateral(
     })?;
 
     Ok(Response::new()
+    
     .add_attributes(attrs))
 }
 
@@ -643,6 +644,7 @@ pub fn withdraw_collateral(
     msgs.push(withdraw_collateral_message.clone());
 
     Ok(Response::new()
+    .add_messages(msgs)
     .add_attributes(vec![
         attr("method", "withdraw_collateral"),
         attr("withdrawn_amount", withdrawable_amount),

@@ -1921,15 +1921,18 @@ pub fn close_position(
             Ok(val) => val,
             Err(_) => return Err(ContractError::CustomError { val: format!("Collateral amount to send: {} > User collateral amount: {}", fee_collateral_amount, target_position.collateral_amount) }),
         };
+
         //Send the fee to the executor
-        let fee_message = CosmosMsg::Bank(BankMsg::Send {
-            to_address: info.sender.to_string(),
-            amount: vec![Coin {
-                denom: collateral_denom.clone(),
-                amount: fee_collateral_amount,
-            }],
-        });
-        msgs.push(fee_message);
+        if !fee_collateral_amount.is_zero() {
+            let fee_message = CosmosMsg::Bank(BankMsg::Send {
+                to_address: info.sender.to_string(),
+                amount: vec![Coin {
+                    denom: collateral_denom.clone(),
+                    amount: fee_collateral_amount,
+                }],
+            });
+            msgs.push(fee_message);
+        }
 
     }
 

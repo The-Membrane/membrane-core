@@ -27,6 +27,7 @@ pub struct ManagerEdit {
 
 #[cw_serde]
 pub struct MarketInstantiation {
+    pub manager: Option<String>,
     pub name: String,
     pub socials: Vec<String>,
     pub whitelisted_debt_suppliers: Option<Vec<String>>,

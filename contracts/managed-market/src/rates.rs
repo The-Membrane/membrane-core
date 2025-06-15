@@ -97,59 +97,43 @@ pub fn get_interest_rate(
     market: MarketParams,
     config: Config,
 ) -> Result<Decimal, ContractError> {
-    ////Get debt utilization rate /////
-    let debt_utilization_rate = decimal_division(
-        Decimal::from_ratio(market.total_borrowed, Uint128::one()),
-        Decimal::from_ratio(config.total_debt_tokens, Uint128::one()),
-    )?;
-
-    //Get rate from the rate model
-    // - Linear IR growth until the kink (i.e. kink = 100%)
-    let kink = if let Some(rate_kink) = market.rate_params.rate_kink.clone() {
-        rate_kink.kink_starting_point_ratio
-    } else {
-        Decimal::one()
-    };
-    let pre_kink_rate = {
-        let percent_into_kink = decimal_division(
-            debt_utilization_rate,
-            kink,
-        )?;
-        let rate = decimal_multiplication(
-            market.rate_params.base_rate,
-            percent_into_kink,
+    if let Some(rate_kink) = market.rate_params.rate_kink.clone() {
+        // Kink params present: use utilization-based logic
+        let debt_utilization_rate = decimal_division(
+            Decimal::from_ratio(market.total_borrowed, Uint128::one()),
+            Decimal::from_ratio(config.total_debt_tokens, Uint128::one()),
         )?;
 
-        rate
-    };
-
-    //Some means the util is GREATER THAN the kink
-    let kinked_rate = match debt_utilization_rate.checked_sub(kink){
-        Ok(percent_over_kink) => {
-            let rate_multipler = if let Some(rate_kink) = market.rate_params.rate_kink.clone() {
-                rate_kink.rate_mulitplier
-            } else {
-                Decimal::one()
-            };
-            //Multiply the percent over by the rate multiplier
-            let rate_to_add = decimal_multiplication(
-                percent_over_kink,
-                rate_multipler,
+        let kink = rate_kink.kink_starting_point_ratio;
+        let pre_kink_rate = {
+            let percent_into_kink = decimal_division(
+                debt_utilization_rate,
+                kink,
             )?;
-            //Add the rate to the pre_kink_rate
-            match pre_kink_rate.checked_add(rate_to_add){
-                Ok(rate) => rate,
-                Err(_) => {
-                    return Err(ContractError::CustomError { val: format!("Failed to add rate: {} + {}", pre_kink_rate, rate_to_add) })
-                }
-            }
-        },
-        Err(_) => pre_kink_rate
-    };
+            decimal_multiplication(
+                market.rate_params.base_rate,
+                percent_into_kink,
+            )?
+        };
 
-    //Cap the rate
-    Ok(min(kinked_rate, market.rate_params.rate_max))
+        let kinked_rate = match debt_utilization_rate.checked_sub(kink) {
+            Ok(percent_over_kink) => {
+                let rate_multiplier = rate_kink.rate_mulitplier;
+                let rate_to_add = decimal_multiplication(
+                    percent_over_kink,
+                    rate_multiplier,
+                )?;
+                pre_kink_rate.checked_add(rate_to_add)
+                    .map_err(|_| ContractError::CustomError { val: format!("Failed to add rate: {} + {}", pre_kink_rate, rate_to_add) })?
+            },
+            Err(_) => pre_kink_rate,
+        };
 
+        Ok(min(kinked_rate, market.rate_params.rate_max))
+    } else {
+        // No kink params: fixed rate
+        Ok(market.rate_params.base_rate)
+    }
 }
 
 fn get_market_collateral_types(

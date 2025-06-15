@@ -174,8 +174,16 @@ fn instantiate_market(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
+    //Let contract owner instantiate for other managers
+    let mut manager = info.sender;
+    if manager == config.owner {
+        if let Some(input_manager) = params.clone().manager {
+            manager = deps.api.addr_validate(&input_manager)?;
+        }
+    }
+
     //Check if sender is a manager
-    if !config.manager_whitelist.contains(&info.sender) {
+    if !config.manager_whitelist.contains(&manager) {
         return Err(ContractError::Unauthorized {});
     }
 
@@ -184,7 +192,7 @@ fn instantiate_market(
         admin: Some(env.contract.address.to_string()),
         code_id: config.managed_market_code_id,
         msg: to_json_binary(&ManagedMarketInstantiateMsg {
-            owner: info.sender.to_string(),
+            owner: manager.to_string(),
             osmosis_proxy_contract: config.osmosis_proxy_contract.to_string(),
             whitelisted_debt_suppliers: params.clone().whitelisted_debt_suppliers,
             max_slippage: params.clone().max_slippage,
@@ -203,7 +211,7 @@ fn instantiate_market(
             
         })?,
         funds: vec![],
-        label: format!("Managed Market by {}", info.sender.to_string()),
+        label: format!("Managed Market by {}", manager.to_string()),
     });
 
     //Convert to submsg.
@@ -214,14 +222,14 @@ fn instantiate_market(
     PENDING_MARKET.save(deps.storage, &PendingMarket {
         name: params.name.clone(),
         socials: params.socials.clone(),
-        manager: info.sender.to_string(),
+        manager: manager.to_string(),
     })?;
 
     Ok(Response::new()
         .add_submessage(msg)
         .add_attribute("method", "instantiate_market")
         .add_attribute("name", params.clone().name)
-        .add_attribute("manager",  info.sender.to_string())
+        .add_attribute("manager",  manager.to_string())
         .add_attribute("market_params", format!("{:?}", params))
     )
 }

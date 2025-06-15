@@ -296,7 +296,8 @@ pub struct RateKinkParams {
 pub struct RateParams {
     pub base_rate: Decimal,
     /// If this is None, the base rate becomes a fixed rate.
-    /// It's hard to attract capital with a fixed rate & .
+    /// It's hard to attract capital with a fixed rate if debt utilization is high.
+    /// If you want a max rate that uses utilization, set the base to the max and the kink start at 100%
     pub rate_kink: Option<RateKinkParams>,
     pub rate_max: Decimal,
 }

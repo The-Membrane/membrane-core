@@ -33,6 +33,8 @@ pub struct InstantiateMsg {
     pub per_user_debt_cap: Option<Uint128>,
     //Per collateral debt minimum
     pub debt_minimum: Option<Uint128>,
+    //Manager fee
+    pub manager_fee: Option<Decimal>,
 }
 
 

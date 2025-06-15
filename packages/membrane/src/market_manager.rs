@@ -41,6 +41,7 @@ pub struct MarketInstantiation {
     pub borrow_cap: BorrowCap,
     pub per_user_debt_cap: Option<Uint128>,
     pub debt_minimum: Option<Uint128>,
+    pub manager_fee: Option<Decimal>,
 }
 
 

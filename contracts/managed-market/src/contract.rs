@@ -58,7 +58,7 @@ pub fn instantiate(
         bad_debt: Uint128::zero(),
         whitelisted_debt_suppliers: msg.clone().whitelisted_debt_suppliers,
         debt_supply_vault_token: String::from("factory/".to_owned() + env.contract.address.as_str() + "/debt-suppliers"),
-        manager_fee: Decimal::percent(10),
+        manager_fee: msg.manager_fee.unwrap_or_else(|| Decimal::percent(5)),
     };
     CONFIG.save(deps.storage, &config)?;
 

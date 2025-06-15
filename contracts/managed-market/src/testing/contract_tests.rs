@@ -65,6 +65,7 @@ mod tests {
             },
             per_user_debt_cap: Some(Uint128::new(500_000)),
             debt_minimum: Some(Uint128::new(100)),
+            manager_fee: Some(Decimal::percent(5)),
         }
     }
 

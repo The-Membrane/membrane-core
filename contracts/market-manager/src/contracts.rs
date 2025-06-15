@@ -198,6 +198,7 @@ fn instantiate_market(
             borrow_cap: params.clone().borrow_cap,
             per_user_debt_cap: params.clone().per_user_debt_cap,
             debt_minimum: params.clone().debt_minimum,
+            manager_fee: params.clone().manager_fee,
             
             
         })?,

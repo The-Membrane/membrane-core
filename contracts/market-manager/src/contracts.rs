@@ -85,8 +85,8 @@ pub fn execute(
         ExecuteMsg::MigrateMarket { market_address } => {
             migrate_market(deps, info, market_address)
         },
-        ExecuteMsg::UpdateMarketItem { market_address, socials, name } => {
-            update_market_item(deps, info, market_address, socials, name)
+        ExecuteMsg::UpdateMarketItem { market_address, manager, socials, name, remove } => {
+            update_market_item(deps, info, market_address, manager, socials, name, remove)
         },
     }
 }
@@ -97,16 +97,28 @@ fn update_market_item(
     deps: DepsMut,
     info: MessageInfo,
     market_address: String,
+    //Manager
+    non_sender_manager: Option<String>,
     // Update the socials of the market
     socials: Option<Vec<String>>,
     // Update the name of the market
     name: Option<String>,
+    // Remove the market from the manager's list
+    remove: Option<bool>,
 ) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    //Set the manager
+    let mut manager = info.sender.clone();
+    if info.sender == config.owner {
+        if let Some(input_manager) = non_sender_manager {
+            manager = deps.api.addr_validate(&input_manager)?;
+        }
+    }
 
-    //Load the manager's (sender's) markets
-    let mut manager_markets = MANAGED_MARKETS.load(deps.storage, info.sender.clone().to_string())?;
+    //Load the manager's markets
+    let mut manager_markets = MANAGED_MARKETS.load(deps.storage, manager.clone().to_string())?;
 
-    //Check if the market is managed by the sender
+    //Check if the market is managed by the manager
     let (index, _) = manager_markets.clone()
         .into_iter()
         .enumerate()
@@ -120,13 +132,18 @@ fn update_market_item(
     if let Some(name) = name.clone() {
         manager_markets[index].name = name;
     }
+    if let Some(remove) = remove {
+        if remove {
+            manager_markets.remove(index);
+        }
+    }
     //Save the updated market item
-    MANAGED_MARKETS.save(deps.storage, info.sender.clone().to_string(), &manager_markets)?;
+    MANAGED_MARKETS.save(deps.storage, manager.clone().to_string(), &manager_markets)?;
 
     Ok(Response::new()
         .add_attribute("method", "update_market_item")
         .add_attribute("market_address", market_address)
-        .add_attribute("manager", info.sender.to_string())
+        .add_attribute("manager", manager.to_string())
         .add_attribute("socials", format!("{:?}", socials))
     )
 

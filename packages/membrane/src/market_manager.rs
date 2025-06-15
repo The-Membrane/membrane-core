@@ -76,8 +76,11 @@ pub enum ExecuteMsg {
     /// Update the market data
     UpdateMarketItem {
         market_address: String,
+        /// Owner can update any manager
+        manager: Option<String>,
         socials: Option<Vec<String>>,
         name: Option<String>,
+        remove: Option<bool>,
     },
     /// Let a manager instantiate a new market
     InstantiateMarket {

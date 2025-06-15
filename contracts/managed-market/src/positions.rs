@@ -1980,7 +1980,7 @@ pub fn close_position(
         Err(_) => return Err(ContractError::CustomError { val: format!("Collateral amount to sell: {} > User collateral amount: {}", collateral_amount_to_sell, target_position.collateral_amount) }),
     };
     //Save user state
-    POSITIONS.save(deps.storage, (info.sender.clone(), collateral_denom.clone()), &target_position)?;
+    POSITIONS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &target_position)?;
 
     //Create swap subMsg to sell, create repay & withdraw msgs in reply on success
     let swap_msg = create_swap_to_cdt_msg(

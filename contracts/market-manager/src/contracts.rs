@@ -158,11 +158,12 @@ fn migrate_market(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    //Load the manager's (sender's) markets
-    let manager_markets = MANAGED_MARKETS.load(deps.storage, info.sender.clone().to_string())?;
-
     //Check if the market is managed by the sender unless the sender is the owner
     if info.sender != config.owner {
+
+        //Load the manager's (sender's) markets
+        let manager_markets = MANAGED_MARKETS.load(deps.storage, info.sender.clone().to_string())?;
+
         let _ = manager_markets
             .iter()
             .find(|m| m.address == market_address)

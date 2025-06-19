@@ -29,7 +29,7 @@ pub struct InstantiateMsg {
     pub debt_supply_cap: Option<Uint128>,
     //Total borrow cap for the market
     pub borrow_cap: BorrowCap,
-    //Per user debt cap for the market
+    //Per user BORROW cap for the market
     pub per_user_debt_cap: Option<Uint128>,
     //Per collateral debt minimum
     pub debt_minimum: Option<Uint128>,
@@ -318,6 +318,7 @@ pub struct RateIndex {
 
 #[cw_serde]
 pub struct BorrowCap {
+    // Global total borrow cap for the market
     pub fixed_cap: Option<Uint128>,
     /// Cap borrows based on current liquidatibility thru the oracle pools
     pub cap_borrows_by_liquidity: bool
@@ -352,6 +353,7 @@ pub struct MarketParams {
     ///Set Whitelists to None to disable new capital
     pub whitelisted_collateral_suppliers: Option<Vec<String>>,
     pub borrow_cap: BorrowCap,
+    //per user BORROW cap for the marketcap for the market
     pub per_user_debt_cap: Option<Uint128>,
     //Max slippage for liquidation swaps. If the swaps fail, liquidations fail. 
     //If the swap quality is bad, we get inefficient liquidations & bad debt.

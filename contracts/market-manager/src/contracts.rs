@@ -161,11 +161,13 @@ fn migrate_market(
     //Load the manager's (sender's) markets
     let manager_markets = MANAGED_MARKETS.load(deps.storage, info.sender.clone().to_string())?;
 
-    //Check if the market is managed by the sender
-    let _ = manager_markets
-        .iter()
-        .find(|m| m.address == market_address)
-        .ok_or(ContractError::Unauthorized {})?;
+    //Check if the market is managed by the sender unless the sender is the owner
+    if info.sender != config.owner {
+        let _ = manager_markets
+            .iter()
+            .find(|m| m.address == market_address)
+            .ok_or(ContractError::Unauthorized {})?;
+    }
     
     //Create migration message
     let msg = CosmosMsg::Wasm(WasmMsg::Migrate {

@@ -505,8 +505,21 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             Ok(ux_boosts) => ux_boosts,
             Err(err) => return Err(StdError::generic_err(format!("Error getting user ux boosts: {:?}", err))),
         }),
+        QueryMsg::GetTotalBorrowed {} => to_json_binary(&get_total_borrowed(deps)?),
         QueryMsg::ClaimTracker {} => to_json_binary(&CLAIM_TRACKER.load(deps.storage)?),
     }
+}
+
+//Get total borrowed
+fn get_total_borrowed(
+    deps: Deps,
+) -> StdResult<Uint128> {
+    let mut total_borrowed = Uint128::zero();
+    for item in MARKET_PARAMS.range(deps.storage, None, None, Order::Ascending) {
+        let (_k, market) = item?;
+        total_borrowed += market.total_borrowed;
+    }
+    Ok(total_borrowed)
 }
 
 //Get user history

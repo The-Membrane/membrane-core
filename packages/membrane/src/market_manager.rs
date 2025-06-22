@@ -86,9 +86,9 @@ pub enum ExecuteMsg {
     InstantiateMarket {
         params: MarketInstantiation,
     },
-    /// Let a manager migrate an existing market
-    MigrateMarket {
-        market_address: String,
+    /// Let a manager migrate an existing markets
+    MigrateMarkets {
+        market_addresses: Vec<String>,
     },
 }
 

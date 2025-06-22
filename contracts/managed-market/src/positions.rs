@@ -692,7 +692,7 @@ pub fn get_collateral_price(
     }
 
     //Multiply prices to denominate in USDC
-    let asset_price_in_usdc = {
+    let mut asset_price_in_usdc = {
         let mut final_price = Decimal::one();
         //If no prices were queried, return error
         if asset_price_in_lp_steps.len() == 0 {
@@ -711,10 +711,32 @@ pub fn get_collateral_price(
         final_price
     };
 
+    // Correct for decimal differences between collateral and USDC.
+    // This logic mirrors the oracle contract's decimal adjustment.
+    // We assume the final quote asset is Noble USDC, which has 6 decimals.
+    let collateral_decimals = asset_oracle_info.decimals;
+    const USDC_DECIMALS: u64 = 6;
+
+    if collateral_decimals > USDC_DECIMALS {
+        let power = collateral_decimals - USDC_DECIMALS;
+        asset_price_in_usdc = decimal_multiplication(
+            asset_price_in_usdc, 
+            Decimal::from_ratio(Uint128::new(10).pow(power as u32), Uint128::one()),
+        )?;
+    } else if collateral_decimals < USDC_DECIMALS {
+        let power = USDC_DECIMALS - collateral_decimals;
+        asset_price_in_usdc = decimal_division(
+            asset_price_in_usdc,
+            Decimal::from_ratio(Uint128::new(10).pow(power as u32), Uint128::one()),
+        )?;
+    }
+    // If decimals are equal, no adjustment is needed.
+
     Ok(PriceResponse { 
         prices: vec![], 
         price: asset_price_in_usdc, 
-        decimals: asset_oracle_info.decimals.clone() })
+        decimals: asset_oracle_info.decimals.clone() 
+    })
 }
 
 pub fn get_cdt_price(

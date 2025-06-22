@@ -82,8 +82,8 @@ pub fn execute(
         ExecuteMsg::InstantiateMarket { params } => {
             instantiate_market(deps, _env, info, params)
         },
-        ExecuteMsg::MigrateMarket { market_address } => {
-            migrate_market(deps, info, market_address)
+        ExecuteMsg::MigrateMarkets { market_addresses } => {
+            migrate_markets(deps, info, market_addresses)
         },
         ExecuteMsg::UpdateMarketItem { market_address, manager, socials, name, remove } => {
             update_market_item(deps, info, market_address, manager, socials, name, remove)
@@ -149,12 +149,12 @@ fn update_market_item(
 
 }
 
-// Migrate an existing market
+// Migrate a existing markets
 // - This will be done by the manager of the market
-fn migrate_market(
+fn migrate_markets(
     deps: DepsMut,
     info: MessageInfo,
-    market_address: String,
+    market_addresses: Vec<String>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -164,23 +164,30 @@ fn migrate_market(
         //Load the manager's (sender's) markets
         let manager_markets = MANAGED_MARKETS.load(deps.storage, info.sender.clone().to_string())?;
 
-        let _ = manager_markets
-            .iter()
-            .find(|m| m.address == market_address)
-            .ok_or(ContractError::Unauthorized {})?;
+        //Check that every market is managed by the sender
+        for market_address in market_addresses.clone() {
+            let _ = manager_markets
+                .iter()
+                .find(|m| m.address == market_address)
+                .ok_or(ContractError::Unauthorized {})?;
+        }
     }
     
-    //Create migration message
-    let msg = CosmosMsg::Wasm(WasmMsg::Migrate {
-        contract_addr: market_address.clone(),
-        new_code_id: config.managed_market_code_id,
-        msg: to_json_binary(&MigrateMsg {})?,
-    });
+    //Create migration messages
+    let mut msgs = vec![];  
+    for market_address in market_addresses.clone() {
+        let msg = CosmosMsg::Wasm(WasmMsg::Migrate {
+            contract_addr: market_address.clone(),
+            new_code_id: config.managed_market_code_id,
+            msg: to_json_binary(&MigrateMsg {})?,
+        });
+        msgs.push(msg);
+    }
 
     Ok(Response::new()
-        .add_message(msg)
-        .add_attribute("method", "migrate_market")
-        .add_attribute("market_address", market_address)
+        .add_messages(msgs)
+        .add_attribute("method", "migrate_markets")
+        .add_attribute("market_addresses", market_addresses.join(","))
         .add_attribute("manager", info.sender.to_string())
     )
 }

@@ -1,13 +1,13 @@
 use std::str::FromStr;
 
 use cosmwasm_std::{
-    attr, entry_point, to_json_binary, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, QueryRequest, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg, WasmQuery
+    attr, entry_point, to_json_binary, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, QueryRequest, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg, WasmQuery
 };
 use cw2::set_contract_version;
 
 use cw_storage_plus::Bound;
 use membrane::market_manager::{Config, ExecuteMsg, InstantiateMsg, ManagerEdit, MarketData, MarketInstantiation, MarketItem, MigrateMsg, PendingMarket, QueryMsg};
-use membrane::managed_market::{InstantiateMsg as ManagedMarketInstantiateMsg, Config as ManagedMarketConfig, MarketParams, QueryMsg as ManagedMarketQueryMsg};
+use membrane::managed_market::{InstantiateMsg as ManagedMarketInstantiateMsg, Config as ManagedMarketConfig, MarketParams, QueryMsg as ManagedMarketQueryMsg, ExecuteMsg as ManagedMarketExecuteMsg};
 
 
 use crate::error::ContractError;
@@ -20,6 +20,8 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //Constants
 const MAX_LIMIT: u64 = 31u64;
 const INSTANTIATE_REPLY_ID: u64 = 1;
+const CDT_DENOM: &str = "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt";
+
 
 //Todo
 // - Remove the initial test market instead of adding the social links to it
@@ -54,6 +56,7 @@ pub fn instantiate(
             .collect::<Result<Vec<_>, _>>()?,
         osmosis_proxy_contract: deps.api.addr_validate(&msg.osmosis_proxy_contract)?,
         managed_market_fee: Decimal::percent(5),
+        minimum_cdt_for_permissionless_instantiation: None,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -200,6 +203,7 @@ fn instantiate_market(
     params: MarketInstantiation,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
+    let mut permissionless_add_debt_amount: Option<Uint128> = None;
 
     //Let contract owner instantiate for other managers
     let mut manager = info.sender;
@@ -211,7 +215,16 @@ fn instantiate_market(
 
     //Check if sender is a manager
     if !config.manager_whitelist.contains(&manager) {
-        return Err(ContractError::Unauthorized {});
+        //Does the contract have a minimum cdt for permissionless instantiation?
+        if let Some(minimum_cdt_for_permissionless_instantiation) = config.minimum_cdt_for_permissionless_instantiation {
+            if info.funds.len() == 1 && info.funds[0].amount >= minimum_cdt_for_permissionless_instantiation {
+                permissionless_add_debt_amount = Some(info.funds[0].amount);
+            } else {
+                return Err(ContractError::Unauthorized {});
+            }
+        } else {
+            return Err(ContractError::Unauthorized {});
+        }
     }
 
     //Instantiate new market
@@ -250,6 +263,7 @@ fn instantiate_market(
         name: params.name.clone(),
         socials: params.socials.clone(),
         manager: manager.to_string(),
+        permissionless_add_debt_amount: permissionless_add_debt_amount,
     })?;
 
     Ok(Response::new()
@@ -257,7 +271,8 @@ fn instantiate_market(
         .add_attribute("method", "instantiate_market")
         .add_attribute("name", params.clone().name)
         .add_attribute("manager",  manager.to_string())
-        .add_attribute("market_params", format!("{:?}", params))
+        .add_attribute("market_params", format!("{:?}", params))    
+        .add_attribute("permissionless_add_debt_amount", format!("{:?}", permissionless_add_debt_amount))
     )
 }
 
@@ -477,6 +492,7 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
     match msg.result.into_result() {
         Ok(result) => {
             let config = CONFIG.load(deps.storage)?;
+            let mut msgs: Vec<CosmosMsg> = vec![];
             
             //Get contract address
             let instantiate_event = result
@@ -517,9 +533,25 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
                 deps.storage,
                 pending_market.manager.clone(),
                 &manager_markets,
-            )?;
+            )?; 
             //Remove pending market
             PENDING_MARKET.remove(deps.storage);
+            //IF permissionless add, supply the debt token to the market
+            if let Some(permissionless_add_debt_amount) = pending_market.permissionless_add_debt_amount {
+                let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: valid_address.to_string(),
+                    msg: to_json_binary(&ManagedMarketExecuteMsg::SupplyDebt {
+                        send_to: Some(pending_market.manager.clone())
+                    })?,
+                    funds: vec![
+                        Coin {
+                            denom: CDT_DENOM.to_string(),
+                            amount: permissionless_add_debt_amount,
+                        },
+                    ],
+                });
+                msgs.push(msg);
+            }
             //Add attributes
             let mut attrs = vec![
                 attr("method", "handle_instantiate_reply"),
@@ -531,7 +563,7 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
                        
             Ok(Response::new()
                 .add_attributes(attrs)
-
+                .add_messages(msgs)
             )
         },
         Err(err) => return Err(StdError::GenericErr { msg: err }),
@@ -543,17 +575,23 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
 
-    // let config = Config {
-    //     owner: deps.api.addr_validate("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w")?,
-    //     managed_market_code_id: 1618,
-    //     manager_whitelist: vec![
-    //         deps.api.addr_validate("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w")?,
-    //         deps.api.addr_validate("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0")?,
-    //     ],
-    //     osmosis_proxy_contract: deps.api.addr_validate("osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd")?,
-    //     managed_market_fee: Decimal::percent(5),
-    // };
-    // CONFIG.save(deps.storage, &config)?;
+    //Need to update this and then add the new Config param
+    let config = Config {
+        owner: deps.api.addr_validate("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w")?,
+        managed_market_code_id: 1649,
+        manager_whitelist: vec![
+            deps.api.addr_validate("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w")?,
+            deps.api.addr_validate("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0")?,
+            deps.api.addr_validate("osmo1ny43tlr432nxg2vkfqzsdlledqjdn8ffw4p8dfefm75fat26st5s6x957f")?,
+            deps.api.addr_validate("osmo1h5pz8ncr6whk5mewh5quym07xw3895z38y3wkk")?,
+            deps.api.addr_validate("osmo1285zdz78leeclsydznxr7f79zma02d56gwmyr4")?,
+            deps.api.addr_validate("osmo10jtx8qmlxsd99r88rvsp9xqme9tu4pzfwvtqkm")?,
+        ],
+        osmosis_proxy_contract: deps.api.addr_validate("osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd")?,
+        managed_market_fee: Decimal::percent(5),
+        minimum_cdt_for_permissionless_instantiation: Some(Uint128::from(25_000_000u128)),
+    };
+    CONFIG.save(deps.storage, &config)?;
 
     //Return response
     Ok(Response::default())

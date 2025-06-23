@@ -10,6 +10,7 @@ pub struct PendingMarket {
     pub name: String,
     pub socials: Vec<String>,
     pub manager: String,
+    pub permissionless_add_debt_amount: Option<Uint128>,
 }
 
 #[cw_serde]
@@ -53,6 +54,8 @@ pub struct Config {
     pub manager_whitelist: Vec<Addr>,
     pub osmosis_proxy_contract: Addr,
     pub managed_market_fee: Decimal,
+    /// If this is set, its the minimum amount of CDT that must be sent to instantiate a market
+    pub minimum_cdt_for_permissionless_instantiation: Option<Uint128>,
 }
 
 #[cw_serde]

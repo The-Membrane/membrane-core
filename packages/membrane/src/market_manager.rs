@@ -75,6 +75,8 @@ pub enum ExecuteMsg {
         managed_market_code_id: Option<u64>,
         edit_managers: Option<ManagerEdit>,
         managed_market_fee: Option<Decimal>,
+        minimum_cdt_for_permissionless_instantiation: Option<Uint128>,
+        osmosis_proxy_contract: Option<String>,
     },
     /// Update the market data
     UpdateMarketItem {

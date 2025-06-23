@@ -81,7 +81,9 @@ pub fn execute(
             managed_market_code_id,
             edit_managers,
             managed_market_fee,
-        } => update_config(deps, info, owner, managed_market_code_id, edit_managers, managed_market_fee),
+            minimum_cdt_for_permissionless_instantiation,
+            osmosis_proxy_contract,
+        } => update_config(deps, info, owner, managed_market_code_id, edit_managers, managed_market_fee, minimum_cdt_for_permissionless_instantiation, osmosis_proxy_contract),
         ExecuteMsg::InstantiateMarket { params } => {
             instantiate_market(deps, _env, info, params)
         },
@@ -285,6 +287,8 @@ fn update_config(
     managed_market_code_id: Option<u64>,
     edit_managers: Option<ManagerEdit>,
     managed_market_fee: Option<Decimal>,
+    minimum_cdt_for_permissionless_instantiation: Option<Uint128>,
+    osmosis_proxy_contract: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     let mut attrs = vec![attr("method", "update_config")];
@@ -335,6 +339,13 @@ fn update_config(
     if let Some(fee) = managed_market_fee {
         config.managed_market_fee = fee;
         attrs.push(attr("managed_market_fee", fee.to_string()));
+    }
+    if let Some(minimum_cdt_for_permissionless_instantiation) = minimum_cdt_for_permissionless_instantiation {
+        config.minimum_cdt_for_permissionless_instantiation = Some(minimum_cdt_for_permissionless_instantiation);
+        attrs.push(attr("minimum_cdt_for_permissionless_instantiation", minimum_cdt_for_permissionless_instantiation.to_string()));
+    }
+    if let Some(osmosis_proxy_contract) = osmosis_proxy_contract {
+        config.osmosis_proxy_contract = deps.api.addr_validate(&osmosis_proxy_contract)?;
     }
     //Save Config
     CONFIG.save(deps.storage, &config)?;
@@ -588,7 +599,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
             deps.api.addr_validate("osmo10jtx8qmlxsd99r88rvsp9xqme9tu4pzfwvtqkm")?,
         ],
         osmosis_proxy_contract: deps.api.addr_validate("osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd")?,
-        managed_market_fee: Decimal::percent(5),
+        managed_market_fee: Decimal::percent(0),
         minimum_cdt_for_permissionless_instantiation: Some(Uint128::from(25_000_000u128)),
     };
     CONFIG.save(deps.storage, &config)?;

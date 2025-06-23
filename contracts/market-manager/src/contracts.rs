@@ -21,7 +21,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_LIMIT: u64 = 31u64;
 const INSTANTIATE_REPLY_ID: u64 = 1;
 const CDT_DENOM: &str = "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt";
-
+const MEMBRANE_GOVERNANCE_ADDRESS: &str = "osmo1wk0zlag50ufu5wrsfyelrylykfe3cw68fgv9s8xqj20qznhfm44qgdnq86";
 
 //Todo
 // - Remove the initial test market instead of adding the social links to it
@@ -552,7 +552,7 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
                 let msg = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: valid_address.to_string(),
                     msg: to_json_binary(&ManagedMarketExecuteMsg::SupplyDebt {
-                        send_to: Some(pending_market.manager.clone())
+                        send_to: Some(MEMBRANE_GOVERNANCE_ADDRESS.to_string())
                     })?,
                     funds: vec![
                         Coin {
@@ -587,22 +587,22 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
 
     //Need to update this and then add the new Config param
-    let config = Config {
-        owner: deps.api.addr_validate("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w")?,
-        managed_market_code_id: 1649,
-        manager_whitelist: vec![
-            deps.api.addr_validate("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w")?,
-            deps.api.addr_validate("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0")?,
-            deps.api.addr_validate("osmo1ny43tlr432nxg2vkfqzsdlledqjdn8ffw4p8dfefm75fat26st5s6x957f")?,
-            deps.api.addr_validate("osmo1h5pz8ncr6whk5mewh5quym07xw3895z38y3wkk")?,
-            deps.api.addr_validate("osmo1285zdz78leeclsydznxr7f79zma02d56gwmyr4")?,
-            deps.api.addr_validate("osmo10jtx8qmlxsd99r88rvsp9xqme9tu4pzfwvtqkm")?,
-        ],
-        osmosis_proxy_contract: deps.api.addr_validate("osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd")?,
-        managed_market_fee: Decimal::percent(0),
-        minimum_cdt_for_permissionless_instantiation: Some(Uint128::from(25_000_000u128)),
-    };
-    CONFIG.save(deps.storage, &config)?;
+    // let config = Config {
+    //     owner: deps.api.addr_validate("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w")?,
+    //     managed_market_code_id: 1649,
+    //     manager_whitelist: vec![
+    //         deps.api.addr_validate("osmo13gu58hzw3e9aqpj25h67m7snwcjuccd7v4p55w")?,
+    //         deps.api.addr_validate("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0")?,
+    //         deps.api.addr_validate("osmo1ny43tlr432nxg2vkfqzsdlledqjdn8ffw4p8dfefm75fat26st5s6x957f")?,
+    //         deps.api.addr_validate("osmo1h5pz8ncr6whk5mewh5quym07xw3895z38y3wkk")?,
+    //         deps.api.addr_validate("osmo1285zdz78leeclsydznxr7f79zma02d56gwmyr4")?,
+    //         deps.api.addr_validate("osmo10jtx8qmlxsd99r88rvsp9xqme9tu4pzfwvtqkm")?,
+    //     ],
+    //     osmosis_proxy_contract: deps.api.addr_validate("osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd")?,
+    //     managed_market_fee: Decimal::percent(0),
+    //     minimum_cdt_for_permissionless_instantiation: Some(Uint128::from(25_000_000u128)),
+    // };
+    // CONFIG.save(deps.storage, &config)?;
 
     //Return response
     Ok(Response::default())

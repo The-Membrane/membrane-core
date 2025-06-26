@@ -11,7 +11,7 @@ pub mod positions;
 pub mod state;
 pub mod reply;
 pub mod rates;
-
+pub mod oracle;
 pub use crate::error::ContractError;
 
 #[cfg(test)]

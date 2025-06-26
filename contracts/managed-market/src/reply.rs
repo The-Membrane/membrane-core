@@ -8,9 +8,9 @@ use membrane::oracle::PriceResponse;
 use membrane::types::{cAsset, Asset, AssetInfo, Basket, PurchaseData, UserHistory};
 use membrane::helpers::{asset_to_coin, get_contract_balances, withdrawal_msg};
 
-use crate::positions::{get_collateral_price, CDT_DENOM};
+use crate::positions::CDT_DENOM;
 use crate::state::{ClosePositionPropagation, LiquidationPropagation, LoopPropagation, CLOSE_POSITION, CONFIG, LIQUIDATION, LOOP_POSITION, MARKET_PARAMS, POSITIONS, POSITION_UX_BOOSTS, USER_HISTORY};
-
+use crate::oracle::{get_cdt_price, get_collateral_price};
 //Liquidation reply
 //Reply on success to:
 // - edit the user position based on the CDT that was swapped for

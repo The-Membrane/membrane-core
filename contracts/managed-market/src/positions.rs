@@ -28,6 +28,7 @@ use osmosis_std::types::osmosis::poolmanager::v1beta1::{self as PoolManager, Swa
 use serde::de;
 
 
+use crate::oracle::{get_cdt_price, get_collateral_price};
 use crate::rates::accrue;
 use crate::state::{ClosePositionPropagation, LiquidationPropagation, LoopPropagation, TokenRateAssurance, ACTIONS_PAUSED, CLAIM_TRACKER, CLOSE_POSITION, DEBT_VAULT_TOKEN, LIQUIDATION, LOOP_POSITION, MARKET_PARAMS, POSITION_UX_BOOSTS, TOKEN_RATE_ASSURANCE};
 // use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, CollateralVolatility, Timer, BASKET, CLOSE_POSITION, FREEZE_TIMER, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
@@ -111,7 +112,7 @@ pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 /// 
 
 //Constants
-const NOBLE_USDC_DENOM: &str = "ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4";
+pub const NOBLE_USDC_DENOM: &str = "ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4";
 pub const CDT_DENOM: &str = "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt";
 
 
@@ -653,120 +654,6 @@ pub fn withdraw_collateral(
         attr("send_to", send_to.to_string()),
         attr("new_position", format!("{:?}", user_position)),
     ])) 
-}
-
-pub fn get_collateral_price(
-    storage: &dyn Storage,
-    querier: QuerierWrapper,
-    env: Env,
-    market: MarketParams,
-) -> Result<PriceResponse, ContractError> {
-    //Load state
-    let config: Config = CONFIG.load(storage)?;
-    let asset_oracle_info = market.pool_for_oracle_and_liquidations;
-
-
-    //twap_timeframe = MINUTES * SECONDS_PER_MINUTE
-    let twap_timeframe: u64 = (60 * 60);
-    let start_time: u64 = env.block.time.seconds() - twap_timeframe;
-
-    let mut asset_price_in_lp_steps = vec![];
-
-
-    //Query prices from the TWAP sources
-    //This can use multiple pools to calculate our price
-    for pool in asset_oracle_info.pools_for_osmo_twap.clone() {
-
-        let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
-            pool.clone().pool_id, 
-            pool.clone().base_asset_denom, 
-            pool.clone().quote_asset_denom, 
-            Some(osmosis_std::shim::Timestamp {
-                seconds:  start_time as i64,
-                nanos: 0,
-            }),
-        )?;
-
-        //Push TWAP
-        asset_price_in_lp_steps.push(Decimal::from_str(&res.geometric_twap)?);
-    }
-
-    //Multiply prices to denominate in USDC
-    let mut asset_price_in_usdc = {
-        let mut final_price = Decimal::one();
-        //If no prices were queried, return error
-        if asset_price_in_lp_steps.len() == 0 {
-            return Err(ContractError::CustomError {
-                val: String::from("No TWAP prices found"),
-            });
-        }
-
-        //Find asset price in USDC
-        //Multiply prices to get the desired Quote
-        for price in asset_price_in_lp_steps {
-            final_price = decimal_multiplication(final_price, price)?;
-        } 
-        //Results in slight error: (https://medium.com/reflexer-labs/analysis-of-the-rai-twap-oracle-20a01af2e49d)
-
-        final_price
-    };
-
-    // Correct for decimal differences between collateral and USDC.
-    // This logic mirrors the oracle contract's decimal adjustment.
-    // We assume the final quote asset is Noble USDC, which has 6 decimals.
-    let collateral_decimals = asset_oracle_info.decimals;
-    const USDC_DECIMALS: u64 = 6;
-
-    if collateral_decimals > USDC_DECIMALS {
-        let power = collateral_decimals - USDC_DECIMALS;
-        asset_price_in_usdc = decimal_multiplication(
-            asset_price_in_usdc, 
-            Decimal::from_ratio(Uint128::new(10).pow(power as u32), Uint128::one()),
-        )?;
-    } else if collateral_decimals < USDC_DECIMALS {
-        let power = USDC_DECIMALS - collateral_decimals;
-        asset_price_in_usdc = decimal_division(
-            asset_price_in_usdc,
-            Decimal::from_ratio(Uint128::new(10).pow(power as u32), Uint128::one()),
-        )?;
-    }
-    // If decimals are equal, no adjustment is needed.
-
-    Ok(PriceResponse { 
-        prices: vec![], 
-        price: asset_price_in_usdc, 
-        decimals: asset_oracle_info.decimals.clone() 
-    })
-}
-
-pub fn get_cdt_price(
-    querier: QuerierWrapper,
-    env: Env,
-) -> Result<PriceResponse, ContractError> {
-
-    //twap_timeframe = MINUTES * SECONDS_PER_MINUTE
-    let twap_timeframe: u64 = (60 * 60);
-    let start_time: u64 = env.block.time.seconds() - twap_timeframe;
-
-    //Query CDT/USDC price
-
-        let res: TWAP::GeometricTwapToNowResponse = TWAP::TwapQuerier::new(&querier).geometric_twap_to_now(
-            1268, 
-            CDT_DENOM.to_string(), 
-            NOBLE_USDC_DENOM.to_string(), 
-            Some(osmosis_std::shim::Timestamp {
-                seconds:  start_time as i64,
-                nanos: 0,
-            }),
-        )?;
-
-    //Price in USDC
-    let asset_price_in_usdc = Decimal::from_str(&res.geometric_twap)?;
-
-    Ok(PriceResponse { 
-        prices: vec![], 
-        price: asset_price_in_usdc, 
-        decimals: 6 })
 }
 
 pub fn edit_ux_boosts(

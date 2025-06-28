@@ -397,6 +397,26 @@ fn loop_cdp(
     });
     let submsg = SubMsg::reply_on_success(swap_msg, LOOP_REPLY_ID);
 
+
+    //Set the collateral fee to 1% of total debt
+    let collateral_value_fee_to_executor = decimal_multiplication(
+        Decimal::from_ratio(running_credit_amount + amount_to_mint, Uint128::one()),
+         Decimal::percent(1)
+        )?;
+    let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.cdp_contract_addr.to_string(),
+        msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
+            collateral_denom: config.deposit_token.vault_token.clone(),
+            loop_ltv: None,
+            stop_loss_params: None,
+            take_profit_params: None,
+            arb_price: None,
+            collateral_value_fee_to_executor: Some(collateral_value_fee_to_executor),
+            })?,
+        funds: vec![],
+    });
+    msgs.push(edit_ux_boosts_msg);
+
     //Create Response
     let res = Response::new()
         .add_attribute("method", "loop_cdp")
@@ -1382,7 +1402,7 @@ fn update_config(
     arb_price: Option<Decimal>,
 ) -> Result<Response, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
-
+    let mut msgs: Vec<CosmosMsg> = vec![];
     //Assert Authority
     if info.sender != config.owner {
         //Check if ownership transfer is in progress & transfer if so
@@ -1433,13 +1453,27 @@ fn update_config(
     if let Some(arb_price) = arb_price {
         ARB_PRICE.save(deps.storage, &arb_price)?;
         attrs.push(attr("updated_arb_price", arb_price.to_string()));
-        todo!("Change the UXBoost's close/arb price.");
+        
+        //Edit the UXBoost's close/arb price
+        let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.cdp_contract_addr.to_string(),
+            msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
+                collateral_denom: config.deposit_token.vault_token.clone(),
+                loop_ltv: None,
+                stop_loss_params: None,
+                take_profit_params: None,
+                arb_price: Some(Some(arb_price)),
+                collateral_value_fee_to_executor: None
+             })?,
+            funds: vec![],
+        });
+        msgs.push(edit_ux_boosts_msg);
 
     }
     CONFIG.save(deps.storage, &config)?;
     attrs.push(attr("updated_config", format!("{:?}", config)));
 
-    Ok(Response::new().add_attributes(attrs))
+    Ok(Response::new().add_attributes(attrs).add_messages(msgs))
 }
 
 
@@ -2285,10 +2319,10 @@ fn get_buffer_amounts(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
-
+    let mut msgs: Vec<CosmosMsg> = vec![];
     let mut attrs = vec![];
     attrs.push(attr("method", "migrate"));
-    attrs.push(attr("old_cdp_contract_addr", config.cdp_contract_addr));
+    attrs.push(attr("old_cdp_contract_addr", config.clone().cdp_contract_addr));
 
     /// Create close cdp message with CDP-EXECUTEMSG
     let close_cdp_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -2308,14 +2342,28 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     ARB_PRICE.save(deps.storage, &Decimal::percent(99))?;
     
 
+        //Edit the UXBoost's close/arb price
+        let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.cdp_contract_addr.to_string(),
+            msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
+                collateral_denom: config.deposit_token.vault_token.clone(),
+                loop_ltv: None,
+                stop_loss_params: None,
+                take_profit_params: None,
+                arb_price: Some(Some(Decimal::percent(99))),
+                collateral_value_fee_to_executor: Some(Decimal::percent(10_00)),
+             })?,
+            funds: vec![],
+        });
+        msgs.push(edit_ux_boosts_msg);
 
-    todo!("Change CDP contract address to the managed market contract address.");
-    config.cdp_contract_addr = "".to_string();
+    // todo!("Change CDP contract address to the managed market contract address.");
+    // config.cdp_contract_addr = "".to_string();
     CONFIG.save(deps.storage, &config)?;
 
 
 
     Ok(Response::new()
         .add_submessage(close_cdp_submsg)
-    )
+        .add_messages(msgs))
 }

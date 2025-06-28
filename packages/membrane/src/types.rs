@@ -1195,12 +1195,13 @@ pub struct UserHistory {
     pub volume: Decimal,
 }
 
-#[cw_serde]
+#[cw_serde] 
 pub struct UXBoosts {
     pub collateral_value_fee_to_executor: Decimal, 
     pub loop_ltv: Option<Decimal>,
     pub take_profit_params: Option<AutoCloseParams>,
     pub stop_loss_params: Option<AutoCloseParams>,
+    pub arb_price: Option<Decimal>,
     pub collateral_bought_from_loops: Vec<PurchaseData>
 }
 

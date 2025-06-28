@@ -3,8 +3,8 @@ use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, Reply, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg
 };
-use membrane::oracle::{self, PriceResponse};
-use membrane::types::{Asset, AssetInfo, Basket, UserInfo, VTClaimCheckpoint, ClaimTracker, APR};
+use membrane::oracle::{self, PriceResponse, QueryMsg as Oracle_QueryMsg};
+use membrane::types::{Asset, AssetInfo, Basket, BorrowOptions, ClaimTracker, UserInfo, UserPosition, VTClaimCheckpoint, APR};
 use osmosis_std::types::osmosis;
 use serde::de;
 use std::cmp::{max, min};
@@ -14,12 +14,12 @@ use cw2::set_contract_version;
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::error::TokenFactoryError;
-use crate::state::{CLAIM_TRACKER, TokenRateAssurance, UnloopProps, CONFIG, EXIT_MESSAGE_INFO, OWNERSHIP_TRANSFER, TOKEN_RATE_ASSURANCE, UNLOOP_PROPS, VAULT_TOKEN};
+use crate::state::{TokenRateAssurance, UnloopProps, ARB_PRICE, CLAIM_TRACKER, CONFIG, EXIT_MESSAGE_INFO, OWNERSHIP_TRANSFER, TOKEN_RATE_ASSURANCE, UNLOOP_PROPS, VAULT_TOKEN};
 use membrane::stable_earn_vault::{Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 use membrane::mars_vault_token::{ExecuteMsg as Vault_ExecuteMsg, QueryMsg as Vault_QueryMsg};
-use membrane::cdp::{BasketPositionsResponse, CollateralInterestResponse, ExecuteMsg as CDP_ExecuteMsg, InterestResponse, PositionResponse, QueryMsg as CDP_QueryMsg};
+use membrane::cdp::{QueryMsg as CDP_QueryMsg, ExecuteMsg as CDP_ExecuteMsg};
 use membrane::osmosis_proxy::{ExecuteMsg as OP_ExecuteMsg};
-use membrane::oracle::QueryMsg as Oracle_QueryMsg;
+use membrane::managed_market::{QueryMsg as ManagedMarket_QueryMsg, ExecuteMsg as ManagedMarket_ExecuteMsg, UserPositionResponse};
 use membrane::stability_pool_vault::{
     calculate_base_tokens, calculate_vault_tokens
 };
@@ -31,7 +31,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //Reply IDs
 const ENTER_VAULT_REPLY_ID: u64 = 1u64;
-const CDP_REPLY_ID: u64 = 2u64;
+// const CDP_REPLY_ID: u64 = 2u64;
 const LOOP_REPLY_ID: u64 = 3u64;
 const UNLOOP_REPLY_ID: u64 = 4u64;
 const EXIT_VAULT_STRAT_REPLY_ID: u64 = 5u64;
@@ -49,7 +49,6 @@ const MIN_DEPOSIT_VALUE: Decimal = Decimal::percent(21_11);
 // -- The deposit fee is baked into the "liquid" valuation calc of the CDP position so deposits that don't get looped won't confer this fee to the vault.
 // - We need to keep a buffer of vault tokens outside of the vault to allow for easy withdrawals. Buffer will likely break exit debt clearance logic. (todo)
 // -
-
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
@@ -153,13 +152,15 @@ pub fn instantiate(
     //Instantiatoor must send a vault token.
     let cdp_deposit_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
+        msg: to_json_binary(&ManagedMarket_ExecuteMsg::SupplyCollateral { 
+            owner: Some(env.contract.address.clone().to_string())
+        })?,
         funds: vec![Coin {
             denom: config.deposit_token.vault_token.clone(),
             amount: Uint128::new(1_000_000_000_000),
         }],
     });
-    let cdp_submsg = SubMsg::reply_on_success(cdp_deposit_msg, CDP_REPLY_ID);
+    let cdp_submsg = SubMsg::new(cdp_deposit_msg);
     
     //Create Response
     let res = Response::new()
@@ -191,8 +192,8 @@ pub fn execute(
             withdrawal_buffer,
             deposit_cap, 
             swap_slippage,
-            vault_cost_index
-        } => update_config(deps, info, owner, cdp_contract_addr, mars_vault_addr, osmosis_proxy_contract_addr, oracle_contract_addr, withdrawal_buffer, deposit_cap, swap_slippage, vault_cost_index),
+            arb_price
+        } => update_config(deps, info, owner, cdp_contract_addr, mars_vault_addr, osmosis_proxy_contract_addr, oracle_contract_addr, withdrawal_buffer, deposit_cap, swap_slippage, arb_price),
         ExecuteMsg::EnterVault { } => enter_vault(deps, env, info),
         ExecuteMsg::ExitVault {  } => accrue_before_exit(deps, env, info),
         ExecuteMsg::UnloopCDP { desired_collateral_withdrawal } => unloop_cdp(deps, env, info, desired_collateral_withdrawal),
@@ -205,7 +206,8 @@ pub fn execute(
     }
 }
 
-/// When debt is at the minimum exits & redemptions don't work so this will have the contract use ClosePosition to clear the debt.
+/// When debt is at the minimum, exits & redemptions don't work so this will have the contract use ClosePosition to clear the debt.
+/// V2: while using the managed market, the minimums are much lower but we're going to act early for now
 fn close_cdp_at_minimum_debt(
     deps: DepsMut,
     env: Env,
@@ -229,8 +231,9 @@ fn close_cdp_at_minimum_debt(
         //Create close position msg
         let close_position_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.cdp_contract_addr.to_string(),
-            msg: to_json_binary(&CDP_ExecuteMsg::ClosePosition { 
-                position_id: config.cdp_position_id,
+            msg: to_json_binary(&ManagedMarket_ExecuteMsg::ClosePosition { 
+                collateral_denom: config.deposit_token.clone().vault_token,
+                position_owner: Some(env.contract.address.to_string()),
                 close_percentage: Some(Decimal::percent(100)),
                 max_spread: config.swap_slippage,
                 send_to: None,
@@ -251,7 +254,7 @@ fn close_cdp_at_minimum_debt(
 
 fn accrue_before_exit(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
 ) -> Result<Response, TokenFactoryError> {
     //Load config
@@ -263,10 +266,10 @@ fn accrue_before_exit(
     //Create accrue msg
     let accrue_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&CDP_ExecuteMsg::Accrue { 
-            position_owner: None, 
-            position_ids: vec![config.cdp_position_id] 
-        }
+        msg: to_json_binary(&ManagedMarket_ExecuteMsg::Accrue { 
+            position_owner: env.contract.address.clone().to_string(), 
+            collateral_denom: config.deposit_token.clone().vault_token,
+            }
         )?,
         funds: vec![],
     });
@@ -283,7 +286,7 @@ fn accrue_before_exit(
 }
 
 //LOOP NOTES: 
-// - Loop to leave a 21 CDT LTV gap to allow easier unlooping under the minimum
+// - Loop to leave a minimum CDT LTV gap to allow easier unlooping under the minimum
 // - Don't loop if CDT price is below 99% + slippage of peg
 // - We don't loop the buffer of vault tokens in the contract
 //POST LOOP NOTES:
@@ -298,24 +301,22 @@ fn loop_cdp(
     let config = CONFIG.load(deps.storage)?;
     let mut msgs = vec![];
 
-    //Disable looping in Prod
-    return Err(TokenFactoryError::CustomError { val: String::from("Looping disabled, this opportunity is shifting to the Rangebound LP.") });
-    
-    //Ensure price is above 99% of peg
-    //We want to ensure loops keep redemptions at 99% of peg profitable or even
-    let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), Decimal::percent(99))?;
+    let price_ceiling = ARB_PRICE.load(deps.storage)? + config.swap_slippage;
+    //Ensure price is at or above arb price + config.swap_slippage of peg
+    let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), price_ceiling)?;
 
     // Calc swap slippage based on the difference between the market and peg price.
     // Maximum slippage is 0.5% (0.005).
     let mut max_slippage = config.swap_slippage;
-    let peg_ratio = decimal_division(cdt_market_price.price, cdt_peg_price.price)?;
-    if peg_ratio > Decimal::percent(99) && peg_ratio < Decimal::percent(99) + config.swap_slippage {
-        max_slippage = match peg_ratio.checked_sub(Decimal::percent(99)){
+    //////We dont need this unless looping price and close price are the same but since closes lose % to slippage,
+    ///  there actually needs to be a {market max_slippage} gap between the two//////
+    let peg_ratio = decimal_division(cdt_market_price.price, price_ceiling)?;
+    if peg_ratio > Decimal::one() && peg_ratio < Decimal::one() + config.swap_slippage {
+        max_slippage = match peg_ratio.checked_sub(Decimal::percent(100)){
             Ok(v) => v,
             Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to calculate the max slippage in loop {:?}", peg_ratio) }),
         };
     }
-    // panic!("max_slippage: {}, {}, {}", max_slippage, peg_ratio, config.swap_slippage);
     //So if market price is .991, slippage should be .001
     //If market price is .995, slippage should be .005
     //If market price is .999, slippage should be .005
@@ -353,7 +354,8 @@ fn loop_cdp(
         running_credit_amount
     )?;
         
-    //Leave a 21 CDT LTV gap to allow easier unlooping under the minimum debt (100)
+    //////We're leaving this even if the managed market's minimum is different. Makes unlooping easier.//////
+    //Leave a minimum CDT LTV gap to allow easier unlooping under the minimum debt (100)
     //$21 min deposit is $91 of LTV space which is ~21 withdrawal space so we can always fulfill the minimum debt of 100
     if min_deposit_value < MIN_DEPOSIT_VALUE {
         return Err(TokenFactoryError::CustomError { val: format!("Minimum deposit value for this loop: {}, is less than our minimum used to ensure unloopability: {}", min_deposit_value, MIN_DEPOSIT_VALUE) })
@@ -368,12 +370,13 @@ fn loop_cdp(
     //Create mint msg
     let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&CDP_ExecuteMsg::IncreaseDebt { 
-            position_id: config.cdp_position_id,
-            amount: Some(amount_to_mint),
-            LTV: None,
-            mint_to_addr: None,
-            mint_intent: None,
+        msg: to_json_binary(&ManagedMarket_ExecuteMsg::Borrow { 
+            collateral_denom: config.deposit_token.vault_token.clone(),
+            send_to: Some(env.contract.address.clone().to_string()),
+            borrow_amount: BorrowOptions {
+                amount: Some(amount_to_mint),
+                ltv: None,
+            }
         })?,
         funds: vec![],
     });
@@ -413,7 +416,7 @@ fn test_looping_peg_price(
 ) -> Result<(PriceResponse, PriceResponse), TokenFactoryError>{
     //Query basket for CDT peg price
     let basket: Basket = match  querier.query_wasm_smart::<Basket>(
-        config.cdp_contract_addr.to_string(),
+        "osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr".to_string(),
         &CDP_QueryMsg::GetBasket {  },
     ){
         Ok(basket) => basket,
@@ -421,7 +424,7 @@ fn test_looping_peg_price(
     };
     let cdt_peg_price: PriceResponse = basket.credit_price;
 
-    //Check that CDT market price is equal or above 99% of peg
+    //Check that CDT market price is equal or above desired peg price
     let prices: Vec<PriceResponse> = match querier.query_wasm_smart::<Vec<PriceResponse>>(
         config.oracle_contract_addr.to_string(),
         &Oracle_QueryMsg::Price {
@@ -520,9 +523,9 @@ fn unloop_cdp(
         //Ensure price is at or below peg
         //This will ensure unloops aren't unprofitable for remaining users
         //(todo!) CAN REMOVE: Cost conferred to the user "handles" this assurance.
-        if decimal_division(cdt_market_price.price, cdt_peg_price.price)? > Decimal::one() {
-            return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above peg, can't unloop.") });
-        }
+        // if decimal_division(cdt_market_price.price, cdt_peg_price.price)? > Decimal::one() {
+        //     return Err(TokenFactoryError::CustomError { val: String::from("CDT price is above peg, can't unloop.") });
+        // }
 
         
         ///// 3) Get debt clearance amount/////    
@@ -594,17 +597,10 @@ fn unloop_cdp(
         //Create withdraw msg
         let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.cdp_contract_addr.to_string(),
-            msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
-                position_id: config.cdp_position_id,
-                assets: vec![
-                    Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: config.deposit_token.clone().vault_token,
-                        },
-                        amount: withdrawable_collateral,
-                    }
-                ],
-                send_to: None,
+            msg: to_json_binary(&ManagedMarket_ExecuteMsg::WithdrawCollateral { 
+                collateral_denom: config.deposit_token.clone().vault_token,
+                send_to: Some(env.contract.address.clone().to_string()),
+                withdraw_amount: Some(withdrawable_collateral),
             })?,
             funds: vec![],
         });
@@ -651,17 +647,10 @@ fn unloop_cdp(
         //Attempt a normal withdrawal if the debt is 0 
         let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.cdp_contract_addr.to_string(),
-            msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
-                position_id: config.cdp_position_id,
-                assets: vec![
-                    Asset {
-                        info: AssetInfo::NativeToken {
-                            denom: config.deposit_token.clone().vault_token,
-                        },
-                        amount: unloop_props.owned_collateral.clone(),
-                    }
-                ],
-                send_to: None,
+            msg: to_json_binary(&ManagedMarket_ExecuteMsg::WithdrawCollateral { 
+                collateral_denom: config.deposit_token.clone().vault_token,
+                send_to: Some(env.contract.address.clone().to_string()),
+                withdraw_amount: Some(unloop_props.owned_collateral.clone()),
             })?,
             funds: vec![],
         });
@@ -765,73 +754,97 @@ fn unloop_cdp(
     
 // }
 
-//Return CP position info
+/// Get collateral price from managed market
+fn get_collateral_price(
+    deps: Deps,
+    _env: Env,
+    config: Config,
+) -> StdResult<PriceResponse> {
+    //Query the collateral price
+    let price: PriceResponse = match deps.querier.query_wasm_smart::<PriceResponse>(
+        config.cdp_contract_addr.to_string(),
+        &ManagedMarket_QueryMsg::GetCollateralPrice { asset: config.deposit_token.vault_token.clone() },
+    ){
+        Ok(price) => price,
+        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the collateral price in get_collateral_price") }),
+    };
+
+    Ok(price)
+}
+
+/// Get debt price from managed market
+fn get_debt_price(
+    deps: Deps,
+    _env: Env,
+    config: Config,
+) -> StdResult<PriceResponse> {
+    //Query the debt price
+    let price: PriceResponse = match deps.querier.query_wasm_smart::<PriceResponse>(
+        config.cdp_contract_addr.to_string(),
+        &ManagedMarket_QueryMsg::GetDebtPrice { },
+    ){
+        Ok(price) => price,
+        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the debt price in get_debt_price") }),
+    };
+
+    Ok(price)
+}
+
+//Return CDP position info
 fn get_cdp_position_info(
     deps: Deps,
     env: Env,
     config: Config,
     msgs: &mut Vec<CosmosMsg>,
 ) -> StdResult<(Uint128,Uint128, PriceResponse, PriceResponse)> {
-    //Query VT & CDT token price
-    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
-        config.oracle_contract_addr.to_string(),
-        &Oracle_QueryMsg::Prices {
-            asset_infos: vec![AssetInfo::NativeToken { denom: config.clone().deposit_token.vault_token },
-            AssetInfo::NativeToken { denom: config.cdt_denom.clone() }],
-            twap_timeframe: 0, //We want current swap price
-            oracle_time_limit: 0,
-        },
-    ){
-        Ok(prices) => prices,
-        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the VT & CDT token price in get_cdp_position_info") }),
-    };   
-    let vt_token_price: PriceResponse = prices[0].clone();
-    let cdt_price: PriceResponse = prices[1].clone();
+    //Get the collateral and debt prices
+    let vt_token_price: PriceResponse = get_collateral_price(deps, env.clone(), config.clone())?;
+    let cdt_price: PriceResponse = get_debt_price(deps, env.clone(), config.clone())?;
 
     //Query the CDP position for the amount of vault tokens we have as collateral
-    let vault_position: Vec<BasketPositionsResponse> = match deps.querier.query_wasm_smart::<Vec<BasketPositionsResponse>>(
+    let vault_position: Vec<UserPositionResponse> = match deps.querier.query_wasm_smart::<Vec<UserPositionResponse>>(
         config.cdp_contract_addr.to_string(),
-        &CDP_QueryMsg::GetBasketPositions { 
+        &ManagedMarket_QueryMsg::GetUserPositions { 
+            collateral_denom: config.deposit_token.vault_token.clone(),
             start_after: None, 
-            user: None,
-            user_info: Some(UserInfo {
-                position_owner: env.contract.address.to_string(),
-                position_id: config.cdp_position_id,
-            }), 
+            user: Some(env.contract.address.to_string()),
             limit: None, 
         },
     ){
         Ok(vault_position) => vault_position,
         Err(err) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP Position for the vault token amount in get_cdp_position_info:") + &err.to_string() }),
     };
-    let vault_position: PositionResponse = vault_position[0].positions[0].clone();
+    let vault_position: UserPosition = vault_position[0].clone().position;
+
 
     //Set running credit amount 
-    let running_credit_amount = vault_position.credit_amount;
+    let running_credit_amount = vault_position.debt_amount;
     //Set running collateral amount
-    let running_collateral_amount = vault_position.collateral_assets[0].asset.amount;
+    let running_collateral_amount = vault_position.collateral_amount;
 
+    //////////Not possible in managed market.////////
     //If vault position has more than 1 collateral asset, withdraw all except the 1st (the accepted vault token) and send them to the contract owner (Governance)
-    if vault_position.collateral_assets.len() > 1 {
-        let mut assets_to_withdraw: Vec<Asset> = vec![];
-        for (index, asset) in vault_position.collateral_assets.iter().enumerate(){
-            if index > 0 {
-                assets_to_withdraw.push(asset.clone().asset);
-            }
-        }
+    // if vault_position.collateral_assets.len() > 1 {
+    //     let mut assets_to_withdraw: Vec<Asset> = vec![];
+    //     for (index, asset) in vault_position.collateral_assets.iter().enumerate(){
+    //         if index > 0 {
+    //             assets_to_withdraw.push(asset.clone().asset);
+    //         }
+    //     }
 
-        let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.cdp_contract_addr.to_string(),
-            msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
-                position_id: config.cdp_position_id,
-                assets: assets_to_withdraw,
-                send_to: Some(config.owner.clone().to_string()),
-            })?,
-            funds: vec![],
-        });
-        msgs.push(withdraw_msg);        
-    }
+    //     let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: config.cdp_contract_addr.to_string(),
+    //         msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
+    //             position_id: config.cdp_position_id,
+    //             assets: assets_to_withdraw,
+    //             send_to: Some(config.owner.clone().to_string()),
+    //         })?,
+    //         funds: vec![],
+    //     });
+    //     msgs.push(withdraw_msg);        
+    // }
     //We do this to ensure we don't loop (i.e. take risk) with value in volatile assets that may have been planted in our position maliciously
+    
     
 
     Ok((running_credit_amount, running_collateral_amount, vt_token_price, cdt_price))   
@@ -1366,7 +1379,7 @@ fn update_config(
     withdrawal_buffer: Option<Decimal>,
     deposit_cap: Option<Uint128>,
     swap_slippage: Option<Decimal>,
-    vault_cost_index: Option<()>,
+    arb_price: Option<Decimal>,
 ) -> Result<Response, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -1417,28 +1430,11 @@ fn update_config(
         config.swap_slippage = slippage;
         attrs.push(attr("updated_swap_slippage", slippage.to_string()));
     }
-    if let Some(_) = vault_cost_index {
-        //Query the basket to find the index of the vault_token
-        let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
-            config.cdp_contract_addr.to_string(),
-            &CDP_QueryMsg::GetBasket { },
-        ){
-            Ok(basket) => basket,
-            Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Basket") }),
-        };
-        //Find the index
-        let mut saved_index: Option<u64> = None;
-        for (index, asset) in basket.clone().collateral_types.into_iter().enumerate(){
-            if asset.asset.info.to_string() == config.deposit_token.clone().vault_token {
-                saved_index = Some(index as u64);
-                break;
-            }
-        }
-        if let Some(index) = saved_index {
-            config.vault_cost_index = index as usize;
-        } else {
-            return Err(TokenFactoryError::CustomError { val: String::from("Failed to find the vault token in the CDP Basket") });
-        }    
+    if let Some(arb_price) = arb_price {
+        ARB_PRICE.save(deps.storage, &arb_price)?;
+        attrs.push(attr("updated_arb_price", arb_price.to_string()));
+        todo!("Change the UXBoost's close/arb price.");
+
     }
     CONFIG.save(deps.storage, &config)?;
     attrs.push(attr("updated_config", format!("{:?}", config)));
@@ -1782,51 +1778,33 @@ fn get_total_deposit_tokens(
     config: Config,
 ) -> StdResult<Uint128> { //total deposit tokens
     //Get CDT price
-    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
-        config.cdp_contract_addr.to_string(),
-        &CDP_QueryMsg::GetBasket {  },
-    ){
-        Ok(basket) => basket,
-        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP basket in get_total_deposit_tokens") }),
-    };
-    let cdt_peg_price: PriceResponse = basket.credit_price;
-    //Get vault token price
-    let prices: Vec<PriceResponse> = match deps.querier.query_wasm_smart::<Vec<PriceResponse>>(
-        config.oracle_contract_addr.to_string(),
-        &Oracle_QueryMsg::Price {
-            asset_info: AssetInfo::NativeToken{ denom: config.clone().deposit_token.vault_token },
-            twap_timeframe: 60, //We want the price the CDP will use
-            oracle_time_limit: 600,
-            basket_id: None
-        },
-    ){
-        Ok(prices) => prices,
-        Err(_) => return Err(StdError::GenericErr { msg: String::from("Failed to query the VT token price in get_total_deposit_tokens") }),
-    };
-    let vt_token_price: PriceResponse = prices[0].clone();
+    let cdt_price: PriceResponse = get_debt_price(deps, env.clone(), config.clone())?;
+    //Get collateral price
+    let vt_token_price: PriceResponse = get_collateral_price(deps, env.clone(), config.clone())?;
+   
+    
     //Query the CDP position for the amount of vault tokens we have as collateral
-    let vault_position: Vec<BasketPositionsResponse> = match deps.querier.query_wasm_smart::<Vec<BasketPositionsResponse>>(
+    let vault_position: Vec<UserPositionResponse> = match deps.querier.query_wasm_smart::<Vec<UserPositionResponse>>(
         config.cdp_contract_addr.to_string(),
-        &CDP_QueryMsg::GetBasketPositions { 
+        &ManagedMarket_QueryMsg::GetUserPositions { 
+            collateral_denom: config.deposit_token.vault_token.clone(),
             start_after: None, 
-            user: None,
-            user_info: Some(UserInfo {
-                position_owner: env.contract.address.to_string(),
-                position_id: config.cdp_position_id,
-            }), 
+            user: Some(env.contract.address.to_string()),
             limit: None, 
         },
     ){
         Ok(vault_position) => vault_position,
-        Err(err) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP Position for the vault token amount in get_total_deposit_tokens:") + &err.to_string() }),
+        Err(err) => return Err(StdError::GenericErr { msg: String::from("Failed to query the CDP Position for the vault token amount in get_cdp_position_info:") + &err.to_string() }),
     };
-    let vault_position: PositionResponse = vault_position[0].positions[0].clone();
+    let vault_position: UserPosition = vault_position[0].clone().position;
+
+
     //Calc value of the debt
-    let debt_value = cdt_peg_price.get_value(vault_position.credit_amount)?;
+    let debt_value = cdt_price.get_value(vault_position.debt_amount)?;
     //Calc value of the collateral
-    let collateral_value = vt_token_price.get_value(vault_position.collateral_assets[0].asset.amount)?;
+    let collateral_value = vt_token_price.get_value(vault_position.collateral_amount)?;
     //Calc the value of the collateral minus the debt
-    let mut liquid_value = match collateral_value.checked_sub(debt_value){
+    let liquid_value = match collateral_value.checked_sub(debt_value){
         Ok(v) => v,
         Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to subtract the debt from the collateral in get_total_deposit_tokens, collateral value: {}, debt value: {}", collateral_value, debt_value) }),
     };
@@ -1865,7 +1843,7 @@ fn get_total_deposit_tokens(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         ENTER_VAULT_REPLY_ID => handle_enter_reply(deps, env, msg),
-        CDP_REPLY_ID => handle_cdp_reply(deps, env, msg),
+        // CDP_REPLY_ID => handle_cdp_reply(deps, env, msg),
         LOOP_REPLY_ID => handle_loop_reply(deps, env, msg),
         UNLOOP_REPLY_ID => handle_unloop_reply(deps, env, msg),
         EXIT_VAULT_STRAT_REPLY_ID => handle_exit_deposit_token_vault_reply(deps, env, msg),
@@ -1942,9 +1920,8 @@ fn handle_unloop_reply(
             //Create repay_msg
             let repay_CDP_loan = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.cdp_contract_addr.to_string(),
-                msg: to_json_binary(&CDP_ExecuteMsg::Repay { 
-                    position_id: config.cdp_position_id,
-                    position_owner: None,
+                msg: to_json_binary(&ManagedMarket_ExecuteMsg::Repay { 
+                    collateral_denom: config.deposit_token.clone().vault_token,
                     send_excess_to: None,
                 })?,
                 funds: vec![
@@ -1977,17 +1954,10 @@ fn handle_unloop_reply(
                 //Withdraw the remaining owned collateral
                 let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.cdp_contract_addr.to_string(),
-                    msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
-                        position_id: config.cdp_position_id,
-                        assets: vec![
-                            Asset {
-                                info: AssetInfo::NativeToken {
-                                    denom: config.deposit_token.clone().vault_token,
-                                },
-                                amount: unloop_props.owned_collateral.clone(),
-                            }
-                        ],
+                    msg: to_json_binary(&ManagedMarket_ExecuteMsg::WithdrawCollateral { 
+                        collateral_denom: config.deposit_token.clone().vault_token,
                         send_to: None,
+                        withdraw_amount: Some(unloop_props.owned_collateral.clone()),
                     })?,
                     funds: vec![],
                 });
@@ -2113,10 +2083,7 @@ fn handle_loop_reply(
             //Create deposit msg
             let cdp_deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.cdp_contract_addr.to_string(),
-                msg: to_json_binary(&CDP_ExecuteMsg::Deposit { 
-                    position_id: Some(config.cdp_position_id),
-                    position_owner: None,
-                })?,
+                msg: to_json_binary(&ManagedMarket_ExecuteMsg::SupplyCollateral { owner: Some(env.contract.address.clone().to_string())})?,
                 funds: vec![
                     Coin {
                         denom: config.deposit_token.clone().vault_token,
@@ -2130,7 +2097,8 @@ fn handle_loop_reply(
             let res = Response::new()
                 .add_attribute("method", "handle_loop_reply")
                 .add_attribute("deposit_tokens_swapped_for", deposit_token_balance)
-                .add_attribute("vault_tokens_sent_to_cdp", vault_tokens + vt_sent_to_cdp)
+                .add_attribute("total_vault_tokens_sent_to_cdp", vault_tokens + vt_sent_to_cdp)
+                .add_attribute("vault_tokens_sent_from_buffer", vt_sent_to_cdp)
                 .add_messages(msgs);
 
             return Ok(res);
@@ -2140,7 +2108,7 @@ fn handle_loop_reply(
     }
 }
 
-/// - Send all vault tokens to the CDP contract & save the position ID in the msg reply
+/// - Send all vault tokens to the CDP contract
 fn handle_close_reply(
     deps: DepsMut,
     env: Env,
@@ -2154,13 +2122,15 @@ fn handle_close_reply(
 
             let cdp_deposit_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.cdp_contract_addr.to_string(),
-                msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
+                msg: to_json_binary(&ManagedMarket_ExecuteMsg::SupplyCollateral { 
+                    owner: Some(env.contract.address.clone().to_string())
+                })?,
                 funds: vec![Coin {
                     denom: config.deposit_token.vault_token.clone(),
                     amount: vt_balance,
                 }],
             });
-            let cdp_submsg = SubMsg::reply_on_success(cdp_deposit_msg, CDP_REPLY_ID);
+            let cdp_submsg = SubMsg::new(cdp_deposit_msg);
 
             //Create Response
             let res = Response::new()
@@ -2176,44 +2146,44 @@ fn handle_close_reply(
 }
 
 /// - Save the position ID from the CDP contract
-fn handle_cdp_reply(
-    deps: DepsMut,
-    env: Env,
-    msg: Reply,
-) -> StdResult<Response> {
-    match msg.result.into_result() {
-        Ok(result) => {
-            let cdp_event = result
-                .events
-                .into_iter()
-                .find(|e| e.attributes.iter().any(|attr| attr.key == "position_id"))
-                .ok_or_else(|| StdError::GenericErr {  msg: String::from("unable to find cdp deposit event")})?;
+// fn handle_cdp_reply(
+//     deps: DepsMut,
+//     env: Env,
+//     msg: Reply,
+// ) -> StdResult<Response> {
+//     match msg.result.into_result() {
+//         Ok(result) => {
+//             let cdp_event = result
+//                 .events
+//                 .into_iter()
+//                 .find(|e| e.attributes.iter().any(|attr| attr.key == "position_id"))
+//                 .ok_or_else(|| StdError::GenericErr {  msg: String::from("unable to find cdp deposit event")})?;
 
-                let position_id = &cdp_event
-                .attributes
-                .iter()
-                .find(|attr| attr.key == "position_id")
-                .unwrap()
-                .value;
-                let position_id = Uint128::from_str(position_id)?;
-            //Load config
-            let mut config = CONFIG.load(deps.storage)?;  
-            //Save the position ID
-            config.cdp_position_id = position_id;
-            //Save Updated Config
-            CONFIG.save(deps.storage, &config)?;
+//                 let position_id = &cdp_event
+//                 .attributes
+//                 .iter()
+//                 .find(|attr| attr.key == "position_id")
+//                 .unwrap()
+//                 .value;
+//                 let position_id = Uint128::from_str(position_id)?;
+//             //Load config
+//             let mut config = CONFIG.load(deps.storage)?;  
+//             //Save the position ID
+//             config.cdp_position_id = position_id;
+//             //Save Updated Config
+//             CONFIG.save(deps.storage, &config)?;
 
-            //Create Response
-            let res = Response::new()
-                .add_attribute("method", "handle_initial_cdp_deposit_reply")
-                .add_attribute("vault_position_id", position_id);  
+//             //Create Response
+//             let res = Response::new()
+//                 .add_attribute("method", "handle_initial_cdp_deposit_reply")
+//                 .add_attribute("vault_position_id", position_id);  
 
-            return Ok(res);
+//             return Ok(res);
 
-        } //We only reply on success
-        Err(err) => return Err(StdError::GenericErr { msg: err }),
-    }
-}
+//         } //We only reply on success
+//         Err(err) => return Err(StdError::GenericErr { msg: err }),
+//     }
+// }
 
 /// - Add the vault tokens received from the vault deposit into config state
 /// - Deposit all vault tokens into CDP contract
@@ -2241,9 +2211,8 @@ fn handle_enter_reply(
             if !vt_sent_to_cdp.is_zero() {
                 let send_deposit_to_yield_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.cdp_contract_addr.to_string(),
-                    msg: to_json_binary(&CDP_ExecuteMsg::Deposit { 
-                        position_id: Some(config.cdp_position_id),
-                        position_owner: None,
+                    msg: to_json_binary(&ManagedMarket_ExecuteMsg::SupplyCollateral { 
+                        owner: Some(env.contract.address.clone().to_string())
                     })?,
                     funds: vec![Coin {
                         denom: config.deposit_token.clone().vault_token,
@@ -2315,6 +2284,38 @@ fn get_buffer_amounts(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
+    let mut config = CONFIG.load(deps.storage)?;
 
-    Ok(Response::default())
+    let mut attrs = vec![];
+    attrs.push(attr("method", "migrate"));
+    attrs.push(attr("old_cdp_contract_addr", config.cdp_contract_addr));
+
+    /// Create close cdp message with CDP-EXECUTEMSG
+    let close_cdp_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.cdp_contract_addr.to_string(),
+        msg: to_json_binary(&CDP_ExecuteMsg::ClosePosition { 
+            position_id: config.cdp_position_id,
+            close_percentage: Some(Decimal::one()),
+            max_spread: config.swap_slippage,
+            send_to: Some(env.contract.address.clone().to_string()),
+        })?,
+        funds: vec![],
+    });
+
+    let close_cdp_submsg = SubMsg::new(close_cdp_msg);
+
+    //Set the arb price to 99% of peg
+    ARB_PRICE.save(deps.storage, &Decimal::percent(99))?;
+    
+
+
+    todo!("Change CDP contract address to the managed market contract address.");
+    config.cdp_contract_addr = "".to_string();
+    CONFIG.save(deps.storage, &config)?;
+
+
+
+    Ok(Response::new()
+        .add_submessage(close_cdp_submsg)
+    )
 }

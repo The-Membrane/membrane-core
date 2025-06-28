@@ -19,10 +19,10 @@ use membrane::types::{
 
 use crate::error::ContractError;
 use crate::positions::{
-    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, close_position, crank_realized_apr, edit_ux_boosts, get_total_debt_tokens, liquidate, loop_position, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQUIDATE_REPLY_ID, LOOP_POSITION_REPLY_ID
+    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, close_position, crank_realized_apr, edit_ux_boosts, get_total_debt_tokens, liquidate, loop_position, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQUIDATE_REPLY_ID, LOOP_POSITION_REPLY_ID, LTV_CHECK_REPLY_ID
 };
 use crate::rates::{external_accrue_call, get_interest_rate};
-use crate::reply::{handle_close_position_reply, handle_liquidation_reply, handle_loop_position_reply};
+use crate::reply::{handle_close_position_reply, handle_liquidation_reply, handle_loop_position_reply, handle_ltv_check_reply};
 use crate::oracle::{get_cdt_price, get_collateral_price};
 // use crate::query::{
 //     query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint, query_user_intent_state
@@ -169,7 +169,8 @@ pub fn execute(
             pool_for_oracle_and_liquidations,
             debt_minimum
         } => update_market(deps, info, env, collateral_denom, max_borrow_LTV, liquidation_LTV, rate_params, borrow_fee, whitelisted_collateral_suppliers, borrow_cap, max_slippage, pool_for_oracle_and_liquidations, per_user_debt_cap, debt_minimum),
-        ExecuteMsg::EditUXBoosts { collateral_denom, loop_ltv, take_profit_params, stop_loss_params, collateral_value_fee_to_executor } => edit_ux_boosts(deps, env, info, collateral_denom, loop_ltv, take_profit_params, stop_loss_params, collateral_value_fee_to_executor), 
+        ExecuteMsg::EditUXBoosts { collateral_denom, loop_ltv, take_profit_params, stop_loss_params, 
+            arb_price, collateral_value_fee_to_executor } => edit_ux_boosts(deps, env, info, collateral_denom, loop_ltv, take_profit_params, stop_loss_params, arb_price, collateral_value_fee_to_executor), 
         ExecuteMsg::SupplyCollateral { owner } => supply_collateral(deps, env, info, owner),
         ExecuteMsg::SupplyDebt { send_to } => supply_debt(deps, env, info, send_to),
         ExecuteMsg::Borrow { collateral_denom, send_to, borrow_amount } => borrow_cdt(deps, env, info, send_to, collateral_denom, borrow_amount),
@@ -439,6 +440,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
         LIQUIDATE_REPLY_ID => handle_liquidation_reply(deps, env, msg),
         LOOP_POSITION_REPLY_ID => handle_loop_position_reply(deps, env, msg),
+        LTV_CHECK_REPLY_ID => handle_ltv_check_reply(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }

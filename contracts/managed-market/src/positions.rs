@@ -43,6 +43,7 @@ use crate::{
 pub const LIQUIDATE_REPLY_ID: u64 = 1u64;
 pub const CLOSE_POSITION_REPLY_ID: u64 = 2u64;
 pub const LOOP_POSITION_REPLY_ID: u64 = 3u64;
+pub const LTV_CHECK_REPLY_ID: u64 = 4u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 
@@ -664,6 +665,7 @@ pub fn edit_ux_boosts(
     loop_ltv: Option<Option<Decimal>>,
     take_profit_params: Option<Option<AutoCloseParams>>,
     stop_loss_params: Option<Option<AutoCloseParams>>,
+    arb_price: Option<Option<Decimal>>,
     collateral_value_fee_to_executor: Option<Decimal>, 
 ) -> Result<Response, ContractError> {
     //Load user state
@@ -679,6 +681,7 @@ pub fn edit_ux_boosts(
                         loop_ltv: None,
                         take_profit_params: None,
                         stop_loss_params: None,
+                        arb_price: None,
                         collateral_bought_from_loops: vec![],
                     }
                 },
@@ -787,6 +790,10 @@ pub fn edit_ux_boosts(
     if let Some(collateral_value_fee_to_executor) = collateral_value_fee_to_executor {
         user_position_ux_boosts.collateral_value_fee_to_executor = collateral_value_fee_to_executor;
     }
+    //Set arb price
+    if let Some(arb_price) = arb_price {
+        user_position_ux_boosts.arb_price = arb_price;
+    }
 
     //Save user state
     POSITION_UX_BOOSTS.save(deps.storage, (info.sender.clone(), collateral_denom.to_string()), &user_position_ux_boosts)?;
@@ -797,7 +804,8 @@ pub fn edit_ux_boosts(
             attr("loop_ltv", format!("{:?}", loop_ltv)),
             attr("take_profit_params", format!("{:?}", take_profit_params)),
             attr("stop_loss_params", format!("{:?}", stop_loss_params)),
-            attr("collateral_value_fee_to_executor", format!("{:?}", collateral_value_fee_to_executor)),
+            attr("collate   ral_value_fee_to_executor", format!("{:?}", collateral_value_fee_to_executor)),
+            attr("arb_price", format!("{:?}", arb_price)),
             attr("collateral_bought_from_loops", format!("{:?}", user_position_ux_boosts.collateral_bought_from_loops )),
 
         ]))
@@ -1735,11 +1743,11 @@ pub fn close_position(
     close_percentage: Option<Decimal>,
     mut max_spread: Decimal,
     mut send_to: Option<String>,
-    //Close for a user that is not the sender. For SL and TP.
+    //Close for a user that is not the sender. For SL, TP, or arb.
     position_owner: Option<String>,
 ) -> Result<Response, ContractError>{
     //Load global state
-    let config: Config = CONFIG.load(deps.storage)?;
+    // let config: Config = CONFIG.load(deps.storage)?;
     let market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
         Ok(market) => market,
         Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
@@ -1784,8 +1792,8 @@ pub fn close_position(
             Ok(target_position_ux_boosts) => target_position_ux_boosts,
             Err(_) => return Err(ContractError::CustomError { val: format!("Position owner {} has no UX Boosts set", position_owner) }),
         };
-        //Check if the position has SL or TP params set
-        if target_position_ux_boosts.stop_loss_params.is_none() && target_position_ux_boosts.take_profit_params.is_none() {
+        //Check if the position has SL, TP, or arb price params set
+        if target_position_ux_boosts.stop_loss_params.is_none() && target_position_ux_boosts.take_profit_params.is_none() && target_position_ux_boosts.arb_price.is_none() {
             return Err(ContractError::CustomError { val: format!("Position owner {} has no SL or TP params set", position_owner) });
         }
 
@@ -1807,7 +1815,7 @@ pub fn close_position(
                 Some(send_to) => Some(send_to),
                 None => Some(position_owner.to_string()),
             };
-        }
+        } else
         //TP 
         if let Some(take_profit_params) = target_position_ux_boosts.take_profit_params.clone() {
             if position_LTV < take_profit_params.ltv {
@@ -1820,16 +1828,40 @@ pub fn close_position(
                 Some(send_to) => Some(send_to),
                 None => Some(position_owner.to_string()),
             };
+        } else
+        //Arb price
+        if let Some(arb_price) = target_position_ux_boosts.arb_price.clone() {
+            if debt_price.price > arb_price {
+                return Err(ContractError::CustomError { val: format!("Debt price is not less than or equal to the arb price") });
+            }
+            //Bc its an arb, any viable arb is profitable so the close percentage can be whatever the caller wants.
+            //Granted this restricts flexibility but its fine for what we need it for.
+
+            //Set send_to to the position owner
+            send_to = Some(position_owner.to_string());
         }
 
         ////Send the executor the fee///
         //Calculate the amount of collateral to send
-        let fee_collateral_amount = collateral_price.get_amount(target_position_ux_boosts.collateral_value_fee_to_executor)?;
+        let mut fee_collateral_amount = collateral_price.get_amount(target_position_ux_boosts.collateral_value_fee_to_executor * close_percentage)?;
         //Update the position's state, subtract fee amount 
         target_position.collateral_amount = match target_position.collateral_amount.checked_sub(fee_collateral_amount){
             Ok(val) => val,
-            Err(_) => return Err(ContractError::CustomError { val: format!("Collateral amount to send: {} > User collateral amount: {}", fee_collateral_amount, target_position.collateral_amount) }),
+            Err(_) => {
+                //If fee is greater, set the fee to 1% of the collateral
+                fee_collateral_amount = collateral_price.get_amount(decimal_multiplication(
+                    Decimal::from_ratio(target_position.collateral_amount, Uint128::one()),
+                    Decimal::percent(1))?
+                )?;
+                //Subtract the fee from the position
+                match target_position.collateral_amount.checked_sub(fee_collateral_amount){
+                    Ok(val) => val,
+                    Err(_) => return Err(ContractError::CustomError { val: format!("2nd Layer: Collateral amount to send: {} > User collateral amount: {}", fee_collateral_amount, target_position.collateral_amount) }),
+                }
+
+            }
         };
+        
 
         //Send the fee to the executor
         if !fee_collateral_amount.is_zero() {

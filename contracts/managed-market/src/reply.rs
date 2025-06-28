@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use cosmwasm_std::{attr, to_json_binary, CosmosMsg, Decimal, DepsMut, Env, Reply, Response, StdError, StdResult, Uint128, WasmMsg};
+use cosmwasm_std::{attr, to_json_binary, CosmosMsg, Decimal, DepsMut, Env, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg};
 
 use membrane::managed_market::{Config, ExecuteMsg, MarketParams};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
@@ -8,7 +8,7 @@ use membrane::oracle::PriceResponse;
 use membrane::types::{cAsset, Asset, AssetInfo, Basket, PurchaseData, UserHistory};
 use membrane::helpers::{asset_to_coin, get_contract_balances, withdrawal_msg};
 
-use crate::positions::CDT_DENOM;
+use crate::positions::{CDT_DENOM, LTV_CHECK_REPLY_ID};
 use crate::state::{ClosePositionPropagation, LiquidationPropagation, LoopPropagation, CLOSE_POSITION, CONFIG, LIQUIDATION, LOOP_POSITION, MARKET_PARAMS, POSITIONS, POSITION_UX_BOOSTS, USER_HISTORY};
 use crate::oracle::{get_cdt_price, get_collateral_price};
 //Liquidation reply
@@ -102,7 +102,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
     match msg.result.into_result() {
         Ok(_result) => {
             //Init msgs
-            let mut msgs: Vec<CosmosMsg> = vec![];
+            let mut msgs: Vec<SubMsg> = vec![];
 
             //Load Close Position Prop
             let close_prop: ClosePositionPropagation = CLOSE_POSITION.load(deps.storage)?;
@@ -241,32 +241,35 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     })?]
             });
 
-            //Add to msgs
-            msgs.push(repay_msg.clone());
 
+            //Create WithdrawMsg
+            //We only withdraw if the debt will be zero post repaymentt
+            let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                contract_addr: env.contract.address.to_string(), 
+                msg: to_json_binary(& ExecuteMsg::WithdrawCollateral { 
+                    collateral_denom: close_prop.collateral_denom.clone(), 
+                    send_to: close_prop.send_to.clone(), 
+                    //We set the withdraw amount to None, so we withdraw all assets
+                    withdraw_amount: None,
+                } )?, 
+                funds: vec![],
+            });
 
-            //If the debt will be zero post repayment, we withdraw all assets
             let is_new_debt_zero = amount_swapped_for >= target_position.debt_amount;
-            if is_new_debt_zero {     
-                //Create WithdrawMsg
-                let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
-                    contract_addr: env.contract.address.to_string(), 
-                    msg: to_json_binary(& ExecuteMsg::WithdrawCollateral { 
-                        collateral_denom: close_prop.collateral_denom.clone(), 
-                        send_to: close_prop.send_to.clone(), 
-                        //We set the withdraw amount to None, so we withdraw all assets
-                        withdraw_amount: None,
-                    } )?, 
-                    funds: vec![],
-                });
 
-                //Add to msgs
-                msgs.push(withdraw_msg.clone());
+            //Add to msgs
+            //If new debt is 0 do the LTV check in the withdraw msg,
+            //Otherwise do the LTV check in the repay msg
+            if is_new_debt_zero {
+                msgs.push(SubMsg::new(repay_msg.clone()));
+                msgs.push(SubMsg::reply_on_success(withdraw_msg.clone(), LTV_CHECK_REPLY_ID));
+            } else {
+                msgs.push(SubMsg::reply_on_success(repay_msg.clone(), LTV_CHECK_REPLY_ID));
             }
 
             //Create response
             let response = Response::new()
-                .add_messages(msgs)
+                .add_submessages(msgs)
                 .add_attribute("action", "close_position")
                 .add_attribute("position_owner", close_prop.position_owner)
                 .add_attribute("debt_recovered", amount_swapped_for)
@@ -281,6 +284,67 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             //Its reply on success only
             Ok(Response::new().add_attribute("error", err))
         }
+    }
+}
+
+pub fn handle_ltv_check_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+                        //Load Config
+                        let mut config: Config = CONFIG.load(deps.storage)?;
+        
+                        //Load Close Position Prop
+                        let close_prop: ClosePositionPropagation = CLOSE_POSITION.load(deps.storage)?;
+        
+                        let market = match MARKET_PARAMS.load(deps.storage, close_prop.collateral_denom.clone()){
+                            Ok(market) => market,
+                            Err(_) => return Err(StdError::generic_err(format!("Collateral asset ({:?}) not supported", close_prop.collateral_denom) )),
+                        };
+                
+                        //Validate position owner
+                        let position_owner = deps.api.addr_validate(&close_prop.position_owner)?;
+                
+                        //Load user position
+                        let mut user_position = POSITIONS.load(deps.storage, (position_owner.clone(), close_prop.collateral_denom.clone()))?;
+                
+                        // accrue(
+                        //     deps.storage,
+                        //     get_total_debt_tokens(config.clone())?,
+                        //     total_vault_tokens, 
+                        //     env.clone(), 
+                        //     &mut config, 
+                        //     &mut user_position,
+                        //     &mut msgs,
+                        //     markets_manager_fee
+                        // )?;    
+                
+                
+                        //Check if the position is insolvent
+                        let collateral_price = match get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone()){
+                            Ok(price) => price,
+                            Err(err) => return Err(StdError::generic_err(format!("Failed to get collateral price in ltv check reply: {}", err) ))
+                        };
+                        let debt_price = match get_cdt_price(deps.querier, env.clone()){
+                            Ok(price) => price,
+                            Err(err) => return Err(StdError::generic_err(format!("Failed to get debt price in ltv check reply: {}", err) ))
+                        };
+                        let collateral_value = collateral_price.get_value(user_position.collateral_amount)?;
+                        if collateral_value.is_zero() {
+                            return Err(StdError::generic_err("Collateral value is zero; cannot calculate LTV".to_string()));
+                        }
+                        let debt_value = debt_price.get_value(user_position.debt_amount)?;
+                        let position_LTV = decimal_division(debt_value, collateral_value)?;
+                        if position_LTV < market.collateral_params.liquidation_LTV {
+                            Ok(Response::new())
+                        } else {
+                            Err(StdError::generic_err(format!("Position is insolvent. Position LTV: {} is above the liquidation LTV: {}", position_LTV, market.collateral_params.liquidation_LTV) ))
+                        }
+            },
+
+            Err(err) => {
+                //Its reply on success only
+                Ok(Response::new().add_attribute("error", err))
+            }
     }
 }
 

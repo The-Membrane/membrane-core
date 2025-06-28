@@ -123,6 +123,8 @@ pub enum ExecuteMsg {
         take_profit_params: Option<Option<AutoCloseParams>>,
         /// Params to allow "automated" position close
         stop_loss_params: Option<Option<AutoCloseParams>>,
+        /// Price to use for arb (Just closes the position at a debt price)
+        arb_price: Option<Option<Decimal>>,
         /// Execution fee in collateral (value)
         collateral_value_fee_to_executor: Option<Decimal>, 
     },

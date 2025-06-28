@@ -30,8 +30,8 @@ pub enum ExecuteMsg {
         withdrawal_buffer: Option<Decimal>,
         deposit_cap: Option<Uint128>,
         swap_slippage: Option<Decimal>,
-        vault_cost_index: Option<()>
-    },
+        arb_price: Option<Decimal>,
+    }, 
     /// Unloop the vault's CDP position to free up collateral
     /// Only called by the contract. (for withdrawals)
     UnloopCDP {

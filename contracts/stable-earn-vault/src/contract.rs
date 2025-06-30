@@ -44,6 +44,7 @@ const LOOP_MAX: u64 = 5u64;
 const MIN_DEPOSIT_VALUE: Decimal = Decimal::percent(21_11);
 
 ////PROCEDURAL FLOW/NOTES////
+/// 
 // - There is a deposit and entry fee. 
 // --The entry fee is added in manually thru the contract in get_total_deposits().
 // -- The deposit fee is baked into the "liquid" valuation calc of the CDP position so deposits that don't get looped won't confer this fee to the vault.
@@ -398,11 +399,13 @@ fn loop_cdp(
     let submsg = SubMsg::reply_on_success(swap_msg, LOOP_REPLY_ID);
 
 
-    //Set the collateral fee to 1% of total debt
-    let collateral_value_fee_to_executor = decimal_multiplication(
+    //Set the collateral fee to 1% of total debt, maximum $5
+    let collateral_value_fee_to_executor = max(decimal_multiplication(
         Decimal::from_ratio(running_credit_amount + amount_to_mint, Uint128::one()),
          Decimal::percent(1)
-        )?;
+        )?,
+        Decimal::percent(5_00) //5
+    );
     let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.cdp_contract_addr.to_string(),
         msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
@@ -2351,14 +2354,14 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
                 stop_loss_params: None,
                 take_profit_params: None,
                 arb_price: Some(Some(Decimal::percent(99))),
-                collateral_value_fee_to_executor: Some(Decimal::percent(10_00)),
+                collateral_value_fee_to_executor: Some(Decimal::percent(5_00)),
              })?,
             funds: vec![],
         });
         msgs.push(edit_ux_boosts_msg);
 
     // todo!("Change CDP contract address to the managed market contract address.");
-    // config.cdp_contract_addr = "".to_string();
+    config.cdp_contract_addr = Addr::unchecked("osmo1f3vyppvhylsva9wwlcehd5mlme0cr3lxtcg5wlzl0kxhq9acrw7qphpjqs");
     CONFIG.save(deps.storage, &config)?;
 
 

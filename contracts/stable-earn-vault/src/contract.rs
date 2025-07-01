@@ -2349,6 +2349,9 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     ARB_PRICE.save(deps.storage, &Decimal::percent(99))?;
     
 
+    // todo!("Change CDP contract address to the managed market contract address.");
+    config.cdp_contract_addr = Addr::unchecked("osmo1f3vyppvhylsva9wwlcehd5mlme0cr3lxtcg5wlzl0kxhq9acrw7qphpjqs");
+
     //Edit the UXBoost's close/arb price
     let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.cdp_contract_addr.to_string(),
@@ -2364,8 +2367,6 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     });
     msgs.push(edit_ux_boosts_msg);
 
-    // todo!("Change CDP contract address to the managed market contract address.");
-    config.cdp_contract_addr = Addr::unchecked("osmo1f3vyppvhylsva9wwlcehd5mlme0cr3lxtcg5wlzl0kxhq9acrw7qphpjqs");
     CONFIG.save(deps.storage, &config)?;
 
 

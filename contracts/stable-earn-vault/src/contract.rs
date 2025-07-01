@@ -2352,6 +2352,21 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     // todo!("Change CDP contract address to the managed market contract address.");
     config.cdp_contract_addr = Addr::unchecked("osmo1f3vyppvhylsva9wwlcehd5mlme0cr3lxtcg5wlzl0kxhq9acrw7qphpjqs");
 
+    //Deposit the vault tokens into the CDP
+    let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.cdp_contract_addr.to_string(),
+        msg: to_json_binary(&ManagedMarket_ExecuteMsg::SupplyCollateral { 
+            owner: Some(env.contract.address.clone().to_string())
+        })?,
+        funds: vec![
+            Coin {
+                denom: config.deposit_token.vault_token.clone(),
+                amount: Uint128::new(166118354770904),
+            }
+        ],
+    });
+    msgs.push(deposit_msg);
+
     //Edit the UXBoost's close/arb price
     let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.cdp_contract_addr.to_string(),

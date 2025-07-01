@@ -41,7 +41,7 @@ pub fn get_vault_token_price(
 
 
 pub fn get_collateral_price(
-    storage: &dyn Storage,
+    _storage: &dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     market: MarketParams,
@@ -78,12 +78,13 @@ pub fn get_collateral_price(
     //Multiply prices to denominate in USDC
     let mut asset_price_in_usdc = {
         let mut final_price = Decimal::one();
-        //If no prices were queried, return error
-        if asset_price_in_lp_steps.len() == 0 {
+        //If no prices were queried & there is no vault info, return error
+        if asset_price_in_lp_steps.len() == 0 && asset_oracle_info.vault_info.is_none() {
             return Err(ContractError::CustomError {
                 val: String::from("No TWAP prices found"),
             });
         }
+        //if there is vault info, we can assume its a USDC vault bc non-USDC will have TWAP pools
 
         //Find asset price in USDC
         //Multiply prices to get the desired Quote

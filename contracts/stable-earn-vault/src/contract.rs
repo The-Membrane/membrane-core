@@ -2321,72 +2321,73 @@ fn get_buffer_amounts(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    let mut config = CONFIG.load(deps.storage)?;
-    let mut msgs: Vec<CosmosMsg> = vec![];
-    let mut attrs = vec![];
-    attrs.push(attr("method", "migrate"));
-    attrs.push(attr("old_cdp_contract_addr", config.clone().cdp_contract_addr));
+    // let mut config = CONFIG.load(deps.storage)?;
+    // let mut msgs: Vec<CosmosMsg> = vec![];
+    // let mut attrs = vec![];
+    // attrs.push(attr("method", "migrate"));
+    // attrs.push(attr("old_cdp_contract_addr", config.clone().cdp_contract_addr));
 
-    /// Create close cdp message with CDP-EXECUTEMSG
-    let close_cdp_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
-            position_id: config.cdp_position_id, 
-            assets: vec![
-                Asset {
-                    info: AssetInfo::NativeToken { denom: config.deposit_token.vault_token.clone() },
-                    amount: Uint128::new(166118354770904),
-                }
-            ], 
-            send_to: Some(env.contract.address.clone().to_string()) 
-        })?,
-        funds: vec![],
-    });
+    // /// Create close cdp message with CDP-EXECUTEMSG
+    // let close_cdp_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //     contract_addr: config.cdp_contract_addr.to_string(),
+    //     msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
+    //         position_id: config.cdp_position_id, 
+    //         assets: vec![
+    //             Asset {
+    //                 info: AssetInfo::NativeToken { denom: config.deposit_token.vault_token.clone() },
+    //                 amount: Uint128::new(166118354770904),
+    //             }
+    //         ], 
+    //         send_to: Some(env.contract.address.clone().to_string()) 
+    //     })?,
+    //     funds: vec![],
+    // });
 
-    let close_cdp_submsg = SubMsg::new(close_cdp_msg);
+    // let close_cdp_submsg = SubMsg::new(close_cdp_msg);
 
-    //Set the arb price to 99% of peg
-    ARB_PRICE.save(deps.storage, &Decimal::percent(99))?;
+    // //Set the arb price to 99% of peg
+    // ARB_PRICE.save(deps.storage, &Decimal::percent(99))?;
     
 
-    // todo!("Change CDP contract address to the managed market contract address.");
-    config.cdp_contract_addr = Addr::unchecked("osmo1f3vyppvhylsva9wwlcehd5mlme0cr3lxtcg5wlzl0kxhq9acrw7qphpjqs");
+    // // todo!("Change CDP contract address to the managed market contract address.");
+    // config.cdp_contract_addr = Addr::unchecked("osmo1f3vyppvhylsva9wwlcehd5mlme0cr3lxtcg5wlzl0kxhq9acrw7qphpjqs");
 
-    //Deposit the vault tokens into the CDP
-    let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&ManagedMarket_ExecuteMsg::SupplyCollateral { 
-            owner: Some(env.contract.address.clone().to_string())
-        })?,
-        funds: vec![
-            Coin {
-                denom: config.deposit_token.vault_token.clone(),
-                amount: Uint128::new(166118354770904),
-            }
-        ],
-    });
-    msgs.push(deposit_msg);
+    // //Deposit the vault tokens into the CDP
+    // let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //     contract_addr: config.cdp_contract_addr.to_string(),
+    //     msg: to_json_binary(&ManagedMarket_ExecuteMsg::SupplyCollateral { 
+    //         owner: Some(env.contract.address.clone().to_string())
+    //     })?,
+    //     funds: vec![
+    //         Coin {
+    //             denom: config.deposit_token.vault_token.clone(),
+    //             amount: Uint128::new(166118354770904),
+    //         }
+    //     ],
+    // });
+    // msgs.push(deposit_msg);
 
-    //Edit the UXBoost's close/arb price
-    let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
-            collateral_denom: config.deposit_token.vault_token.clone(),
-            loop_ltv: None,
-            stop_loss_params: None,
-            take_profit_params: None,
-            arb_price: Some(Some(Decimal::percent(99))),
-            collateral_value_fee_to_executor: Some(Decimal::percent(5_00)),
-            })?,
-        funds: vec![],
-    });
-    msgs.push(edit_ux_boosts_msg);
+    // //Edit the UXBoost's close/arb price
+    // let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //     contract_addr: config.cdp_contract_addr.to_string(),
+    //     msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
+    //         collateral_denom: config.deposit_token.vault_token.clone(),
+    //         loop_ltv: None,
+    //         stop_loss_params: None,
+    //         take_profit_params: None,
+    //         arb_price: Some(Some(Decimal::percent(99))),
+    //         collateral_value_fee_to_executor: Some(Decimal::percent(5_00)),
+    //         })?,
+    //     funds: vec![],
+    // });
+    // msgs.push(edit_ux_boosts_msg);
 
-    CONFIG.save(deps.storage, &config)?;
+    // CONFIG.save(deps.storage, &config)?;
 
 
 
     Ok(Response::new()
-        .add_submessage(close_cdp_submsg)
-        .add_messages(msgs))
+        // .add_submessage(close_cdp_submsg)
+        // .add_messages(msgs)
+    )
 }

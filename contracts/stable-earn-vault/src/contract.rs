@@ -31,7 +31,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //Reply IDs
 const ENTER_VAULT_REPLY_ID: u64 = 1u64;
-// const CDP_REPLY_ID: u64 = 2u64;
+const MINT_REPLY_ID: u64 = 2u64;
 const LOOP_REPLY_ID: u64 = 3u64;
 const UNLOOP_REPLY_ID: u64 = 4u64;
 const EXIT_VAULT_STRAT_REPLY_ID: u64 = 5u64;
@@ -319,28 +319,14 @@ fn loop_cdp(
     let config = CONFIG.load(deps.storage)?;
     let mut msgs = vec![];
 
+    //Get the price ceiling as the arb price + swap slippage
     let price_ceiling = ARB_PRICE.load(deps.storage)? + config.swap_slippage;
+    //Get cdt peg price
     //Ensure price is at or above arb price + config.swap_slippage of peg
-    let (cdt_market_price, cdt_peg_price) = test_looping_peg_price(deps.querier, config.clone(), price_ceiling)?;
+    let (_cdt_market_price, cdt_peg_price) =  test_looping_peg_price(deps.querier, config.clone(), price_ceiling)?;
 
-    // Calc swap slippage based on the difference between the market and peg price.
-    // Maximum slippage is 0.5% (0.005).
-    let mut max_slippage = config.swap_slippage;
-    //////We dont need this unless looping price and close price are the same but since closes lose % to slippage,
-    ///  there actually needs to be a {market max_slippage} gap between the two//////
-    let peg_ratio = decimal_division(cdt_market_price.price, price_ceiling)?;
-    if peg_ratio > Decimal::one() && peg_ratio < Decimal::one() + config.swap_slippage {
-        max_slippage = match peg_ratio.checked_sub(Decimal::percent(100)){
-            Ok(v) => v,
-            Err(_) => return Err(TokenFactoryError::CustomError { val: format!("Failed to calculate the max slippage in loop {:?}", peg_ratio) }),
-        };
-    }
-    //So if market price is .991, slippage should be .001
-    //If market price is .995, slippage should be .005
-    //If market price is .999, slippage should be .005
-    //This allows the vault to loop at prices lower than the max (0.995 - 0.99) 
-    //..but not at rates that are unprofitable when redeeming
 
+    //Get running totals for CDP position & prices
     let (
         running_credit_amount, 
         running_collateral_amount, 
@@ -398,52 +384,17 @@ fn loop_cdp(
         })?,
         funds: vec![],
     });
-    msgs.push(mint_msg);
-    //Create swap msg
-    let swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.osmosis_proxy_contract_addr.to_string(),
-        msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps { 
-            token_out: config.deposit_token.deposit_token.clone(),
-            max_slippage,
-        })?,
-        funds: vec![
-            Coin {
-                denom: config.cdt_denom.clone(),
-                amount: amount_to_mint,
-            }
-        ],
-    });
-    let submsg = SubMsg::reply_on_success(swap_msg, LOOP_REPLY_ID);
+    let mint_submsg = SubMsg::reply_on_success(mint_msg, MINT_REPLY_ID);
 
 
-    //Set the collateral fee to 1% of total debt, maximum $5
-    let collateral_value_fee_to_executor = max(decimal_multiplication(
-        Decimal::from_ratio(running_credit_amount + amount_to_mint, Uint128::one()),
-         Decimal::percent(1)
-        )?,
-        Decimal::percent(5_00) //5
-    );
-    let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
-            collateral_denom: config.deposit_token.vault_token.clone(),
-            loop_ltv: None,
-            stop_loss_params: None,
-            take_profit_params: None,
-            arb_price: None,
-            collateral_value_fee_to_executor: Some(collateral_value_fee_to_executor),
-            })?,
-        funds: vec![],
-    });
-    msgs.push(edit_ux_boosts_msg);
+    /////MOving swp and UX msg to the mint msg reply///////
 
     //Create Response
     let res = Response::new()
         .add_attribute("method", "loop_cdp")
         .add_attribute("current_collateral", running_collateral_amount)
         .add_attribute("current_debt", running_credit_amount)
-        .add_messages(msgs)
-        .add_submessage(submsg);
+        .add_submessage(mint_submsg);
 
     Ok(res)
     
@@ -1897,7 +1848,7 @@ fn get_total_deposit_tokens(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         ENTER_VAULT_REPLY_ID => handle_enter_reply(deps, env, msg),
-        // CDP_REPLY_ID => handle_cdp_reply(deps, env, msg),
+        MINT_REPLY_ID => handle_mint_reply(deps, env, msg),
         LOOP_REPLY_ID => handle_loop_reply(deps, env, msg),
         UNLOOP_REPLY_ID => handle_unloop_reply(deps, env, msg),
         EXIT_VAULT_STRAT_REPLY_ID => handle_exit_deposit_token_vault_reply(deps, env, msg),
@@ -2089,6 +2040,107 @@ fn handle_unloop_reply(
         } //We only reply on success
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }
+}
+
+fn handle_mint_reply(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply,
+) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+            let config = CONFIG.load(deps.storage)?;
+            let mut msgs = vec![];
+
+            //Get the price ceiling as the arb price + swap slippage
+            let price_ceiling = ARB_PRICE.load(deps.storage)? + config.swap_slippage;
+            //Ensure price is at or above arb price + config.swap_slippage of peg
+            let (cdt_market_price, _cdt_peg_price) = match test_looping_peg_price(deps.querier, config.clone(), price_ceiling){
+                Ok(res) => res,
+                Err(err) => return Err(StdError::GenericErr { msg: format!("Failed to test the peg price in handle_mint_reply: {:?}", err) }),    
+            };
+
+            // Calc swap slippage based on the difference between the market and peg price.
+            // Maximum slippage is 0.5% (0.005).
+            let mut max_slippage = config.swap_slippage;
+            //////We dont need this unless looping price and close price are the same but since closes lose % to slippage,
+            ///  there actually needs to be a {market max_slippage} gap between the two//////
+            let peg_ratio = decimal_division(cdt_market_price.price, price_ceiling)?;
+            if peg_ratio > Decimal::one() && peg_ratio < Decimal::one() + config.swap_slippage {
+                max_slippage = match peg_ratio.checked_sub(Decimal::percent(100)){
+                    Ok(v) => v,
+                    Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to calculate the max slippage in loop {:?}", peg_ratio) }),
+                };
+            }
+            //So if market price is .991, slippage should be .001
+            //If market price is .995, slippage should be .005
+            //If market price is .999, slippage should be .005
+            //This allows the vault to loop at prices lower than the max (0.995 - 0.99) 
+            //..but not at rates that are unprofitable when redeeming
+
+
+            //Get the cdp position info
+            let (
+                running_credit_amount, 
+                _running_collateral_amount, 
+                _vt_price, 
+                _cdt_price
+            ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut msgs)?;
+
+            //Query balance for the CDT received from the mint
+            let cdt_balance = deps.querier.query_balance(env.contract.address.to_string(), config.clone().cdt_denom)?.amount;
+
+            //Create swap msg
+            let swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.osmosis_proxy_contract_addr.to_string(),
+                msg: to_json_binary(&OP_ExecuteMsg::ExecuteSwaps { 
+                    token_out: config.deposit_token.deposit_token.clone(),
+                    max_slippage,
+                })?,
+                funds: vec![
+                    Coin {
+                        denom: config.cdt_denom.clone(),
+                        amount: cdt_balance,
+                    }
+                ],
+            });
+            let submsg = SubMsg::reply_on_success(swap_msg, LOOP_REPLY_ID);
+
+
+            //Set the collateral fee to 1% of total debt, maximum $5
+            let collateral_value_fee_to_executor = max(decimal_multiplication(
+                Decimal::from_ratio(running_credit_amount, Uint128::one()),
+                Decimal::percent(1)
+                )?,
+                Decimal::percent(5_00) //5
+            );
+            let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.cdp_contract_addr.to_string(),
+                msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
+                    collateral_denom: config.deposit_token.vault_token.clone(),
+                    loop_ltv: None,
+                    stop_loss_params: None,
+                    take_profit_params: None,
+                    arb_price: None,
+                    collateral_value_fee_to_executor: Some(collateral_value_fee_to_executor),
+                    })?,
+                funds: vec![],
+            });
+            msgs.push(edit_ux_boosts_msg);
+
+            //Create Response
+            let res = Response::new()
+                .add_attribute("method", "handle_mint_reply")
+                .add_attribute("running_credit_amount", running_credit_amount.to_string())
+                .add_attribute("collateral_value_fee_to_executor", collateral_value_fee_to_executor.to_string())
+                .add_submessage(submsg)
+                .add_messages(msgs);
+
+            return Ok(res);
+        }
+        Err(err) => return Err(StdError::GenericErr { msg: err }),
+    }
+
 }
 
 fn handle_loop_reply(

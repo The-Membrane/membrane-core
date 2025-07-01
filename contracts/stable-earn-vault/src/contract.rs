@@ -162,6 +162,22 @@ pub fn instantiate(
         }],
     });
     let cdp_submsg = SubMsg::new(cdp_deposit_msg);
+
+
+    // //Edit the UXBoost's close/arb price
+    let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.cdp_contract_addr.to_string(),
+        msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
+            collateral_denom: config.deposit_token.vault_token.clone(),
+            loop_ltv: Some(Some(Decimal::percent(89))),
+            stop_loss_params: None,
+            take_profit_params: None,
+            arb_price: Some(Some(Decimal::percent(99))),
+            collateral_value_fee_to_executor: Some(Decimal::percent(5_00)),
+            })?,
+        funds: vec![],
+    });
+
     
     //Create Response
     let res = Response::new()
@@ -171,7 +187,8 @@ pub fn instantiate(
         .add_attribute("sub_denom", msg.clone().vault_subdenom)
     //UNCOMMENT
         .add_message(denom_msg)
-        .add_submessage(cdp_submsg);
+        .add_submessage(cdp_submsg)
+        .add_message(edit_ux_boosts_msg);
     Ok(res)
 }
 
@@ -2321,8 +2338,8 @@ fn get_buffer_amounts(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    // let mut config = CONFIG.load(deps.storage)?;
-    // let mut msgs: Vec<CosmosMsg> = vec![];
+    let mut config = CONFIG.load(deps.storage)?;
+    let mut msgs: Vec<CosmosMsg> = vec![];
     // let mut attrs = vec![];
     // attrs.push(attr("method", "migrate"));
     // attrs.push(attr("old_cdp_contract_addr", config.clone().cdp_contract_addr));
@@ -2368,19 +2385,19 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     // msgs.push(deposit_msg);
 
     // //Edit the UXBoost's close/arb price
-    // let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-    //     contract_addr: config.cdp_contract_addr.to_string(),
-    //     msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
-    //         collateral_denom: config.deposit_token.vault_token.clone(),
-    //         loop_ltv: None,
-    //         stop_loss_params: None,
-    //         take_profit_params: None,
-    //         arb_price: Some(Some(Decimal::percent(99))),
-    //         collateral_value_fee_to_executor: Some(Decimal::percent(5_00)),
-    //         })?,
-    //     funds: vec![],
-    // });
-    // msgs.push(edit_ux_boosts_msg);
+    let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.cdp_contract_addr.to_string(),
+        msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
+            collateral_denom: config.deposit_token.vault_token.clone(),
+            loop_ltv: Some(Some(Decimal::percent(89))),
+            stop_loss_params: None,
+            take_profit_params: None,
+            arb_price: None,
+            collateral_value_fee_to_executor: None
+            })?,
+        funds: vec![],
+    });
+    msgs.push(edit_ux_boosts_msg);
 
     // CONFIG.save(deps.storage, &config)?;
 
@@ -2388,6 +2405,6 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
 
     Ok(Response::new()
         // .add_submessage(close_cdp_submsg)
-        // .add_messages(msgs)
+        .add_messages(msgs)
     )
 }

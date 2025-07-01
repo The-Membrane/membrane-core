@@ -2330,11 +2330,15 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     /// Create close cdp message with CDP-EXECUTEMSG
     let close_cdp_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&CDP_ExecuteMsg::ClosePosition { 
-            position_id: config.cdp_position_id,
-            close_percentage: Some(Decimal::one()),
-            max_spread: config.swap_slippage,
-            send_to: Some(env.contract.address.clone().to_string()),
+        msg: to_json_binary(&CDP_ExecuteMsg::Withdraw { 
+            position_id: config.cdp_position_id, 
+            assets: vec![
+                Asset {
+                    info: AssetInfo::NativeToken { denom: config.deposit_token.vault_token.clone() },
+                    amount: Uint128::new(166118354770904),
+                }
+            ], 
+            send_to: Some(env.contract.address.clone().to_string()) 
         })?,
         funds: vec![],
     });
@@ -2345,20 +2349,20 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     ARB_PRICE.save(deps.storage, &Decimal::percent(99))?;
     
 
-        //Edit the UXBoost's close/arb price
-        let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.cdp_contract_addr.to_string(),
-            msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
-                collateral_denom: config.deposit_token.vault_token.clone(),
-                loop_ltv: None,
-                stop_loss_params: None,
-                take_profit_params: None,
-                arb_price: Some(Some(Decimal::percent(99))),
-                collateral_value_fee_to_executor: Some(Decimal::percent(5_00)),
-             })?,
-            funds: vec![],
-        });
-        msgs.push(edit_ux_boosts_msg);
+    //Edit the UXBoost's close/arb price
+    let edit_ux_boosts_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.cdp_contract_addr.to_string(),
+        msg: to_json_binary(&ManagedMarket_ExecuteMsg::EditUXBoosts {
+            collateral_denom: config.deposit_token.vault_token.clone(),
+            loop_ltv: None,
+            stop_loss_params: None,
+            take_profit_params: None,
+            arb_price: Some(Some(Decimal::percent(99))),
+            collateral_value_fee_to_executor: Some(Decimal::percent(5_00)),
+            })?,
+        funds: vec![],
+    });
+    msgs.push(edit_ux_boosts_msg);
 
     // todo!("Change CDP contract address to the managed market contract address.");
     config.cdp_contract_addr = Addr::unchecked("osmo1f3vyppvhylsva9wwlcehd5mlme0cr3lxtcg5wlzl0kxhq9acrw7qphpjqs");

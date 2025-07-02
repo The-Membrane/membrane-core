@@ -9,6 +9,8 @@ use cosmwasm_std::{
     WasmQuery,
 };
 
+
+use membrane::mars_vault_token::{ExecuteMsg as Vault_ExecuteMsg, QueryMsg as Vault_QueryMsg};
 use membrane::helpers::{validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances};
 use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_subtraction};
 use membrane::oracle::PriceResponse;
@@ -1281,14 +1283,51 @@ fn get_swap_in_routes_to_cdt(
 
 
 fn create_swap_to_cdt_msg(
+    market: MarketParams,
     env: Env,
+    querier: QuerierWrapper,
     collateral_denom: String,
-    collateral_amount: Uint128,
+    mut collateral_amount: Uint128,
     collateral_price: PriceResponse,
     debt_price: PriceResponse,
     routes: Vec<SwapAmountInRoute>,
     max_slippage: Decimal,
-) -> Result<CosmosMsg, ContractError> {
+) -> Result<Vec<SubMsg>, ContractError> {
+    let mut msgs = vec![];
+
+    //If its a vault token:
+    // - Withdraw from the vault
+    // - Query how much we expect to receive - 1
+    // - Set that amount as the collateral amount for the swap 
+    if let Some(vault_info) = market.pool_for_oracle_and_liquidations.vault_info {
+
+        //Withdraw from the vault
+        let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: vault_info.vault_contract.clone(),
+            msg: to_json_binary(&Vault_ExecuteMsg::ExitVault {})?,
+            funds: vec![
+                Coin {
+                    denom: collateral_denom.clone(),
+                    amount: collateral_amount,
+                }
+            ],
+        });
+        msgs.push(SubMsg::new(withdraw_msg));
+
+        //Query how much we expect to receive - 1
+        let underlying_deposit_token: Uint128 = match querier.query_wasm_smart::<Uint128>(
+            vault_info.vault_contract,
+            &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: collateral_amount },
+        ){
+            Ok(underlying_deposit_token) => underlying_deposit_token,
+            Err(_) => return Err(ContractError::CustomError { val: String::from("Failed to query the Mars Vault Token for the underlying deposit amount in instantiate") }),
+        };
+
+        //Set the collateral amount for the swap
+        collateral_amount = underlying_deposit_token - Uint128::one();
+    }
+        
+
     //Get token_in & token_out prices
     let token_in_price = collateral_price.clone();
     let token_out_price = debt_price.clone();
@@ -1309,8 +1348,11 @@ fn create_swap_to_cdt_msg(
         token_out_min_amount: token_out_min_amount.to_string(),
         
     }.into();
+    //Reply on success to edit the user position based on the CDT that was swapped for & edit the config's total borrowed.
+    let sub_msg = SubMsg::reply_on_success(msg, LIQUIDATE_REPLY_ID);
+    msgs.push(sub_msg);
 
-    Ok(msg)
+    Ok(msgs)
 }
 
 fn get_swap_in_routes_to_collateral(
@@ -1540,8 +1582,10 @@ pub fn liquidate(
 
 
     //Create swap msg for liquidations
-    let swap_msg = create_swap_to_cdt_msg(
+    let swap_msgs = create_swap_to_cdt_msg(
+        market.clone(),
         env.clone(), 
+        deps.querier.clone(),
         market.clone().collateral_params.collateral_asset, 
         collateral_amount_to_liquidate, 
         collateral_price, 
@@ -1549,8 +1593,7 @@ pub fn liquidate(
         get_swap_in_routes_to_cdt(market.clone())?, 
         max_slippage,
     )?;
-    //Reply on success to edit the user position based on the CDT that was swapped for & edit the config's total borrowed.
-    let sub_msg = SubMsg::reply_on_success(swap_msg, LIQUIDATE_REPLY_ID);
+
     //Save pre liquidation CDT balance 
     let cdt_balance = deps.querier.query_balance(env.clone().contract.address, CDT_DENOM.to_string())?.amount;
     LIQUIDATION.save(deps.storage, & LiquidationPropagation {
@@ -1587,7 +1630,7 @@ pub fn liquidate(
 
     //Create response
     Ok(Response::new()
-        .add_submessage(sub_msg)
+        .add_submessages(swap_msgs)
         .add_messages(msgs)
         .add_submessage(SubMsg::reply_always(check_bad_debt_msg, BAD_DEBT_REPLY_ID))
         .add_attributes(vec![
@@ -1924,16 +1967,17 @@ pub fn close_position(
     POSITIONS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &target_position)?;
 
     //Create swap subMsg to sell, create repay & withdraw msgs in reply on success
-    let swap_msg = create_swap_to_cdt_msg(
+    let swap_msgs = create_swap_to_cdt_msg(
+        market.clone(),
         env.clone(), 
+        deps.querier.clone(),
         market.clone().collateral_params.collateral_asset, 
         collateral_amount_to_sell, 
         collateral_price, 
         debt_price, 
         get_swap_in_routes_to_cdt(market.clone())?, 
         max_spread,
-    )?;
-    let sub_msg = SubMsg::reply_on_success(swap_msg, CLOSE_POSITION_REPLY_ID);    
+    )?; 
 
     //Save CLOSE_POSITION_PROPAGATION
     CLOSE_POSITION.save(deps.storage, &ClosePositionPropagation {
@@ -1949,7 +1993,7 @@ pub fn close_position(
 
     Ok(Response::new()
         .add_messages(msgs)
-        .add_submessage(sub_msg)
+        .add_submessages(swap_msgs)
         .add_attributes(vec![
         attr("collateral_denom", collateral_denom),
         attr("msg_executor", info.sender),

@@ -2348,35 +2348,36 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     
 
     // todo!("Change CDP contract address to the cdp contract address.");
-    config.cdp_contract_addr = Addr::unchecked("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr");
+    // config.cdp_contract_addr = Addr::unchecked("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr");
 
-    // Deposit the vault tokens into the CDP
-    let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
-        funds: vec![
-            Coin {
-                denom: config.deposit_token.vault_token.clone(),
-                amount: deps.querier.query_balance(env.clone().contract.address.to_string(), config.deposit_token.clone().vault_token)?.amount,
-            }
-        ],
-    });
-    msgs.push(deposit_msg);
-    // Query the basket to find the next position ID
-    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
-        config.cdp_contract_addr.to_string(),
-        &CDP_QueryMsg::GetBasket { },
-    ){
-        Ok(basket) => basket,
-        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Basket") }),
-    };
-    config.cdp_position_id = basket.current_position_id;
+    // // Deposit the vault tokens into the CDP
+    // let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //     contract_addr: config.cdp_contract_addr.to_string(),
+    //     msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
+    //     funds: vec![
+    //         Coin {
+    //             denom: config.deposit_token.vault_token.clone(),
+    //             amount: deps.querier.query_balance(env.clone().contract.address.to_string(), config.deposit_token.clone().vault_token)?.amount,
+    //         }
+    //     ],
+    // });
+    // msgs.push(deposit_msg);
+    // // Query the basket to find the next position ID
+    // let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
+    //     config.cdp_contract_addr.to_string(),
+    //     &CDP_QueryMsg::GetBasket { },
+    // ){
+    //     Ok(basket) => basket,
+    //     Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Basket") }),
+    // };
+    // config.cdp_position_id = basket.current_position_id;
 
-    CONFIG.save(deps.storage, &config)?;
+    // CONFIG.save(deps.storage, &config)?;
 
-    LOOPING.save(deps.storage, &true)?;
+    // LOOPING.save(deps.storage, &true)?;
 
     Ok(Response::new()
-        .add_messages(msgs))
+        // .add_messages(msgs)
+    )
         
 }

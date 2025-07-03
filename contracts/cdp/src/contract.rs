@@ -641,7 +641,52 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    
-    //Return response
-    Ok(Response::default())
+    // Debug: Print basket collateral_types, their amounts, prices, values, and ratios
+    let mut attrs = vec![attr("debug", "basket_ratios")];
+    let basket = BASKET.load(deps.storage)?;
+    let config = CONFIG.load(deps.storage)?;
+    let asset_list = basket.collateral_types.clone();
+    let querier = deps.querier;
+    let storage = deps.storage;
+    // get_cAsset_ratios returns (ratios, prices)
+    let (ratios, prices) = match crate::query::get_cAsset_ratios(
+        storage,
+        env.clone(),
+        querier,
+        asset_list.clone(),
+        config.clone(),
+        Some(basket.clone()),
+    ) {
+        Ok((ratios, prices)) => (ratios, prices),
+        Err(e) => {
+            return Ok(Response::new().add_attribute("debug_error", format!("get_cAsset_ratios error: {}", e)));
+        }
+    };
+    // get_asset_values returns (values, prices)
+    let (values, prices2) = match crate::query::get_asset_values(
+        storage,
+        env.clone(),
+        querier,
+        asset_list.clone(),
+        config.clone(),
+        Some(basket.clone()),
+        false,
+    ) {
+        Ok((values, prices2)) => (values, prices2),
+        Err(e) => {
+            return Ok(Response::new().add_attribute("debug_error", format!("get_asset_values error: {}", e)));
+        }
+    };
+    let total_value: cosmwasm_std::Decimal = values.iter().cloned().sum();
+    for (i, casset) in asset_list.iter().enumerate() {
+        attrs.push(attr(format!("asset_{}_info", i), format!("{}", casset.asset.info)));
+        attrs.push(attr(format!("asset_{}_amount", i), casset.asset.amount));
+        attrs.push(attr(format!("asset_{}_price", i), prices.get(i).map(|p| p.price.to_string()).unwrap_or_else(|| "none".to_string())));
+        attrs.push(attr(format!("asset_{}_price2", i), prices2.get(i).map(|p| p.price.to_string()).unwrap_or_else(|| "none".to_string())));
+        attrs.push(attr(format!("asset_{}_value", i), values.get(i).map(|v| v.to_string()).unwrap_or_else(|| "none".to_string())));
+        attrs.push(attr(format!("asset_{}_ratio", i), ratios.get(i).map(|r| r.to_string()).unwrap_or_else(|| "none".to_string())));
+    }
+    attrs.push(attr("total_value", total_value.to_string()));
+    panic!("attrs: {:?}", attrs);
+    Ok(Response::new().add_attributes(attrs))
 }

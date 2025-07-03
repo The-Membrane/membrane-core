@@ -1199,7 +1199,7 @@ fn exit_vault(
     };
         
     //Get the amount of vault tokens in the contract
-    let contract_balance_of_deposit_vault_tokens = deps.querier.query_balance(env.clone().contract.address.to_string(), config.deposit_token.clone().vault_token)?.amount;
+    let contract_balance_of_deposit_vault_tokens =  deps.querier.query_balance(env.clone().contract.address.to_string(), config.deposit_token.clone().vault_token)?.amount;
 
     //Calc the amount of vt tokens to withdraw from the CDP position
     let vtokens_to_unloop_from_cdp = match mars_vault_tokens_to_withdraw.checked_sub(contract_balance_of_deposit_vault_tokens){
@@ -2330,54 +2330,53 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, To
     attrs.push(attr("method", "migrate"));
     attrs.push(attr("old_cdp_contract_addr", config.clone().cdp_contract_addr));
 
-    /// Create close cdp message with CDP-EXECUTEMSG
-    let close_cdp_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&ManagedMarket_ExecuteMsg::ClosePosition { 
-            collateral_denom: config.deposit_token.vault_token.clone(),
-            position_owner: Some(env.contract.address.clone().to_string()),
-            close_percentage: Some(Decimal::percent(100)),
-            max_spread: Decimal::percent(10),
-            send_to: Some(env.contract.address.clone().to_string()) 
-        })?,
-        funds: vec![],
-    });
+    // Create close cdp message with CDP-EXECUTEMSG
+    // let close_cdp_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //     contract_addr: config.cdp_contract_addr.to_string(),
+    //     msg: to_json_binary(&ManagedMarket_ExecuteMsg::ClosePosition { 
+    //         collateral_denom: config.deposit_token.vault_token.clone(),
+    //         position_owner: Some(env.contract.address.clone().to_string()),
+    //         close_percentage: Some(Decimal::percent(100)),
+    //         max_spread: Decimal::percent(10),
+    //         send_to: Some(env.contract.address.clone().to_string()) 
+    //     })?,
+    //     funds: vec![],
+    // });
 
-    let close_cdp_submsg = SubMsg::new(close_cdp_msg);
+    // let close_cdp_submsg = SubMsg::new(close_cdp_msg);
 
     
 
     // todo!("Change CDP contract address to the cdp contract address.");
-    // config.cdp_contract_addr = Addr::unchecked("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr");
+    config.cdp_contract_addr = Addr::unchecked("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr");
 
-    //Deposit the vault tokens into the CDP
-    // let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-    //     contract_addr: config.cdp_contract_addr.to_string(),
-    //     msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
-    //     funds: vec![
-    //         Coin {
-    //             denom: config.deposit_token.vault_token.clone(),
-    //             amount: GET BALANCE,
-    //         }
-    //     ],
-    // });
-    // msgs.push(deposit_msg);
-    //Query the basket to find the next position ID
-    // let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
-    //     config.cdp_contract_addr.to_string(),
-    //     &CDP_QueryMsg::GetBasket { },
-    // ){
-    //     Ok(basket) => basket,
-    //     Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Basket") }),
-    // };
-    // config.cdp_position_id = basket.current_position_id;
+    // Deposit the vault tokens into the CDP
+    let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.cdp_contract_addr.to_string(),
+        msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
+        funds: vec![
+            Coin {
+                denom: config.deposit_token.vault_token.clone(),
+                amount: deps.querier.query_balance(env.clone().contract.address.to_string(), config.deposit_token.clone().vault_token)?.amount,
+            }
+        ],
+    });
+    msgs.push(deposit_msg);
+    // Query the basket to find the next position ID
+    let basket: Basket = match deps.querier.query_wasm_smart::<Basket>(
+        config.cdp_contract_addr.to_string(),
+        &CDP_QueryMsg::GetBasket { },
+    ){
+        Ok(basket) => basket,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Basket") }),
+    };
+    config.cdp_position_id = basket.current_position_id;
 
-    // CONFIG.save(deps.storage, &config)?;
+    CONFIG.save(deps.storage, &config)?;
 
     LOOPING.save(deps.storage, &true)?;
 
     Ok(Response::new()
-        .add_submessage(close_cdp_submsg)
         .add_messages(msgs))
         
 }

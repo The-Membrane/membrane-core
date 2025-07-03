@@ -192,8 +192,9 @@ pub fn execute(
             withdrawal_buffer,
             deposit_cap, 
             swap_slippage,
-            vault_cost_index
-        } => update_config(deps, info, owner, cdp_contract_addr, mars_vault_addr, osmosis_proxy_contract_addr, oracle_contract_addr, withdrawal_buffer, deposit_cap, swap_slippage, vault_cost_index),
+            vault_cost_index,
+            set_looping
+        } => update_config(deps, info, owner, cdp_contract_addr, mars_vault_addr, osmosis_proxy_contract_addr, oracle_contract_addr, withdrawal_buffer, deposit_cap, swap_slippage, vault_cost_index, set_looping),
         ExecuteMsg::EnterVault { } => enter_vault(deps, env, info),
         ExecuteMsg::ExitVault {  } => accrue_before_exit(deps, env, info),
         ExecuteMsg::UnloopCDP { desired_collateral_withdrawal } => unloop_cdp(deps, env, info, desired_collateral_withdrawal),
@@ -1370,6 +1371,7 @@ fn update_config(
     deposit_cap: Option<Uint128>,
     swap_slippage: Option<Decimal>,
     vault_cost_index: Option<()>,
+    set_looping: Option<bool>,
 ) -> Result<Response, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -1442,6 +1444,9 @@ fn update_config(
         } else {
             return Err(TokenFactoryError::CustomError { val: String::from("Failed to find the vault token in the CDP Basket") });
         }    
+    }
+    if let Some(looping) = set_looping {
+        LOOPING.save(deps.storage, &looping)?;
     }
     CONFIG.save(deps.storage, &config)?;
     attrs.push(attr("updated_config", format!("{:?}", config)));

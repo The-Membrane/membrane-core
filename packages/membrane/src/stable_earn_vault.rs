@@ -30,9 +30,9 @@ pub enum ExecuteMsg {
         withdrawal_buffer: Option<Decimal>,
         deposit_cap: Option<Uint128>,
         swap_slippage: Option<Decimal>,
-        vault_cost_index: Option<()>
+        vault_cost_index: Option<()>,
         /// Toggle looping ability
-        loop: Option<bool>,
+        set_looping: Option<bool>,
     },
     /// Unloop the vault's CDP position to free up collateral
     /// Only called by the contract. (for withdrawals)

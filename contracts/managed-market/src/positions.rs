@@ -529,10 +529,6 @@ pub fn withdraw_collateral(
     withdraw_amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {    
     let mut config = CONFIG.load(deps.storage)?;
-    let market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
-        Ok(market) => market,
-        Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
-    };
 
     let mut msgs = vec![];
     
@@ -582,6 +578,11 @@ pub fn withdraw_collateral(
         &mut msgs,
         markets_manager_fee
     )?;
+    //Load market post-accrue
+    let market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
+        Ok(market) => market,
+        Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
+    };
 
     //Assert withdraw is valid. 
     //Withdrawable amount is capped by user's state & current LTV.
@@ -831,10 +832,6 @@ pub fn borrow_cdt(
     borrow_options: BorrowOptions,
 ) -> Result<Response, ContractError> {    
     let mut config = CONFIG.load(deps.storage)?;
-    let mut market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
-        Ok(market) => market,
-        Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
-    };
     let mut msgs = vec![];
 
     //Check if frozen
@@ -883,6 +880,12 @@ pub fn borrow_cdt(
         &mut msgs,
         markets_manager_fee
     )?;
+
+    //Load market post-accrue
+    let mut market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
+        Ok(market) => market,
+        Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
+    };
 
     let debt_price = get_cdt_price(deps.querier, env.clone())?;
     
@@ -1092,10 +1095,6 @@ pub fn repay_cdt(
     send_excess_to: Option<String>,
 ) -> Result<Response, ContractError> {    
     let mut config = CONFIG.load(deps.storage)?;
-    let mut market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
-        Ok(market) => market,
-        Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom.clone()) }),
-    };
 
     //Check if frozen
     //This ensures that if Freezes weren't enabled from the jump, the contract can't be frozen.
@@ -1141,6 +1140,12 @@ pub fn repay_cdt(
         &mut msgs,
         markets_manager_fee
     )?;    
+
+    //Load market post-accrue
+    let mut market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
+        Ok(market) => market,
+        Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom.clone()) }),
+    };
 
     //Update state for user
     //Calculate the amount of debt that can be repaid
@@ -1481,7 +1486,6 @@ pub fn liquidate(
     take_fee: bool,
     max_slippage: Option<Decimal>
 )-> Result<Response, ContractError>{
-
     //Load Config
     let mut config: Config = CONFIG.load(deps.storage)?;
     let market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
@@ -1489,6 +1493,7 @@ pub fn liquidate(
         Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
     };
     let mut msgs = vec![];
+
 
     //Check if frozen.
     //This ensures that if Freezes weren't enabled from the jump, the contract can't be frozen.
@@ -1526,6 +1531,11 @@ pub fn liquidate(
         markets_manager_fee
     )?;    
 
+    //Reload market post-accrue
+    let market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
+        Ok(market) => market,
+        Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
+    };
 
     //Check if the position is insolvent
     let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone())?;

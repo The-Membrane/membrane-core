@@ -668,12 +668,12 @@ fn get_user_positions(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    // Save the provided user position
-    let user_addr = deps.api.addr_validate("osmo1vf6e300hv2qe7r5rln8deft45ewgyytjnwfrdfcv5rgzrfy0s6cswjqf9r")?;
-    let collateral_denom = "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized".to_string();
-    let mut user_position = POSITIONS.load(deps.storage, (user_addr.clone(), collateral_denom.clone()))?;
-    user_position.debt_amount = Uint128::new(50_000_000);
-    POSITIONS.save(deps.storage, (user_addr, collateral_denom.clone()), &user_position)?;
+    // // Save the provided user position
+    // let user_addr = deps.api.addr_validate("osmo1vf6e300hv2qe7r5rln8deft45ewgyytjnwfrdfcv5rgzrfy0s6cswjqf9r")?;
+    // let collateral_denom = "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized".to_string();
+    // let mut user_position = POSITIONS.load(deps.storage, (user_addr.clone(), collateral_denom.clone()))?;
+    // user_position.debt_amount = Uint128::new(50_000_000);
+    // POSITIONS.save(deps.storage, (user_addr, collateral_denom.clone()), &user_position)?;
     //Return response
     Ok(Response::default())
 }

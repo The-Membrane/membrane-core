@@ -1286,7 +1286,7 @@ fn create_swap_to_cdt_msg(
     market: MarketParams,
     env: Env,
     querier: QuerierWrapper,
-    collateral_denom: String,
+    mut collateral_denom: String,
     mut collateral_amount: Uint128,
     collateral_price: PriceResponse,
     debt_price: PriceResponse,
@@ -1325,6 +1325,13 @@ fn create_swap_to_cdt_msg(
 
         //Set the collateral amount for the swap
         collateral_amount = underlying_deposit_token - Uint128::one();
+
+        //Set the collateral denom to the underlying deposit token
+        if market.pool_for_oracle_and_liquidations.pools_for_osmo_twap.len() == 0 {
+            collateral_denom = NOBLE_USDC_DENOM.to_string();
+        } else {
+            collateral_denom = market.pool_for_oracle_and_liquidations.pools_for_osmo_twap[0].base_asset_denom.clone();
+        }
     }
         
 

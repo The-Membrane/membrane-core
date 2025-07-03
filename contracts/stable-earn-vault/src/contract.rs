@@ -1032,9 +1032,9 @@ fn enter_vault(
     ) = get_cdp_position_info(deps.as_ref(), env.clone(), config.clone(), &mut vec![])?;
 
     //No deposits if the vault debt is over 200 CDT
-    if vault_credit_amount > Uint128::new(200_000_000){
-        return Err(TokenFactoryError::CustomError { val: String::from("Vault debt is over 200 CDT, no deposits allowed") });
-    }
+    // if vault_credit_amount > Uint128::new(200_000_000){
+    //     return Err(TokenFactoryError::CustomError { val: String::from("Vault debt is over 200 CDT, no deposits allowed") });
+    // }
  
     //Assert the only token sent is the deposit token
     if info.funds.len() != 1 {

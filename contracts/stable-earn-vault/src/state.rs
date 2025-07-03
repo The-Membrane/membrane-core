@@ -31,7 +31,7 @@ pub const TOKEN_RATE_ASSURANCE: Item<TokenRateAssurance> = Item::new("token_rate
 pub const UNLOOP_PROPS: Item<UnloopProps> = Item::new("unloop_props");
 pub const CLAIM_TRACKER: Item<ClaimTracker> = Item::new("claim_tracker");
 pub const EXIT_MESSAGE_INFO: Item<MessageInfo> = Item::new("exit_message_info");
-pub const ARB_PRICE: Item<Decimal> = Item::new("arb_price");
 
+pub const LOOPING: Item<bool> = Item::new("looping");
 
 pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");

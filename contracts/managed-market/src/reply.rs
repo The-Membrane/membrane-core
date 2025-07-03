@@ -243,7 +243,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
 
 
             //Create WithdrawMsg
-            //We only withdraw if the debt will be zero post repaymentt
+            //We only withdraw if the debt will be zero post repayment
             let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: env.contract.address.to_string(), 
                 msg: to_json_binary(& ExecuteMsg::WithdrawCollateral { 
@@ -258,11 +258,11 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             let is_new_debt_zero = amount_swapped_for >= target_position.debt_amount;
 
             //Add to msgs
-            //If new debt is 0 do the LTV check in the withdraw msg,
+            //If new debt is 0 no need to do the LTV check
             //Otherwise do the LTV check in the repay msg
             if is_new_debt_zero {
                 msgs.push(SubMsg::new(repay_msg.clone()));
-                msgs.push(SubMsg::reply_on_success(withdraw_msg.clone(), LTV_CHECK_REPLY_ID));
+                msgs.push(SubMsg::new(withdraw_msg.clone()));
             } else {
                 msgs.push(SubMsg::reply_on_success(repay_msg.clone(), LTV_CHECK_REPLY_ID));
             }

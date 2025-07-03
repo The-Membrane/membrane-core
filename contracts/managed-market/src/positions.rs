@@ -1292,6 +1292,7 @@ fn create_swap_to_cdt_msg(
     debt_price: PriceResponse,
     routes: Vec<SwapAmountInRoute>,
     max_slippage: Decimal,
+    is_liquidation: bool,
 ) -> Result<Vec<SubMsg>, ContractError> {
     let mut msgs = vec![];
 
@@ -1356,7 +1357,7 @@ fn create_swap_to_cdt_msg(
         
     }.into();
     //Reply on success to edit the user position based on the CDT that was swapped for & edit the config's total borrowed.
-    let sub_msg = SubMsg::reply_on_success(msg, LIQUIDATE_REPLY_ID);
+    let sub_msg = SubMsg::reply_on_success(msg, if is_liquidation { LIQUIDATE_REPLY_ID } else { CLOSE_POSITION_REPLY_ID });
     msgs.push(sub_msg);
 
     Ok(msgs)
@@ -1599,6 +1600,7 @@ pub fn liquidate(
         debt_price, 
         get_swap_in_routes_to_cdt(market.clone())?, 
         max_slippage,
+        true
     )?;
 
     //Save pre liquidation CDT balance 
@@ -1984,6 +1986,7 @@ pub fn close_position(
         debt_price, 
         get_swap_in_routes_to_cdt(market.clone())?, 
         max_spread,
+        false
     )?; 
 
     //Save CLOSE_POSITION_PROPAGATION

@@ -66,8 +66,7 @@ pub fn update_basket_tally(
                     Err(_) => Uint128::zero(),
                 }; 
             }
-            // Panic with the current supply after update
-            panic!("[update_basket_tally] cap.current_supply (after): {}, {}", cap.asset_info, cap.current_supply);
+
             //Update
             basket.collateral_supply_caps[index] = cap.clone();
             basket.collateral_types[index].asset.amount = cap.current_supply;
@@ -82,8 +81,21 @@ pub fn update_basket_tally(
     };
     
     if !from_liquidation {
-        let (new_basket_ratios, _) =
+        let (new_basket_ratios, prices) =
             get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config, Some(basket.clone()))?;
+        // Search for the index of the target denom
+        let target_denom = "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized";
+        if let Some(idx) = basket.collateral_types.iter().position(|c| match &c.asset.info {
+            membrane::types::AssetInfo::NativeToken { denom } => denom == target_denom,
+            _ => false,
+        }) {
+            let ratio = new_basket_ratios.get(idx).cloned().unwrap_or_default();
+            let price = prices.get(idx).map(|p| p.price.to_string()).unwrap_or_else(|| "none".to_string());
+            let ctype = &basket.collateral_types[idx];
+            panic!("[update_basket_tally] target idx: {} ratio: {} price: {} collateral_type: {:?}", idx, ratio, price, ctype);
+        }
+        
+        //panic the ratios
         // Debug log: ratios and supply_caps
         println!("[update_basket_tally] new_basket_ratios: {:?}", new_basket_ratios);
         println!("[update_basket_tally] supply_caps: {:?}", supply_caps);

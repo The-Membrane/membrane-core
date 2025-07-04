@@ -641,80 +641,33 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    let mut attrs = vec![attr("debug", "mimic_increase_debt_to_tally")];
-    use cosmwasm_std::{Decimal, Uint128, Addr};
-    use membrane::types::{cAsset, Asset, AssetInfo, Position};
-    use crate::state::POSITIONS;
-    use crate::state::get_target_position;
 
     let config = CONFIG.load(deps.storage)?;
     let mut basket = BASKET.load(deps.storage)?;
-    let position_owner = Addr::unchecked("debug_test_owner");
-    let position_id = Uint128::from(507u128);
+    let mut attrs = vec![
+        attr("method", "migrate"),
+    ];
 
-    // Construct the test position
-    let test_position = Position {
-        position_id,
-        collateral_assets: vec![cAsset {
-            asset: Asset {
-                info: AssetInfo::NativeToken {
-                    denom: "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized".to_string(),
-                },
-                amount: Uint128::from(161998879007530u128),
-            },
-            max_borrow_LTV: Decimal::from_str("0.9").unwrap(),
-            max_LTV: Decimal::from_str("0.96").unwrap(),
-            rate_index: Decimal::from_str("1.067900443554024171").unwrap(),
-            pool_info: None,
-            hike_rates: Some(false),
-        }],
-        credit_amount: Uint128::zero(),
-    };
-    // Insert the test position into POSITIONS
-    POSITIONS.save(deps.storage, position_owner.clone(), &vec![test_position.clone()])?;
-
-    // Retrieve the target position
-    let (_idx, mut target_position) = get_target_position(deps.storage, position_owner.clone(), position_id)?;
-
-    // Log state before accrue
-    attrs.push(attr("before_accrue_basket", format!("{:?}", basket)));
-    attrs.push(attr("before_accrue_position", format!("{:?}", target_position)));
-
-    // Call accrue as in increase_debt
-    let _ = crate::rates::accrue(
-        deps.storage,
-        deps.querier,
-        env.clone(),
-        config.clone(),
-        &mut target_position,
-        &mut basket,
-        position_owner.to_string(),
-        false,
-    );
-
-    // Log state after accrue
-    attrs.push(attr("after_accrue_basket", format!("{:?}", basket)));
-    attrs.push(attr("after_accrue_position", format!("{:?}", target_position)));
-
-    // Call update_basket_tally as in increase_debt
-    let res = crate::risk_engine::update_basket_tally(
-        deps.storage,
-        deps.querier,
-        env.clone(),
-        &mut basket,
-        target_position.collateral_assets.clone(),
-        target_position.clone().collateral_assets,
-        true,
-        config.clone(),
-        false,
-    );
-    attrs.push(attr("update_basket_tally_result", format!("{:?}", res)));
-
-    // Log state after tally
-    attrs.push(attr("after_basket", format!("{:?}", basket)));
-    attrs.push(attr("after_position", format!("{:?}", target_position)));
-
-    panic!("attrs: {:?}", attrs);
+    // After accrue, search for the denom index and reset the objects
+    let target_denom = "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized";
+    // Reset in collateral_types
+    if let Some(idx) = basket.collateral_types.iter().position(|c| match &c.asset.info {
+        AssetInfo::NativeToken { denom } => denom == target_denom,
+        _ => false,
+    }) {
+        basket.collateral_types[idx].asset.amount = Uint128::zero();
+    }
+    // Reset in collateral_supply_caps
+    if let Some(idx) = basket.collateral_supply_caps.iter().position(|cap| match &cap.asset_info {
+        AssetInfo::NativeToken { denom } => denom == target_denom,
+        _ => false,
+    }) {
+        basket.collateral_supply_caps[idx].current_supply = Uint128::zero();
+        basket.collateral_supply_caps[idx].debt_total = Uint128::zero();
+    }
+    // Save the basket
+    BASKET.save(deps.storage, &basket)?;
+    attrs.push(attr("after_reset_basket", format!("{:?}", basket)));
 
     Ok(Response::new().add_attributes(attrs))
 }

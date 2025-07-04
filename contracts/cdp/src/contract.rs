@@ -1,5 +1,6 @@
 use std::env;
 use std::str::FromStr;
+use std::collections::HashMap;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
@@ -644,8 +645,60 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     //Align basket
     align_basket_arrays(&mut basket);
 
+    // Reset basket from positions
+    reset_basket_from_positions(deps.storage, &mut basket);
+
     // Save the basket
     BASKET.save(deps.storage, &basket)?;
 
     Ok(Response::new())
+}
+
+/// Helper to reset collateral_types and supply cap data from all positions with non-zero credit_amount
+fn reset_basket_from_positions(storage: &mut dyn cosmwasm_std::Storage, basket: &mut Basket) {
+    use std::collections::HashMap;
+    use membrane::types::AssetInfo;
+    use membrane::types::cAsset;
+    use cosmwasm_std::Uint128;
+
+    // Map from asset_info string to running total
+    let mut collateral_totals: HashMap<String, Uint128> = HashMap::new();
+
+    // Reset all basket amounts to zero first
+    for c in basket.collateral_types.iter_mut() {
+        c.asset.amount = Uint128::zero();
+    }
+    for cap in basket.collateral_supply_caps.iter_mut() {
+        cap.current_supply = Uint128::zero();
+    }
+
+    // Iterate through all POSITIONS
+    let all_positions = POSITIONS.range(storage, None, None, cosmwasm_std::Order::Ascending);
+    for item in all_positions {
+        if let Ok((_owner, positions_vec)) = item {
+            for position in positions_vec {
+                if !position.credit_amount.is_zero() {
+                    for casset in position.collateral_assets {
+                        let key = casset.asset.info.to_string();
+                        let entry = collateral_totals.entry(key).or_insert(Uint128::zero());
+                        *entry += casset.asset.amount;
+                    }
+                }
+            }
+        }
+    }
+
+    // Set the basket collateral_types and supply_caps to the computed totals
+    for c in basket.collateral_types.iter_mut() {
+        let key = c.asset.info.to_string();
+        if let Some(total) = collateral_totals.get(&key) {
+            c.asset.amount = *total;
+        }
+    }
+    for cap in basket.collateral_supply_caps.iter_mut() {
+        let key = cap.asset_info.to_string();
+        if let Some(total) = collateral_totals.get(&key) {
+            cap.current_supply = *total;
+        }
+    }
 }

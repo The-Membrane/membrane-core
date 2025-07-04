@@ -271,6 +271,16 @@ pub fn execute(
     }
 }
 
+/// Helper to align collateral_types and collateral_supply_caps by asset_info
+fn align_basket_arrays(basket: &mut Basket) {
+    // Sort both arrays by asset_info string
+    let mut pairs: Vec<_> = basket.collateral_types.iter().zip(basket.collateral_supply_caps.iter()).collect();
+    pairs.sort_by(|(a, _), (b, _)| a.asset.info.to_string().cmp(&b.asset.info.to_string()));
+    let (types, caps): (Vec<_>, Vec<_>) = pairs.into_iter().map(|(a, b)| (a.clone(), b.clone())).unzip();
+    basket.collateral_types = types;
+    basket.collateral_supply_caps = caps;
+}
+
 /// Edit params for a cAsset in the basket
 fn edit_cAsset(
     deps: DepsMut,
@@ -292,24 +302,20 @@ fn edit_cAsset(
         attr("method", "edit_cAsset"),
     ];
 
-    let new_asset: cAsset;
     let mut msgs: Vec<CosmosMsg> = vec![];
 
-    match basket
-        .clone()
-        .collateral_types
-        .into_iter()
-        .find(|cAsset| cAsset.asset.info.equal(&asset))
-    {
-        Some(mut asset) => {
-            attrs.push(attr("asset", asset.asset.info.to_string()));
+    // Find the index of the asset to edit
+    let idx = basket.collateral_types.iter().position(|c| c.asset.info.equal(&asset));
+    if let Some(i) = idx {
+        let mut asset = basket.collateral_types[i].clone();
+        attrs.push(attr("asset", asset.asset.info.to_string()));
 
-            if let Some(LTV) = max_LTV {
-                //Enforce 1-100% range
-                if LTV > Decimal::percent(100) || LTV < Decimal::percent(1) {
-                    return Err(ContractError::InvalidMaxLTV { max_LTV: LTV });
-                }
-                asset.max_LTV = LTV;
+        if let Some(LTV) = max_LTV {
+            //Enforce 1-100% range
+            if LTV > Decimal::percent(100) || LTV < Decimal::percent(1) {
+                return Err(ContractError::InvalidMaxLTV { max_LTV: LTV });
+            }
+            asset.max_LTV = LTV;
 
                 //Edit the asset's liq_queue max_premium
                 //Create Liquidation Queue for its assets
@@ -334,8 +340,8 @@ fn edit_cAsset(
                     }));
                 }
 
-                attrs.push(attr("max_LTV", LTV.to_string()));
-            }
+            attrs.push(attr("max_LTV", LTV.to_string()));
+        }
 
             if let Some(LTV) = max_borrow_LTV {
                 if LTV < Decimal::percent(100) && LTV < asset.max_LTV {
@@ -348,27 +354,18 @@ fn edit_cAsset(
                 }
             }
 
-            if let Some(rate_hiked) = rate_hiked {
-                asset.hike_rates = Some(rate_hiked);
-                attrs.push(attr("rate_hiked", rate_hiked.to_string()));
-            }
-            new_asset = asset;
+        if let Some(rate_hiked) = rate_hiked {
+            asset.hike_rates = Some(rate_hiked);
+            attrs.push(attr("rate_hiked", rate_hiked.to_string()));
         }
-        None => {
-            return Err(ContractError::CustomError {
-                val:String::from("Collateral type doesn't exist in basket"),
-            })
-        }
-    };
-    //Set and Save new basket
-    basket.collateral_types = basket
-        .clone()
-        .collateral_types
-        .into_iter()
-        .filter(|asset| !asset.asset.info.equal(&new_asset.asset.info))
-        .collect::<Vec<cAsset>>();
 
-    basket.collateral_types.push(new_asset);
+        // Write the mutated asset back in place
+        basket.collateral_types[i] = asset;
+    } else {
+        return Err(ContractError::CustomError {
+            val:String::from("Collateral type doesn't exist in basket"),
+        })
+    }
 
     BASKET.save(deps.storage, &basket)?;
 
@@ -642,32 +639,13 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
 
-    let config = CONFIG.load(deps.storage)?;
     let mut basket = BASKET.load(deps.storage)?;
-    let mut attrs = vec![
-        attr("method", "migrate"),
-    ];
+    
+    //Align basket
+    align_basket_arrays(&mut basket);
 
-    // After accrue, search for the denom index and reset the objects
-    let target_denom = "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized";
-    // Reset in collateral_types
-    if let Some(idx) = basket.collateral_types.iter().position(|c| match &c.asset.info {
-        AssetInfo::NativeToken { denom } => denom == target_denom,
-        _ => false,
-    }) {
-        basket.collateral_types[idx].asset.amount = Uint128::zero();
-    }
-    // Reset in collateral_supply_caps
-    if let Some(idx) = basket.collateral_supply_caps.iter().position(|cap| match &cap.asset_info {
-        AssetInfo::NativeToken { denom } => denom == target_denom,
-        _ => false,
-    }) {
-        basket.collateral_supply_caps[idx].current_supply = Uint128::zero();
-        basket.collateral_supply_caps[idx].debt_total = Uint128::zero();
-    }
     // Save the basket
     BASKET.save(deps.storage, &basket)?;
-    attrs.push(attr("after_reset_basket", format!("{:?}", basket)));
 
-    Ok(Response::new().add_attributes(attrs))
+    Ok(Response::new())
 }

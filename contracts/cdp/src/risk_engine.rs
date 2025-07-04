@@ -66,7 +66,8 @@ pub fn update_basket_tally(
                     Err(_) => Uint128::zero(),
                 }; 
             }
-
+            // Panic with the current supply after update
+            panic!("[update_basket_tally] cap.current_supply (after): {}, {}", cap.asset_info, cap.current_supply);
             //Update
             basket.collateral_supply_caps[index] = cap.clone();
             basket.collateral_types[index].asset.amount = cap.current_supply;
@@ -83,8 +84,9 @@ pub fn update_basket_tally(
     if !from_liquidation {
         let (new_basket_ratios, _) =
             get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config, Some(basket.clone()))?;
-
-        
+        // Debug log: ratios and supply_caps
+        println!("[update_basket_tally] new_basket_ratios: {:?}", new_basket_ratios);
+        println!("[update_basket_tally] supply_caps: {:?}", supply_caps);
         //Assert new ratios aren't above Collateral Supply Caps. If so, conditionally error.
         for (i, ratio) in new_basket_ratios.clone().into_iter().enumerate() {
             //Initialize in_position to check if the position has these assets
@@ -123,6 +125,7 @@ pub fn update_basket_tally(
             }
 
             //We skip the check if the supply cap is zero bc those are expunged assets.
+            println!("[update_basket_tally] Checking ratio {} against cap {} for asset_info {:?}", ratio, supply_caps[i].supply_cap_ratio, supply_caps[i].asset_info);
             if basket.collateral_supply_caps != vec![] && ratio > supply_caps[i].supply_cap_ratio && in_position && !supply_caps[i].supply_cap_ratio.is_zero(){
                 
                 return Err(ContractError::CustomError {

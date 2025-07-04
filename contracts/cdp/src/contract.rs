@@ -641,52 +641,67 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    // Debug: Print basket collateral_types, their amounts, prices, values, and ratios
-    let mut attrs = vec![attr("debug", "basket_ratios")];
-    let basket = BASKET.load(deps.storage)?;
+    let mut attrs = vec![attr("debug", "basket_ratios_and_update_tally")];
+    let mut basket = BASKET.load(deps.storage)?;
     let config = CONFIG.load(deps.storage)?;
-    let asset_list = basket.collateral_types.clone();
-    let querier = deps.querier;
-    let storage = deps.storage;
-    // get_cAsset_ratios returns (ratios, prices)
-    let (ratios, prices) = match crate::query::get_cAsset_ratios(
-        storage,
-        env.clone(),
-        querier,
-        asset_list.clone(),
-        config.clone(),
-        Some(basket.clone()),
-    ) {
-        Ok((ratios, prices)) => (ratios, prices),
-        Err(e) => {
-            return Ok(Response::new().add_attribute("debug_error", format!("get_cAsset_ratios error: {}", e)));
+
+    // Check for duplicates in collateral_supply_caps
+    let mut seen_caps = std::collections::HashSet::new();
+    for (i, cap) in basket.collateral_supply_caps.iter().enumerate() {
+        attrs.push(attr(format!("before_cap_{}_info", i), format!("{:?}", cap.asset_info)));
+        attrs.push(attr(format!("before_cap_{}_supply", i), cap.current_supply));
+        if !seen_caps.insert(cap.asset_info.to_string()) {
+            attrs.push(attr("duplicate_cap_asset_info", cap.asset_info.to_string()));
         }
-    };
-    // get_asset_values returns (values, prices)
-    let (values, prices2) = match crate::query::get_asset_values(
-        storage,
-        env.clone(),
-        querier,
-        asset_list.clone(),
-        config.clone(),
-        Some(basket.clone()),
-        false,
-    ) {
-        Ok((values, prices2)) => (values, prices2),
-        Err(e) => {
-            return Ok(Response::new().add_attribute("debug_error", format!("get_asset_values error: {}", e)));
-        }
-    };
-    let total_value: cosmwasm_std::Decimal = values.iter().cloned().sum();
-    for (i, casset) in asset_list.iter().enumerate() {
-        attrs.push(attr(format!("asset_{}_info", i), format!("{}", casset.asset.info)));
-        attrs.push(attr(format!("asset_{}_amount", i), casset.asset.amount));
-        attrs.push(attr(format!("asset_{}_price", i), prices.get(i).map(|p| p.price.to_string()).unwrap_or_else(|| "none".to_string())));
-        attrs.push(attr(format!("asset_{}_price2", i), prices2.get(i).map(|p| p.price.to_string()).unwrap_or_else(|| "none".to_string())));
-        attrs.push(attr(format!("asset_{}_value", i), values.get(i).map(|v| v.to_string()).unwrap_or_else(|| "none".to_string())));
-        attrs.push(attr(format!("asset_{}_ratio", i), ratios.get(i).map(|r| r.to_string()).unwrap_or_else(|| "none".to_string())));
     }
-    attrs.push(attr("total_value", total_value.to_string()));
-    panic!("attrs: {:?}", attrs);
+    // Check for duplicates in collateral_types
+    let mut seen_types = std::collections::HashSet::new();
+    for (i, casset) in basket.collateral_types.iter().enumerate() {
+        attrs.push(attr(format!("before_type_{}_info", i), format!("{:?}", casset.asset.info)));
+        attrs.push(attr(format!("before_type_{}_amount", i), casset.asset.amount));
+        if !seen_types.insert(casset.asset.info.to_string()) {
+            attrs.push(attr("duplicate_type_asset_info", casset.asset.info.to_string()));
+        }
+    }
+
+    // Test update_basket_tally with the provided position asset
+    use cosmwasm_std::Decimal;
+    use cosmwasm_std::Uint128;
+    use membrane::types::{cAsset, Asset, AssetInfo};
+    let test_assets = vec![cAsset {
+        asset: Asset {
+            info: AssetInfo::NativeToken {
+                denom: "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized".to_string(),
+            },
+            amount: Uint128::from(161998879007530u128),
+        },
+        max_borrow_LTV: Decimal::from_str("0.9").unwrap(),
+        max_LTV: Decimal::from_str("0.96").unwrap(),
+        rate_index: Decimal::from_str("1.067900443554024171").unwrap(),
+        pool_info: None,
+        hike_rates: Some(false),
+    }];
+    let res = crate::risk_engine::update_basket_tally(
+        deps.storage,
+        deps.querier,
+        env.clone(),
+        &mut basket,
+        test_assets.clone(),
+        test_assets.clone(),
+        true,
+        config.clone(),
+        false,
+    );
+    attrs.push(attr("update_basket_tally_result", format!("{:?}", res)));
+
+    // After update
+    for (i, cap) in basket.collateral_supply_caps.iter().enumerate() {
+        attrs.push(attr(format!("after_cap_{}_info", i), format!("{:?}", cap.asset_info)));
+        attrs.push(attr(format!("after_cap_{}_supply", i), cap.current_supply));
+    }
+    for (i, casset) in basket.collateral_types.iter().enumerate() {
+        attrs.push(attr(format!("after_type_{}_info", i), format!("{:?}", casset.asset.info)));
+        attrs.push(attr(format!("after_type_{}_amount", i), casset.asset.amount));
+    }
     Ok(Response::new().add_attributes(attrs))
 }

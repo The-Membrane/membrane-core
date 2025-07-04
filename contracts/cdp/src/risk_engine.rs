@@ -81,19 +81,9 @@ pub fn update_basket_tally(
     };
     
     if !from_liquidation {
-        let (new_basket_ratios, prices) =
+        let (new_basket_ratios, _) =
             get_cAsset_ratios(storage, env, querier, basket.clone().collateral_types, config, Some(basket.clone()))?;
-        // Search for the index of the target denom
-        let target_denom = "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized";
-        if let Some(idx) = basket.collateral_types.iter().position(|c| match &c.asset.info {
-            membrane::types::AssetInfo::NativeToken { denom } => denom == target_denom,
-            _ => false,
-        }) {
-            let ratio = new_basket_ratios.get(idx).cloned().unwrap_or_default();
-            let price = prices.get(idx).map(|p| p.price.to_string()).unwrap_or_else(|| "none".to_string());
-            let ctype = &basket.collateral_types[idx];
-            panic!("[update_basket_tally] target idx: {} ratio: {} price: {} collateral_type: {:?}", idx, ratio, price, ctype);
-        }
+
         
         //Assert new ratios aren't above Collateral Supply Caps. If so, conditionally error.
         for (i, ratio) in new_basket_ratios.clone().into_iter().enumerate() {

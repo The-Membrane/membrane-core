@@ -214,6 +214,8 @@ pub enum QueryMsg {
     Config {},
     #[returns(Uint128)]
     TotalVaultTokens { },
+    #[returns(Uint128)]
+    GetUnderlyingDebtAmount { vault_token_amount: Uint128 },
     #[returns(Vec<MarketParams>)]
     MarketParams {
         start_after: Option<String>,

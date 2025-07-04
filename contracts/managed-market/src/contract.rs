@@ -13,6 +13,7 @@ use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::helpers::{assert_sent_native_token_balance, get_contract_balances};
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::managed_market::{BorrowCap, Config, ExecuteMsg, InstantiateMsg, LTVRamp, MarketParams, MigrateMsg, QueryMsg, RateIndex, RateParams, UserPositionResponse};
+use membrane::stability_pool_vault::calculate_base_tokens;
 use membrane::types::{
     cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, ClaimTracker, UserHistory, UserInfo, VTClaimCheckpoint, UserPosition
 };
@@ -446,11 +447,28 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     }
 }
 
+fn get_underlying_debt_amount(
+    deps: Deps,
+    _env: Env,
+    vault_token_amount: Uint128,
+) -> StdResult<Uint128> {
+    let config = CONFIG.load(deps.storage)?;
+
+    let total_debt_tokens = get_total_debt_tokens(config)?;
+
+    Ok(calculate_base_tokens(
+        vault_token_amount,
+        total_debt_tokens,
+        DEBT_VAULT_TOKEN.load(deps.storage)?
+    )?)
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::TotalVaultTokens {  } => to_json_binary(&DEBT_VAULT_TOKEN.load(deps.storage)?),
+        QueryMsg::GetUnderlyingDebtAmount { vault_token_amount } => to_json_binary(&get_underlying_debt_amount(deps, env, vault_token_amount)?),
         QueryMsg::MarketParams { 
             start_after,
             limit,

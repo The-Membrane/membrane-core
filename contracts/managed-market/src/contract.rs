@@ -713,52 +713,52 @@ fn get_user_positions(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    use crate::state::POSITION_UX_BOOSTS;
-    use membrane::types::{UXBoosts, LoopLTVParams, PurchaseData};
-    use cosmwasm_std::{Decimal, Uint128, Addr};
-    use std::str::FromStr;
+    // use crate::state::POSITION_UX_BOOSTS;
+    // use membrane::types::{UXBoosts, LoopLTVParams, PurchaseData};
+    // use cosmwasm_std::{Decimal, Uint128, Addr};
+    // use std::str::FromStr;
 
-    // Only run for the specific contract address
-    if env.contract.address == Addr::unchecked("osmo1gghy30xs3ets9lqfmpxsnvyq0azy6nh3ua9h8q2tcf3q8djf6c0qrweg84") {
-        let key_str = "factory/osmo1z6r6qdknhgsc0zeracktgpcxf43j6sekq07nw8sxduc9lg0qjjlqfu25e3/alloyed/allBTC".to_string();
-        let remove_addr = Addr::unchecked("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0");
-        let save_addr = Addr::unchecked("osmo15sh2da97h9cx559cp64ec6mg7kem773da0cvnj");
+    // // Only run for the specific contract address
+    // if env.contract.address == Addr::unchecked("osmo1gghy30xs3ets9lqfmpxsnvyq0azy6nh3ua9h8q2tcf3q8djf6c0qrweg84") {
+    //     let key_str = "factory/osmo1z6r6qdknhgsc0zeracktgpcxf43j6sekq07nw8sxduc9lg0qjjlqfu25e3/alloyed/allBTC".to_string();
+    //     let remove_addr = Addr::unchecked("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0");
+    //     let save_addr = Addr::unchecked("osmo15sh2da97h9cx559cp64ec6mg7kem773da0cvnj");
 
-        // Remove the old UX state
-        POSITION_UX_BOOSTS.remove(deps.storage, (remove_addr, key_str.clone()));
+    //     // Remove the old UX state
+    //     POSITION_UX_BOOSTS.remove(deps.storage, (remove_addr, key_str.clone()));
 
-        // Save the new UX state
-        let ux = UXBoosts {
-            collateral_value_fee_to_executor: Decimal::from_str("0.98").unwrap(),
-            loop_ltv: Some(LoopLTVParams {
-                loop_ltv: Decimal::from_str("0.4285714285714286").unwrap(),
-                perpetual: false,
-            }),
-            take_profit_params: None,
-            stop_loss_params: None,
-            arb_price: None,
-            collateral_bought_from_loops: vec![PurchaseData {
-                post_purchase_price: Decimal::from_str("98820.740396").unwrap(),
-                amount_purchased: Uint128::from(44521u128),
-            }],
-        };
-        POSITION_UX_BOOSTS.save(deps.storage, (save_addr, key_str), &ux)?;
-        return Ok(Response::new().add_attribute("migrate", "custom_uxboosts_patch"));
-    }
+    //     // Save the new UX state
+    //     let ux = UXBoosts {
+    //         collateral_value_fee_to_executor: Decimal::from_str("0.98").unwrap(),
+    //         loop_ltv: Some(LoopLTVParams {
+    //             loop_ltv: Decimal::from_str("0.4285714285714286").unwrap(),
+    //             perpetual: false,
+    //         }),
+    //         take_profit_params: None,
+    //         stop_loss_params: None,
+    //         arb_price: None,
+    //         collateral_bought_from_loops: vec![PurchaseData {
+    //             post_purchase_price: Decimal::from_str("98820.740396").unwrap(),
+    //             amount_purchased: Uint128::from(44521u128),
+    //         }],
+    //     };
+    //     POSITION_UX_BOOSTS.save(deps.storage, (save_addr, key_str), &ux)?;
+    //     return Ok(Response::new().add_attribute("migrate", "custom_uxboosts_patch"));
+    // }
 
-    //Create junior debt vt denom
-    let junior_debt_vt_denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: String::from("junior-debt-suppliers")};
+    // //Create junior debt vt denom
+    // let junior_debt_vt_denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: String::from("junior-debt-suppliers")};
 
-    //Instantiate junior claim tracker
-    JUNIOR_CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
-        vt_claim_checkpoints: vec![
-            VTClaimCheckpoint {
-                vt_claim_of_checkpoint: Uint128::new(1_000_000), //Assumes the decimal of the deposit token is 6
-                time_since_last_checkpoint: 0u64,
-            }
-        ],
-        last_updated: env.block.time.seconds(),
-    })?;
+    // //Instantiate junior claim tracker
+    // JUNIOR_CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
+    //     vt_claim_checkpoints: vec![
+    //         VTClaimCheckpoint {
+    //             vt_claim_of_checkpoint: Uint128::new(1_000_000), //Assumes the decimal of the deposit token is 6
+    //             time_since_last_checkpoint: 0u64,
+    //         }
+    //     ],
+    //     last_updated: env.block.time.seconds(),
+    // })?;
 
 
     //Map through all markets to get total borrowed
@@ -776,5 +776,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
 
     Ok(Response::new()
         .add_attribute("migrate", "noop")
-        .add_message(junior_debt_vt_denom_msg))
+        .add_attribute("total_borrowed", total_borrowed.to_string())
+        .add_attribute("config", format!("{:?}", config))
+    )
 }

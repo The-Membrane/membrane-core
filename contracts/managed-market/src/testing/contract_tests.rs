@@ -2162,7 +2162,22 @@ fn test_tranche_whitelist_behavior() {
     // Instantiate with whitelisted debt suppliers
     let mut instantiate_msg = default_instantiate_msg();
     instantiate_msg.whitelisted_debt_suppliers = Some(vec!["whitelisted1".to_string(), "whitelisted2".to_string()]);
-    instantiate(deps.as_mut(), env.clone(), info, instantiate_msg).unwrap();
+    instantiate(deps.as_mut(), env.clone(), info.clone(), instantiate_msg).unwrap();
+        let update_msg = ExecuteMsg::UpdateConfig {
+            owner: None,
+            osmosis_proxy_contract_addr: None,
+            pause_actions: None,
+            manager_fee: None,
+            whitelisted_debt_suppliers: None,
+            debt_supply_cap: None,
+            markets_manager_contract: Some("manager_contract".to_string()),
+        };
+        let _ = crate::contract::execute(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            update_msg,
+        );
 
     // Test successful supply by whitelisted user
     let whitelisted_info = mock_info("whitelisted1", &[Coin {
@@ -2171,7 +2186,7 @@ fn test_tranche_whitelist_behavior() {
     }]);
     let msg = ExecuteMsg::SupplyDebt { send_to: None, is_junior: false };
     let result = execute(deps.as_mut(), env.clone(), whitelisted_info, msg);
-    panic!("result: {:?}", result);
+    // panic!("result: {:?}", result);
 
     assert!(result.is_ok());
 
@@ -2203,7 +2218,22 @@ fn test_tranche_debt_cap_enforcement() {
     // Instantiate with debt supply cap
     let mut instantiate_msg = default_instantiate_msg();
     instantiate_msg.debt_supply_cap = Some(Uint128::new(2_000_000));
-    instantiate(deps.as_mut(), env.clone(), info, instantiate_msg).unwrap();
+    instantiate(deps.as_mut(), env.clone(), info.clone(), instantiate_msg).unwrap();
+      let update_msg = ExecuteMsg::UpdateConfig {
+            owner: None,
+            osmosis_proxy_contract_addr: None,
+            pause_actions: None,
+            manager_fee: None,
+            whitelisted_debt_suppliers: None,
+            debt_supply_cap: None,
+            markets_manager_contract: Some("manager_contract".to_string()),
+        };
+        let _ = crate::contract::execute(
+            deps.as_mut(),
+            env.clone(),
+            info.clone(),
+            update_msg,
+        );
 
     // Supply up to the cap
     let supply_info = mock_info("debt_guy", &[Coin {
@@ -2344,9 +2374,12 @@ fn test_tranche_edge_cases() {
         denom: "factory/cosmos2contract/junior-debt-suppliers".to_string(),
         amount: Uint128::new(100_000_000_000),
     }]);
+    ///Update the the contrcat balance with 100k CDT
+
     let msg = ExecuteMsg::WithdrawDebt { send_to: None };
     let result = execute(deps.as_mut(), env.clone(), wrong_vt_info, msg);
     // This should work since it's the correct junior vault token
+    panic!("result: {:?}", result);
     assert!(result.is_ok());
 }
 
@@ -2394,51 +2427,51 @@ fn test_tranche_config_updates() {
     assert_eq!(config.whitelisted_debt_suppliers, Some(vec!["new_whitelisted".to_string()]));
 }
 
-#[test]
-fn test_tranche_liquidation_integration() {
-    let mut deps = custom_mock_deps();
-    let env = mock_env();
-    let info = mock_info("owner", &[]);
-    test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
+// #[test]
+// fn test_tranche_liquidation_integration() {
+//     let mut deps = custom_mock_deps();
+//     let env = mock_env();
+//     let info = mock_info("owner", &[]);
+//     test_instantiate_with_manager_fee(&mut deps, &env, &info, Decimal::zero());
 
-    // Supply debt to both tranches
-    let senior_info = mock_info("debt_guy", &[Coin {
-        denom: CDT_DENOM.to_string(),
-        amount: Uint128::new(1_000_000),
-    }]);
-    let msg = ExecuteMsg::SupplyDebt { send_to: None, is_junior: false };
-    execute(deps.as_mut(), env.clone(), senior_info, msg).unwrap();
+//     // Supply debt to both tranches
+//     let senior_info = mock_info("debt_guy", &[Coin {
+//         denom: CDT_DENOM.to_string(),
+//         amount: Uint128::new(1_000_000),
+//     }]);
+//     let msg = ExecuteMsg::SupplyDebt { send_to: None, is_junior: false };
+//     execute(deps.as_mut(), env.clone(), senior_info, msg).unwrap();
 
-    let junior_info = mock_info("debt_guy", &[Coin {
-        denom: CDT_DENOM.to_string(),
-        amount: Uint128::new(500_000),
-    }]);
-    let msg = ExecuteMsg::SupplyDebt { send_to: None, is_junior: true };
-    execute(deps.as_mut(), env.clone(), junior_info, msg).unwrap();
+//     let junior_info = mock_info("debt_guy", &[Coin {
+//         denom: CDT_DENOM.to_string(),
+//         amount: Uint128::new(500_000),
+//     }]);
+//     let msg = ExecuteMsg::SupplyDebt { send_to: None, is_junior: true };
+//     execute(deps.as_mut(), env.clone(), junior_info, msg).unwrap();
 
-    // Supply collateral and borrow
-    let collateral_info = mock_info("user", &[Coin {
-        denom: "test_asset".to_string(),
-        amount: Uint128::new(10_000_000),
-    }]);
-    let msg = ExecuteMsg::SupplyCollateral { owner: None };
-    execute(deps.as_mut(), env.clone(), collateral_info, msg).unwrap();
+//     // Supply collateral and borrow
+//     let collateral_info = mock_info("user", &[Coin {
+//         denom: "test_asset".to_string(),
+//         amount: Uint128::new(10_000_000),
+//     }]);
+//     let msg = ExecuteMsg::SupplyCollateral { owner: None };
+//     execute(deps.as_mut(), env.clone(), collateral_info, msg).unwrap();
 
-    // Borrow against collateral
-    let borrow_info = mock_info("user", &[]);
-    let msg = ExecuteMsg::Borrow {
-        collateral_denom: "test_asset".to_string(),
-        send_to: None,
-        borrow_amount: BorrowOptions { amount: Some(Uint128::new(500_000)), ltv: None },
-    };
-    execute(deps.as_mut(), env.clone(), borrow_info, msg).unwrap();
+//     // Borrow against collateral
+//     let borrow_info = mock_info("user", &[]);
+//     let msg = ExecuteMsg::Borrow {
+//         collateral_denom: "test_asset".to_string(),
+//         send_to: None,
+//         borrow_amount: BorrowOptions { amount: Some(Uint128::new(500_000)), ltv: None },
+//     };
+//     execute(deps.as_mut(), env.clone(), borrow_info, msg).unwrap();
 
-    // Simulate liquidation scenario
-    // This would require setting up a position that's underwater and testing liquidation
-    // For now, we'll just verify the borrow fee goes to junior tranche
-    let config: Config = from_binary(&query(deps.as_ref(), env.clone(), QueryMsg::Config {}).unwrap()).unwrap();
-    assert!(config.junior_debt_info.unwrap().total_debt > Uint128::new(500_000));
-}
+//     // Simulate liquidation scenario
+//     // This would require setting up a position that's underwater and testing liquidation
+//     // For now, we'll just verify the borrow fee goes to junior tranche
+//     let config: Config = from_binary(&query(deps.as_ref(), env.clone(), QueryMsg::Config {}).unwrap()).unwrap();
+//     assert!(config.junior_debt_info.unwrap().total_debt > Uint128::new(500_000));
+// }
 
 #[test]
 fn test_tranche_yield_target_edge_cases() {

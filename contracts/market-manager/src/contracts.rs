@@ -552,7 +552,8 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
                 let msg = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: valid_address.to_string(),
                     msg: to_json_binary(&ManagedMarketExecuteMsg::SupplyDebt {
-                        send_to: Some(MEMBRANE_GOVERNANCE_ADDRESS.to_string())
+                        send_to: Some(MEMBRANE_GOVERNANCE_ADDRESS.to_string()),
+                        is_junior: false,
                     })?,
                     funds: vec![
                         Coin {

@@ -16,9 +16,9 @@ use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_
 use membrane::oracle::PriceResponse;
 // use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::types::{
-    Asset, AssetInfo, AutoCloseParams, BorrowOptions, UXBoosts, UserPosition, VTClaimCheckpoint
+    Asset, AssetInfo, AutoCloseParams, BorrowOptions, LoopLTVParams, UXBoosts, UserPosition, VTClaimCheckpoint
 };
-use membrane::managed_market::{Config, ExecuteMsg, MarketParams};
+use membrane::managed_market::{Config, DebtInfo, ExecuteMsg, MarketParams};
 use membrane::stability_pool_vault::{
     calculate_base_tokens, calculate_vault_tokens
 };
@@ -32,7 +32,7 @@ use serde::de;
 
 use crate::oracle::{get_cdt_price, get_collateral_price};
 use crate::rates::accrue;
-use crate::state::{ClosePositionPropagation, LiquidationPropagation, LoopPropagation, TokenRateAssurance, ACTIONS_PAUSED, CLAIM_TRACKER, CLOSE_POSITION, DEBT_VAULT_TOKEN, LIQUIDATION, LOOP_POSITION, MARKET_PARAMS, POSITION_UX_BOOSTS, TOKEN_RATE_ASSURANCE};
+use crate::state::{ClosePositionPropagation, LiquidationPropagation, LoopPropagation, TokenRateAssurance, ACTIONS_PAUSED, CLAIM_TRACKER, CLOSE_POSITION, DEBT_VAULT_TOKEN, JUNIOR_CLAIM_TRACKER, JUNIOR_DEBT_VAULT_TOKEN, LIQUIDATION, LOOP_POSITION, MARKET_PARAMS, POSITION_UX_BOOSTS, TOKEN_RATE_ASSURANCE};
 // use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, CollateralVolatility, Timer, BASKET, CLOSE_POSITION, FREEZE_TIMER, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
 use crate::{
     state::{
@@ -200,6 +200,51 @@ pub fn supply_collateral(
     .add_attributes(attrs))
 }
 
+fn get_mint_denom(
+    config: Config, 
+    is_junior: bool
+) -> String {
+    if is_junior {
+        config.junior_debt_supply_vault_token.clone().unwrap()
+    } else {
+        config.debt_supply_vault_token.clone()
+    }
+}
+
+fn update_config_debt_totals(
+    config: &mut Config,
+    is_junior: bool,
+    amount: Uint128,
+    add: bool,
+) -> Result<(), ContractError> {
+    if add {
+        if is_junior {
+            config.junior_debt_info.as_mut().unwrap().total_debt = match config.junior_debt_info.as_mut().unwrap().total_debt.checked_add(amount){
+                Ok(v) => v,
+                Err(_) => return Err(ContractError::CustomError { val: format!("Junior debt total + Amount: underflow error, {:?} + {}",  config.junior_debt_info, amount) }),
+            };
+        } else {
+            config.total_debt_tokens = match config.total_debt_tokens.checked_add(amount){
+                Ok(v) => v,
+                Err(_) => return Err(ContractError::CustomError { val: format!("Total debt tokens + Amount: underflow error, {} + {}",  config.total_debt_tokens, amount) }),
+            };
+        }
+    } else {        
+        if is_junior {
+            config.junior_debt_info.as_mut().unwrap().total_debt = match config.junior_debt_info.as_mut().unwrap().total_debt.checked_sub(amount){
+                Ok(v) => v,
+                Err(_) => return Err(ContractError::CustomError { val: format!("Junior debt total - Amount: underflow error, {:?} - {}",  config.junior_debt_info, amount) }),
+            };
+        } else {
+            config.total_debt_tokens = match config.total_debt_tokens.checked_sub(amount){
+                Ok(v) => v,
+                Err(_) => return Err(ContractError::CustomError { val: format!("Total debt tokens - Amount: underflow error, {} - {}",  config.total_debt_tokens, amount) }),
+            };
+        }
+    }
+    Ok(())
+}
+    
 /// Deposit debt to receive receipt tokens.
     /// Assert:
     /// - The contract isn't frozen (error)
@@ -216,6 +261,7 @@ pub fn supply_debt(
     env: Env,
     info: MessageInfo,
     send_to: Option<String>,
+    is_junior: bool,
 ) -> Result<Response, ContractError> {    
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -253,14 +299,16 @@ pub fn supply_debt(
         None => info.sender.clone(),
     };
 
-    //Get total_debt_tokens
-    let total_debt_tokens = get_total_debt_tokens(config.clone())?;
-    //Get total_vault_tokens
-    let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
+    ///Junior Tranche needs to be handled differently
+
+    // //Get total_debt_tokens
+    // let total_debt_tokens = get_total_debt_tokens(config.clone(), Some(is_junior))?;
+    // //Get total_vault_tokens
+    // let total_vault_tokens = get_total_vault_tokens(deps.storage, is_junior)?;
 
     //Ensure the deposit doesn't push the market over supply caps
     if let Some(debt_supply_cap) = config.debt_supply_cap {
-        let total_debt = config.total_debt_tokens + supplied_amount;
+        let total_debt = get_total_debt_tokens(config.clone(), None)? + supplied_amount;
         if total_debt > debt_supply_cap {
             return Err(ContractError::SupplyCapExceeded { balance: total_debt, cap: debt_supply_cap });
         }
@@ -273,8 +321,6 @@ pub fn supply_debt(
     // This is done to ensure that config's total_debt_tokens is up to date
     accrue(
         deps.storage,
-        total_debt_tokens,
-        total_vault_tokens,
         env.clone(), 
         &mut config, 
         &mut UserPosition { 
@@ -289,9 +335,9 @@ pub fn supply_debt(
     
 
     //Get total_debt_tokens
-    let total_debt_tokens = get_total_debt_tokens(config.clone())?;
+    let total_debt_tokens = get_total_debt_tokens(config.clone(), Some(is_junior))?;
     //Get total_vault_tokens
-    let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
+    let total_vault_tokens = get_total_vault_tokens(deps.storage, is_junior)?;
 
     //Calc & save token rates
     let pre_btokens_per_one = calculate_base_tokens(
@@ -303,19 +349,22 @@ pub fn supply_debt(
         pre_btokens_per_one,
     })?;
 
-
     //Calc vault token to user
     let vault_tokens_to_send = calculate_vault_tokens(
         supplied_amount,
         total_debt_tokens, //we don't subtract the supplied amount bc the total doesn't use contract balances
         total_vault_tokens.clone()
     )?;
+
+    //Get the mint denom 
+    let mint_denom = get_mint_denom(config.clone(), is_junior);
+
     //Mint vault tokens to user
     if !vault_tokens_to_send.is_zero() {
         let mint_vault_tokens_msg: CosmosMsg = TokenFactory::MsgMint {
             sender: env.contract.address.to_string(), 
             amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
-                denom: config.debt_supply_vault_token.clone(),
+                denom: mint_denom.clone(),
                 amount: vault_tokens_to_send.to_string(),
             }), 
             mint_to_address: send_to.clone().to_string(),
@@ -324,7 +373,7 @@ pub fn supply_debt(
     }
 
     //Update config state
-    config.total_debt_tokens += supplied_amount;
+    update_config_debt_totals(&mut config, is_junior, supplied_amount, true)?;
     CONFIG.save(deps.storage, &config)?;
 
     //Update vault token supply
@@ -333,14 +382,18 @@ pub fn supply_debt(
         Err(_) => return Err(ContractError::CustomError { val: format!("Failed to add vault token total supply: {} + {}", total_vault_tokens, vault_tokens_to_send) }),
     };
     //Update vault token supply
-    DEBT_VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
+    if is_junior {
+        JUNIOR_DEBT_VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
+    } else {
+        DEBT_VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
+    }
 
 
     //Add rate assurance callback msg
     if !total_vault_tokens.is_zero() {
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
-            msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { is_junior })?,
             funds: vec![],
         }));
     }
@@ -349,6 +402,7 @@ pub fn supply_debt(
     Ok(Response::new()
     .add_attributes(vec![
         attr("method", "supply_debt"),
+        attr("is_junior", is_junior.to_string()),
         attr("debt_amount", supplied_amount.to_string()),
         attr("vault_tokens_minted", vault_tokens_to_send.to_string()),
     ]).add_messages(msgs))
@@ -396,13 +450,26 @@ pub fn withdraw_debt(
     //Get markets manager fee
     let markets_manager_fee = query_markets_manager_fee(deps.querier, config.markets_manager_contract.to_string())?;
 
+    //Check & assert vault token
+    //Assert the sender sent the vault token only
+    if info.funds.len() != 1 || (info.funds[0].denom != config.debt_supply_vault_token && info.funds[0].denom != config.junior_debt_supply_vault_token.clone().unwrap()) {
+        return Err(ContractError::CustomError { val: format!("Need to send one of the vault tokens only: {}, {}", config.debt_supply_vault_token, config.junior_debt_supply_vault_token.clone().unwrap()) });
+    }
+
+    //Check to see if the debt is junior or senior
+    let is_junior = info.funds[0].denom == config.junior_debt_supply_vault_token.clone().unwrap();
+    //Label vault tokens sent
+    let vault_tokens_sent = info.funds[0].amount;
+    if vault_tokens_sent.is_zero() {
+        return Err(ContractError::ZeroAmount {});
+    }
+
     //Accrue to make sure withdrawing suppliers get their yield.
     //This is done to ensure that config's total_debt_tokens is up to date.
-    let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
+    let total_vault_tokens = get_total_vault_tokens(deps.storage, is_junior)?;
+
     accrue(
         deps.storage,
-        get_total_debt_tokens(config.clone())?,
-        total_vault_tokens,
         env.clone(), 
         &mut config, 
         &mut UserPosition { 
@@ -414,21 +481,11 @@ pub fn withdraw_debt(
         &mut msgs,
         markets_manager_fee
     )?;
-    //Check & assert vault token
-    //Assert the sender sent the vault token only
-    if info.funds.len() != 1 || info.funds[0].denom != config.debt_supply_vault_token {
-        return Err(ContractError::CustomError { val: format!("Need to send the vault token only: {}", config.debt_supply_vault_token) });
-    }
-    //Label vault tokens sent
-    let vault_tokens_sent = info.funds[0].amount;
-    if vault_tokens_sent.is_zero() {
-        return Err(ContractError::ZeroAmount {});
-    }
     
     //Get total_debt_tokens
-    let total_debt_tokens = get_total_debt_tokens(config.clone())?;
+    let total_debt_tokens = get_total_debt_tokens(config.clone(), Some(is_junior))?;
     //Get total_vault_tokens
-    let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
+    let total_vault_tokens = get_total_vault_tokens(deps.storage, is_junior)?;
 
 
     //Calc base token to user
@@ -441,11 +498,16 @@ pub fn withdraw_debt(
     //Get balance of debt tokens we have to send.
     let debt_token_balance = deps.querier.query_balance(env.clone().contract.address, CDT_DENOM.to_string())?;
 
-
     //If we have less debt tokens than being requested, we error.
-    if debt_token_balance.amount < base_tokens_to_send {
-        return Err(ContractError::CustomError { val: format!("Not enough debt tokens to send, maximum: {}", debt_token_balance.amount ) });
+    //Or if we have less of this tranche of debt tokens, we error.
+    // This ensures that even if we have enough debt tokens, if its not part of the tranche requested, we error.
+    // Ex: If we have 1000 debt tokens, but only 500 of the tranche & 501 are requested, we error.
+    if debt_token_balance.amount < base_tokens_to_send || total_debt_tokens < base_tokens_to_send {
+        return Err(ContractError::CustomError { val: format!("Not enough debt tokens to send, maximum: {}, requested: {}", min(debt_token_balance.amount, total_debt_tokens), base_tokens_to_send) });
     }
+
+    //Get the mint denom
+    let mint_denom = get_mint_denom(config.clone(), is_junior);
 
     //Burn vault tokens.
     //Send base tokens to user.
@@ -454,7 +516,7 @@ pub fn withdraw_debt(
         let burn_vault_tokens_msg: CosmosMsg = TokenFactory::MsgBurn {
             sender: env.contract.address.to_string(), 
             amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
-                denom: config.debt_supply_vault_token.clone(),
+                denom: mint_denom.clone(),
                 amount: vault_tokens_sent.to_string(),
             }), 
             burn_from_address: env.contract.address.to_string(),
@@ -473,10 +535,7 @@ pub fn withdraw_debt(
     }
 
     //Update config state
-    config.total_debt_tokens = match config.total_debt_tokens.checked_sub(base_tokens_to_send){
-        Ok(val) => val,
-        Err(_) => return Err(ContractError::CustomError { val: "Total Debt - Debt to Send: underflow error".to_string() }),
-    };
+    update_config_debt_totals(&mut config, is_junior, base_tokens_to_send, false)?;
     CONFIG.save(deps.storage, &config)?;
     
 
@@ -499,13 +558,17 @@ pub fn withdraw_debt(
     };
 
     //Update vault token supply
-    DEBT_VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
+    if is_junior {
+        JUNIOR_DEBT_VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
+    } else {
+        DEBT_VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
+    }
     
     //Add rate assurance callback msg if this withdrawal leaves other depositors with tokens to withdraw.
     if !new_vault_token_supply.is_zero() {
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
-            msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+            msg: to_json_binary(&ExecuteMsg::RateAssurance { is_junior })?,
             funds: vec![],
         }));
     }
@@ -513,8 +576,9 @@ pub fn withdraw_debt(
     Ok(Response::new()
     .add_attributes(vec![
         attr("method", "withdraw_debt"),
+        attr("is_junior", is_junior.to_string()),
         attr("vault_tokens_burnt", vault_tokens_sent),
-        attr("base_tokens_withdrawn", base_tokens_to_send)
+        attr("base_tokens_withdrawn", base_tokens_to_send),
     ]).add_messages(msgs))
 }
 
@@ -562,16 +626,12 @@ pub fn withdraw_collateral(
         None => info.sender.clone(),
     };
 
-    let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
-
     //Get markets manager fee
     let markets_manager_fee = query_markets_manager_fee(deps.querier, config.markets_manager_contract.to_string())?;
 
     //Accrue if debt is owed
     accrue(
         deps.storage,
-        get_total_debt_tokens(config.clone())?,
-        total_vault_tokens,
         env.clone(), 
         &mut config, 
         &mut user_position,
@@ -665,7 +725,7 @@ pub fn edit_ux_boosts(
     _env: Env,
     info: MessageInfo,
     collateral_denom: String,
-    loop_ltv: Option<Option<Decimal>>,
+    loop_ltv: Option<Option<LoopLTVParams>>,
     take_profit_params: Option<Option<AutoCloseParams>>,
     stop_loss_params: Option<Option<AutoCloseParams>>,
     arb_price: Option<Option<Decimal>>,
@@ -700,11 +760,11 @@ pub fn edit_ux_boosts(
     };
 
     //Set loop ltv
-    if let Some(loop_ltv) = loop_ltv {
+    if let Some(loop_ltv) = loop_ltv.clone() {
         //Can't be above max borrow ltv
-        if let Some(loop_ltv) = loop_ltv {
-            if loop_ltv > market.collateral_params.max_borrow_LTV {
-                return Err(ContractError::CustomError { val: format!("Loop ltv {} can't be higher than max borrow ltv {}", loop_ltv, market.collateral_params.max_borrow_LTV) });
+        if let Some(loop_ltv) = loop_ltv.clone() {
+            if loop_ltv.loop_ltv > market.collateral_params.max_borrow_LTV {
+                return Err(ContractError::CustomError { val: format!("Loop ltv {} can't be higher than max borrow ltv {}", loop_ltv.loop_ltv, market.collateral_params.max_borrow_LTV) });
             }
         }
         user_position_ux_boosts.loop_ltv = loop_ltv;
@@ -745,8 +805,8 @@ pub fn edit_ux_boosts(
             }
 
             //Can't set stop loss higher than loop ltv
-            if let Some(loop_ltv) = user_position_ux_boosts.loop_ltv {
-                if stop_loss_params.ltv > loop_ltv {
+            if let Some(loop_ltv) = user_position_ux_boosts.loop_ltv.clone() {
+                if stop_loss_params.ltv > loop_ltv.loop_ltv {
                     return Err(ContractError::CustomError { val: "Stop loss can't be higher than loop ltv".to_string() });
                 }
             }
@@ -863,8 +923,6 @@ pub fn borrow_cdt(
         send_to = env.contract.address.clone();
     }
 
-    let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
-
     //Get markets manager fee
     let markets_manager_fee = query_markets_manager_fee(deps.querier, config.markets_manager_contract.to_string())?;
 
@@ -872,8 +930,6 @@ pub fn borrow_cdt(
     //Even without debt, this keeps everyones's state up to date
     accrue(
         deps.storage,
-        get_total_debt_tokens(config.clone())?,
-        total_vault_tokens,
         env.clone(), 
         &mut config,
         &mut user_position,
@@ -963,6 +1019,11 @@ pub fn borrow_cdt(
         Ok(val) => val,
         Err(_) => return Err(ContractError::CustomError { val: format!("Total Borrowed: {} + Borrow Amount: {}, underflow error", market.total_borrowed, borrowable_amount) }),
     };
+    //Update config's total borrowed
+    config.total_borrowed = match config.total_borrowed.clone().unwrap().checked_add(borrowable_amount){
+        Ok(val) => Some(val),
+        Err(_) => return Err(ContractError::CustomError { val: format!("Total Borrowed: {:?} + Borrow Amount: {}, underflow error", config.total_borrowed, borrowable_amount) }),
+    };
     //Should this be a market toggle? Yes.
     if market.borrow_cap.cap_borrows_by_liquidity {
         check_debt_liquidatibility(deps.querier, market.clone(), 
@@ -988,10 +1049,7 @@ pub fn borrow_cdt(
     POSITIONS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &user_position)?;
 
     //Update state for config
-    market.total_borrowed = match market.total_borrowed.checked_add(borrowable_amount){
-        Ok(val) => val,
-        Err(_) => return Err(ContractError::CustomError { val: format!("Total Borrowed: {} + Borrow Amount: {}, underflow error", market.total_borrowed, borrowable_amount) }),
-    };
+    market.total_borrowed = new_total_borrowed;
     MARKET_PARAMS.save(deps.storage, collateral_denom.clone(), &market)?;
 
     //If there is a borrow fee, subtract it from the borrowable amount
@@ -1008,10 +1066,10 @@ pub fn borrow_cdt(
         true => Uint128::zero()
     };
 
-    //Add borrow fee to the config.total_debt_tokens
-    config.total_debt_tokens = match config.total_debt_tokens.checked_add(borrow_fee){
+    //Add borrow fee to the junior tranche
+    config.junior_debt_info.as_mut().unwrap().total_debt = match config.junior_debt_info.as_mut().unwrap().total_debt.checked_add(borrow_fee){
         Ok(val) => val,
-        Err(_) => return Err(ContractError::CustomError { val: format!("Total Debt Tokens: {} + Borrow Fee: {}, underflow error", config.total_debt_tokens, borrow_fee) }),
+        Err(_) => return Err(ContractError::CustomError { val: format!("Total Debt Tokens: {} + Borrow Fee: {}, underflow error", config.junior_debt_info.as_mut().unwrap().total_debt, borrow_fee) }),
     };
     //Update config state
     CONFIG.save(deps.storage, &config)?;
@@ -1123,8 +1181,6 @@ pub fn repay_cdt(
     //Load user state
     let mut user_position = POSITIONS.load(deps.storage, (position_owner.clone(), collateral_denom.clone()))?;
 
-    let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
-
     //Get markets manager fee
     let markets_manager_fee = query_markets_manager_fee(deps.querier, config.markets_manager_contract.to_string())?;
 
@@ -1132,8 +1188,6 @@ pub fn repay_cdt(
     //Even without debt, this keeps everyones's state up to date
     accrue(
         deps.storage,
-        get_total_debt_tokens(config.clone())?,
-        total_vault_tokens,
         env.clone(), 
         &mut config, 
         &mut user_position,
@@ -1193,6 +1247,11 @@ pub fn repay_cdt(
     };
     //Save market
     MARKET_PARAMS.save(deps.storage, collateral_denom.clone(), &market)?;
+    //Update config's total borrowed
+    config.total_borrowed = match config.total_borrowed.clone().unwrap().checked_sub(repay_amount){
+        Ok(val) => Some(val),
+        Err(_) => return Err(ContractError::CustomError { val: format!("Total Borrowed: {:?} - Repay Amount: {}, underflow error", config.total_borrowed, repay_amount) }),
+    };
     //Update config state
     CONFIG.save(deps.storage, &config)?;
 
@@ -1430,17 +1489,46 @@ fn create_swap_to_collateral_msg(
 //On liquidation we'll have to check for bad debt and add it to the config.
 pub fn get_total_debt_tokens(
     config: Config,
+    is_junior: Option<bool>,
 ) -> StdResult<Uint128> {
+    //If is_junior, return junior debt tokens
+    if let Some(is_junior) = is_junior {
+        if is_junior {
+            return Ok(config.junior_debt_info.clone().unwrap().total_debt.checked_sub(config.junior_debt_info.unwrap().bad_debt).unwrap_or(Uint128::zero()));
+        } else {
+            return Ok(config.total_debt_tokens.checked_sub(config.bad_debt).unwrap_or(Uint128::zero()));
+        }
+    } 
+    //If no is_junior, return total debt tokens by adding total, junior_total and subtracting bad_debt from both 
+    else {
+        //Just all the fn twice so there are no discrepancies
+        let total_debt_tokens = 
+            get_total_debt_tokens(config.clone(), Some(false))?
+            .checked_add(get_total_debt_tokens(config.clone(), Some(true))?)
+            .unwrap_or(Uint128::zero());
 
-    Ok(config.total_debt_tokens.checked_sub(config.bad_debt).unwrap_or(Uint128::zero()))
-
+        Ok(total_debt_tokens)
+     }
 }
+
+pub fn get_total_vault_tokens(
+    storage: &dyn Storage,
+    is_junior: bool,
+    ) -> StdResult<Uint128> {
+    if is_junior {
+        return Ok(JUNIOR_DEBT_VAULT_TOKEN.load(storage)?);
+    } else {
+        return Ok(DEBT_VAULT_TOKEN.load(storage)?);
+    }
+}
+
 ///Rate assurance
 /// Ensures that the conversion rate is static for debt deposits & withdrawals
 pub fn rate_assurance(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    is_junior: bool,
 ) -> Result<Response, ContractError> {
     //Load config    
     let config = CONFIG.load(deps.storage)?;
@@ -1454,10 +1542,10 @@ pub fn rate_assurance(
     let token_rate_assurance = TOKEN_RATE_ASSURANCE.load(deps.storage)?;
 
     //Load Vault token supply
-    let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
+    let total_vault_tokens = get_total_vault_tokens(deps.storage, is_junior)?;
 
     //Get total_debt_tokens
-    let total_debt_tokens = get_total_debt_tokens(config.clone())?;
+    let total_debt_tokens = get_total_debt_tokens(config.clone(), Some(is_junior))?;
 
     //Calc the rate of vault tokens to deposit tokens
     let btokens_per_one = calculate_base_tokens(
@@ -1466,8 +1554,14 @@ pub fn rate_assurance(
         total_vault_tokens
     )?;
 
-    //For deposit or withdraw, check that the rates are static 
-    if btokens_per_one != token_rate_assurance.pre_btokens_per_one {
+    //For deposit or withdraw, check that the rates are at most, off by 1
+    let difference = if btokens_per_one > token_rate_assurance.pre_btokens_per_one {
+        btokens_per_one.checked_sub(token_rate_assurance.pre_btokens_per_one).unwrap_or(Uint128::zero())
+    } else {
+        token_rate_assurance.pre_btokens_per_one.checked_sub(btokens_per_one).unwrap_or(Uint128::zero())
+    };
+    
+    if difference > Uint128::from_str("1").unwrap_or(Uint128::zero()) {
         return Err(ContractError::CustomError { val: format!("Deposit or withdraw rate assurance failed for base token conversion. pre: {:?} --- post: {:?}", token_rate_assurance.pre_btokens_per_one, btokens_per_one) });
     }
 
@@ -1513,8 +1607,6 @@ pub fn liquidate(
     //Load user position
     let mut user_position = POSITIONS.load(deps.storage, (position_owner.clone(), collateral_denom.clone()))?;
 
-    let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
-
     //Get markets manager fee
     let markets_manager_fee = query_markets_manager_fee(deps.querier, config.markets_manager_contract.to_string())?;
 
@@ -1522,8 +1614,6 @@ pub fn liquidate(
     //Even without debt, this keeps everyones's state up to date
     accrue(
         deps.storage,
-        get_total_debt_tokens(config.clone())?,
-        total_vault_tokens, 
         env.clone(), 
         &mut config, 
         &mut user_position,
@@ -1662,62 +1752,88 @@ pub fn liquidate(
 }
 
 
+/// Distribute bad debt between junior and senior tranches according to risk waterfall.
+/// Returns (junior_bad_debt_added, senior_bad_debt_added)
+pub(crate) fn distribute_bad_debt(
+    config: &mut Config,
+    mut amount: Uint128,
+) -> Result<(Uint128, Uint128), ContractError> {
+    let mut junior_added = Uint128::zero();
+    let mut senior_added = Uint128::zero();
+    // If junior tranche exists and has room for bad debt
+    if let Some(ref mut junior_info) = config.junior_debt_info {
+        //Get junior room to underwrite bad debt
+        let junior_room = junior_info.total_debt.checked_sub(junior_info.bad_debt)
+            .map_err(|_| ContractError::CustomError { val: "Junior bad debt underflow".to_string() })?;
+        //Get amount to add to junior bad debt
+        let to_junior = min(amount, junior_room);
+
+        //If there is a bad debt to add
+        if !to_junior.is_zero() {
+            //Update junior bad debt
+            junior_info.bad_debt = junior_info.bad_debt.checked_add(to_junior)
+                .map_err(|_| ContractError::CustomError { val: "Junior bad debt overflow".to_string() })?;
+            //Update junior added
+            junior_added = to_junior;
+            //Update amount
+            amount = amount.checked_sub(to_junior)
+                .map_err(|_| ContractError::CustomError { val: "Bad debt subtraction underflow".to_string() })?;
+        }
+    }
+    // Remainder goes to senior (unlabeled) bad debt
+    if !amount.is_zero() {
+        //Update senior bad debt
+        config.bad_debt = config.bad_debt.checked_add(amount)
+            .map_err(|_| ContractError::CustomError { val: "Senior bad debt overflow".to_string() })?;
+        //Update senior added
+        senior_added = amount;
+    }
+    Ok((junior_added, senior_added))
+}
+
 /// Check and recapitilize Bad Debt w/ revenue or MBRN auctions
 pub fn check_and_fulfill_bad_debt(
     deps: DepsMut,
     _env: Env,
 ) -> Result<Response, ContractError> {
-    let config: Config = CONFIG.load(deps.storage)?;
-
+    let mut config: Config = CONFIG.load(deps.storage)?;
     //Load Liquidation Prop
     let liq_prop = LIQUIDATION.load(deps.storage)?;
-
     //Load market
     let market = match MARKET_PARAMS.load(deps.storage, liq_prop.collateral_denom.clone()){
         Ok(market) => market,
         Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", liq_prop.collateral_denom) }),
     };
-
     //Load user position
     let mut liquidated_position = POSITIONS.load(deps.storage, (liq_prop.position_owner.clone(), liq_prop.collateral_denom.clone()))?;
-    
     //Get collateral price
     let collateral_price = get_collateral_price(deps.storage, deps.querier, _env.clone(), market.clone())?;
-    
     //Get position's collateral asset value
     let collateral_value = collateral_price.get_value(liquidated_position.collateral_amount)?;
-
     //We check if the value left is > $1.
     //We use > $1 bc full liquidations will leave rounding errors in the collateral assets so we just use $1 as a floor instead of $0
     if collateral_value > Decimal::one() || liquidated_position.debt_amount.is_zero() {
         Err(ContractError::PositionSolvent {})
     } else {
-        //Add the positions's debt amount to the bad debt tracker
-        let bad_debt = match config.bad_debt.checked_add(liquidated_position.debt_amount){
-            Ok(val) => val,
-            Err(_) => return Err(ContractError::CustomError { val: "Bad debt underflow error".to_string() }),
-        };
+        // Distribute bad debt according to tranches
+        let (junior_added, senior_added) = distribute_bad_debt(&mut config, liquidated_position.debt_amount)?;
         //Update config state
-        CONFIG.save(deps.storage, &Config {
-            bad_debt,
-            ..config
-        })?;
+        CONFIG.save(deps.storage, &config)?;
         //Update the position's state
         liquidated_position.debt_amount = Uint128::zero();
         liquidated_position.collateral_amount = Uint128::zero();
-
         //Save the position's state
         POSITIONS.save(deps.storage, (liq_prop.position_owner.clone(), liq_prop.collateral_denom.clone()), &liquidated_position)?;
-        
         //Remove liquidation state
         LIQUIDATION.remove(deps.storage);
-
         //Create response
         Ok(Response::new()
             .add_attributes(vec![
                 attr("method", "check_and_fulfill_bad_debt"),
                 attr("position_owner", liq_prop.position_owner),
                 attr("bad_debt", config.bad_debt),
+                attr("junior_bad_debt_added", junior_added),
+                attr("senior_bad_debt_added", senior_added),
                 attr("liquidated_position_debt", liquidated_position.debt_amount),
                 attr("liquidated_position_collateral", liquidated_position.collateral_amount),
             ]))
@@ -1729,17 +1845,26 @@ pub fn crank_realized_apr(
     deps: DepsMut,
     env: Env,
     _info: MessageInfo,
+    is_junior: bool,
 ) -> Result<Response, ContractError> {
     //Load state
     let config = CONFIG.load(deps.storage)?; 
-    let total_vault_tokens = DEBT_VAULT_TOKEN.load(deps.storage)?;
+    let total_vault_tokens = if is_junior {
+        JUNIOR_DEBT_VAULT_TOKEN.load(deps.storage)?
+    } else {
+        DEBT_VAULT_TOKEN.load(deps.storage)?
+    };
 
     //Update Claim tracker
-    let mut claim_tracker = CLAIM_TRACKER.load(deps.storage)?;
+    let mut claim_tracker = if is_junior {
+        JUNIOR_CLAIM_TRACKER.load(deps.storage)?
+    } else {
+        CLAIM_TRACKER.load(deps.storage)?
+    };
     //Calculate time since last claim
     let time_since_last_checkpoint = env.block.time.seconds() - claim_tracker.last_updated;
     //Get the total deposit tokens
-    let total_debt_tokens = get_total_debt_tokens(config.clone())?;
+    let total_debt_tokens = get_total_debt_tokens(config.clone(), Some(is_junior))?;
     //Calc the rate of vault tokens to deposit tokens
     let btokens_per_one = calculate_base_tokens(
         Uint128::new(1_000_000_000_000), 
@@ -1755,7 +1880,11 @@ pub fn crank_realized_apr(
         //Update last updated time
         claim_tracker.last_updated = env.block.time.seconds();
         //Save Claim Tracker
-        CLAIM_TRACKER.save(deps.storage, &claim_tracker)?;
+        if is_junior {
+            JUNIOR_CLAIM_TRACKER.save(deps.storage, &claim_tracker)?;
+        } else {
+            CLAIM_TRACKER.save(deps.storage, &claim_tracker)?;
+        }
 
         return Ok(Response::new().add_attributes(vec![
             attr("method", "crank_realized_apr"),
@@ -1776,7 +1905,11 @@ pub fn crank_realized_apr(
     //Update last updated time
     claim_tracker.last_updated = env.block.time.seconds();
     //Save Claim Tracker
-    CLAIM_TRACKER.save(deps.storage, &claim_tracker)?;
+    if is_junior {
+        JUNIOR_CLAIM_TRACKER.save(deps.storage, &claim_tracker)?;
+    } else {
+        CLAIM_TRACKER.save(deps.storage, &claim_tracker)?;
+    }
 
     Ok(Response::new().add_attributes(vec![
         attr("method", "crank_realized_apr"),
@@ -1850,7 +1983,7 @@ pub fn close_position(
     //If position owner is not the sender, make sure the position has SL and TP params ready to execute.
     if position_owner != info.sender {
         //Load Position's UX Boosts
-        let target_position_ux_boosts = match POSITION_UX_BOOSTS.load(deps.storage, (position_owner.clone(), collateral_denom.clone())){
+        let mut target_position_ux_boosts = match POSITION_UX_BOOSTS.load(deps.storage, (position_owner.clone(), collateral_denom.clone())){
             Ok(target_position_ux_boosts) => target_position_ux_boosts,
             Err(_) => return Err(ContractError::CustomError { val: format!("Position owner {} has no UX Boosts set", position_owner) }),
         };
@@ -1877,6 +2010,11 @@ pub fn close_position(
                 Some(send_to) => Some(send_to),
                 None => Some(position_owner.to_string()),
             };
+
+            //Remove the stop loss params if they are not perpetual
+            if !stop_loss_params.perpetual {
+                target_position_ux_boosts.stop_loss_params = None;
+            }   
         } else
         //TP 
         if let Some(take_profit_params) = target_position_ux_boosts.take_profit_params.clone() {
@@ -1890,6 +2028,11 @@ pub fn close_position(
                 Some(send_to) => Some(send_to),
                 None => Some(position_owner.to_string()),
             };
+
+            //Remove the take profit params if they are not perpetual
+            if !take_profit_params.perpetual {
+                target_position_ux_boosts.take_profit_params = None;
+            }
         } else
         //Arb price
         if let Some(arb_price) = target_position_ux_boosts.arb_price.clone() {
@@ -1936,6 +2079,9 @@ pub fn close_position(
             });
             msgs.push(fee_message);
         }
+
+        //Save the updated position_ux_boosts
+        POSITION_UX_BOOSTS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &target_position_ux_boosts)?;
 
     }
 
@@ -2068,11 +2214,11 @@ pub fn loop_position(
     };
 
     //Set UX boost params
-    let loop_params = target_position_ux_boosts.clone();
+    let mut loop_params = target_position_ux_boosts.clone();
 
     //Get user's intended LTV
-    let intended_LTV = match loop_params.loop_ltv {
-        Some(intended_LTV) => min(intended_LTV, market.collateral_params.max_borrow_LTV),
+    let intended_LTV = match loop_params.loop_ltv.clone() {
+        Some(intended_LTV) => min(intended_LTV.loop_ltv, market.collateral_params.max_borrow_LTV),
         None => return Err(ContractError::CustomError { val: format!("Position owner {} has no loop params set", position_owner) }),
     };
 
@@ -2175,7 +2321,23 @@ pub fn loop_position(
             ]))
 
     } else {
-        return Err(ContractError::CustomError { val: format!("Current multiplier {} is within 3% of the intended multiplier {}", current_multiplier, intended_multiplier) });
+        //If the multiplier is within 3% of the intended, remove the LTV intent if its not perpetual
+        if let Some(intended_LTV) = loop_params.loop_ltv.clone() {
+            if !intended_LTV.perpetual {
+                loop_params.loop_ltv = None;
+            }
+            //Save the updated loop_params
+            POSITION_UX_BOOSTS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &loop_params)?;
+        }
+
+        //Return
+        Ok(Response::new()
+            .add_attributes(vec![
+                attr("collateral_denom", collateral_denom),
+                attr("msg_executor", info.sender),
+                attr("position_owner", position_owner),
+            ]))
+        // return Err(ContractError::CustomError { val: format!("Current multiplier {} is within 3% of the intended multiplier {}", current_multiplier, intended_multiplier) });
     }
 
 }

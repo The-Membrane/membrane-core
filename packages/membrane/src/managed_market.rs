@@ -3,7 +3,7 @@ use std::option;
 
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Decimal, Uint128};
-use crate::{oracle::PriceResponse, types::{AssetOracleInfo, AutoCloseParams, BorrowOptions, ClaimTracker, RangeBounds, RangePositions, RangeTokens, UserHistory, UserInfo, UserIntentState, UserPosition, UXBoosts}};
+use crate::{oracle::PriceResponse, types::{AssetOracleInfo, AutoCloseParams, BorrowOptions, ClaimTracker, LoopLTVParams, RangeBounds, RangePositions, RangeTokens, UXBoosts, UserHistory, UserInfo, UserIntentState, UserPosition}};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -81,7 +81,9 @@ pub enum ExecuteMsg {
     /// - The debt vault token conversion rate is static (post-submsg error)
     SupplyDebt {
         /// Who is the receipt token going to? Defaults to sender.
-        send_to: Option<String>
+        send_to: Option<String>,
+        /// If true, the debt will be added to the junior tranche
+        is_junior: bool,
     },
     /// Withdraw debt by sending vault receipt tokens
     /// Assert:
@@ -118,7 +120,7 @@ pub enum ExecuteMsg {
         /// Market signifier
         collateral_denom: String,
         /// LTV to set intents to loop at
-        loop_ltv: Option<Option<Decimal>>,
+        loop_ltv: Option<Option<LoopLTVParams>>,
         /// Params to allow "automated" position close
         take_profit_params: Option<Option<AutoCloseParams>>,
         /// Params to allow "automated" position close
@@ -199,11 +201,11 @@ pub enum ExecuteMsg {
     },
     /// Assures that for deposits & withdrawals the conversion rate is static.
     /// Only callable by the contract
-    RateAssurance { },
+    RateAssurance { is_junior: bool },
     ///Saves the current base token claim for 1 vault token
-    CrankRealizedAPR { },
+    CrankRealizedAPR { is_junior: bool },
     /// Callback
-    GetTotalDepositTokens { },
+    GetTotalDepositTokens { is_junior: bool },
     CheckBadDebt { },   
 }
 
@@ -213,9 +215,9 @@ pub enum QueryMsg {
     #[returns(Config)]
     Config {},
     #[returns(Uint128)]
-    TotalVaultTokens { },
+    TotalVaultTokens { is_junior: bool },
     #[returns(Uint128)]
-    GetUnderlyingDebtAmount { vault_token_amount: Uint128 },
+    GetUnderlyingDebtAmount { vault_token_amount: Uint128, is_junior: bool },
     #[returns(Vec<MarketParams>)]
     MarketParams {
         start_after: Option<String>,
@@ -243,7 +245,7 @@ pub enum QueryMsg {
         user: String,
     },
     #[returns(ClaimTracker)]
-    ClaimTracker {},
+    ClaimTracker { is_junior: bool },
     #[returns(bool)]
     ActionsPaused {},
     #[returns(PriceResponse)]
@@ -329,19 +331,32 @@ pub struct BorrowCap {
 }
 
 #[cw_serde]
+pub struct DebtInfo {
+    pub total_debt: Uint128,
+    pub bad_debt: Uint128,
+}
+
+#[cw_serde]
 pub struct Config {
     pub owner: Addr,
     pub markets_manager_contract: Addr,
     pub osmosis_proxy_contract: Addr,
     pub global_rate_index: RateIndex,
     /// This includes supplied CDT & CDT accrued from interest to make sure debt suppliers always withdraw their full share.
+    /// This is for senior debt 
     pub total_debt_tokens: Uint128,
     pub bad_debt: Uint128,
     pub debt_supply_cap: Option<Uint128>,
     pub debt_supply_vault_token: String,
+    //Junior Tranche
+    pub junior_debt_supply_vault_token: Option<String>,
+    pub junior_debt_info: Option<DebtInfo>,
+    pub senior_debt_fixed_yield_target: Option<Decimal>,
     ///Set Whitelists to empty vec to disable new capital
     pub whitelisted_debt_suppliers: Option<Vec<String>>,
     pub manager_fee: Decimal,
+    ///Total borrowed in all markets, needed for rate calculation
+    pub total_borrowed: Option<Uint128>,
 }
 
 

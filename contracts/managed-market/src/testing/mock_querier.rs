@@ -2,7 +2,7 @@
 // Place this in your test module and use `custom_mock_deps()` instead of `mock_dependencies()`.
 
 use cosmwasm_std::testing::{MockApi, MockQuerier, MockStorage};
-use cosmwasm_std::{to_binary, Binary, ContractResult, OwnedDeps, QuerierResult, QueryRequest, SystemResult};
+use cosmwasm_std::{to_binary, Binary, ContractResult, OwnedDeps, QuerierResult, QueryRequest, SystemResult, Uint128};
 use osmosis_std::types::osmosis::twap::v1beta1::GeometricTwapToNowResponse;
 use osmosis_std::types::osmosis::poolmanager::v1beta1::EstimateSwapExactAmountOutResponse;
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::MsgMintResponse;
@@ -60,6 +60,7 @@ impl cosmwasm_std::Querier for CustomMockQuerier {
                         manager_whitelist: vec![],
                         osmosis_proxy_contract: Addr::unchecked("proxy"),
                         managed_market_fee: fee,
+                        minimum_cdt_for_permissionless_instantiation: Some(Uint128::zero()),
                     };
                     return SystemResult::Ok(ContractResult::Ok(to_binary(&resp).unwrap()));
                 }

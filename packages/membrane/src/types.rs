@@ -1175,8 +1175,14 @@ pub struct AutoCloseParams {
     pub ltv: Decimal,
     pub percent_to_close: Decimal,
     pub send_to: Option<String>,
+    pub perpetual: bool,
 }
 
+#[cw_serde]
+pub struct LoopLTVParams {
+    pub loop_ltv: Decimal,
+    pub perpetual: bool,
+}
 
 #[cw_serde]
 pub struct PurchaseData {
@@ -1198,7 +1204,7 @@ pub struct UserHistory {
 #[cw_serde] 
 pub struct UXBoosts {
     pub collateral_value_fee_to_executor: Decimal, 
-    pub loop_ltv: Option<Decimal>,
+    pub loop_ltv: Option<LoopLTVParams>,
     pub take_profit_params: Option<AutoCloseParams>,
     pub stop_loss_params: Option<AutoCloseParams>,
     pub arb_price: Option<Decimal>,

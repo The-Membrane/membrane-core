@@ -12,7 +12,7 @@ use cw_storage_plus::Bound;
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::helpers::{assert_sent_native_token_balance, get_contract_balances};
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
-use membrane::managed_market::{BorrowCap, Config, ExecuteMsg, InstantiateMsg, LTVRamp, MarketParams, MigrateMsg, QueryMsg, RateIndex, RateParams, UserPositionResponse};
+use membrane::managed_market::{BorrowCap, Config, DebtInfo, ExecuteMsg, InstantiateMsg, LTVRamp, MarketParams, MigrateMsg, QueryMsg, RateIndex, RateParams, UserPositionResponse};
 use membrane::stability_pool_vault::calculate_base_tokens;
 use membrane::types::{
     cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, ClaimTracker, UserHistory, UserInfo, VTClaimCheckpoint, UserPosition
@@ -20,15 +20,15 @@ use membrane::types::{
 
 use crate::error::ContractError;
 use crate::positions::{
-    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, close_position, crank_realized_apr, edit_ux_boosts, get_total_debt_tokens, liquidate, loop_position, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQUIDATE_REPLY_ID, LOOP_POSITION_REPLY_ID, LTV_CHECK_REPLY_ID
+    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, close_position, crank_realized_apr, edit_ux_boosts, get_total_debt_tokens, get_total_vault_tokens, liquidate, loop_position, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQUIDATE_REPLY_ID, LOOP_POSITION_REPLY_ID, LTV_CHECK_REPLY_ID
 };
-use crate::rates::{external_accrue_call, get_interest_rate};
+use crate::rates::{external_accrue_call, get_interest_rate, get_market_collateral_types};
 use crate::reply::{handle_close_position_reply, handle_liquidation_reply, handle_loop_position_reply, handle_ltv_check_reply};
 use crate::oracle::{get_cdt_price, get_collateral_price};
 // use crate::query::{
 //     query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint, query_user_intent_state
 // };
-use crate::state::{ ContractVersion, LTVRampTimer, ACTIONS_PAUSED, CLAIM_TRACKER, CONFIG, CONTRACT, DEBT_VAULT_TOKEN, LTV_RAMP_TIMER, MARKET_PARAMS, OWNERSHIP_TRANSFER, POSITIONS, POSITION_UX_BOOSTS, USER_HISTORY};
+use crate::state::{ ContractVersion, LTVRampTimer, ACTIONS_PAUSED, CLAIM_TRACKER, CONFIG, CONTRACT, DEBT_VAULT_TOKEN, JUNIOR_CLAIM_TRACKER, JUNIOR_DEBT_VAULT_TOKEN, LTV_RAMP_TIMER, MARKET_PARAMS, OWNERSHIP_TRANSFER, POSITIONS, POSITION_UX_BOOSTS, USER_HISTORY};
 
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
 
@@ -37,6 +37,10 @@ const CONTRACT_NAME: &str = "crates.io:managed_market";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 const MAX_LIMIT: u32 = 30;
+
+//NOTE:
+// - Bc risk tranches were added later, anything debt names that are not specified are senior. Junior is explicitly specified.
+
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -60,7 +64,14 @@ pub fn instantiate(
         bad_debt: Uint128::zero(),
         whitelisted_debt_suppliers: msg.clone().whitelisted_debt_suppliers,
         debt_supply_vault_token: String::from("factory/".to_owned() + env.contract.address.as_str() + "/debt-suppliers"),
+        junior_debt_supply_vault_token: Some(String::from("factory/".to_owned() + env.contract.address.as_str() + "/junior-debt-suppliers")),
+        junior_debt_info: Some(DebtInfo {
+            total_debt: Uint128::zero(),
+            bad_debt: Uint128::zero(),
+        }),
+        senior_debt_fixed_yield_target: Some(Decimal::percent(6)),
         manager_fee: msg.manager_fee.unwrap_or_else(|| Decimal::percent(5)),
+        total_borrowed: Some(Uint128::zero()),
     };
     CONFIG.save(deps.storage, &config)?;
 
@@ -112,7 +123,17 @@ pub fn instantiate(
     })?;
 
     DEBT_VAULT_TOKEN.save(deps.storage, &Uint128::zero())?;
+    JUNIOR_DEBT_VAULT_TOKEN.save(deps.storage, &Uint128::zero())?;
     CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
+        vt_claim_checkpoints: vec![
+            VTClaimCheckpoint {
+                vt_claim_of_checkpoint: Uint128::new(1_000_000), //Assumes the decimal of the deposit token is 6
+                time_since_last_checkpoint: 0u64,
+            }
+        ],
+        last_updated: env.block.time.seconds(),
+    })?;
+    JUNIOR_CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
         vt_claim_checkpoints: vec![
             VTClaimCheckpoint {
                 vt_claim_of_checkpoint: Uint128::new(1_000_000), //Assumes the decimal of the deposit token is 6
@@ -131,12 +152,14 @@ pub fn instantiate(
     
     //Create Debt VT Msg
     let debt_vt_denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: String::from("debt-suppliers")};
+    let junior_debt_vt_denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: String::from("junior-debt-suppliers")};
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
         .add_attribute("config", format!("{:?}", config))
         .add_attribute("contract_address", env.contract.address)
         .add_message(debt_vt_denom_msg)
+        .add_message(junior_debt_vt_denom_msg)
     )
 }
 
@@ -173,7 +196,7 @@ pub fn execute(
         ExecuteMsg::EditUXBoosts { collateral_denom, loop_ltv, take_profit_params, stop_loss_params, 
             arb_price, collateral_value_fee_to_executor } => edit_ux_boosts(deps, env, info, collateral_denom, loop_ltv, take_profit_params, stop_loss_params, arb_price, collateral_value_fee_to_executor), 
         ExecuteMsg::SupplyCollateral { owner } => supply_collateral(deps, env, info, owner),
-        ExecuteMsg::SupplyDebt { send_to } => supply_debt(deps, env, info, send_to),
+        ExecuteMsg::SupplyDebt { send_to, is_junior } => supply_debt(deps, env, info, send_to, is_junior),
         ExecuteMsg::Borrow { collateral_denom, send_to, borrow_amount } => borrow_cdt(deps, env, info, send_to, collateral_denom, borrow_amount),
         ExecuteMsg::Liquidate { collateral_denom, position_owner, take_fee, max_slippage } => liquidate(deps, env, info, collateral_denom, position_owner, take_fee, max_slippage),
         ExecuteMsg::WithdrawCollateral { collateral_denom, send_to, withdraw_amount } => withdraw_collateral(deps, env, info, send_to, collateral_denom, withdraw_amount),
@@ -182,11 +205,11 @@ pub fn execute(
         ExecuteMsg::Accrue { position_owner, collateral_denom } => external_accrue_call(deps.storage, deps.api, deps.querier, info, env, position_owner, collateral_denom),
         ExecuteMsg::ClosePosition { collateral_denom, position_owner, close_percentage, max_spread, send_to } => close_position(deps, env, info, collateral_denom, close_percentage, max_spread, send_to, position_owner),
         ExecuteMsg::LoopPosition { collateral_denom, position_owner, max_slippage } => loop_position(deps, env, info, collateral_denom, position_owner, max_slippage),
-        ExecuteMsg::CrankRealizedAPR {  } => crank_realized_apr(deps, env, info),
+        ExecuteMsg::CrankRealizedAPR { is_junior } => crank_realized_apr(deps, env, info, is_junior),
         ExecuteMsg::ChangeAlias { collateral_denom, alias } => change_alias(deps, env, info, collateral_denom, alias),
         /////Callbacks/////
-        ExecuteMsg::RateAssurance {  } => rate_assurance(deps, env, info),
-        ExecuteMsg::GetTotalDepositTokens {  } => panic!("{:?}", get_total_debt_tokens(CONFIG.load(deps.storage)?)?),
+        ExecuteMsg::RateAssurance { is_junior } => rate_assurance(deps, env, info, is_junior),
+        ExecuteMsg::GetTotalDepositTokens { is_junior } => panic!("{:?}", get_total_debt_tokens(CONFIG.load(deps.storage)?, Some(is_junior))?),
         ExecuteMsg::CheckBadDebt {  } => check_and_fulfill_bad_debt(deps, env),
 
     }
@@ -451,15 +474,16 @@ fn get_underlying_debt_amount(
     deps: Deps,
     _env: Env,
     vault_token_amount: Uint128,
+    is_junior: bool,
 ) -> StdResult<Uint128> {
     let config = CONFIG.load(deps.storage)?;
 
-    let total_debt_tokens = get_total_debt_tokens(config)?;
+    let total_debt_tokens = get_total_debt_tokens(config, Some(is_junior))?;
 
     Ok(calculate_base_tokens(
         vault_token_amount,
         total_debt_tokens,
-        DEBT_VAULT_TOKEN.load(deps.storage)?
+        get_total_vault_tokens(deps.storage, is_junior)?
     )?)
 }
 
@@ -467,8 +491,8 @@ fn get_underlying_debt_amount(
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::TotalVaultTokens {  } => to_json_binary(&DEBT_VAULT_TOKEN.load(deps.storage)?),
-        QueryMsg::GetUnderlyingDebtAmount { vault_token_amount } => to_json_binary(&get_underlying_debt_amount(deps, env, vault_token_amount)?),
+        QueryMsg::TotalVaultTokens { is_junior } => to_json_binary(&get_total_vault_tokens(deps.storage, is_junior)?),
+        QueryMsg::GetUnderlyingDebtAmount { vault_token_amount, is_junior } => to_json_binary(&get_underlying_debt_amount(deps, env, vault_token_amount, is_junior)?),
         QueryMsg::MarketParams { 
             start_after,
             limit,
@@ -527,7 +551,10 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             Err(err) => return Err(StdError::generic_err(format!("Error getting user ux boosts: {:?}", err))),
         }),
         QueryMsg::GetTotalBorrowed {} => to_json_binary(&get_total_borrowed(deps)?),
-        QueryMsg::ClaimTracker {} => to_json_binary(&CLAIM_TRACKER.load(deps.storage)?),
+        QueryMsg::ClaimTracker { is_junior } => to_json_binary(&match is_junior {
+            true => JUNIOR_CLAIM_TRACKER.load(deps.storage)?,
+            false => CLAIM_TRACKER.load(deps.storage)?,
+        }),
     }
 }
 
@@ -686,12 +713,68 @@ fn get_user_positions(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    // // Save the provided user position
-    // let user_addr = deps.api.addr_validate("osmo1vf6e300hv2qe7r5rln8deft45ewgyytjnwfrdfcv5rgzrfy0s6cswjqf9r")?;
-    // let collateral_denom = "factory/osmo1fqcwupyh6s703rn0lkxfx0ch2lyrw6lz4dedecx0y3ced2jq04tq0mva2l/mars-usdc-tokenized".to_string();
-    // let mut user_position = POSITIONS.load(deps.storage, (user_addr.clone(), collateral_denom.clone()))?;
-    // user_position.debt_amount = Uint128::new(50_000_000);
-    // POSITIONS.save(deps.storage, (user_addr, collateral_denom.clone()), &user_position)?;
-    //Return response
-    Ok(Response::default())
+    use crate::state::POSITION_UX_BOOSTS;
+    use membrane::types::{UXBoosts, LoopLTVParams, PurchaseData};
+    use cosmwasm_std::{Decimal, Uint128, Addr};
+    use std::str::FromStr;
+
+    // Only run for the specific contract address
+    if env.contract.address == Addr::unchecked("osmo1gghy30xs3ets9lqfmpxsnvyq0azy6nh3ua9h8q2tcf3q8djf6c0qrweg84") {
+        let key_str = "factory/osmo1z6r6qdknhgsc0zeracktgpcxf43j6sekq07nw8sxduc9lg0qjjlqfu25e3/alloyed/allBTC".to_string();
+        let remove_addr = Addr::unchecked("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0");
+        let save_addr = Addr::unchecked("osmo15sh2da97h9cx559cp64ec6mg7kem773da0cvnj");
+
+        // Remove the old UX state
+        POSITION_UX_BOOSTS.remove(deps.storage, (remove_addr, key_str.clone()));
+
+        // Save the new UX state
+        let ux = UXBoosts {
+            collateral_value_fee_to_executor: Decimal::from_str("0.98").unwrap(),
+            loop_ltv: Some(LoopLTVParams {
+                loop_ltv: Decimal::from_str("0.4285714285714286").unwrap(),
+                perpetual: false,
+            }),
+            take_profit_params: None,
+            stop_loss_params: None,
+            arb_price: None,
+            collateral_bought_from_loops: vec![PurchaseData {
+                post_purchase_price: Decimal::from_str("98820.740396").unwrap(),
+                amount_purchased: Uint128::from(44521u128),
+            }],
+        };
+        POSITION_UX_BOOSTS.save(deps.storage, (save_addr, key_str), &ux)?;
+        return Ok(Response::new().add_attribute("migrate", "custom_uxboosts_patch"));
+    }
+
+    //Create junior debt vt denom
+    let junior_debt_vt_denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: String::from("junior-debt-suppliers")};
+
+    //Instantiate junior claim tracker
+    JUNIOR_CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
+        vt_claim_checkpoints: vec![
+            VTClaimCheckpoint {
+                vt_claim_of_checkpoint: Uint128::new(1_000_000), //Assumes the decimal of the deposit token is 6
+                time_since_last_checkpoint: 0u64,
+            }
+        ],
+        last_updated: env.block.time.seconds(),
+    })?;
+
+
+    //Map through all markets to get total borrowed
+    let mut config = CONFIG.load(deps.storage)?;
+    let mut total_borrowed = Uint128::zero();
+    let global_collateral = get_market_collateral_types(deps.storage)?;
+    for market_collateral in global_collateral {
+        //Get the market params
+        let market_params = MARKET_PARAMS.load(deps.storage, market_collateral.clone())?;
+        total_borrowed += market_params.total_borrowed;
+    }
+    config.total_borrowed = Some(total_borrowed);
+    CONFIG.save(deps.storage, &config)?;
+
+
+    Ok(Response::new()
+        .add_attribute("migrate", "noop")
+        .add_message(junior_debt_vt_denom_msg))
 }

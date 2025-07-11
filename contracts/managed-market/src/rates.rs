@@ -11,9 +11,9 @@ use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
 
-use crate::positions::{get_total_debt_tokens, query_markets_manager_fee};
+use crate::positions::{get_total_debt_tokens, get_total_vault_tokens, query_markets_manager_fee};
 use crate::ContractError;
-use crate::state::{CONFIG, DEBT_VAULT_TOKEN, POSITIONS, MARKET_PARAMS};
+use crate::state::{CONFIG, DEBT_VAULT_TOKEN, JUNIOR_DEBT_VAULT_TOKEN, MARKET_PARAMS, POSITIONS};
 
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
@@ -53,8 +53,6 @@ pub fn external_accrue_call(
     //Accrue interest
     accrue(
         storage, 
-        get_total_debt_tokens(config.clone())?, 
-        total_vault_tokens.clone(), 
         env.clone(),            
         &mut config.clone(),
         &mut user_position,
@@ -136,7 +134,9 @@ pub fn get_interest_rate(
     }
 }
 
-fn get_market_collateral_types(
+/// Get all market collateral types.
+/// Inefficient: This loads the collateral types from the market params to then load them again later in a for loop.
+pub fn get_market_collateral_types(
     storage: &mut dyn Storage
 ) -> Result<Vec<String>, ContractError> {
 
@@ -151,11 +151,11 @@ fn get_market_collateral_types(
     Ok(market_collateral)
 }
 
-/// Accrue interest 
+/// Accrue interest.
+/// WARNING: The senior tranche will not accrue its target rate if...
+/// either of the market's interest rates are below the target rate * 1 + (percentage supply surplus)
 pub fn accrue(
     storage: &mut dyn Storage,
-    _total_debt_tokens: Uint128,
-    total_vault_tokens: Uint128,
     env: Env,
     config: &mut Config,
     user_position: &mut UserPosition,
@@ -213,12 +213,12 @@ pub fn accrue(
 
 
         //Accumulate rate on the rate_index
-        let accrued_rate = accumulate_interest_dec(
-            config.global_rate_index.rate_index,
-            interest_rate,
-            time_elapsed,
-        )?;
-        config.global_rate_index.rate_index += accrued_rate;
+        // let accrued_rate = accumulate_interest_dec(
+        //     config.global_rate_index.rate_index,
+        //     interest_rate,
+        //     time_elapsed,
+        // )?;
+        // config.global_rate_index.rate_index += accrued_rate;
         //Accumulate rate on the market's rate_index
         let market_rate = accumulate_interest_dec(
             market_params.market_rate_index.rate_index,
@@ -226,7 +226,6 @@ pub fn accrue(
             time_elapsed,
         )?;
         market_params.market_rate_index.rate_index += market_rate;
-         
 
 
         //If the user is in THIS market, update their rate index & debt amount
@@ -246,43 +245,47 @@ pub fn accrue(
                 debt_rate_of_change
             )?.to_uint_floor();
 
-
             if new_credit_amount > user_position.debt_amount {
-                //Calc accrued interest
-                let accrued_interest = new_credit_amount - user_position.debt_amount;
-
-                //Add accrued interest to the config's total debt token amount & total borrowed
-                config.total_debt_tokens += accrued_interest;
-                market_params.total_borrowed += accrued_interest;
-
                 //Set position's debt to the debt + accrued_interest
                 user_position.debt_amount = new_credit_amount;
-
-
-                //Calc manager revenue
-                let manager_fee = decimal_multiplication(
-                    Decimal::from_ratio(accrued_interest, Uint128::one()),
-                    config.manager_fee,
-                )?;
-                manager_revenue += manager_fee.to_uint_floor();
-
-                //Calc revenue to membrane
-                let membrane_fee = decimal_multiplication(
-                    Decimal::from_ratio(accrued_interest, Uint128::one()),
-                    fee_to_membrane,
-                )?;
-                membrane_revenue += membrane_fee.to_uint_floor();
-
             }
-
         }
-        //We only accrue interest when a user is in the market.
-        //The rate index changes will accrue all the interest at once when the user interacts with their position.
 
-        //Technically we could accrue interest to the debt token during claims in order to allow claims of interest ahead of time, before user's actually accrue it...
-        //But this would be a bit more complex and we don't need to do this right now.
-        //Instead we'll just have management make accrue calls.
-    
+        //Calculate market's total accrued interest
+        let market_new_credit_amount = decimal_multiplication(
+            Decimal::from_ratio(market_params.total_borrowed, Uint128::one()),
+            market_rate
+        )?.to_uint_floor();
+        
+        let total_accrued_interest = if market_new_credit_amount > market_params.total_borrowed {
+            market_new_credit_amount - market_params.total_borrowed
+        } else {
+            Uint128::zero()
+        };
+
+        //Add accrued interest to market's total borrowed
+        if !total_accrued_interest.is_zero() {
+            market_params.total_borrowed = market_new_credit_amount;
+        }
+
+        //Distribute yield between senior and junior tranches
+        distribute_yield(config, total_accrued_interest, time_elapsed, market_params.total_borrowed)?;
+
+        //Calc manager revenue
+        if !total_accrued_interest.is_zero() {
+            let manager_fee = decimal_multiplication(
+                Decimal::from_ratio(total_accrued_interest, Uint128::one()),
+                config.manager_fee,
+            )?;
+            manager_revenue += manager_fee.to_uint_floor();
+
+            //Calc revenue to membrane
+            let membrane_fee = decimal_multiplication(
+                Decimal::from_ratio(total_accrued_interest, Uint128::one()),
+                fee_to_membrane,
+            )?;
+            membrane_revenue += membrane_fee.to_uint_floor();
+        }
 
         //Save the updated market params
         MARKET_PARAMS.save(storage, market_collateral.clone(), &market_params)?;
@@ -291,13 +294,18 @@ pub fn accrue(
 
 
 
+
+    /////Managers get Junior, Membrane gets Senior/////
     //Calculate the amount of vault tokens to mint to the manager as the fee
     if manager_revenue > Uint128::zero() || membrane_revenue > Uint128::zero() {
         //////////Manager Revenue//////////
+        //Get Junior Vault Token Supply
+        let junior_vault_token_supply = get_total_vault_tokens(storage, true)?;
+        /// 
         let vt_to_mint_to_manager = calculate_vault_tokens(
             manager_revenue, 
-            get_total_debt_tokens(config.clone())?, 
-            total_vault_tokens
+            get_total_debt_tokens(config.clone(), Some(true))?, 
+            junior_vault_token_supply
         )?;
 
         //Mint the vault tokens to the manager
@@ -305,7 +313,7 @@ pub fn accrue(
             let mint_vault_tokens_msg: CosmosMsg = TokenFactory::MsgMint {
                 sender: env.contract.address.to_string(), 
                 amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
-                    denom: config.debt_supply_vault_token.clone(),
+                    denom: config.junior_debt_supply_vault_token.clone().unwrap(),
                     amount: vt_to_mint_to_manager.to_string(),
                 }), 
                 mint_to_address: config.owner.clone().to_string(),
@@ -315,17 +323,22 @@ pub fn accrue(
 
 
         //Update vault token supply
-        let new_vault_token_supply = match total_vault_tokens.checked_add(vt_to_mint_to_manager){
+        let new_vault_token_supply = match junior_vault_token_supply.checked_add(vt_to_mint_to_manager){
             Ok(v) => v,
-            Err(_) => return Err(ContractError::CustomError { val: format!("Failed to add vault token total supply: {} + {}", total_vault_tokens, vt_to_mint_to_manager) }),
+            Err(_) => return Err(ContractError::CustomError { val: format!("Failed to add vault token total supply: {} + {}", junior_vault_token_supply, vt_to_mint_to_manager) }),
         };
 
+        //Save the updated junior vault token supply
+        JUNIOR_DEBT_VAULT_TOKEN.save(storage, &new_vault_token_supply)?;
+
         //////////Protocol Revenue//////////
+        //Get Senior Vault Token Supply
+        let senior_vault_token_supply = get_total_vault_tokens(storage, false)?;
         //Calculate the amount of vault tokens to mint to the MarketsManager Contract
         let vt_to_mint_to_membrane = calculate_vault_tokens(
             membrane_revenue, 
-            get_total_debt_tokens(config.clone())?, 
-            new_vault_token_supply
+            get_total_debt_tokens(config.clone(), Some(false))?, 
+            senior_vault_token_supply
         )?;
 
         //Mint membrane revenue to MarketsManager Contract
@@ -343,7 +356,7 @@ pub fn accrue(
 
 
         //Update vault token supply
-        let new_vault_token_supply= match new_vault_token_supply.checked_add(vt_to_mint_to_membrane){
+        let new_vault_token_supply= match senior_vault_token_supply.checked_add(vt_to_mint_to_membrane){
             Ok(v) => v,
             Err(_) => return Err(ContractError::CustomError { val: format!("Failed to add vault token total supply: {} + {}", new_vault_token_supply, vt_to_mint_to_membrane) }),
         };
@@ -354,14 +367,88 @@ pub fn accrue(
 
 
         //Add rate assurance callback msg
-        if !total_vault_tokens.is_zero() && !vt_to_mint_to_manager.is_zero() {
+        if !senior_vault_token_supply.is_zero() && !vt_to_mint_to_membrane.is_zero() {
             msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: env.contract.address.to_string(),
-                msg: to_json_binary(&ExecuteMsg::RateAssurance { })?,
+                msg: to_json_binary(&ExecuteMsg::RateAssurance { is_junior: false })?,
                 funds: vec![],
             }));
         }
 
+    }
+
+
+    Ok(())
+}
+
+/// Distribute yield between senior and junior tranches based on target rates
+pub fn distribute_yield(
+    config: &mut Config,
+    total_accrued_interest: Uint128,
+    time_elapsed: u64,
+    market_total_borrowed: Uint128,
+) -> Result<(), ContractError> {
+    // Early return if no yield to distribute
+    if total_accrued_interest.is_zero() {
+        return Ok(());
+    }
+
+    // Early return if no total debt tokens (prevents division by zero)
+    if config.total_debt_tokens.is_zero() {
+        return Ok(());
+    }
+
+    // Early return if this market has no borrowed amount
+    if market_total_borrowed.is_zero() {
+        return Ok(());
+    }
+
+    // Get senior yield target from config
+    let senior_yield_target = match config.senior_debt_fixed_yield_target {
+        Some(target) => target,
+        None => return Ok(()), // No target set, skip distribution
+    };
+
+    // Calculate this market's share of the total borrowed
+    let market_share_ratio = decimal_division(
+        Decimal::from_ratio(market_total_borrowed, Uint128::one()),
+        Decimal::from_ratio(config.total_debt_tokens, Uint128::one()),
+    )?;
+
+    // Calculate expected yearly senior yield using accumulate_interest_dec
+    let expected_senior_yield = accumulate_interest_dec(
+        Decimal::from_ratio(config.total_debt_tokens, Uint128::one()),
+        senior_yield_target,
+        time_elapsed,
+    )?.to_uint_floor();
+
+    // Scale the expected yield by this market's share
+    let proportional_expected_yield = decimal_multiplication(
+        Decimal::from_ratio(expected_senior_yield, Uint128::one()),
+        market_share_ratio,
+    )?.to_uint_floor();
+
+    // Determine senior and junior portions
+    let (senior_portion, junior_portion) = if total_accrued_interest > proportional_expected_yield {
+        // Senior gets target amount, excess goes to junior
+        (proportional_expected_yield, total_accrued_interest - proportional_expected_yield)
+    } else {
+        // 80% to senior, rest to junior
+        let senior_portion = decimal_multiplication(
+            Decimal::from_ratio(total_accrued_interest, Uint128::one()),
+            Decimal::percent(80),
+        )?.to_uint_floor();
+        (senior_portion, total_accrued_interest - senior_portion)
+    };
+
+    // Add senior portion to config.total_debt_tokens
+    config.total_debt_tokens = config.total_debt_tokens.checked_add(senior_portion)
+        .map_err(|_| ContractError::CustomError { val: format!("Failed to add senior portion to total debt tokens") })?;
+
+    // Add junior portion to junior_debt_info
+    if let Some(ref mut junior_debt_info) = config.junior_debt_info {
+        junior_debt_info.total_debt = junior_debt_info.total_debt.checked_add(junior_portion)
+            .map_err(|_| ContractError::CustomError { val: format!("Failed to add junior portion to junior debt info") })?;
     }
 
 

@@ -65,7 +65,7 @@ pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const MARKET_PARAMS: Map<String, MarketParams> = Map::new("market_params");
 pub const DEBT_VAULT_TOKEN: Item<Uint128> = Item::new("debt_vault_token");
-
+pub const JUNIOR_DEBT_VAULT_TOKEN: Item<Uint128> = Item::new("junior_debt_vault_token");
 pub const ACTIONS_PAUSED: Item<bool> = Item::new("actions_paused");
 pub const LTV_RAMP_TIMER: Map<String, LTVRampTimer> = Map::new("ltv_ramp_timer");
 pub const POSITIONS: Map<(Addr, String), UserPosition> = Map::new("user_position"); //(owner, collateral denom), position
@@ -80,6 +80,7 @@ pub const LOOP_POSITION: Item<LoopPropagation> = Item::new("loop_propagation");
 
 pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 pub const CLAIM_TRACKER: Item<ClaimTracker> = Item::new("claim_tracker");
+pub const JUNIOR_CLAIM_TRACKER: Item<ClaimTracker> = Item::new("junior_claim_tracker");
 
 
 

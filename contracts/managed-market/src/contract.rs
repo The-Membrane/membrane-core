@@ -746,19 +746,16 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     //     return Ok(Response::new().add_attribute("migrate", "custom_uxboosts_patch"));
     // }
 
-    // //Create junior debt vt denom
-    // let junior_debt_vt_denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: String::from("junior-debt-suppliers")};
-
-    // //Instantiate junior claim tracker
-    // JUNIOR_CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
-    //     vt_claim_checkpoints: vec![
-    //         VTClaimCheckpoint {
-    //             vt_claim_of_checkpoint: Uint128::new(1_000_000), //Assumes the decimal of the deposit token is 6
-    //             time_since_last_checkpoint: 0u64,
-    //         }
-    //     ],
-    //     last_updated: env.block.time.seconds(),
-    // })?;
+    //Instantiate junior claim tracker
+    JUNIOR_CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
+        vt_claim_checkpoints: vec![
+            VTClaimCheckpoint {
+                vt_claim_of_checkpoint: Uint128::new(1_000_000), //Assumes the decimal of the deposit token is 6
+                time_since_last_checkpoint: 0u64,
+            }
+        ],
+        last_updated: env.block.time.seconds(),
+    })?;
 
 
     //Map through all markets to get total borrowed
@@ -771,6 +768,12 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
         total_borrowed += market_params.total_borrowed;
     }
     config.total_borrowed = Some(total_borrowed);
+    config.junior_debt_info = Some(DebtInfo {
+            total_debt: Uint128::zero(),
+            bad_debt: Uint128::zero(),
+    });
+    config.junior_debt_supply_vault_token = Some(String::from("factory/".to_owned()+&env.contract.address.to_string()+"/junior-debt-suppliers"));
+    config.senior_debt_fixed_yield_target = Some(Decimal::percent(6));
     CONFIG.save(deps.storage, &config)?;
 
 

@@ -178,8 +178,9 @@ pub fn execute(
             pause_actions,
             manager_fee,
             whitelisted_debt_suppliers,
-            debt_supply_cap
-        } => update_config(deps, info, owner, markets_manager_contract, osmosis_proxy_contract_addr, pause_actions, manager_fee, whitelisted_debt_suppliers, debt_supply_cap),
+            debt_supply_cap,
+            senior_debt_fixed_yield_target,
+        } => update_config(deps, info, owner, markets_manager_contract, osmosis_proxy_contract_addr, pause_actions, manager_fee, whitelisted_debt_suppliers, debt_supply_cap, senior_debt_fixed_yield_target),
         ExecuteMsg::UpdateMarket {
             collateral_denom,
             max_borrow_LTV,
@@ -262,6 +263,7 @@ fn update_config(
     manager_fee: Option<Decimal>,
     whitelisted_debt_suppliers: Option<Option<Vec<String>>>,
     debt_supply_cap: Option<Option<Uint128>>,
+    senior_debt_fixed_yield_target: Option<Decimal>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     let mut attrs = vec![
@@ -322,7 +324,10 @@ fn update_config(
         config.debt_supply_cap = debt_supply_cap;
         attrs.push(attr("debt_supply_cap", format!("{:?}", debt_supply_cap)));
     }
-    
+    if let Some(senior_debt_fixed_yield_target) = senior_debt_fixed_yield_target {
+        config.senior_debt_fixed_yield_target = Some(senior_debt_fixed_yield_target);
+        attrs.push(attr("senior_debt_fixed_yield_target", format!("{:?}", senior_debt_fixed_yield_target)));
+    }
 
     //Save new Config
     CONFIG.save(deps.storage, &config)?;
@@ -713,73 +718,13 @@ fn get_user_positions(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    // use crate::state::POSITION_UX_BOOSTS;
-    // use membrane::types::{UXBoosts, LoopLTVParams, PurchaseData};
-    // use cosmwasm_std::{Decimal, Uint128, Addr};
-    // use std::str::FromStr;
-
-    // // Only run for the specific contract address
-    // if env.contract.address == Addr::unchecked("osmo1gghy30xs3ets9lqfmpxsnvyq0azy6nh3ua9h8q2tcf3q8djf6c0qrweg84") {
-    //     let key_str = "factory/osmo1z6r6qdknhgsc0zeracktgpcxf43j6sekq07nw8sxduc9lg0qjjlqfu25e3/alloyed/allBTC".to_string();
-    //     let remove_addr = Addr::unchecked("osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0");
-    //     let save_addr = Addr::unchecked("osmo15sh2da97h9cx559cp64ec6mg7kem773da0cvnj");
-
-    //     // Remove the old UX state
-    //     POSITION_UX_BOOSTS.remove(deps.storage, (remove_addr, key_str.clone()));
-
-    //     // Save the new UX state
-    //     let ux = UXBoosts {
-    //         collateral_value_fee_to_executor: Decimal::from_str("0.98").unwrap(),
-    //         loop_ltv: Some(LoopLTVParams {
-    //             loop_ltv: Decimal::from_str("0.4285714285714286").unwrap(),
-    //             perpetual: false,
-    //         }),
-    //         take_profit_params: None,
-    //         stop_loss_params: None,
-    //         arb_price: None,
-    //         collateral_bought_from_loops: vec![PurchaseData {
-    //             post_purchase_price: Decimal::from_str("98820.740396").unwrap(),
-    //             amount_purchased: Uint128::from(44521u128),
-    //         }],
-    //     };
-    //     POSITION_UX_BOOSTS.save(deps.storage, (save_addr, key_str), &ux)?;
-    //     return Ok(Response::new().add_attribute("migrate", "custom_uxboosts_patch"));
-    // }
-
-    //Instantiate junior claim tracker
-    JUNIOR_CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
-        vt_claim_checkpoints: vec![
-            VTClaimCheckpoint {
-                vt_claim_of_checkpoint: Uint128::new(1_000_000), //Assumes the decimal of the deposit token is 6
-                time_since_last_checkpoint: 0u64,
-            }
-        ],
-        last_updated: env.block.time.seconds(),
-    })?;
-
-
-    //Map through all markets to get total borrowed
-    let mut config = CONFIG.load(deps.storage)?;
-    let mut total_borrowed = Uint128::zero();
-    let global_collateral = get_market_collateral_types(deps.storage)?;
-    for market_collateral in global_collateral {
-        //Get the market params
-        let market_params = MARKET_PARAMS.load(deps.storage, market_collateral.clone())?;
-        total_borrowed += market_params.total_borrowed;
-    }
-    config.total_borrowed = Some(total_borrowed);
-    config.junior_debt_info = Some(DebtInfo {
-            total_debt: Uint128::zero(),
-            bad_debt: Uint128::zero(),
-    });
-    config.junior_debt_supply_vault_token = Some(String::from("factory/".to_owned()+&env.contract.address.to_string()+"/junior-debt-suppliers"));
-    config.senior_debt_fixed_yield_target = Some(Decimal::percent(6));
-    CONFIG.save(deps.storage, &config)?;
+    
+    JUNIOR_DEBT_VAULT_TOKEN.save(deps.storage, &Uint128::zero())?;
 
 
     Ok(Response::new()
         .add_attribute("migrate", "noop")
-        .add_attribute("total_borrowed", total_borrowed.to_string())
-        .add_attribute("config", format!("{:?}", config))
-    )
+        // .add_attribute("total_borrowed", total_borrowed.to_string())
+        // .add_attribute("config", format!("{:?}", config))
+        )
 }

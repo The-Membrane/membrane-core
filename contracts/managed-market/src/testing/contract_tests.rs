@@ -89,6 +89,7 @@ mod tests {
             whitelisted_debt_suppliers: None,
             debt_supply_cap: None,
             markets_manager_contract: Some("manager_contract".to_string()),
+            senior_debt_fixed_yield_target: None,
         };
         instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
         let _ = crate::contract::execute(
@@ -199,7 +200,8 @@ mod tests {
             manager_fee: None, 
             whitelisted_debt_suppliers: None, 
             debt_supply_cap: None,
-            markets_manager_contract: None
+            markets_manager_contract: None,
+            senior_debt_fixed_yield_target: None,
         };
         let admin_info = mock_info("owner", &[]);
         let res = execute(deps.as_mut(), env.clone(), admin_info.clone(), update_msg).unwrap();
@@ -219,7 +221,8 @@ mod tests {
             manager_fee: None, 
             whitelisted_debt_suppliers: None, 
             debt_supply_cap: None,
-            markets_manager_contract: None
+            markets_manager_contract: None,
+            senior_debt_fixed_yield_target: None,
         };
         let res = execute(deps.as_mut(), env.clone(), admin_info.clone(), update_msg).unwrap();
         // Failure: Sender not whitelisted
@@ -311,7 +314,8 @@ fn test_withdraw_collateral_happy_path_and_failures() {
         manager_fee: None,
         whitelisted_debt_suppliers: None,
         debt_supply_cap: None,
-        markets_manager_contract: None
+        markets_manager_contract: None,
+        senior_debt_fixed_yield_target: None,
     };
     execute(deps.as_mut(), env.clone(), info.clone(), pause_msg).unwrap();
 
@@ -386,7 +390,8 @@ fn test_supply_debt_happy_path_and_failures() {
         manager_fee: None,
         whitelisted_debt_suppliers: None,
         debt_supply_cap: Some(Some(Uint128::new(1_000_001))), // Just 1 more
-        markets_manager_contract: None
+        markets_manager_contract: None,
+        senior_debt_fixed_yield_target: None,
     };
     execute(deps.as_mut(), env.clone(), info.clone(), update_msg).unwrap();
 
@@ -512,7 +517,8 @@ fn test_withdraw_debt_happy_path_and_failures() {
         manager_fee: None,
         whitelisted_debt_suppliers: None,
         debt_supply_cap: None,
-        markets_manager_contract: None
+        markets_manager_contract: None,
+        senior_debt_fixed_yield_target: None,
     };
     execute(deps.as_mut(), env.clone(), admin_info, pause_msg).unwrap();
 
@@ -1182,7 +1188,8 @@ fn test_pausing_unpausing_and_config_updates() {
         manager_fee: None,
         whitelisted_debt_suppliers: None,
         debt_supply_cap: None,
-        markets_manager_contract: None
+        markets_manager_contract: None,
+        senior_debt_fixed_yield_target: None,
     };
     let pause_result = execute(deps.as_mut(), env.clone(), info.clone(), pause_msg);
     assert!(pause_result.is_ok());
@@ -1206,7 +1213,8 @@ fn test_pausing_unpausing_and_config_updates() {
         manager_fee: None,
         whitelisted_debt_suppliers: None,
         debt_supply_cap: None,
-        markets_manager_contract: None
+        markets_manager_contract: None,
+        senior_debt_fixed_yield_target: None,
     };
     let unpause_result = execute(deps.as_mut(), env.clone(), info.clone(), unpause_msg);
     assert!(unpause_result.is_ok());
@@ -1224,7 +1232,8 @@ fn test_pausing_unpausing_and_config_updates() {
         manager_fee: None,
         whitelisted_debt_suppliers: None,
         debt_supply_cap: None,
-        markets_manager_contract: None
+        markets_manager_contract: None,
+        senior_debt_fixed_yield_target: None,
     };
     let result = execute(deps.as_mut(), env.clone(), bad_info, pause_msg);
     assert!(result.is_err());
@@ -1240,7 +1249,8 @@ fn test_pausing_unpausing_and_config_updates() {
         manager_fee: Some(Decimal::percent(3)),
         whitelisted_debt_suppliers: Some(Some(vec!["new_debt_guy".to_string()])),
         debt_supply_cap: Some(Some(Uint128::new(123456))),
-        markets_manager_contract: None
+        markets_manager_contract: None,
+        senior_debt_fixed_yield_target: None,
     };
     let result = execute(deps.as_mut(), env.clone(), info.clone(), update_msg);
     assert!(result.is_ok());
@@ -1259,7 +1269,9 @@ fn test_pausing_unpausing_and_config_updates() {
         manager_fee: None, 
         whitelisted_debt_suppliers: None, 
         debt_supply_cap: None,
-        markets_manager_contract: None };
+        markets_manager_contract: None,
+        senior_debt_fixed_yield_target: None,
+    };
     let new_owner_info = mock_info("new_owner", &[]);
     let result = execute(deps.as_mut(), env.clone(), new_owner_info, accept_msg);
     assert!(result.is_ok());
@@ -2171,6 +2183,7 @@ fn test_tranche_whitelist_behavior() {
             whitelisted_debt_suppliers: None,
             debt_supply_cap: None,
             markets_manager_contract: Some("manager_contract".to_string()),
+            senior_debt_fixed_yield_target: None,
         };
         let _ = crate::contract::execute(
             deps.as_mut(),
@@ -2227,6 +2240,7 @@ fn test_tranche_debt_cap_enforcement() {
             whitelisted_debt_suppliers: None,
             debt_supply_cap: None,
             markets_manager_contract: Some("manager_contract".to_string()),
+            senior_debt_fixed_yield_target: None,
         };
         let _ = crate::contract::execute(
             deps.as_mut(),
@@ -2400,6 +2414,7 @@ fn test_tranche_config_updates() {
         manager_fee: Some(Decimal::percent(15)),
         whitelisted_debt_suppliers: None,
         debt_supply_cap: None,
+        senior_debt_fixed_yield_target: None,
     };
     let result = execute(deps.as_mut(), env.clone(), update_info, msg);
     assert!(result.is_ok());
@@ -2418,6 +2433,7 @@ fn test_tranche_config_updates() {
         manager_fee: None,
         whitelisted_debt_suppliers: Some(Some(vec!["new_whitelisted".to_string()])),
         debt_supply_cap: None,
+        senior_debt_fixed_yield_target: None,
     };
     let result = execute(deps.as_mut(), env.clone(), update_info, msg);
     assert!(result.is_ok());

@@ -184,6 +184,7 @@ pub enum ExecuteMsg {
         manager_fee: Option<Decimal>,
         whitelisted_debt_suppliers: Option<Option<Vec<String>>>,
         debt_supply_cap: Option<Option<Uint128>>,
+        senior_debt_fixed_yield_target: Option<Decimal>,
     },
     /// Update the market config
     UpdateMarket {

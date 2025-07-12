@@ -719,7 +719,7 @@ fn get_user_positions(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     
-    JUNIOR_DEBT_VAULT_TOKEN.save(deps.storage, &Uint128::zero())?;
+    // JUNIOR_DEBT_VAULT_TOKEN.save(deps.storage, & Uint128::zero())?;
 
 
     Ok(Response::new()

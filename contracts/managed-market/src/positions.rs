@@ -466,7 +466,6 @@ pub fn withdraw_debt(
 
     //Accrue to make sure withdrawing suppliers get their yield.
     //This is done to ensure that config's total_debt_tokens is up to date.
-    let total_vault_tokens = get_total_vault_tokens(deps.storage, is_junior)?;
 
     accrue(
         deps.storage,
@@ -1942,7 +1941,7 @@ pub fn close_position(
     position_owner: Option<String>,
 ) -> Result<Response, ContractError>{
     //Load global state
-    // let config: Config = CONFIG.load(deps.storage)?;
+    let mut config: Config = CONFIG.load(deps.storage)?;
     let market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
         Ok(market) => market,
         Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
@@ -1978,6 +1977,20 @@ pub fn close_position(
         Some(target_position) => target_position,
         None => return Err(ContractError::CustomError { val: format!("Position not found for user {} in the {} collateral market", position_owner, collateral_denom) }),
     };
+
+    //Get markets manager fee
+    let markets_manager_fee = query_markets_manager_fee(deps.querier, config.markets_manager_contract.to_string())?;
+
+    //Accrue interest
+    accrue(
+        deps.storage, 
+        env.clone(), 
+        &mut config, 
+        &mut target_position, 
+        &mut msgs, 
+        markets_manager_fee
+    )?;
+
 
 
     //If position owner is not the sender, make sure the position has SL and TP params ready to execute.

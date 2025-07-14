@@ -142,6 +142,7 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                         deps.querier,
                         env.clone(), 
                         MARKET_PARAMS.load(deps.storage, close_prop.collateral_denom.clone())?,
+                        false
                     ).map_err(|_| StdError::generic_err("Failed to get collateral price"))?;
                     //set loss to false
                     let mut loss = false;
@@ -320,11 +321,11 @@ pub fn handle_ltv_check_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<
                 
                 
                         //Check if the position is insolvent
-                        let collateral_price = match get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone()){
+                        let collateral_price = match get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone(), true){
                             Ok(price) => price,
                             Err(err) => return Err(StdError::generic_err(format!("Failed to get collateral price in ltv check reply: {}", err) ))
                         };
-                        let debt_price = match get_cdt_price(deps.querier, env.clone()){
+                        let debt_price = match get_cdt_price(deps.querier, env.clone(), true){
                             Ok(price) => price,
                             Err(err) => return Err(StdError::generic_err(format!("Failed to get debt price in ltv check reply: {}", err) ))
                         };
@@ -415,8 +416,9 @@ pub fn handle_loop_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRes
             let post_purchase_price = get_collateral_price(
                 deps.storage,
                 deps.querier,
-                env, 
+                env.clone(), 
                 MARKET_PARAMS.load(deps.storage, loop_prop.collateral_denom.clone())?,
+                true
             ).map_err(|_| StdError::generic_err("Failed to get collateral price"))?;
 
             //Update user position's collateral bought in loops

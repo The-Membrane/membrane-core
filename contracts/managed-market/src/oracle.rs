@@ -45,13 +45,14 @@ pub fn get_collateral_price(
     querier: QuerierWrapper,
     env: Env,
     market: MarketParams,
+    twap: bool,
 ) -> Result<PriceResponse, ContractError> {
     //Load state
     // let config: Config = CONFIG.load(storage)?;
     let asset_oracle_info = market.pool_for_oracle_and_liquidations;
 
     //twap_timeframe = MINUTES * SECONDS_PER_MINUTE
-    let twap_timeframe: u64 = (60 * 60);
+    let twap_timeframe: u64 = twap.then(|| (60 * 60)).unwrap_or(0);
     let start_time: u64 = env.block.time.seconds() - twap_timeframe;
 
     let mut asset_price_in_lp_steps = vec![];
@@ -145,10 +146,11 @@ pub fn get_collateral_price(
 pub fn get_cdt_price(
     querier: QuerierWrapper,
     env: Env,
+    twap: bool,
 ) -> Result<PriceResponse, ContractError> {
 
     //twap_timeframe = MINUTES * SECONDS_PER_MINUTE
-    let twap_timeframe: u64 = (60 * 60);
+    let twap_timeframe: u64 = twap.then(|| (60 * 60)).unwrap_or(0);
     let start_time: u64 = env.block.time.seconds() - twap_timeframe;
 
     //Query CDT/USDC price

@@ -653,8 +653,8 @@ pub fn withdraw_collateral(
         },
         false => {
             //If the user has debt, they can only withdraw up to the borrow LTV
-            let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone())?;
-            let debt_price = get_cdt_price(deps.querier, env.clone())?;
+            let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone(), true)?;
+            let debt_price = get_cdt_price(deps.querier, env.clone(), true)?;
             let collateral_value = collateral_price.get_value(user_position.collateral_amount)?;
             let debt_value = debt_price.get_value(user_position.debt_amount)?;
 
@@ -942,13 +942,13 @@ pub fn borrow_cdt(
         Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
     };
 
-    let debt_price = get_cdt_price(deps.querier, env.clone())?;
+    let debt_price = get_cdt_price(deps.querier, env.clone(), true)?;
     
 
     //Assert borrow is valid. 
     //Borrowable amount is capped by current LTV & borrowable LTV & borrow cap.
     let mut borrowable_amount = {
-        let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone())?;
+        let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone(), true)?;
         let collateral_value = collateral_price.get_value(user_position.collateral_amount)?;
         let debt_value: Decimal = debt_price.get_value(user_position.debt_amount)?;
 
@@ -1627,8 +1627,8 @@ pub fn liquidate(
     };
 
     //Check if the position is insolvent
-    let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone())?;
-    let debt_price = get_cdt_price(deps.querier, env.clone())?;
+    let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone(), true)?;
+    let debt_price = get_cdt_price(deps.querier, env.clone(), true)?;
     let collateral_value = collateral_price.get_value(user_position.collateral_amount)?;
     if collateral_value.is_zero() {
         return Err(ContractError::CustomError { val: "Collateral value is zero; cannot calculate LTV".to_string() });
@@ -1806,7 +1806,7 @@ pub fn check_and_fulfill_bad_debt(
     //Load user position
     let mut liquidated_position = POSITIONS.load(deps.storage, (liq_prop.position_owner.clone(), liq_prop.collateral_denom.clone()))?;
     //Get collateral price
-    let collateral_price = get_collateral_price(deps.storage, deps.querier, _env.clone(), market.clone())?;
+    let collateral_price = get_collateral_price(deps.storage, deps.querier, _env.clone(), market.clone(), true)?;
     //Get position's collateral asset value
     let collateral_value = collateral_price.get_value(liquidated_position.collateral_amount)?;
     //We check if the value left is > $1.
@@ -1951,8 +1951,8 @@ pub fn close_position(
     let mut msgs: Vec<CosmosMsg> = vec![];
 
     //Get asset prices
-    let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone())?;
-    let debt_price = get_cdt_price(deps.querier, env.clone())?;
+    let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone(), false)?;
+    let debt_price = get_cdt_price(deps.querier, env.clone(), false)?;
 
     //Set close_percentage
     let mut close_percentage = match close_percentage {
@@ -2204,8 +2204,8 @@ pub fn loop_position(
     let mut msgs: Vec<CosmosMsg> = vec![];
 
     //Get asset prices
-    let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone())?;
-    let debt_price = get_cdt_price(deps.querier, env.clone())?;
+    let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone(), true)?;
+    let debt_price = get_cdt_price(deps.querier, env.clone(), true)?;
 
 
     //Set position owner

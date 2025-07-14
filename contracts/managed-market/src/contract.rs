@@ -514,11 +514,11 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             Ok(paused) => paused,
             Err(err) => return Err(StdError::generic_err(format!("Error getting actions paused state: {:?}", err))),
         }),
-        QueryMsg::GetCollateralPrice { asset } => to_json_binary(&match get_collateral_price(deps.storage, deps.querier, env, MARKET_PARAMS.load(deps.storage, asset)?){
+        QueryMsg::GetCollateralPrice { asset } => to_json_binary(&match get_collateral_price(deps.storage, deps.querier, env.clone(), MARKET_PARAMS.load(deps.storage, asset)?, true){
             Ok(price) => price,
             Err(err) => return Err(StdError::generic_err(format!("Error getting collateral price: {:?}", err))),
         }),
-        QueryMsg::GetDebtPrice { } => to_json_binary(&match get_cdt_price(deps.querier, env){
+        QueryMsg::GetDebtPrice { } => to_json_binary(&match get_cdt_price(deps.querier, env.clone(), true){
             Ok(price) => price,
             Err(err) => return Err(StdError::generic_err(format!("Error getting CDT price: {:?}", err))),
         }),

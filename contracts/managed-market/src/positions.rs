@@ -2050,7 +2050,7 @@ pub fn close_position(
         //Arb price
         if let Some(arb_price) = target_position_ux_boosts.arb_price.clone() {
             if debt_price.price > arb_price {
-                return Err(ContractError::CustomError { val: format!("Debt price is not less than or equal to the arb price") });
+                return Err(ContractError::CustomError { val: format!("Debt price is not less than or equal to the arb price for {}", position_owner) });
             }
             //Bc its an arb, any viable arb is profitable so the close percentage can be whatever the caller wants.
             //Granted this restricts flexibility but its fine for what we need it for.

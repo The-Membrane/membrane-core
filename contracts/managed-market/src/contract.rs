@@ -15,7 +15,7 @@ use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::managed_market::{BorrowCap, Config, DebtInfo, ExecuteMsg, InstantiateMsg, LTVRamp, MarketParams, MigrateMsg, QueryMsg, RateIndex, RateParams, UserPositionResponse};
 use membrane::stability_pool_vault::calculate_base_tokens;
 use membrane::types::{
-    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, ClaimTracker, UserHistory, UserInfo, VTClaimCheckpoint, UserPosition
+    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, ClaimTracker, UXBoosts, UserHistory, UserInfo, UserPosition, VTClaimCheckpoint
 };
 
 use crate::error::ContractError;
@@ -551,7 +551,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             Ok(history) => history,
             Err(err) => return Err(StdError::generic_err(format!("Error getting user history: {:?}", err))),
         }),
-        QueryMsg::GetUserUXBoosts { collateral_denom, user } => to_json_binary(&match POSITION_UX_BOOSTS.load(deps.storage, (deps.api.addr_validate(&user)?, collateral_denom.clone())){
+        QueryMsg::GetUserUXBoosts { collateral_denom, user, start_after, limit } => to_json_binary(&match get_user_ux_boosts(deps, env, collateral_denom, user, start_after, limit){
             Ok(ux_boosts) => ux_boosts,
             Err(err) => return Err(StdError::generic_err(format!("Error getting user ux boosts: {:?}", err))),
         }),
@@ -561,6 +561,40 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             false => CLAIM_TRACKER.load(deps.storage)?,
         }),
     }
+}
+
+fn get_user_ux_boosts(
+    deps: Deps,
+    env: Env,
+    collateral_denom: String,
+    user: Option<String>,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<Vec<UXBoosts>> {
+    //If user return early
+    if let Some(user) = user {
+        return Ok(vec![POSITION_UX_BOOSTS.load(deps.storage, (deps.api.addr_validate(&user)?, collateral_denom.clone()))?]);
+    }
+
+    //Get limit
+    let limit = limit.unwrap_or(MAX_LIMIT) as usize;
+
+    //Get start
+    let start = if let Some(start) = start_after {
+        let start_after_addr = deps.api.addr_validate(&start)?;
+        Some(Bound::exclusive((start_after_addr, collateral_denom)))
+    } else {
+        None
+    };
+
+    POSITION_UX_BOOSTS
+        .range(deps.storage, start, None, Order::Ascending)
+        .take(limit)
+        .map(|item| {
+            let (k, v) = item?;
+            Ok(v)
+        })
+        .collect()
 }
 
 //Get total borrowed

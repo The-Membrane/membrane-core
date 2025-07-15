@@ -239,11 +239,13 @@ pub enum QueryMsg {
         start_after: Option<String>,
         limit: Option<u32>,
     },
-    #[returns(UXBoosts)]
+    #[returns(Vec<UXBoosts>)]
     GetUserUXBoosts { 
         /// Market signifier
         collateral_denom: String,
-        user: String,
+        user: Option<String>,
+        start_after: Option<String>,
+        limit: Option<u32>,
     },
     #[returns(ClaimTracker)]
     ClaimTracker { is_junior: bool },

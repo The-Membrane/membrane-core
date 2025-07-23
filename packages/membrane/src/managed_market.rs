@@ -203,6 +203,7 @@ pub enum ExecuteMsg {
     /// Assures that for deposits & withdrawals the conversion rate is static.
     /// Only callable by the contract
     RateAssurance { is_junior: bool },
+    CollateralRateAssurance { },
     ///Saves the current base token claim for 1 vault token
     CrankRealizedAPR { is_junior: bool },
     /// Callback

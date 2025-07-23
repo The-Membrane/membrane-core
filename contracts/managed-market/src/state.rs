@@ -28,6 +28,12 @@ pub struct TokenRateAssurance {
 }
 
 #[cw_serde]
+pub struct CollateralRateAssurance {
+    pub collateral_denom: String,
+    pub pre_collateral_per_one: Uint128,
+}
+
+#[cw_serde]
 pub struct LiquidationPropagation {
     pub collateral_denom: String,
     pub position_owner: Addr,
@@ -73,6 +79,8 @@ pub const POSITION_UX_BOOSTS: Map<(Addr, String), UXBoosts> = Map::new("user_ux_
 pub const USER_HISTORY: Map<String, Vec<UserHistory>> = Map::new("user_history"); // user, history
 
 pub const TOKEN_RATE_ASSURANCE: Item<TokenRateAssurance> = Item::new("token_rate_assurance");
+pub const COLLATERAL_RATE_ASSURANCE: Item<CollateralRateAssurance> = Item::new("collateral_rate_assurance");
+pub const COLLATERAL_STATE_TOTAL: Map<String, Uint128> = Map::new("collateral_state_total");
 
 pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("liquidation_propagation");
 pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");

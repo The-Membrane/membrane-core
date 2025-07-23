@@ -32,7 +32,7 @@ use serde::de;
 
 use crate::oracle::{get_cdt_price, get_collateral_price};
 use crate::rates::accrue;
-use crate::state::{ClosePositionPropagation, LiquidationPropagation, LoopPropagation, TokenRateAssurance, ACTIONS_PAUSED, CLAIM_TRACKER, CLOSE_POSITION, DEBT_VAULT_TOKEN, JUNIOR_CLAIM_TRACKER, JUNIOR_DEBT_VAULT_TOKEN, LIQUIDATION, LOOP_POSITION, MARKET_PARAMS, POSITION_UX_BOOSTS, TOKEN_RATE_ASSURANCE};
+use crate::state::{ClosePositionPropagation, CollateralRateAssurance, LiquidationPropagation, LoopPropagation, TokenRateAssurance, ACTIONS_PAUSED, CLAIM_TRACKER, CLOSE_POSITION, COLLATERAL_RATE_ASSURANCE, COLLATERAL_STATE_TOTAL, DEBT_VAULT_TOKEN, JUNIOR_CLAIM_TRACKER, JUNIOR_DEBT_VAULT_TOKEN, LIQUIDATION, LOOP_POSITION, MARKET_PARAMS, POSITION_UX_BOOSTS, TOKEN_RATE_ASSURANCE};
 // use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, CollateralVolatility, Timer, BASKET, CLOSE_POSITION, FREEZE_TIMER, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
 use crate::{
     state::{
@@ -128,7 +128,7 @@ pub const CDT_DENOM: &str = "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdv
     /// - State is updated to reflect the deposit
 pub fn supply_collateral(
     deps: DepsMut, 
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     owner: Option<String>,
 ) -> Result<Response, ContractError> {    
@@ -164,39 +164,70 @@ pub fn supply_collateral(
         };
     }
 
+    //Set collateral amount 
+    let new_collateral_amount = info.funds[0].amount;
     //Init attrs
     let mut attrs = vec![
         attr("method", "supply_collateral"),
-        attr("collateral_amount", info.funds[0].amount.to_string()),
+        attr("collateral_amount", new_collateral_amount.to_string()),
         attr("collateral_denom", market.clone().collateral_params.collateral_asset),
         attr("owner", owner.to_string()),
     ];
 
-    //Update user state 
-    //Check & assert deposit asset
-    POSITIONS.update(deps.storage, (owner.clone(), info.funds[0].denom.clone()), |position: Option<UserPosition>| -> Result<UserPosition, ContractError> {
-        match position {
-                Some(mut position) => {
-                    position.collateral_amount += info.funds[0].amount;
-                    attrs.push(attr("user_state", format!("{:?}", position)));
-                    return Ok(position)
-                },
-                None => {
-                    let user_position = UserPosition {
-                        collateral_denom: market.collateral_params.collateral_asset,
-                        collateral_amount: info.funds[0].amount,
-                        debt_amount: Uint128::zero(),
-                        rate_index: Decimal::zero(),
-                    };
-                    attrs.push(attr("user_state", format!("{:?}", user_position)));
-                    return Ok(user_position)
-                }
-        }
+        
+    //Get collateral state total
+    let mut collateral_state_total = COLLATERAL_STATE_TOTAL.load(deps.storage, market.collateral_params.collateral_asset.clone()).unwrap_or(Uint128::zero());
 
-    })?;
+    //Get total collateral 
+    let total_collateral = get_contract_balances(
+        deps.querier, 
+        env.clone(), 
+        vec![AssetInfo::NativeToken { denom: market.collateral_params.collateral_asset.clone() }]
+    )?[0];
+
+    if !total_collateral.is_zero() {
+
+        //Calc the rate of vault tokens to deposit tokens
+        let btokens_per_one = calculate_base_tokens(
+            Uint128::new(1_000_000), 
+            total_collateral - new_collateral_amount, 
+            collateral_state_total
+        )?;
+
+
+        //Create collateral rate assurance
+        COLLATERAL_RATE_ASSURANCE.save(deps.storage, &CollateralRateAssurance {
+            collateral_denom: market.collateral_params.collateral_asset.clone(),
+            pre_collateral_per_one: btokens_per_one,
+        })?;
+    }
+
+    //Centralised collateral accounting
+    let user_position = adjust_position_collateral(
+        deps.storage,
+        owner.clone(),
+        market.collateral_params.collateral_asset.clone(),
+        new_collateral_amount,
+        true,
+        &mut collateral_state_total,
+    )?;
+    attrs.push(attr("user_state", format!("{:?}", user_position)));
+
+    //collateral_state_total already updated by helper
+
+    let mut msgs = vec![];
+    //Create collateral rate assurance msg
+    if !collateral_state_total.is_zero() {
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {    
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::CollateralRateAssurance {  })?,
+            funds: vec![],
+        }));
+    }
+
 
     Ok(Response::new()
-    
+    .add_messages(msgs)
     .add_attributes(attrs))
 }
 
@@ -373,6 +404,8 @@ pub fn supply_debt(
     }
 
     //Update config state
+    println!("supplied_amount: {}", supplied_amount);
+    println!("is_junior: {}", is_junior);
     update_config_debt_totals(&mut config, is_junior, supplied_amount, true)?;
     CONFIG.save(deps.storage, &config)?;
 
@@ -383,6 +416,7 @@ pub fn supply_debt(
     };
     //Update vault token supply
     if is_junior {
+        println!("new_vault_token_supply: {}", new_vault_token_supply);
         JUNIOR_DEBT_VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
     } else {
         DEBT_VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
@@ -678,20 +712,20 @@ pub fn withdraw_collateral(
         }
     };
 
+    //Update state for user is handled via helper
 
-    //Update state for user
-    user_position.collateral_amount -= withdrawable_amount;
+    //Load collateral state total prior to adjustment
+    let mut collateral_state_total = COLLATERAL_STATE_TOTAL.load(deps.storage, collateral_denom.clone()).unwrap_or(Uint128::zero());
 
-    //If the user has no collateral left, remove them from state
-    if user_position.collateral_amount.is_zero() {
-        //Remove user from state
-        POSITIONS.remove(deps.storage, (position_owner.clone(), collateral_denom.clone()));
-        //Remove user from UX boosts
-        POSITION_UX_BOOSTS.remove(deps.storage, (position_owner.clone(), collateral_denom.clone()));
-    } else {
-        //Update user position
-        POSITIONS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &user_position)?;
-    }
+    //Centralised collateral accounting
+    let user_position = adjust_position_collateral(
+        deps.storage,
+        position_owner.clone(),
+        collateral_denom.clone(),
+        withdrawable_amount,
+        false,
+        &mut collateral_state_total,
+    )?;
 
     //Update state for config
     CONFIG.save(deps.storage, &config)?;
@@ -706,6 +740,15 @@ pub fn withdraw_collateral(
         amount: withdraw_coins,
     });
     msgs.push(withdraw_collateral_message.clone());
+
+    //Create collateral rate assurance msg
+    if !collateral_state_total.is_zero() {
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {    
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::CollateralRateAssurance {  })?,
+            funds: vec![],
+        }));
+    }
 
     Ok(Response::new()
     .add_messages(msgs)
@@ -1064,12 +1107,20 @@ pub fn borrow_cdt(
         },
         true => Uint128::zero()
     };
+    
 
-    //Add borrow fee to the junior tranche
-    config.junior_debt_info.as_mut().unwrap().total_debt = match config.junior_debt_info.as_mut().unwrap().total_debt.checked_add(borrow_fee){
-        Ok(val) => val,
-        Err(_) => return Err(ContractError::CustomError { val: format!("Total Debt Tokens: {} + Borrow Fee: {}, underflow error", config.junior_debt_info.as_mut().unwrap().total_debt, borrow_fee) }),
-    };
+    if !JUNIOR_DEBT_VAULT_TOKEN.load(deps.storage)?.is_zero() {
+        //Add borrow fee to the junior tranche
+        config.junior_debt_info.as_mut().unwrap().total_debt = match config.junior_debt_info.as_mut().unwrap().total_debt.checked_add(borrow_fee){
+            Ok(val) => val,
+            Err(_) => return Err(ContractError::CustomError { val: format!("Total Debt Tokens: {} + Borrow Fee: {}, underflow error", config.junior_debt_info.as_mut().unwrap().total_debt, borrow_fee) }),
+        };
+    } else {
+        config.total_debt_tokens = match config.total_debt_tokens.checked_add(borrow_fee){
+            Ok(val) => val,
+            Err(_) => return Err(ContractError::CustomError { val: format!("Total Debt Tokens: {} + Borrow Fee: {}, underflow error", config.total_debt_tokens, borrow_fee) }),
+        };
+    }
     //Update config state
     CONFIG.save(deps.storage, &config)?;
 
@@ -1567,6 +1618,55 @@ pub fn rate_assurance(
     Ok(Response::new())
 }
 
+/// Collateral Rate Assurance
+/// Ensures that the conversion rate is static for collateral deposits & withdrawals
+pub fn collateral_rate_assurance(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+
+    //Load config    
+    let config = CONFIG.load(deps.storage)?;
+
+    //Error if not the contract calling
+    if info.sender != env.contract.address {
+        return Err(ContractError::Unauthorized { owner: env.contract.address.to_string() });
+    }
+
+    //Load Token Assurance State
+    let collateral_rate_assurance = COLLATERAL_RATE_ASSURANCE.load(deps.storage)?;
+
+    let collateral_state_total = COLLATERAL_STATE_TOTAL.load(deps.storage, collateral_rate_assurance.collateral_denom.clone())?;
+
+    //Get total collateral 
+    let total_collateral = get_contract_balances(
+        deps.querier, 
+        env.clone(), 
+        vec![AssetInfo::NativeToken { denom: collateral_rate_assurance.collateral_denom.clone() }]
+    )?[0];
+
+    //Calc the rate of vault tokens to deposit tokens
+    let btokens_per_one = calculate_base_tokens(
+        Uint128::new(1_000_000), 
+        total_collateral, 
+        collateral_state_total
+    )?;
+
+    //For deposit or withdraw, check that the rates are at most, off by 1
+    let difference = if btokens_per_one > collateral_rate_assurance.pre_collateral_per_one {
+        btokens_per_one.checked_sub(collateral_rate_assurance.pre_collateral_per_one).unwrap_or(Uint128::zero())
+    } else {
+        collateral_rate_assurance.pre_collateral_per_one.checked_sub(btokens_per_one).unwrap_or(Uint128::zero())
+    };
+    
+    if difference > Uint128::from_str("1").unwrap_or(Uint128::zero()) {
+        return Err(ContractError::CustomError { val: format!("Deposit or withdraw rate assurance failed for deposit token state checks. pre: {:?} --- post: {:?}", collateral_rate_assurance.pre_collateral_per_one, btokens_per_one) });
+    }
+
+    Ok(Response::new())
+}
+
 //Liquidate
 /// Liquidate an insolvent position to repay debts by selling collateral.
 // - we'll have to check for bad debt and add it to the config.
@@ -1684,9 +1784,16 @@ pub fn liquidate(
     );
     }
 
-    //Remove liquidated collateral amount from user state 
-    user_position.collateral_amount -= collateral_amount_to_liquidate + fee_amount;
-
+    //Centralised collateral accounting for liquidated collateral + fee
+    let mut collateral_state_total_liq = COLLATERAL_STATE_TOTAL.load(deps.storage, collateral_denom.clone()).unwrap_or(Uint128::zero());
+    adjust_position_collateral(
+        deps.storage,
+        position_owner.clone(),
+        collateral_denom.clone(),
+        collateral_amount_to_liquidate + fee_amount,
+        false,
+        &mut collateral_state_total_liq,
+    )?;
 
     //Create swap msg for liquidations
     let swap_msgs = create_swap_to_cdt_msg(
@@ -1722,9 +1829,6 @@ pub fn liquidate(
         });
         msgs.push(fee_msg);
     }
-
-    //Save user position
-    POSITIONS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &user_position)?;
 
     //Create msg to check for bad debt post liquidation
     let check_bad_debt_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -2136,13 +2240,16 @@ pub fn close_position(
         collateral_amount_to_sell = target_position.collateral_amount;
     }
 
-    //Edit user state, subtract collateral_amount_to_sell 
-    target_position.collateral_amount = match target_position.collateral_amount.checked_sub(collateral_amount_to_sell){
-        Ok(val) => val,
-        Err(_) => return Err(ContractError::CustomError { val: format!("Collateral amount to sell: {} > User collateral amount: {}", collateral_amount_to_sell, target_position.collateral_amount) }),
-    };
-    //Save user state
-    POSITIONS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &target_position)?;
+    //Centralised collateral accounting for the collateral we are selling
+    let mut collateral_state_total = COLLATERAL_STATE_TOTAL.load(deps.storage, collateral_denom.clone()).unwrap_or(Uint128::zero());
+    adjust_position_collateral(
+        deps.storage,
+        position_owner.clone(),
+        collateral_denom.clone(),
+        collateral_amount_to_sell,
+        false,
+        &mut collateral_state_total,
+    )?;
 
     //Create swap subMsg to sell, create repay & withdraw msgs in reply on success
     let swap_msgs = create_swap_to_cdt_msg(
@@ -2354,6 +2461,85 @@ pub fn loop_position(
     }
 
 }
+
+// -----------------------------------------------------------------------------
+// Helper: centralised collateral accounting
+// -----------------------------------------------------------------------------
+/// Adjust the global collateral state total **and** the user position's collateral
+/// in a single, reusable place.
+///
+/// * `add == true` – increase collateral (e.g. deposits/supply).
+/// * `add == false` – decrease collateral (e.g. withdraw, close, liquidate).
+///
+/// The helper takes care of:
+///   1. Updating `COLLATERAL_STATE_TOTAL`.
+///   2. Updating / removing the entry in `POSITIONS`.
+///   3. Cleaning up `POSITION_UX_BOOSTS` when a position has no collateral left.
+/// It returns the up-to-date `UserPosition` after the mutation (this will be a
+/// zero-collateral position when it has been removed from storage).
+fn adjust_position_collateral(
+    storage: &mut dyn Storage,
+    position_owner: Addr,
+    collateral_denom: String,
+    amount: Uint128,
+    add: bool,
+    collateral_state_total: &mut Uint128,
+) -> Result<UserPosition, ContractError> {
+    if amount.is_zero() {
+        return Err(ContractError::ZeroAmount {});
+    }
+
+    // Update the global collateral tally via the mutable reference
+    if add {
+        *collateral_state_total = collateral_state_total
+            .checked_add(amount)
+            .map_err(|_| ContractError::CustomError { val: format!("Failed to add collateral state total: {} + {}", *collateral_state_total, amount) })?;
+    } else {
+        *collateral_state_total = collateral_state_total
+            .checked_sub(amount)
+            .map_err(|_| ContractError::CustomError { val: format!("Failed to subtract collateral state total: {} - {}", *collateral_state_total, amount) })?;
+    }
+    // Persist new total
+    COLLATERAL_STATE_TOTAL.save(storage, collateral_denom.clone(), collateral_state_total)?;
+
+    // --- user position --------------------------------------------------------
+    let mut position = POSITIONS
+        .may_load(storage, (position_owner.clone(), collateral_denom.clone()))?
+        .unwrap_or(UserPosition {
+            collateral_denom: collateral_denom.clone(),
+            collateral_amount: Uint128::zero(),
+            debt_amount: Uint128::zero(),
+            rate_index: Decimal::zero(),
+        });
+
+    if add {
+        position.collateral_amount = position
+            .collateral_amount
+            .checked_add(amount)
+            .map_err(|_| ContractError::CustomError { val: format!("Collateral overflow {} + {}", position.collateral_amount, amount) })?;
+    } else {
+        // Ensure sufficient collateral
+        if amount > position.collateral_amount {
+            return Err(ContractError::CustomError { val: "Insufficient collateral to remove".to_string() });
+        }
+        position.collateral_amount = position
+            .collateral_amount
+            .checked_sub(amount)
+            .map_err(|_| ContractError::CustomError { val: format!("Failed to subtract collateral amount: {} - {}", position.collateral_amount, amount) })?;
+    }
+
+    // Persist / clean-up
+    if position.collateral_amount.is_zero() && position.debt_amount.is_zero() {
+        // Remove empty position & its UX boosts
+        POSITIONS.remove(storage, (position_owner.clone(), collateral_denom.clone()));
+        POSITION_UX_BOOSTS.remove(storage, (position_owner.clone(), collateral_denom.clone()));
+    } else {
+        POSITIONS.save(storage, (position_owner.clone(), collateral_denom.clone()), &position)?;
+    }
+
+    Ok(position)
+}
+// -----------------------------------------------------------------------------
 
 
 

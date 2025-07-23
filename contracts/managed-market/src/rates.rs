@@ -163,9 +163,10 @@ pub fn accrue(
     fee_to_membrane: Decimal
 ) -> Result<(), ContractError> {
     //Early return if we have no debt tokens
-    if config.total_debt_tokens.is_zero() {
+    if config.total_debt_tokens.is_zero() && config.junior_debt_info.clone().unwrap().total_debt.is_zero() {
         return Ok(());
     }
+    //println!("get_total_debt_tokens(config.clone(), Some(true))?: {}", get_total_debt_tokens(config.clone(), Some(true))?);
 
     //Calc Time-elapsed and update last_Accrued
     let mut time_elapsed = env.block.time.seconds() - config.global_rate_index.last_accrued;
@@ -193,6 +194,9 @@ pub fn accrue(
     //Initialize manager revenue 
     let mut manager_revenue = Uint128::zero();
     let mut membrane_revenue = Uint128::zero();
+    //Get Junior Vault Token Supply
+    let junior_vault_token_supply = get_total_vault_tokens(storage, true)?;
+
     //Map through all markets to get the market rate index
     let global_collateral = get_market_collateral_types(storage)?;
     for market_collateral in global_collateral {
@@ -250,26 +254,28 @@ pub fn accrue(
                 user_position.debt_amount = new_credit_amount;
             }
         }
-
+        //println!("market_params.total_borrowed: {}", market_params.total_borrowed);
+        //println!("market_rate: {}", market_rate);
         //Calculate market's total accrued interest
         let market_new_credit_amount = decimal_multiplication(
             Decimal::from_ratio(market_params.total_borrowed, Uint128::one()),
             market_rate
         )?.to_uint_floor();
-        
-        let total_accrued_interest = if market_new_credit_amount > market_params.total_borrowed {
-            market_new_credit_amount - market_params.total_borrowed
-        } else {
-            Uint128::zero()
-        };
+        //println!("market_new_credit_amount: {}", market_new_credit_amount);
+        //println!("market_params.total_borrowed: {}", market_params.total_borrowed);
+        let total_accrued_interest = market_new_credit_amount;
 
         //Add accrued interest to market's total borrowed
         if !total_accrued_interest.is_zero() {
-            market_params.total_borrowed = market_new_credit_amount;
+            market_params.total_borrowed += market_new_credit_amount;
         }
 
+        //println!("get_total_debt_tokens(config.clone(), Some(true))?: {}", get_total_debt_tokens(config.clone(), Some(true))?);
         //Distribute yield between senior and junior tranches
-        distribute_yield(config, total_accrued_interest, time_elapsed, market_params.total_borrowed)?;
+        distribute_yield(config, total_accrued_interest, time_elapsed, market_params.total_borrowed, get_total_vault_tokens(storage, false)?, junior_vault_token_supply)?;
+
+        //println!("get_total_debt_tokens(config.clone(), Some(true))?: {}", get_total_debt_tokens(config.clone(), Some(true))?);
+        //println!("total_accrued_interest: {}", total_accrued_interest);
 
         //Calc manager revenue
         if !total_accrued_interest.is_zero() {
@@ -293,21 +299,25 @@ pub fn accrue(
 
 
 
-
+    //println!("manager_revenue: {}", manager_revenue);
+    //println!("membrane_revenue: {}", membrane_revenue);
 
     /////Managers get Junior, Membrane gets Senior/////
     //Calculate the amount of vault tokens to mint to the manager as the fee
     if manager_revenue > Uint128::zero() || membrane_revenue > Uint128::zero() {
         //////////Manager Revenue//////////
-        //Get Junior Vault Token Supply
-        let junior_vault_token_supply = get_total_vault_tokens(storage, true)?;
         /// 
+        //println!("junior_vault_token_supply: {}", junior_vault_token_supply);
+        println!("manager_revenue: {}", manager_revenue);
+        //println!("config {:?}", config);
+        //println!("get_total_debt_tokens(config.clone(), Some(true))?: {}", get_total_debt_tokens(config.clone(), Some(true))?);
         let vt_to_mint_to_manager = calculate_vault_tokens(
             manager_revenue, 
             get_total_debt_tokens(config.clone(), Some(true))?, 
             junior_vault_token_supply
         )?;
 
+        //println!("vt_to_mint_to_manager: {}", vt_to_mint_to_manager);
         //Mint the vault tokens to the manager
         if !vt_to_mint_to_manager.is_zero() {
             let mint_vault_tokens_msg: CosmosMsg = TokenFactory::MsgMint {
@@ -365,7 +375,8 @@ pub fn accrue(
         //////////Save vault token supply//////////
         DEBT_VAULT_TOKEN.save(storage, &new_vault_token_supply)?;
 
-
+        //println!("senior_vault_token_supply: {}", senior_vault_token_supply);
+        //println!("vt_to_mint_to_membrane: {}", vt_to_mint_to_membrane);
         //Add rate assurance callback msg
         if !senior_vault_token_supply.is_zero() && !vt_to_mint_to_membrane.is_zero() {
             msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
@@ -387,6 +398,8 @@ pub fn distribute_yield(
     total_accrued_interest: Uint128,
     time_elapsed: u64,
     market_total_borrowed: Uint128,
+    senior_vault_token_supply: Uint128,
+    junior_vault_token_supply: Uint128,
 ) -> Result<(), ContractError> {
     // Early return if no yield to distribute
     if total_accrued_interest.is_zero() {
@@ -429,7 +442,7 @@ pub fn distribute_yield(
     )?.to_uint_floor();
 
     // Determine senior and junior portions
-    let (senior_portion, junior_portion) = if total_accrued_interest > proportional_expected_yield {
+    let (mut senior_portion, mut junior_portion) = if total_accrued_interest > proportional_expected_yield {
         // Senior gets target amount, excess goes to junior
         (proportional_expected_yield, total_accrued_interest - proportional_expected_yield)
     } else {
@@ -440,6 +453,18 @@ pub fn distribute_yield(
         )?.to_uint_floor();
         (senior_portion, total_accrued_interest - senior_portion)
     };
+
+    //If senior vault tokens is 0:
+    //- set junior portion to total accrued interest
+    // - set senior portion to 0
+    // vice versa
+    if senior_vault_token_supply.is_zero() {
+        junior_portion = total_accrued_interest;
+        senior_portion = Uint128::zero();
+    } else if junior_vault_token_supply.is_zero() {
+        senior_portion = total_accrued_interest;
+        junior_portion = Uint128::zero();
+    }
 
     // Add senior portion to config.total_debt_tokens
     config.total_debt_tokens = config.total_debt_tokens.checked_add(senior_portion)

@@ -20,7 +20,7 @@ use membrane::types::{
 
 use crate::error::ContractError;
 use crate::positions::{
-    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, close_position, crank_realized_apr, edit_ux_boosts, get_total_debt_tokens, get_total_vault_tokens, liquidate, loop_position, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQUIDATE_REPLY_ID, LOOP_POSITION_REPLY_ID, LTV_CHECK_REPLY_ID
+    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, close_position, collateral_rate_assurance, crank_realized_apr, edit_ux_boosts, get_total_debt_tokens, get_total_vault_tokens, liquidate, loop_position, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQUIDATE_REPLY_ID, LOOP_POSITION_REPLY_ID, LTV_CHECK_REPLY_ID
 };
 use crate::rates::{external_accrue_call, get_interest_rate, get_market_collateral_types};
 use crate::reply::{handle_close_position_reply, handle_liquidation_reply, handle_loop_position_reply, handle_ltv_check_reply};
@@ -28,7 +28,7 @@ use crate::oracle::{get_cdt_price, get_collateral_price};
 // use crate::query::{
 //     query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint, query_user_intent_state
 // };
-use crate::state::{ ContractVersion, LTVRampTimer, ACTIONS_PAUSED, CLAIM_TRACKER, CONFIG, CONTRACT, DEBT_VAULT_TOKEN, JUNIOR_CLAIM_TRACKER, JUNIOR_DEBT_VAULT_TOKEN, LTV_RAMP_TIMER, MARKET_PARAMS, OWNERSHIP_TRANSFER, POSITIONS, POSITION_UX_BOOSTS, USER_HISTORY};
+use crate::state::{ ContractVersion, LTVRampTimer, ACTIONS_PAUSED, CLAIM_TRACKER, CONFIG, CONTRACT, DEBT_VAULT_TOKEN, JUNIOR_CLAIM_TRACKER, JUNIOR_DEBT_VAULT_TOKEN, LTV_RAMP_TIMER, MARKET_PARAMS, OWNERSHIP_TRANSFER, POSITIONS, POSITION_UX_BOOSTS, USER_HISTORY, COLLATERAL_STATE_TOTAL};
 
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
 
@@ -124,6 +124,8 @@ pub fn instantiate(
 
     DEBT_VAULT_TOKEN.save(deps.storage, &Uint128::zero())?;
     JUNIOR_DEBT_VAULT_TOKEN.save(deps.storage, &Uint128::zero())?;
+    // Initialize collateral state total entry for the first market created
+    COLLATERAL_STATE_TOTAL.save(deps.storage, market.clone().collateral_params.collateral_asset.clone(), &Uint128::zero())?;
     CLAIM_TRACKER.save(deps.storage, &ClaimTracker {
         vt_claim_checkpoints: vec![
             VTClaimCheckpoint {
@@ -210,6 +212,7 @@ pub fn execute(
         ExecuteMsg::ChangeAlias { collateral_denom, alias } => change_alias(deps, env, info, collateral_denom, alias),
         /////Callbacks/////
         ExecuteMsg::RateAssurance { is_junior } => rate_assurance(deps, env, info, is_junior),
+        ExecuteMsg::CollateralRateAssurance {  } => collateral_rate_assurance(deps, env, info),
         ExecuteMsg::GetTotalDepositTokens { is_junior } => panic!("{:?}", get_total_debt_tokens(CONFIG.load(deps.storage)?, Some(is_junior))?),
         ExecuteMsg::CheckBadDebt {  } => check_and_fulfill_bad_debt(deps, env),
 
@@ -752,13 +755,32 @@ fn get_user_positions(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    
-    // JUNIOR_DEBT_VAULT_TOKEN.save(deps.storage, & Uint128::zero())?;
+    // Get the collateral denom of the first market
+    let collateral_denom = match MARKET_PARAMS
+        .keys(deps.storage, None, None, Order::Ascending)
+        .take(1)
+        .next()
+    {
+        Some(Ok(denom)) => denom,
+        _ => {
+            return Err(ContractError::CustomError { val: "No collateral markets found".to_string() });
+        }
+    };
 
+    // Tally collateral amounts across all positions with this collateral denom
+    let mut total_collateral = Uint128::zero();
+    for item in POSITIONS.range(deps.storage, None, None, Order::Ascending) {
+        let ((_, denom), position) = item?;
+        if denom == collateral_denom {
+            total_collateral += position.collateral_amount;
+        }
+    }
+
+    // Save the total collateral amount to state
+    COLLATERAL_STATE_TOTAL.save(deps.storage, collateral_denom.clone(), &total_collateral)?;
 
     Ok(Response::new()
-        .add_attribute("migrate", "noop")
-        // .add_attribute("total_borrowed", total_borrowed.to_string())
-        // .add_attribute("config", format!("{:?}", config))
-        )
+        .add_attribute("migrate", "collateral_state_total_set")
+        .add_attribute("collateral_denom", collateral_denom)
+        .add_attribute("total_collateral", total_collateral))
 }

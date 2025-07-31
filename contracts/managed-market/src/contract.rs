@@ -14,23 +14,25 @@ use membrane::helpers::{assert_sent_native_token_balance, get_contract_balances}
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::managed_market::{BorrowCap, Config, DebtInfo, ExecuteMsg, InstantiateMsg, LTVRamp, MarketParams, MigrateMsg, QueryMsg, RateIndex, RateParams, UserPositionResponse};
 use membrane::stability_pool_vault::calculate_base_tokens;
+use membrane::tokenfactory::ExecuteMsg as TokenFactory;
+use membrane::mm_oracle::ExecuteMsg as OracleExecuteMsg;
 use membrane::types::{
-    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, ClaimTracker, UXBoosts, UserHistory, UserInfo, UserPosition, VTClaimCheckpoint
+    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, BorrowOptions, ClaimTracker, OsmosisOracleInfo, TWAPPoolInfo, UXBoosts, UserHistory, UserInfo, UserPosition, VTClaimCheckpoint
 };
 
 use crate::error::ContractError;
 use crate::positions::{
-    borrow_cdt, check_and_fulfill_bad_debt, check_debt_liquidatibility, close_position, collateral_rate_assurance, crank_realized_apr, edit_ux_boosts, get_total_debt_tokens, get_total_vault_tokens, liquidate, loop_position, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQUIDATE_REPLY_ID, LOOP_POSITION_REPLY_ID, LTV_CHECK_REPLY_ID
+    borrow_cdt, calc_borrowable_amount, check_and_fulfill_bad_debt, close_position, collateral_rate_assurance, crank_realized_apr, edit_ux_boosts, get_total_debt_tokens, get_total_vault_tokens, liquidate, loop_position, rate_assurance, repay_cdt, supply_collateral, supply_debt, withdraw_collateral, withdraw_debt, BAD_DEBT_REPLY_ID, CDT_DENOM, CLOSE_POSITION_REPLY_ID, LIQUIDATE_REPLY_ID, LOOP_POSITION_REPLY_ID, LTV_CHECK_REPLY_ID, NOBLE_USDC_DENOM
 };
 use crate::rates::{external_accrue_call, get_interest_rate, get_market_collateral_types};
 use crate::reply::{handle_close_position_reply, handle_liquidation_reply, handle_loop_position_reply, handle_ltv_check_reply};
-use crate::oracle::{get_cdt_price, get_collateral_price};
+use crate::oracle::{get_asset_prices};
 // use crate::query::{
 //     query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint, query_user_intent_state
 // };
 use crate::state::{ ContractVersion, LTVRampTimer, ACTIONS_PAUSED, CLAIM_TRACKER, CONFIG, CONTRACT, DEBT_VAULT_TOKEN, JUNIOR_CLAIM_TRACKER, JUNIOR_DEBT_VAULT_TOKEN, LTV_RAMP_TIMER, MARKET_PARAMS, OWNERSHIP_TRANSFER, POSITIONS, POSITION_UX_BOOSTS, USER_HISTORY, COLLATERAL_STATE_TOTAL};
 
-use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
+use cosmwasm_std::Empty;
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:managed_market";
@@ -54,7 +56,8 @@ pub fn instantiate(
     let config = Config {
         owner: deps.api.addr_validate(&msg.owner)?,
         markets_manager_contract: info.sender.clone(),
-        osmosis_proxy_contract: deps.api.addr_validate(&msg.osmosis_proxy_contract)?,
+        osmosis_proxy_contract: None,
+        token_factory_contract: Some(deps.api.addr_validate(&msg.token_factory_contract)?),
         global_rate_index: RateIndex {
             rate_index: Decimal::one(),
             last_accrued: 0u64
@@ -72,6 +75,9 @@ pub fn instantiate(
         senior_debt_fixed_yield_target: Some(Decimal::percent(6)),
         manager_fee: msg.manager_fee.unwrap_or_else(|| Decimal::percent(5)),
         total_borrowed: Some(Uint128::zero()),
+        debt_token: Some(msg.clone().debt_token),
+        oracle_contract: Some(deps.api.addr_validate(&msg.clone().oracle_contract)?),
+        swap_contract: Some(deps.api.addr_validate(&msg.clone().swap_contract)?),
     };
     CONFIG.save(deps.storage, &config)?;
 
@@ -86,7 +92,7 @@ pub fn instantiate(
             last_accrued: 0u64 //unused
         },
         total_borrowed: Uint128::zero(),
-        pool_for_oracle_and_liquidations: msg.clone().pool_for_oracle_and_liquidations,
+        pool_for_oracle_and_liquidations: None,
         borrow_fee: msg.clone().borrow_fee,
         whitelisted_collateral_suppliers: msg.clone().whitelisted_collateral_suppliers,
         borrow_cap: msg.clone().borrow_cap,
@@ -144,17 +150,22 @@ pub fn instantiate(
         ],
         last_updated: env.block.time.seconds(),
     })?;
-
-    //ORACLE INFO NEEDS TO END WITH USDC
-    if market.pool_for_oracle_and_liquidations.pools_for_osmo_twap.len() > 0 && market.pool_for_oracle_and_liquidations.pools_for_osmo_twap[market.pool_for_oracle_and_liquidations.pools_for_osmo_twap.len()-1].quote_asset_denom 
-    != String::from("ibc/498A0751C798A0D9A389AA3691123DADA57DAA4FE165D5C75894505B876BA6E4") {
-        return Err(ContractError::CustomError { val: String::from("The last pool in the oracle pool list must be USDC") });
-    }
-    //ORACLE POOL ROUTE WILL BE APPENDED WITH CDT/USDC POOL 1268 FOR LIQUIDATIONS
     
     //Create Debt VT Msg
-    let debt_vt_denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: String::from("debt-suppliers")};
-    let junior_debt_vt_denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: String::from("junior-debt-suppliers")};
+    let debt_vt_denom_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
+        msg: to_json_binary(&TokenFactory::CreateDenom {
+            subdenom: String::from("debt-suppliers"),
+        })?,
+        funds: vec![],
+    });
+    let junior_debt_vt_denom_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
+        msg: to_json_binary(&TokenFactory::CreateDenom {
+            subdenom: String::from("junior-debt-suppliers"),
+        })?,
+        funds: vec![],
+    });
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -176,13 +187,15 @@ pub fn execute(
         ExecuteMsg::UpdateConfig {
             owner,
             markets_manager_contract,
-            osmosis_proxy_contract_addr,
+            oracle_contract,
+            swap_contract   ,
+            token_factory_contract,
             pause_actions,
             manager_fee,
             whitelisted_debt_suppliers,
             debt_supply_cap,
             senior_debt_fixed_yield_target,
-        } => update_config(deps, info, owner, markets_manager_contract, osmosis_proxy_contract_addr, pause_actions, manager_fee, whitelisted_debt_suppliers, debt_supply_cap, senior_debt_fixed_yield_target),
+        } => update_config(deps, info, owner, markets_manager_contract, oracle_contract, swap_contract, token_factory_contract, pause_actions, manager_fee, whitelisted_debt_suppliers, debt_supply_cap, senior_debt_fixed_yield_target),
         ExecuteMsg::UpdateMarket {
             collateral_denom,
             max_borrow_LTV,
@@ -193,9 +206,8 @@ pub fn execute(
             borrow_cap,
             max_slippage,
             per_user_debt_cap,
-            pool_for_oracle_and_liquidations,
             debt_minimum
-        } => update_market(deps, info, env, collateral_denom, max_borrow_LTV, liquidation_LTV, rate_params, borrow_fee, whitelisted_collateral_suppliers, borrow_cap, max_slippage, pool_for_oracle_and_liquidations, per_user_debt_cap, debt_minimum),
+        } => update_market(deps, info, env, collateral_denom, max_borrow_LTV, liquidation_LTV, rate_params, borrow_fee, whitelisted_collateral_suppliers, borrow_cap, max_slippage, per_user_debt_cap, debt_minimum),
         ExecuteMsg::EditUXBoosts { collateral_denom, loop_ltv, take_profit_params, stop_loss_params, 
             arb_price, collateral_value_fee_to_executor } => edit_ux_boosts(deps, env, info, collateral_denom, loop_ltv, take_profit_params, stop_loss_params, arb_price, collateral_value_fee_to_executor), 
         ExecuteMsg::SupplyCollateral { owner } => supply_collateral(deps, env, info, owner),
@@ -261,7 +273,9 @@ fn update_config(
     info: MessageInfo,
     owner: Option<String>,
     markets_manager_contract: Option<String>,
-    osmosis_proxy_contract_addr: Option<String>,
+    oracle_contract: Option<String>,
+    swap_contract: Option<String>,
+    token_factory_contract:     Option<String>,
     pause_actions: Option<bool>,
     manager_fee: Option<Decimal>,
     whitelisted_debt_suppliers: Option<Option<Vec<String>>>,
@@ -310,10 +324,20 @@ fn update_config(
         attrs.push(attr("pause_actions", format!("{:?}", pause_actions)));
     }
     
-    if let Some(osmosis_proxy_contract_addr) = osmosis_proxy_contract_addr {
-        let valid_addr = deps.api.addr_validate(&osmosis_proxy_contract_addr)?;
-        config.osmosis_proxy_contract = valid_addr.clone();
-        attrs.push(attr("osmosis_proxy_contract", valid_addr));
+    if let Some(oracle_contract) = oracle_contract {
+        let valid_addr = deps.api.addr_validate(&oracle_contract)?;
+        config.oracle_contract = Some(valid_addr.clone());
+        attrs.push(attr("oracle_contract", valid_addr));
+    }
+    if let Some(swap_contract) = swap_contract {
+        let valid_addr = deps.api.addr_validate(&swap_contract)?;
+        config.swap_contract = Some(valid_addr.clone());
+        attrs.push(attr("swap_contract", valid_addr));
+    }
+    if let Some(token_factory_contract) = token_factory_contract {
+        let valid_addr = deps.api.addr_validate(&token_factory_contract)?;
+        config.token_factory_contract = Some(valid_addr.clone());
+        attrs.push(attr("token_factory_contract", valid_addr));
     }
     if let Some(manager_fee) = manager_fee {
         config.manager_fee = manager_fee;
@@ -371,7 +395,6 @@ fn update_market(
     whitelisted_collateral_suppliers: Option<Option<Vec<String>>>,
     borrow_cap: Option<BorrowCap>,
     max_slippage: Option<Decimal>,
-    pool_for_oracle_and_liquidations: Option<AssetOracleInfo>,
     per_user_debt_cap: Option<Option<Uint128>>,
     debt_minimum: Option<Uint128>,
 ) -> Result<Response, ContractError> {
@@ -382,7 +405,8 @@ fn update_market(
 
     //Check if the ltv timer is complete
     if let Ok(ltv_timer) = LTV_RAMP_TIMER.load(deps.storage, collateral_denom.clone()) {
-        if ltv_timer.end_time < env.block.time.seconds() {
+        
+        if ltv_timer.end_time <= env.block.time.seconds() {
             //If the timer is complete, set the LTV to the new LTV
         let mut market = MARKET_PARAMS.load(deps.storage, collateral_denom.clone())?;
         market.collateral_params.liquidation_LTV = ltv_timer.new_LTV;
@@ -444,10 +468,6 @@ fn update_market(
         market.max_slippage = max_slippage;
         attrs.push(attr("max_slippage", format!("{:?}", max_slippage)));
     }
-    if let Some(pool_for_oracle_and_liquidations) = pool_for_oracle_and_liquidations {
-        market.pool_for_oracle_and_liquidations = pool_for_oracle_and_liquidations.clone();
-        attrs.push(attr("pool_for_oracle_and_liquidations", format!("{:?}", pool_for_oracle_and_liquidations)));
-    }
     if let Some(per_user_debt_cap) = per_user_debt_cap {
         market.per_user_debt_cap = per_user_debt_cap;
         attrs.push(attr("per_user_debt_cap", format!("{:?}", per_user_debt_cap)));
@@ -501,6 +521,10 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::TotalVaultTokens { is_junior } => to_json_binary(&get_total_vault_tokens(deps.storage, is_junior)?),
         QueryMsg::GetUnderlyingDebtAmount { vault_token_amount, is_junior } => to_json_binary(&get_underlying_debt_amount(deps, env, vault_token_amount, is_junior)?),
+        QueryMsg::SimulateBorrowAmount { user, collateral_denom, borrow_amount } => to_json_binary(&match simulate_borrow_amount(deps, env, user, collateral_denom, borrow_amount){
+            Ok(borrowable_amount) => borrowable_amount,
+            Err(err) => return Err(StdError::generic_err(format!("Error simulating borrow amount: {:?}", err))),
+        }),
         QueryMsg::MarketParams { 
             start_after,
             limit,
@@ -517,35 +541,47 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             Ok(paused) => paused,
             Err(err) => return Err(StdError::generic_err(format!("Error getting actions paused state: {:?}", err))),
         }),
-        QueryMsg::GetCollateralPrice { asset } => to_json_binary(&match get_collateral_price(deps.storage, deps.querier, env.clone(), MARKET_PARAMS.load(deps.storage, asset)?, true){
-            Ok(price) => price,
+        QueryMsg::GetCollateralPrice { asset } => to_json_binary(&match get_asset_prices(
+            deps.querier,
+            CONFIG.load(deps.storage)?,
+            env.contract.address.to_string(),
+            true,
+            vec![asset]
+        ){
+            Ok(prices) => prices[0].clone(),
             Err(err) => return Err(StdError::generic_err(format!("Error getting collateral price: {:?}", err))),
         }),
-        QueryMsg::GetDebtPrice { } => to_json_binary(&match get_cdt_price(deps.querier, env.clone(), true){
-            Ok(price) => price,
-            Err(err) => return Err(StdError::generic_err(format!("Error getting CDT price: {:?}", err))),
+        QueryMsg::GetDebtPrice { } => to_json_binary(&match get_asset_prices(
+            deps.querier, 
+            CONFIG.load(deps.storage)?, 
+            env.contract.address.to_string(),
+            true, 
+            vec![CONFIG.load(deps.storage)?.debt_token.clone().unwrap()]
+        ){
+            Ok(prices) => prices[0].clone(),
+            Err(err) => return Err(StdError::generic_err(format!("Error getting debt price: {:?}", err))),
         }),
         QueryMsg::GetCurrentInterestRate { collateral_denom } => to_json_binary(&match get_interest_rate(MARKET_PARAMS.load(deps.storage, collateral_denom)?, CONFIG.load(deps.storage)?){
             Ok(rate) => rate,
             Err(err) => return Err(StdError::generic_err(format!("Error getting interest rate: {:?}", err))),
         }),
-        QueryMsg::TestDebtAllowance { collateral_denom, potential_total_debt } => {
-            let market = MARKET_PARAMS.load(deps.storage, collateral_denom.clone())?;
+        // QueryMsg::TestDebtAllowance { collateral_denom, potential_total_debt } => {
+        //     let market = MARKET_PARAMS.load(deps.storage, collateral_denom.clone())?;
             
-            to_json_binary(&match check_debt_liquidatibility(
-                deps.querier,
-                market.clone(),
-                potential_total_debt.unwrap_or_else(||  market.total_borrowed),
-                get_contract_balances(
-                    deps.querier,
-                    env.clone(),
-                    vec![AssetInfo::NativeToken { denom: market.clone().collateral_params.collateral_asset }],
-                )?[0]
+        //     to_json_binary(&match check_debt_liquidatibility(
+        //         deps.querier,
+        //         market.clone(),
+        //         potential_total_debt.unwrap_or_else(||  market.total_borrowed),
+        //         get_contract_balances(
+        //             deps.querier,
+        //             env.clone(),
+        //             vec![AssetInfo::NativeToken { denom: market.clone().collateral_params.collateral_asset }],
+        //         )?[0]
 
-            ){
-                Ok(rate) => rate,
-                Err(err) => return Err(StdError::generic_err(format!("Error testing debt allowance: {:?}", err))),
-            })},
+        //     ){
+        //         Ok(rate) => rate,
+        //         Err(err) => return Err(StdError::generic_err(format!("Error testing debt allowance: {:?}", err))),
+        //     })},
         QueryMsg::GetUserPositions { collateral_denom, user, start_after, limit } => to_json_binary(&match get_user_positions(deps, env, collateral_denom, user, start_after, limit){
             Ok(positions) => positions,
             Err(err) => return Err(StdError::generic_err(format!("Error getting user positions: {:?}", err))),
@@ -598,6 +634,44 @@ fn get_user_ux_boosts(
             Ok(v)
         })
         .collect()
+}
+
+fn simulate_borrow_amount(
+    deps: Deps,
+    env: Env,
+    user: String,
+    collateral_denom: String,
+    borrow_amount: BorrowOptions,
+) -> StdResult<Uint128> {
+    let market = MARKET_PARAMS.load(deps.storage, collateral_denom.clone())?;
+    let config = CONFIG.load(deps.storage)?;
+    let prices = match get_asset_prices(
+        deps.querier,
+        config.clone(),
+        env.contract.address.to_string(),
+        true,
+        vec![market.clone().collateral_params.collateral_asset, config.debt_token.clone().unwrap()]
+    ){
+        Ok(prices) => prices,
+        Err(err) => return Err(StdError::generic_err(format!("Error getting asset prices in simulate borrow amount: {:?}", err))),
+    };
+    let collateral_price = prices[0].clone();
+    let debt_price = prices[1].clone();
+    let user_position = POSITIONS.load(deps.storage, (deps.api.addr_validate(&user)?, collateral_denom.clone()))?;
+    let (borrowable_amount, _) = match calc_borrowable_amount(
+        deps.querier,
+        env,
+        borrow_amount,
+        market,
+        collateral_price,
+        debt_price,
+        user_position,
+        config.debt_token.clone().unwrap()
+    ){
+        Ok((borrowable_amount, borrow_fee)) => (borrowable_amount, borrow_fee),
+        Err(err) => return Err(StdError::generic_err(format!("Error simulating borrow amount: {:?}", err))),
+    };
+    Ok(borrowable_amount)
 }
 
 //Get total borrowed
@@ -755,32 +829,74 @@ fn get_user_positions(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    // Get the collateral denom of the first market
-    let collateral_denom = match MARKET_PARAMS
-        .keys(deps.storage, None, None, Order::Ascending)
+    // Get the collateral paramsof the first market
+    let market_params = match MARKET_PARAMS
+        .range(deps.storage, None, None, Order::Ascending)
         .take(1)
         .next()
     {
-        Some(Ok(denom)) => denom,
+        Some(Ok((_k, v))) => v,
         _ => {
             return Err(ContractError::CustomError { val: "No collateral markets found".to_string() });
         }
     };
+    //Load Config
+    let mut config = CONFIG.load(deps.storage)?;
+    todo!();
+    //Set oracle contract
+    config.oracle_contract = Some(Addr::unchecked(""));
+    //Set swap contract``
+    config.swap_contract = Some(Addr::unchecked(""));
+    //Set osmosis proxy contract
+    config.osmosis_proxy_contract = None;
+    //Set debt token
+    config.debt_token = Some(CDT_DENOM.to_string());
+    //Save config
+    CONFIG.save(deps.storage, &config)?;
 
-    // Tally collateral amounts across all positions with this collateral denom
-    let mut total_collateral = Uint128::zero();
-    for item in POSITIONS.range(deps.storage, None, None, Order::Ascending) {
-        let ((_, denom), position) = item?;
-        if denom == collateral_denom {
-            total_collateral += position.collateral_amount;
-        }
-    }
-
-    // Save the total collateral amount to state
-    COLLATERAL_STATE_TOTAL.save(deps.storage, collateral_denom.clone(), &total_collateral)?;
+    let mut msgs: Vec<CosmosMsg<Empty>> = vec![];
+    let oracle_info = market_params.clone().pool_for_oracle_and_liquidations.unwrap();
+    //Add current collateral & debt tokens to oracle
+    let collateral_add: CosmosMsg<Empty> = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.oracle_contract.clone().unwrap().to_string(),
+        msg: to_json_binary(&OracleExecuteMsg::AddAsset {
+            asset_info: AssetInfo::NativeToken { denom: market_params.clone().collateral_params.collateral_asset },
+            oracle_info: OsmosisOracleInfo {
+                pyth_price_feed_id: oracle_info.pyth_price_feed_id, 
+                pools_for_osmo_twap: oracle_info.pools_for_osmo_twap, 
+                lp_pool_info: oracle_info.lp_pool_info, 
+                vault_info: oracle_info.vault_info, 
+                decimals: oracle_info.decimals
+            },
+        })?,
+        funds: vec![],
+    });
+    msgs.push(collateral_add);
+    //Add debt token to oracle
+    let debt_add: CosmosMsg<Empty> = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.oracle_contract.unwrap().to_string(),
+        msg: to_json_binary(&OracleExecuteMsg::AddAsset {
+            asset_info: AssetInfo::NativeToken { denom: config.debt_token.clone().unwrap() },
+            oracle_info: OsmosisOracleInfo {
+                pyth_price_feed_id: None, 
+                pools_for_osmo_twap: vec![
+                    TWAPPoolInfo {
+                        pool_id: 1268,
+                        base_asset_denom: CDT_DENOM.to_string(), 
+                        quote_asset_denom: NOBLE_USDC_DENOM.to_string(), 
+                    }
+                ], 
+                lp_pool_info: None, 
+                vault_info: None, 
+                decimals: 6
+            },
+        })?,
+        funds: vec![],
+    });
+    msgs.push(debt_add);
 
     Ok(Response::new()
-        .add_attribute("migrate", "collateral_state_total_set")
-        .add_attribute("collateral_denom", collateral_denom)
-        .add_attribute("total_collateral", total_collateral))
+        .add_attribute("migrate", "abstracted")
+        .add_messages(msgs)
+    )
 }

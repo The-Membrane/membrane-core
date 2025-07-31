@@ -8,6 +8,8 @@ use cw2::set_contract_version;
 use cw_storage_plus::Bound;
 use membrane::market_manager::{Config, ExecuteMsg, InstantiateMsg, ManagerEdit, MarketData, MarketInstantiation, MarketItem, MigrateMsg, PendingMarket, QueryMsg};
 use membrane::managed_market::{InstantiateMsg as ManagedMarketInstantiateMsg, Config as ManagedMarketConfig, MarketParams, QueryMsg as ManagedMarketQueryMsg, ExecuteMsg as ManagedMarketExecuteMsg};
+use membrane::mm_oracle::{ExecuteMsg as Oracle_ExecuteMsg, QueryMsg as Oracle_QueryMsg};
+use membrane::oracle::PriceResponse;
 
 
 use crate::error::ContractError;
@@ -20,6 +22,7 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 //Constants
 const MAX_LIMIT: u64 = 31u64;
 const INSTANTIATE_REPLY_ID: u64 = 1;
+const DEBT_ORACLE_REPLY_ID: u64 = 2;
 const CDT_DENOM: &str = "factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt";
 const MEMBRANE_GOVERNANCE_ADDRESS: &str = "osmo1wk0zlag50ufu5wrsfyelrylykfe3cw68fgv9s8xqj20qznhfm44qgdnq86";
 
@@ -217,9 +220,9 @@ fn instantiate_market(
 
     //Check if sender is a manager
     if !config.manager_whitelist.contains(&manager) {
-        //Does the contract have a minimum cdt for permissionless instantiation?
-        if let Some(minimum_cdt_for_permissionless_instantiation) = config.minimum_cdt_for_permissionless_instantiation {
-            if info.funds.len() == 1 && info.funds[0].amount >= minimum_cdt_for_permissionless_instantiation {
+        //Does the contract have a minimum value supplied for permissionless instantiation?
+        if let Some(_minimum_cdt_for_permissionless_instantiation) = config.minimum_cdt_for_permissionless_instantiation {
+            if info.funds.len() == 1 {
                 permissionless_add_debt_amount = Some(info.funds[0].amount);
             } else {
                 return Err(ContractError::Unauthorized {});
@@ -229,18 +232,39 @@ fn instantiate_market(
         }
     }
 
+    //Assert that the last quote asset for the collateral's oracle info and the debt's oracle info are the same.
+    //Unless they are using Pyth which uses USD.
+    if params.clone().collateral_oracle_info.pools_for_osmo_twap.len() != 0 
+        &&
+    params.clone().debt_oracle_info.pools_for_osmo_twap.len() != 0 {
+
+        if params.clone().collateral_oracle_info.pools_for_osmo_twap.last().unwrap().quote_asset_denom
+            != params.clone().debt_oracle_info.pools_for_osmo_twap.last().unwrap().quote_asset_denom {
+            return Err(ContractError::CustomError { val: "The last quote asset for the collateral's oracle info and the debt's oracle info are not the same.".to_string() });
+        }
+    } else {
+        ///If they are using Pyth, they both must be using pyth
+        if params.clone().collateral_oracle_info.pyth_price_feed_id.is_none()
+            || params.clone().debt_oracle_info.pyth_price_feed_id.is_none() {
+            return Err(ContractError::CustomError { val: "The collateral and debt must both be using Pyth if they aren't using TWAPs.".to_string() });
+        }
+    }
+
+
     //Instantiate new market
     let msg = CosmosMsg::Wasm(WasmMsg::Instantiate {
         admin: Some(env.contract.address.to_string()),
         code_id: config.managed_market_code_id,
         msg: to_json_binary(&ManagedMarketInstantiateMsg {
             owner: manager.to_string(),
-            osmosis_proxy_contract: config.osmosis_proxy_contract.to_string(),
+            oracle_contract: params.clone().oracle_contract.to_string(),
+            swap_contract: params.clone().swap_contract.to_string(),
+            token_factory_contract: params.clone().token_factory_contract.to_string(),
+            debt_token: params.clone().debt_token,
             whitelisted_debt_suppliers: params.clone().whitelisted_debt_suppliers,
             max_slippage: params.clone().max_slippage,
             collateral_params: params.clone().collateral_params,
             rate_params: params.clone().rate_params,
-            pool_for_oracle_and_liquidations: params.clone().pool_for_oracle_and_liquidations,
             borrow_fee: params.clone().borrow_fee,
             whitelisted_collateral_suppliers: params.clone().whitelisted_collateral_suppliers,
             pause_option: params.clone().pause_option,
@@ -263,9 +287,9 @@ fn instantiate_market(
     //Save pending market info 
     PENDING_MARKET.save(deps.storage, &PendingMarket {
         name: params.name.clone(),
-        socials: params.socials.clone(),
         manager: manager.to_string(),
         permissionless_add_debt_amount: permissionless_add_debt_amount,
+        params: params.clone()
     })?;
 
     Ok(Response::new()
@@ -494,6 +518,7 @@ fn query_managers(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         INSTANTIATE_REPLY_ID => handle_instantiate_reply(deps, env, msg),
+        DEBT_ORACLE_REPLY_ID => handle_debt_token_oracle_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }
@@ -503,7 +528,7 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
     match msg.result.into_result() {
         Ok(result) => {
             let config = CONFIG.load(deps.storage)?;
-            let mut msgs: Vec<CosmosMsg> = vec![];
+            let mut msgs: Vec<SubMsg> = vec![];
             
             //Get contract address
             let instantiate_event = result
@@ -525,7 +550,7 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
                 .unwrap()
                 .value;
 
-            let valid_address = deps.api.addr_validate(&contract_address)?;
+            let valid_address = deps.api.addr_validate(&contract_address.clone())?;
 
             //Save new address under the manager's state
             let pending_market = PENDING_MARKET.load(deps.storage)?;
@@ -537,7 +562,7 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
             //Add new market to manager's state
             manager_markets.push(MarketItem {
                 name: pending_market.name.clone(),
-                socials: pending_market.socials.clone(),
+                socials: pending_market.params.socials.clone(),
                 address: valid_address.to_string(),
             });
             MANAGED_MARKETS.save(
@@ -545,24 +570,48 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
                 pending_market.manager.clone(),
                 &manager_markets,
             )?; 
-            //Remove pending market
-            PENDING_MARKET.remove(deps.storage);
+
+
+            //Add collateral asset to oracle
+            let oracle_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: pending_market.params.oracle_contract.clone(),
+                msg: to_json_binary(&Oracle_ExecuteMsg::AddAsset {
+                    asset_info: pending_market.params.clone().collateral_params.collateral_asset,
+                    oracle_info: pending_market.params.clone().collateral_oracle_info,
+                    caller: contract_address.clone(),
+                })?,
+                funds: vec![],
+            });
+            msgs.push(SubMsg::new(oracle_msg));
+
+            //Add collateral asset to swap contract
+
+
+            todo!();
+            ////// Do the same for the debt contracts
+            /// 
+            //Add debt asset to oracle
+            let debt_oracle_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: pending_market.params.oracle_contract.clone(),
+                msg: to_json_binary(&Oracle_ExecuteMsg::AddAsset {
+                    asset_info: pending_market.params.clone().debt_token,
+                    oracle_info: pending_market.params.clone().debt_oracle_info,
+                    caller: contract_address.clone(),
+                })?,
+                funds: vec![],
+            });
+
             //IF permissionless add, supply the debt token to the market
-            if let Some(permissionless_add_debt_amount) = pending_market.permissionless_add_debt_amount {
-                let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: valid_address.to_string(),
-                    msg: to_json_binary(&ManagedMarketExecuteMsg::SupplyDebt {
-                        send_to: Some(MEMBRANE_GOVERNANCE_ADDRESS.to_string()),
-                        is_junior: false,
-                    })?,
-                    funds: vec![
-                        Coin {
-                            denom: CDT_DENOM.to_string(),
-                            amount: permissionless_add_debt_amount,
-                        },
-                    ],
-                });
-                msgs.push(msg);
+            if let Some(_permissionless_add_debt_amount) = pending_market.permissionless_add_debt_amount {
+                ////////////Set the debt's oracle submsg to a reply on success that checks the value of the sent assets to make sure its above the minimum and then supplies them///
+                msgs.push(SubMsg::reply_on_success(debt_oracle_msg, DEBT_ORACLE_REPLY_ID));
+
+            } else {
+                //Add debt asset to oracle
+                msgs.push(SubMsg::new(debt_oracle_msg));
+
+                //Remove pending market
+                PENDING_MARKET.remove(deps.storage);
             }
             //Add attributes
             let mut attrs = vec![
@@ -575,7 +624,91 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
                        
             Ok(Response::new()
                 .add_attributes(attrs)
-                .add_messages(msgs)
+                .add_submessages(msgs)
+            )
+        },
+        Err(err) => return Err(StdError::GenericErr { msg: err }),
+    }    
+}
+
+/// Check that minimum debt value is reached and supply debt token to market
+pub fn handle_debt_token_oracle_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Response>{
+    match msg.result.into_result() {
+        Ok(result) => {
+            let config = CONFIG.load(deps.storage)?;
+            let mut msgs: Vec<SubMsg> = vec![];
+
+            //Get the pending market data
+            let pending_market = PENDING_MARKET.load(deps.storage)?;
+            
+            //Get the new market from the managers market list
+            let new_market = MANAGED_MARKETS
+                .load(
+                    deps.storage,
+                    pending_market.manager.clone(),
+                )?[0].clone(); 
+
+
+
+            //IF permissionless add, supply the debt token to the market
+            if let Some(permissionless_add_debt_amount) = pending_market.permissionless_add_debt_amount {
+               
+                //Query the newly added oracle price of the debt token
+                let oracle_prices = deps.querier.query::<Vec<PriceResponse>>(
+                    &QueryRequest::Wasm(WasmQuery::Smart {
+                        contract_addr: pending_market.params.oracle_contract.clone(),
+                        msg: to_json_binary(&Oracle_QueryMsg::Prices {
+                            asset_infos: vec![pending_market.params.clone().debt_token],
+                            twap_timeframe: 0u64,
+                            oracle_time_limit: 0u64,
+                            caller: new_market.address.clone(),
+                        })?,
+                    }),
+                )?;
+                let debt_price = oracle_prices[0].clone();
+
+                //Get the sent debt value
+                let sent_debt_value = debt_price.get_value(permissionless_add_debt_amount)?;
+
+                //Check if the value of the debt token is above the minimum value
+                if sent_debt_value < Decimal::from_ratio(
+                    config.minimum_cdt_for_permissionless_instantiation.clone().unwrap(),
+                      Uint128::one()
+                    ) {
+                    return Err(StdError::generic_err(format!("The value of the debt token is below the minimum: {} < {}", sent_debt_value, config.minimum_cdt_for_permissionless_instantiation.clone().unwrap())));
+                }
+
+                /// Supply the debt token to the market
+                let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: new_market.address.clone(),
+                    msg: to_json_binary(&ManagedMarketExecuteMsg::SupplyDebt {
+                        send_to: Some(MEMBRANE_GOVERNANCE_ADDRESS.to_string()),
+                        is_junior: false,
+                    })?,
+                    funds: vec![
+                        Coin {
+                            denom: pending_market.params.clone().debt_token,
+                            amount: permissionless_add_debt_amount.clone(),
+                        },
+                    ],
+                });
+                msgs.push(SubMsg::new(msg));
+            }
+                
+            //Remove pending market
+            PENDING_MARKET.remove(deps.storage);
+
+            //Add attributes
+            let mut attrs = vec![
+                attr("method", "handle_debt_token_oracle_reply"),
+                attr("manager", pending_market.manager),
+                attr("market_name", pending_market.name),
+                attr("permissionless_add_debt_amount", pending_market.permissionless_add_debt_amount.unwrap().to_string()),
+            ];
+                       
+            Ok(Response::new()
+                .add_attributes(attrs)
+                .add_submessages(msgs)
             )
         },
         Err(err) => return Err(StdError::GenericErr { msg: err }),

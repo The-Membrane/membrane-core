@@ -1238,4 +1238,32 @@ pub struct PointsMultipliers {
     pub liquidation_execution: Decimal,
     pub liquidation_claims: Decimal,
     pub governance_votes: Decimal,
+} 
+
+//Managed Market
+#[cw_serde]
+pub struct OsmosisOracleInfo {
+    /// Pyth price feed ID
+    pub pyth_price_feed_id: Option<String>,
+    /// Osmosis pools for OSMO TWAP
+    pub pools_for_osmo_twap: Vec<TWAPPoolInfo>,
+    /// LP pool info
+    pub lp_pool_info: Option<PoolInfo>,
+    /// Vault Info (for vault tokens only)
+    pub vault_info: Option<VaultTokenInfo>,
+    /// Asset decimals
+    pub decimals: u64,
 }
+
+impl fmt::Display for OsmosisOracleInfo {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "osmo_pools: {:?}", self.pools_for_osmo_twap)
+    }
+}
+
+#[cw_serde]
+pub struct OsmosisRouteInfo {
+    /// Osmosis pools for swap routing
+    pub pools_for_osmo_twap: Vec<TWAPPoolInfo>,
+}
+

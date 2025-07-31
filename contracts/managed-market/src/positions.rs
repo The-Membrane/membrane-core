@@ -14,6 +14,8 @@ use membrane::mars_vault_token::{ExecuteMsg as Vault_ExecuteMsg, QueryMsg as Vau
 use membrane::helpers::{validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances};
 use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_subtraction};
 use membrane::oracle::PriceResponse;
+use membrane::mm_swap::{ExecuteMsg as Swap_ExecuteMsg};
+use membrane::tokenfactory::{ExecuteMsg as TokenFactory};
 // use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::types::{
     Asset, AssetInfo, AutoCloseParams, BorrowOptions, LoopLTVParams, UXBoosts, UserPosition, VTClaimCheckpoint
@@ -24,13 +26,11 @@ use membrane::stability_pool_vault::{
 };
 use membrane::market_manager::{Config as MarketManagerConfig, QueryMsg as MarketManagerQueryMsg};
 use osmosis_std::types::osmosis::twap::v1beta1 as TWAP;
-use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
 use osmosis_std::types::osmosis::poolmanager::v1beta1::{MsgSwapExactAmountIn, SwapAmountInRoute};
 use osmosis_std::types::osmosis::poolmanager::v1beta1::{self as PoolManager, SwapAmountOutRoute};
 use serde::de;
 
-
-use crate::oracle::{get_cdt_price, get_collateral_price};
+use crate::oracle::{get_asset_prices};
 use crate::rates::accrue;
 use crate::state::{ClosePositionPropagation, CollateralRateAssurance, LiquidationPropagation, LoopPropagation, TokenRateAssurance, ACTIONS_PAUSED, CLAIM_TRACKER, CLOSE_POSITION, COLLATERAL_RATE_ASSURANCE, COLLATERAL_STATE_TOTAL, DEBT_VAULT_TOKEN, JUNIOR_CLAIM_TRACKER, JUNIOR_DEBT_VAULT_TOKEN, LIQUIDATION, LOOP_POSITION, MARKET_PARAMS, POSITION_UX_BOOSTS, TOKEN_RATE_ASSURANCE};
 // use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, CollateralVolatility, Timer, BASKET, CLOSE_POSITION, FREEZE_TIMER, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
@@ -185,12 +185,13 @@ pub fn supply_collateral(
         vec![AssetInfo::NativeToken { denom: market.collateral_params.collateral_asset.clone() }]
     )?[0];
 
-    if !total_collateral.is_zero() {
+    let pre_deposit_collateral = total_collateral - new_collateral_amount;
+    if !pre_deposit_collateral.is_zero() {
 
         //Calc the rate of vault tokens to deposit tokens
         let btokens_per_one = calculate_base_tokens(
             Uint128::new(1_000_000), 
-            total_collateral - new_collateral_amount, 
+            pre_deposit_collateral, 
             collateral_state_total
         )?;
 
@@ -217,7 +218,7 @@ pub fn supply_collateral(
 
     let mut msgs = vec![];
     //Create collateral rate assurance msg
-    if !collateral_state_total.is_zero() {
+    if !collateral_state_total.is_zero() && !pre_deposit_collateral.is_zero(){
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {    
             contract_addr: env.contract.address.to_string(),
             msg: to_json_binary(&ExecuteMsg::CollateralRateAssurance {  })?,
@@ -314,7 +315,7 @@ pub fn supply_debt(
 
     //Check & assert deposit asset
     //Assert the sender sent the deposit asset only
-    if info.funds.len() != 1 || info.funds[0].denom != CDT_DENOM.to_string() {
+    if info.funds.len() != 1 || info.funds[0].denom != config.debt_token.clone().unwrap() {
         return Err(ContractError::CustomError { val: String::from("Need to send the debt asset only: factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt") });
     }
 
@@ -392,20 +393,23 @@ pub fn supply_debt(
 
     //Mint vault tokens to user
     if !vault_tokens_to_send.is_zero() {
-        let mint_vault_tokens_msg: CosmosMsg = TokenFactory::MsgMint {
-            sender: env.contract.address.to_string(), 
-            amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
-                denom: mint_denom.clone(),
-                amount: vault_tokens_to_send.to_string(),
-            }), 
-            mint_to_address: send_to.clone().to_string(),
-        }.into();
+        let mint_vault_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
+            msg: to_json_binary(&TokenFactory::MintTokens {
+                amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+                    denom: mint_denom.clone(),
+                    amount: vault_tokens_to_send.to_string(),
+                }),
+                mint_to_address: send_to.clone().to_string(),
+            })?,
+            funds: vec![],
+        });
         msgs.push(mint_vault_tokens_msg);
     }
 
     //Update config state
-    println!("supplied_amount: {}", supplied_amount);
-    println!("is_junior: {}", is_junior);
+    // println!("supplied_amount: {}", supplied_amount);
+    // println!("is_junior: {}", is_junior);
     update_config_debt_totals(&mut config, is_junior, supplied_amount, true)?;
     CONFIG.save(deps.storage, &config)?;
 
@@ -416,7 +420,7 @@ pub fn supply_debt(
     };
     //Update vault token supply
     if is_junior {
-        println!("new_vault_token_supply: {}", new_vault_token_supply);
+        // println!("new_vault_token_supply: {}", new_vault_token_supply);
         JUNIOR_DEBT_VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
     } else {
         DEBT_VAULT_TOKEN.save(deps.storage, &new_vault_token_supply)?;
@@ -529,7 +533,7 @@ pub fn withdraw_debt(
     )?;
 
     //Get balance of debt tokens we have to send.
-    let debt_token_balance = deps.querier.query_balance(env.clone().contract.address, CDT_DENOM.to_string())?;
+    let debt_token_balance = deps.querier.query_balance(env.clone().contract.address, config.debt_token.clone().unwrap())?;
 
     //If we have less debt tokens than being requested, we error.
     //Or if we have less of this tranche of debt tokens, we error.
@@ -546,21 +550,21 @@ pub fn withdraw_debt(
     //Send base tokens to user.
     if !base_tokens_to_send.is_zero() {
         //Burn vault tokens.
-        let burn_vault_tokens_msg: CosmosMsg = TokenFactory::MsgBurn {
-            sender: env.contract.address.to_string(), 
-            amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+        let burn_vault_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
+            msg: to_json_binary(&TokenFactory::BurnTokens { })?,
+            funds: vec![Coin {
                 denom: mint_denom.clone(),
-                amount: vault_tokens_sent.to_string(),
-            }), 
-            burn_from_address: env.contract.address.to_string(),
-        }.into();
+                amount: vault_tokens_sent,
+            }],
+        });
         msgs.push(burn_vault_tokens_msg);
 
         //Send base tokens to user.
         let send_base_tokens_msg: CosmosMsg = BankMsg::Send {
             to_address: send_to.to_string(),
             amount: vec![Coin {
-                denom: CDT_DENOM.to_string(),
+                denom: config.debt_token.clone().unwrap(),
                 amount: base_tokens_to_send,
             }],
         }.into();
@@ -687,8 +691,16 @@ pub fn withdraw_collateral(
         },
         false => {
             //If the user has debt, they can only withdraw up to the borrow LTV
-            let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone(), true)?;
-            let debt_price = get_cdt_price(deps.querier, env.clone(), true)?;
+            //Get prices
+            let prices = get_asset_prices(
+                deps.querier, 
+                config.clone(), 
+                env.contract.address.to_string(),
+                true, 
+                 vec![market.collateral_params.collateral_asset.clone(), config.debt_token.clone().unwrap()]
+                )?;
+            let collateral_price = prices[0].clone();
+            let debt_price = prices[1].clone();
             let collateral_value = collateral_price.get_value(user_position.collateral_amount)?;
             let debt_value = debt_price.get_value(user_position.debt_amount)?;
 
@@ -716,7 +728,28 @@ pub fn withdraw_collateral(
 
     //Load collateral state total prior to adjustment
     let mut collateral_state_total = COLLATERAL_STATE_TOTAL.load(deps.storage, collateral_denom.clone()).unwrap_or(Uint128::zero());
+    //Get total collateral 
+    let total_collateral = get_contract_balances(
+        deps.querier, 
+        env.clone(), 
+        vec![AssetInfo::NativeToken { denom: market.collateral_params.collateral_asset.clone() }]
+    )?[0];
 
+    if !total_collateral.is_zero() && !collateral_state_total.is_zero(){
+        //Calc the rate of vault tokens to deposit tokens
+        let btokens_per_one = calculate_base_tokens(
+            Uint128::new(1_000_000), 
+            total_collateral, 
+            collateral_state_total
+        )?;
+
+
+        //Create collateral rate assurance
+        COLLATERAL_RATE_ASSURANCE.save(deps.storage, &CollateralRateAssurance {
+            collateral_denom: market.collateral_params.collateral_asset.clone(),
+            pre_collateral_per_one: btokens_per_one,
+        })?;
+    }
     //Centralised collateral accounting
     let user_position = adjust_position_collateral(
         deps.storage,
@@ -741,7 +774,7 @@ pub fn withdraw_collateral(
     });
     msgs.push(withdraw_collateral_message.clone());
 
-    //Create collateral rate assurance msg
+    //Create collateral rate assurance msg (conditional uses the new collateral state total)
     if !collateral_state_total.is_zero() {
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {    
             contract_addr: env.contract.address.to_string(),
@@ -985,13 +1018,120 @@ pub fn borrow_cdt(
         Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
     };
 
-    let debt_price = get_cdt_price(deps.querier, env.clone(), true)?;
     
+    //Get prices
+    let prices = get_asset_prices(
+        deps.querier,
+        config.clone(), 
+        env.contract.address.to_string(),
+        true, 
+        vec![market.collateral_params.collateral_asset.clone(), config.debt_token.clone().unwrap()]
+    )?;
+    let collateral_price = prices[0].clone();
+    let debt_price = prices[1].clone();
 
     //Assert borrow is valid. 
     //Borrowable amount is capped by current LTV & borrowable LTV & borrow cap.
+    let (borrowable_amount, borrow_fee) = calc_borrowable_amount(
+        deps.querier,
+        env.clone(),
+        borrow_options.clone(),
+        market.clone(),
+        collateral_price.clone(),
+        debt_price.clone(),
+        user_position.clone(),
+        config.debt_token.clone().unwrap()
+    )?;
+
+    //Query the estimated swap amount for the new total borrowed amount to make sure it can be liquidated.
+    let new_total_borrowed = match market.total_borrowed.checked_add(borrowable_amount){
+        Ok(val) => val,
+        Err(_) => return Err(ContractError::CustomError { val: format!("Total Borrowed: {} + Borrow Amount: {}, underflow error", market.total_borrowed, borrowable_amount) }),
+    };
+    //Update config's total borrowed
+    config.total_borrowed = match config.total_borrowed.clone().unwrap().checked_add(borrowable_amount){
+        Ok(val) => Some(val),
+        Err(_) => return Err(ContractError::CustomError { val: format!("Total Borrowed: {:?} + Borrow Amount: {}, underflow error", config.total_borrowed, borrowable_amount) }),
+    };
+    //Should this be a market toggle? Yes.
+    if market.borrow_cap.cap_borrows_by_liquidity {
+        // check_debt_liquidatibility(deps.querier, market.clone(), 
+        //     new_total_borrowed, 
+        //     get_contract_balances(
+        //         deps.querier,
+        //         env.clone(),
+        //         vec![AssetInfo::NativeToken { denom: market.clone().collateral_params.collateral_asset }],
+        //     )?[0],
+        // )?;
+    }
+
+    //////Update state for user/////
+    user_position.debt_amount = match user_position.debt_amount.checked_add(borrowable_amount){
+        Ok(val) => val,
+        Err(_) => return Err(ContractError::CustomError { val: format!("User Debt Amount: {} + Borrow Amount: {}, underflow error", user_position.debt_amount, borrowable_amount) }),
+    };
+    //If the debt isn't > debt_minimum, error
+    if user_position.debt_amount < market.debt_minimum {
+        return Err(ContractError::CustomError { val: format!("User Debt Amount: {} < Debt Minimum: {}", user_position.debt_amount, market.debt_minimum) });
+    }
+    //Save user state
+    POSITIONS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &user_position)?;
+
+    //Update state for config
+    market.total_borrowed = new_total_borrowed;
+    MARKET_PARAMS.save(deps.storage, collateral_denom.clone(), &market)?;
+    
+
+    if !JUNIOR_DEBT_VAULT_TOKEN.load(deps.storage)?.is_zero() {
+        //Add borrow fee to the junior tranche
+        config.junior_debt_info.as_mut().unwrap().total_debt = match config.junior_debt_info.as_mut().unwrap().total_debt.checked_add(borrow_fee){
+            Ok(val) => val,
+            Err(_) => return Err(ContractError::CustomError { val: format!("Total Debt Tokens: {} + Borrow Fee: {}, underflow error", config.junior_debt_info.as_mut().unwrap().total_debt, borrow_fee) }),
+        };
+    } else {
+        config.total_debt_tokens = match config.total_debt_tokens.checked_add(borrow_fee){
+            Ok(val) => val,
+            Err(_) => return Err(ContractError::CustomError { val: format!("Total Debt Tokens: {} + Borrow Fee: {}, underflow error", config.total_debt_tokens, borrow_fee) }),
+        };
+    }
+    //Update config state
+    CONFIG.save(deps.storage, &config)?;
+
+    //Send borrowed CDT
+    let borrow_coins = vec![Coin {
+        denom: config.debt_token.clone().unwrap(),
+        amount: borrowable_amount,
+    }];
+    let borrow_cdt_message = CosmosMsg::Bank(BankMsg::Send {
+        to_address: send_to.to_string(),
+        amount: borrow_coins,
+    });
+    msgs.push(borrow_cdt_message.clone());
+
+
+
+    Ok(Response::new()
+    .add_attributes(vec![
+        attr("method", "borrow_cdt"),
+        attr("borrowed_amount", borrowable_amount),
+        attr("borrow_fee", borrow_fee),
+    ])
+.add_messages(msgs))
+}
+
+pub fn calc_borrowable_amount(
+    querier: QuerierWrapper,
+    env: Env,
+    borrow_options: BorrowOptions,
+    market: MarketParams,
+    collateral_price: PriceResponse,
+    debt_price: PriceResponse,
+    user_position: UserPosition,
+    debt_token: String
+) -> Result<(Uint128, Uint128), ContractError> {
+    //Assert borrow is valid. 
+    //Borrowable amount is capped by current LTV & borrowable LTV & borrow cap.
     let mut borrowable_amount = {
-        let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone(), true)?;
         let collateral_value = collateral_price.get_value(user_position.collateral_amount)?;
         let debt_value: Decimal = debt_price.get_value(user_position.debt_amount)?;
 
@@ -1020,7 +1160,8 @@ pub fn borrow_cdt(
         )?;
         //Get pre-capped borrow amount
         let theoretical_borrow = min(borrow_amount, borrowable_amount);
-
+        // // println!("borrowable_amount: {:?}", borrowable_amount);
+        // // println!("market.borrow_cap.fixed_cap: {:?}", market.borrow_cap.fixed_cap);
         //Does this market have a fixed borrow cap?
         let space_to_borrow = match market.borrow_cap.fixed_cap {
             Some(cap) => {
@@ -1030,6 +1171,8 @@ pub fn borrow_cdt(
             },
             None => borrowable_amount
         };
+        // // println!("space_to_borrow: {:?}", space_to_borrow);
+
         let capped_borrow = min(theoretical_borrow, space_to_borrow);
         //If the market has a per user borrow cap, check it
         let capped_borrow = match market.per_user_debt_cap {
@@ -1042,57 +1185,24 @@ pub fn borrow_cdt(
         };
         //Check contract balances for actual borrow amounts
         let contract_balance_of_debt = get_contract_balances(
-            deps.querier,
+            querier,
             env.clone(),
-            vec![AssetInfo::NativeToken { denom: CDT_DENOM.to_string() }],
+            vec![AssetInfo::NativeToken { denom: debt_token }],
         )?[0];
+        // // println!("capped_borrow:1] {:?}", capped_borrow);
+        // // println!("contract_balance_of_debt:1 {:?}", contract_balance_of_debt);
         let actual_borrow = min(capped_borrow, contract_balance_of_debt);
-
+        // // println!("borrow_cap: {:?}", market.borrow_cap);
+        // // println!("actual_borrow: {:?}", actual_borrow);
         actual_borrow
     };
+
 
     //Check borrow amount is non-zero
     if borrowable_amount.is_zero() {
         return Err(ContractError::CustomError { val: "No space to borrow".to_string() });
     }
 
-    //Query the estimated swap amount for the new total borrowed amount to make sure it can be liquidated.
-    let new_total_borrowed = match market.total_borrowed.checked_add(borrowable_amount){
-        Ok(val) => val,
-        Err(_) => return Err(ContractError::CustomError { val: format!("Total Borrowed: {} + Borrow Amount: {}, underflow error", market.total_borrowed, borrowable_amount) }),
-    };
-    //Update config's total borrowed
-    config.total_borrowed = match config.total_borrowed.clone().unwrap().checked_add(borrowable_amount){
-        Ok(val) => Some(val),
-        Err(_) => return Err(ContractError::CustomError { val: format!("Total Borrowed: {:?} + Borrow Amount: {}, underflow error", config.total_borrowed, borrowable_amount) }),
-    };
-    //Should this be a market toggle? Yes.
-    if market.borrow_cap.cap_borrows_by_liquidity {
-        check_debt_liquidatibility(deps.querier, market.clone(), 
-            new_total_borrowed, 
-            get_contract_balances(
-                deps.querier,
-                env.clone(),
-                vec![AssetInfo::NativeToken { denom: market.clone().collateral_params.collateral_asset }],
-            )?[0],
-        )?;
-    }
-
-    //////Update state for user/////
-    user_position.debt_amount = match user_position.debt_amount.checked_add(borrowable_amount){
-        Ok(val) => val,
-        Err(_) => return Err(ContractError::CustomError { val: format!("User Debt Amount: {} + Borrow Amount: {}, underflow error", user_position.debt_amount, borrowable_amount) }),
-    };
-    //If the debt isn't > debt_minimum, error
-    if user_position.debt_amount < market.debt_minimum {
-        return Err(ContractError::CustomError { val: format!("User Debt Amount: {} < Debt Minimum: {}", user_position.debt_amount, market.debt_minimum) });
-    }
-    //Save user state
-    POSITIONS.save(deps.storage, (position_owner.clone(), collateral_denom.clone()), &user_position)?;
-
-    //Update state for config
-    market.total_borrowed = new_total_borrowed;
-    MARKET_PARAMS.save(deps.storage, collateral_denom.clone(), &market)?;
 
     //If there is a borrow fee, subtract it from the borrowable amount
     let borrow_fee = match market.borrow_fee.is_zero() {
@@ -1107,43 +1217,8 @@ pub fn borrow_cdt(
         },
         true => Uint128::zero()
     };
-    
 
-    if !JUNIOR_DEBT_VAULT_TOKEN.load(deps.storage)?.is_zero() {
-        //Add borrow fee to the junior tranche
-        config.junior_debt_info.as_mut().unwrap().total_debt = match config.junior_debt_info.as_mut().unwrap().total_debt.checked_add(borrow_fee){
-            Ok(val) => val,
-            Err(_) => return Err(ContractError::CustomError { val: format!("Total Debt Tokens: {} + Borrow Fee: {}, underflow error", config.junior_debt_info.as_mut().unwrap().total_debt, borrow_fee) }),
-        };
-    } else {
-        config.total_debt_tokens = match config.total_debt_tokens.checked_add(borrow_fee){
-            Ok(val) => val,
-            Err(_) => return Err(ContractError::CustomError { val: format!("Total Debt Tokens: {} + Borrow Fee: {}, underflow error", config.total_debt_tokens, borrow_fee) }),
-        };
-    }
-    //Update config state
-    CONFIG.save(deps.storage, &config)?;
-
-    //Send borrowed CDT
-    let borrow_coins = vec![Coin {
-        denom: CDT_DENOM.to_string(),
-        amount: borrowable_amount,
-    }];
-    let borrow_cdt_message = CosmosMsg::Bank(BankMsg::Send {
-        to_address: send_to.to_string(),
-        amount: borrow_coins,
-    });
-    msgs.push(borrow_cdt_message.clone());
-
-
-
-    Ok(Response::new()
-    .add_attributes(vec![
-        attr("method", "borrow_cdt"),
-        attr("borrowed_amount", borrowable_amount),
-        attr("borrow_fee", borrow_fee),
-    ])
-.add_messages(msgs))
+    Ok((borrowable_amount, borrow_fee))
 }
 
 fn calc_borrow_amount(
@@ -1213,8 +1288,8 @@ pub fn repay_cdt(
 
     //Check & assert deposit asset
     //Assert the sender sent the deposit asset only
-    if info.funds.len() != 1 || info.funds[0].denom != CDT_DENOM.to_string() {
-        return Err(ContractError::CustomError { val: format!("Need to send the debt asset only: {}", CDT_DENOM) });
+    if info.funds.len() != 1 || info.funds[0].denom != config.debt_token.clone().unwrap() {
+        return Err(ContractError::CustomError { val: format!("Need to send the debt asset only: {}", config.debt_token.clone().unwrap()) });
     }
 
     //Label repayment amount 
@@ -1279,7 +1354,7 @@ pub fn repay_cdt(
         };
         //Send excess repayment
         let excess_repayment_coins = vec![Coin {
-            denom: CDT_DENOM.to_string(),
+            denom: config.debt_token.clone().unwrap(),
             amount: excess_repayment,
         }];
         let excess_repayment_message = CosmosMsg::Bank(BankMsg::Send {
@@ -1316,95 +1391,92 @@ pub fn repay_cdt(
 }
 
 
-pub fn check_debt_liquidatibility(
-    querier: QuerierWrapper,
-    market: MarketParams,
-    debt_amount: Uint128,
-    collateral_amount: Uint128,
-) -> Result<(), ContractError> {
+// pub fn check_debt_liquidatibility(
+//     querier: QuerierWrapper,
+//     market: MarketParams,
+//     debt_amount: Uint128,
+//     collateral_amount: Uint128,
+// ) -> Result<(), ContractError> {
 
-    //Get swap routes
-    let routes = get_swap_out_routes_to_cdt(market.clone())?;
+//     //Get swap routes
+//     let routes = get_swap_out_routes_to_cdt(market.clone())?;
 
-    //Get debt value
-    // let debt_value = debt_price.get_value(debt_amount)?;
+//     //Get debt value
+//     // let debt_value = debt_price.get_value(debt_amount)?;
 
-    //Estimate swap
-    let res: PoolManager::EstimateSwapExactAmountOutResponse = PoolManager::PoolmanagerQuerier::new(&querier).estimate_swap_exact_amount_out(
-        0u64,  //id doesn't matter here
-        routes, //routes are the oracle pool plus 1268 the CDT pool
-        debt_amount.to_string(),
-    )?;
-    //This doesn't account for individual position liquidatibility
-    if Uint128::from_str(&res.token_in_amount).unwrap() > collateral_amount {
-        return Err(ContractError::NoLiquidatibility {  });
-    }
+//     //Estimate swap
+//     let res: PoolManager::EstimateSwapExactAmountOutResponse = PoolManager::PoolmanagerQuerier::new(&querier).estimate_swap_exact_amount_out(
+//         0u64,  //id doesn't matter here
+//         routes, //routes are the oracle pool plus 1268 the CDT pool
+//         debt_amount.to_string(),
+//     )?;
+//     //This doesn't account for individual position liquidatibility
+//     if Uint128::from_str(&res.token_in_amount).unwrap() > collateral_amount {
+//         return Err(ContractError::NoLiquidatibility {  });
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
-fn get_swap_out_routes_to_cdt(
-    market: MarketParams,
-) -> Result<Vec<SwapAmountOutRoute>, ContractError> {
+// fn get_swap_out_routes_to_cdt(
+//     market: MarketParams,
+// ) -> Result<Vec<SwapAmountOutRoute>, ContractError> {
     
-    let mut routes = vec![];
+//     let mut routes = vec![];
 
-    //Get the oracle pool
-    let oracle_pool = market.pool_for_oracle_and_liquidations;
+//     //Get the oracle pool
+//     let oracle_pool = market.pool_for_oracle_and_liquidations;
 
-    //Convert the oracle pool to a swap route
-    oracle_pool.pools_for_osmo_twap.into_iter().for_each(|pool| {
-        routes.push(SwapAmountOutRoute {
-            pool_id: pool.pool_id,
-            token_in_denom: pool.base_asset_denom,
-        });
-    });
+//     //Convert the oracle pool to a swap route
+//     oracle_pool.pools_for_osmo_twap.into_iter().for_each(|pool| {
+//         routes.push(SwapAmountOutRoute {
+//             pool_id: pool.pool_id,
+//             token_in_denom: pool.base_asset_denom,
+//         });
+//     });
 
-    //Add the CDT pool
-    routes.push(SwapAmountOutRoute {
-        pool_id: 1268u64,
-        token_in_denom: NOBLE_USDC_DENOM.to_string(),
-    });
+//     //Add the CDT pool
+//     routes.push(SwapAmountOutRoute {
+//         pool_id: 1268u64,
+//         token_in_denom: NOBLE_USDC_DENOM.to_string(),
+//     });
 
-    Ok(routes)
-}
+//     Ok(routes)
+// }
 
-fn get_swap_in_routes_to_cdt(
-    market: MarketParams,
-) -> Result<Vec<SwapAmountInRoute>, ContractError> {
+// fn get_swap_in_routes_to_cdt(
+//     market: MarketParams,
+//     debt_token: String
+// ) -> Result<Vec<SwapAmountInRoute>, ContractError> {
     
-    let mut routes = vec![];
+//     let mut routes = vec![];
 
-    //Get the oracle pool
-    let oracle_pool = market.pool_for_oracle_and_liquidations;
+//     //Get the oracle pool
+//     let oracle_pool = market.pool_for_oracle_and_liquidations;
 
-    //Convert the oracle pool to a swap route
-    oracle_pool.pools_for_osmo_twap.into_iter().for_each(|pool| {
-        routes.push(SwapAmountInRoute {
-            pool_id: pool.pool_id,
-            token_out_denom: pool.quote_asset_denom,
-        });
-    });
+//     //Convert the oracle pool to a swap route
+//     oracle_pool.pools_for_osmo_twap.into_iter().for_each(|pool| {
+//         routes.push(SwapAmountInRoute {
+//             pool_id: pool.pool_id,
+//             token_out_denom: pool.quote_asset_denom,
+//         });
+//     });
 
-    //Add the CDT pool
-    routes.push(SwapAmountInRoute {
-        pool_id: 1268u64,
-        token_out_denom: CDT_DENOM.to_string(),
-    });
+//     //Add the CDT pool
+//     routes.push(SwapAmountInRoute {
+//         pool_id: 1268u64,
+//         token_out_denom: debt_token.clone(),
+//     });
 
-    Ok(routes)
-}
+//     Ok(routes)
+// }
 
 
-fn create_swap_to_cdt_msg(
-    market: MarketParams,
+fn create_swap_to_debt_token_msg(
+    config: Config,
     env: Env,
-    querier: QuerierWrapper,
-    mut collateral_denom: String,
-    mut collateral_amount: Uint128,
-    collateral_price: PriceResponse,
-    debt_price: PriceResponse,
-    routes: Vec<SwapAmountInRoute>,
+    collateral_denom: String,
+    collateral_amount: Uint128,
     max_slippage: Decimal,
     is_liquidation: bool,
 ) -> Result<Vec<SubMsg>, ContractError> {
@@ -1413,63 +1485,81 @@ fn create_swap_to_cdt_msg(
     //If its a vault token:
     // - Withdraw from the vault
     // - Query how much we expect to receive - 1
-    // - Set that amount as the collateral amount for the swap 
-    if let Some(vault_info) = market.pool_for_oracle_and_liquidations.vault_info {
+    // // - Set that amount as the collateral amount for the swap 
+    // if let Some(vault_info) = market.pool_for_oracle_and_liquidations.vault_info {
 
-        //Withdraw from the vault
-        let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: vault_info.vault_contract.clone(),
-            msg: to_json_binary(&Vault_ExecuteMsg::ExitVault {})?,
-            funds: vec![
-                Coin {
-                    denom: collateral_denom.clone(),
-                    amount: collateral_amount,
-                }
-            ],
-        });
-        msgs.push(SubMsg::new(withdraw_msg));
+    //     //Withdraw from the vault
+    //     let withdraw_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: vault_info.vault_contract.clone(),
+    //         msg: to_json_binary(&Vault_ExecuteMsg::ExitVault {})?,
+    //         funds: vec![
+    //             Coin {
+    //                 denom: collateral_denom.clone(),
+    //                 amount: collateral_amount,
+    //             }
+    //         ],
+    //     });
+    //     msgs.push(SubMsg::new(withdraw_msg));
 
-        //Query how much we expect to receive - 1
-        let underlying_deposit_token: Uint128 = match querier.query_wasm_smart::<Uint128>(
-            vault_info.vault_contract,
-            &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: collateral_amount },
-        ){
-            Ok(underlying_deposit_token) => underlying_deposit_token,
-            Err(_) => return Err(ContractError::CustomError { val: String::from("Failed to query the Mars Vault Token for the underlying deposit amount in instantiate") }),
-        };
+    //     //Query how much we expect to receive - 1
+    //     let underlying_deposit_token: Uint128 = match querier.query_wasm_smart::<Uint128>(
+    //         vault_info.vault_contract,
+    //         &Vault_QueryMsg::VaultTokenUnderlying { vault_token_amount: collateral_amount },
+    //     ){
+    //         Ok(underlying_deposit_token) => underlying_deposit_token,
+    //         Err(_) => return Err(ContractError::CustomError { val: String::from("Failed to query the Mars Vault Token for the underlying deposit amount in instantiate") }),
+    //     };
 
-        //Set the collateral amount for the swap
-        collateral_amount = underlying_deposit_token - Uint128::one();
+    //     //Set the collateral amount for the swap
+    //     collateral_amount = underlying_deposit_token - Uint128::one();
 
-        //Set the collateral denom to the underlying deposit token
-        if market.pool_for_oracle_and_liquidations.pools_for_osmo_twap.len() == 0 {
-            collateral_denom = NOBLE_USDC_DENOM.to_string();
-        } else {
-            collateral_denom = market.pool_for_oracle_and_liquidations.pools_for_osmo_twap[0].base_asset_denom.clone();
-        }
-    }
+    //     //Set the collateral denom to the underlying deposit token
+    //     if market.pool_for_oracle_and_liquidations.pools_for_osmo_twap.len() == 0 {
+    //         collateral_denom = NOBLE_USDC_DENOM.to_string();
+    //     } else {
+    //         collateral_denom = market.pool_for_oracle_and_liquidations.pools_for_osmo_twap[0].base_asset_denom.clone();
+    //     }
+    // }
         
 
-    //Get token_in & token_out prices
-    let token_in_price = collateral_price.clone();
-    let token_out_price = debt_price.clone();
+    // //Get token_in & token_out prices
+    // let token_in_price = collateral_price.clone();
+    // let token_out_price = debt_price.clone();
 
-    //Calculate min amount out
-    let token_in_value = token_in_price.get_value(collateral_amount)?;
-    let token_out_min_value = decimal_multiplication(token_in_value, Decimal::one() - max_slippage)?;
-    let token_out_min_amount = token_out_price.get_amount(token_out_min_value)?;
+    // //Calculate min amount out
+    // let token_in_value = token_in_price.get_value(collateral_amount)?;
+    // let token_out_min_value = decimal_multiplication(token_in_value, Decimal::one() - max_slippage)?;
+    // let token_out_min_amount = token_out_price.get_amount(token_out_min_value)?;
 
-    //Create Msg
-    let msg: CosmosMsg = MsgSwapExactAmountIn {
-        sender: env.contract.address.to_string(),
-        routes,
-        token_in: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
-            amount: collateral_amount.to_string(),
-            denom: collateral_denom
-        }),
-        token_out_min_amount: token_out_min_amount.to_string(),
+    // //Create Msg
+    // let msg: CosmosMsg = MsgSwapExactAmountIn {
+    //     sender: env.contract.address.to_string(),
+    //     routes,
+    //     token_in: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+    //         amount: collateral_amount.to_string(),
+    //         denom: collateral_denom
+    //     }),
+    //     token_out_min_amount: token_out_min_amount.to_string(),
         
-    }.into();
+    // }.into();
+
+    //Create swap msg from swap contract
+    let debt_token = config.debt_token.clone().unwrap().to_string();
+    let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.swap_contract.unwrap().to_string(),
+        msg: to_json_binary(&Swap_ExecuteMsg::Swap {
+            caller: env.contract.address.to_string(),
+            token_in: collateral_denom.clone(),
+            token_out: debt_token.clone(),
+            max_slippage: max_slippage,
+        })?,
+        funds: vec![
+            Coin {
+                denom: collateral_denom.clone(),
+                amount: collateral_amount,
+            }
+        ],
+    });
     //Reply on success to edit the user position based on the CDT that was swapped for & edit the config's total borrowed.
     let sub_msg = SubMsg::reply_on_success(msg, if is_liquidation { LIQUIDATE_REPLY_ID } else { CLOSE_POSITION_REPLY_ID });
     msgs.push(sub_msg);
@@ -1477,61 +1567,77 @@ fn create_swap_to_cdt_msg(
     Ok(msgs)
 }
 
-fn get_swap_in_routes_to_collateral(
-    market: MarketParams,
-) -> Result<Vec<SwapAmountInRoute>, ContractError> {
+// fn get_swap_in_routes_to_collateral(
+//     market: MarketParams,
+// ) -> Result<Vec<SwapAmountInRoute>, ContractError> {
     
-    let mut routes = vec![];
+//     let mut routes = vec![];
 
-    // Add the CDT pool first (we're starting from CDT now)
-    routes.push(SwapAmountInRoute {
-        pool_id: 1268u64,
-        token_out_denom: NOBLE_USDC_DENOM.to_string(),
-    });
+//     // Add the CDT pool first (we're starting from CDT now)
+//     routes.push(SwapAmountInRoute {
+//         pool_id: 1268u64,
+//         token_out_denom: NOBLE_USDC_DENOM.to_string(),
+//     });
 
-    // Get the oracle pool
-    let oracle_pool = market.pool_for_oracle_and_liquidations;
+//     // Get the oracle pool
+//     let oracle_pool = market.pool_for_oracle_and_liquidations;
 
-    // Reverse the oracle pool route (simulating CDT -> collateral)
-    oracle_pool.pools_for_osmo_twap.into_iter().rev().enumerate().for_each(|(i, pool)| {
-        routes.push(SwapAmountInRoute {
-            pool_id: pool.pool_id,
-            token_out_denom: pool.base_asset_denom.clone(),
-        });
-    });
+//     // Reverse the oracle pool route (simulating CDT -> collateral)
+//     oracle_pool.pools_for_osmo_twap.into_iter().rev().enumerate().for_each(|(i, pool)| {
+//         routes.push(SwapAmountInRoute {
+//             pool_id: pool.pool_id,
+//             token_out_denom: pool.base_asset_denom.clone(),
+//         });
+//     });
 
-    Ok(routes)
-}
+//     Ok(routes)
+// }
 
 fn create_swap_to_collateral_msg(
+    config: Config,
     env: Env,
-    debt_denom: String,
+    collateral_denom: String,
     debt_amount: Uint128,
-    collateral_price: PriceResponse,
-    debt_price: PriceResponse,
-    routes: Vec<SwapAmountInRoute>,
     max_slippage: Decimal,
 ) -> Result<CosmosMsg, ContractError> {
-    //Get token_in & token_out prices
-    let token_out_price = collateral_price.clone();
-    let token_in_price = debt_price.clone();
+    // //Get token_in & token_out prices
+    // let token_out_price = collateral_price.clone();
+    // let token_in_price = debt_price.clone();
 
-    //Calculate min amount out
-    let token_in_value = token_in_price.get_value(debt_amount)?;
-    let token_out_min_value = decimal_multiplication(token_in_value, Decimal::one() - max_slippage)?;
-    let token_out_min_amount = token_out_price.get_amount(token_out_min_value)?;
+    // //Calculate min amount out
+    // let token_in_value = token_in_price.get_value(debt_amount)?;
+    // let token_out_min_value = decimal_multiplication(token_in_value, Decimal::one() - max_slippage)?;
+    // let token_out_min_amount = token_out_price.get_amount(token_out_min_value)?;
 
-    //Create Msg
-    let msg: CosmosMsg = MsgSwapExactAmountIn {
-        sender: env.contract.address.to_string(),
-        routes,
-        token_in: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
-            amount: debt_amount.to_string(),
-            denom: debt_denom
-        }),
-        token_out_min_amount: token_out_min_amount.to_string(),
+    // //Create Msg
+    // let msg: CosmosMsg = MsgSwapExactAmountIn {
+    //     sender: env.contract.address.to_string(),
+    //     routes,
+    //     token_in: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+    //         amount: debt_amount.to_string(),
+    //         denom: debt_denom
+    //     }),
+    //     token_out_min_amount: token_out_min_amount.to_string(),
         
-    }.into();
+    // }.into();
+
+    //Create swap msg from swap contract
+    let debt_token = config.debt_token.clone().unwrap().to_string();
+    let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.swap_contract.unwrap().to_string(),
+        msg: to_json_binary(&Swap_ExecuteMsg::Swap {
+            caller: env.contract.address.to_string(),
+            token_in: debt_token.clone(),
+            token_out: collateral_denom.clone(),
+            max_slippage: max_slippage,
+        })?,
+        funds: vec![
+            Coin {
+                denom: debt_token,
+                amount: debt_amount,
+            }
+        ],
+    });
 
     Ok(msg)
 }
@@ -1664,7 +1770,13 @@ pub fn collateral_rate_assurance(
         return Err(ContractError::CustomError { val: format!("Deposit or withdraw rate assurance failed for deposit token state checks. pre: {:?} --- post: {:?}", collateral_rate_assurance.pre_collateral_per_one, btokens_per_one) });
     }
 
-    Ok(Response::new())
+    Ok(Response::new()
+        .add_attributes(vec![
+            attr("method", "collateral_rate_assurance"),
+            attr("collateral_denom", collateral_rate_assurance.collateral_denom),
+            attr("pre_collateral_per_one", collateral_rate_assurance.pre_collateral_per_one),
+            attr("post_collateral_per_one", btokens_per_one),
+        ]))
 }
 
 //Liquidate
@@ -1727,8 +1839,16 @@ pub fn liquidate(
     };
 
     //Check if the position is insolvent
-    let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone(), true)?;
-    let debt_price = get_cdt_price(deps.querier, env.clone(), true)?;
+    //Get prices
+    let prices = get_asset_prices(
+        deps.querier,
+        config.clone(), 
+        env.contract.address.to_string(),
+        true,
+         vec![market.collateral_params.collateral_asset.clone(), config.debt_token.clone().unwrap()]
+        )?;
+    let collateral_price = prices[0].clone();
+    let debt_price = prices[1].clone();
     let collateral_value = collateral_price.get_value(user_position.collateral_amount)?;
     if collateral_value.is_zero() {
         return Err(ContractError::CustomError { val: "Collateral value is zero; cannot calculate LTV".to_string() });
@@ -1796,21 +1916,17 @@ pub fn liquidate(
     )?;
 
     //Create swap msg for liquidations
-    let swap_msgs = create_swap_to_cdt_msg(
-        market.clone(),
-        env.clone(), 
-        deps.querier.clone(),
-        market.clone().collateral_params.collateral_asset, 
+    let swap_msgs = create_swap_to_debt_token_msg(
+        config.clone(),
+        env.clone(),
+        collateral_denom.clone(), 
         collateral_amount_to_liquidate, 
-        collateral_price, 
-        debt_price, 
-        get_swap_in_routes_to_cdt(market.clone())?, 
         max_slippage,
         true
     )?;
 
     //Save pre liquidation CDT balance 
-    let cdt_balance = deps.querier.query_balance(env.clone().contract.address, CDT_DENOM.to_string())?.amount;
+    let cdt_balance = deps.querier.query_balance(env.clone().contract.address, config.debt_token.clone().unwrap())?.amount;
     LIQUIDATION.save(deps.storage, & LiquidationPropagation {
         collateral_denom: collateral_denom.clone(),
         position_owner: position_owner.clone(),
@@ -1897,7 +2013,7 @@ pub(crate) fn distribute_bad_debt(
 /// Check and recapitilize Bad Debt w/ revenue or MBRN auctions
 pub fn check_and_fulfill_bad_debt(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
 ) -> Result<Response, ContractError> {
     let mut config: Config = CONFIG.load(deps.storage)?;
     //Load Liquidation Prop
@@ -1910,7 +2026,16 @@ pub fn check_and_fulfill_bad_debt(
     //Load user position
     let mut liquidated_position = POSITIONS.load(deps.storage, (liq_prop.position_owner.clone(), liq_prop.collateral_denom.clone()))?;
     //Get collateral price
-    let collateral_price = get_collateral_price(deps.storage, deps.querier, _env.clone(), market.clone(), true)?;
+    
+    //Get prices
+    let prices = get_asset_prices(
+        deps.querier,
+        config.clone(), 
+        env.contract.address.to_string(),
+        true, 
+        vec![market.collateral_params.collateral_asset.clone()]
+    )?;
+    let collateral_price = prices[0].clone();
     //Get position's collateral asset value
     let collateral_value = collateral_price.get_value(liquidated_position.collateral_amount)?;
     //We check if the value left is > $1.
@@ -2054,9 +2179,16 @@ pub fn close_position(
     //Initialize msgs
     let mut msgs: Vec<CosmosMsg> = vec![];
 
-    //Get asset prices
-    let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone(), false)?;
-    let debt_price = get_cdt_price(deps.querier, env.clone(), false)?;
+    //Get prices
+    let prices = get_asset_prices(
+        deps.querier, 
+        config.clone(), 
+        env.contract.address.to_string(),
+        false, 
+        vec![market.collateral_params.collateral_asset.clone(), config.debt_token.clone().unwrap()]
+    )?;
+    let collateral_price = prices[0].clone();
+    let debt_price = prices[1].clone();
 
     //Set close_percentage
     let mut close_percentage = match close_percentage {
@@ -2252,15 +2384,11 @@ pub fn close_position(
     )?;
 
     //Create swap subMsg to sell, create repay & withdraw msgs in reply on success
-    let swap_msgs = create_swap_to_cdt_msg(
-        market.clone(),
-        env.clone(), 
-        deps.querier.clone(),
-        market.clone().collateral_params.collateral_asset, 
+    let swap_msgs = create_swap_to_debt_token_msg(
+        config.clone(),
+        env.clone(),
+        collateral_denom.clone(), 
         collateral_amount_to_sell, 
-        collateral_price, 
-        debt_price, 
-        get_swap_in_routes_to_cdt(market.clone())?, 
         max_spread,
         false
     )?; 
@@ -2273,7 +2401,7 @@ pub fn close_position(
         pre_close_debt_balance: get_contract_balances(
             deps.querier, 
             env.clone(), 
-        vec![AssetInfo::NativeToken { denom: CDT_DENOM.to_string() }])?[0],
+            vec![AssetInfo::NativeToken { denom: config.debt_token.clone().unwrap() }])?[0],
         collateral_swapped: collateral_amount_to_sell,
     })?;
 
@@ -2301,7 +2429,7 @@ pub fn loop_position(
     max_slippage: Option<Decimal>,
 ) -> Result<Response, ContractError>{
     //Load global state
-    let _config: Config = CONFIG.load(deps.storage)?;
+    let config: Config = CONFIG.load(deps.storage)?;
     let market = match MARKET_PARAMS.load(deps.storage, collateral_denom.clone()){
         Ok(market) => market,
         Err(_) => return Err(ContractError::CustomError { val: format!("Collateral asset ({:?}) not supported", collateral_denom) }),
@@ -2310,10 +2438,16 @@ pub fn loop_position(
     //Initialize msgs
     let mut msgs: Vec<CosmosMsg> = vec![];
 
-    //Get asset prices
-    let collateral_price = get_collateral_price(deps.storage, deps.querier, env.clone(), market.clone(), true)?;
-    let debt_price = get_cdt_price(deps.querier, env.clone(), true)?;
-
+    //Get prices
+    let prices = get_asset_prices(
+        deps.querier, 
+        config.clone(), 
+        env.contract.address.to_string(),
+        false, 
+        vec![market.collateral_params.collateral_asset.clone(), config.debt_token.clone().unwrap()]
+    )?;
+    let collateral_price = prices[0].clone();
+    let debt_price = prices[1].clone();
 
     //Set position owner
     let position_owner = match position_owner {
@@ -2391,6 +2525,17 @@ pub fn loop_position(
         };
         msgs.push(mint_msg.into());
 
+        //Simulate borrow amount
+        let (borrowable_amount, _) = calc_borrowable_amount(
+            deps.querier.clone(),
+            env.clone(),
+            BorrowOptions { amount: Some(debt_amount_to_mint), ltv: None },
+            market.clone(),
+            collateral_price.clone(),
+            debt_price.clone(),
+            target_position.clone(),
+            config.debt_token.clone().unwrap()
+        )?;
         //Set max slippage
         let max_slippage = match max_slippage {
             Some(max_slippage) => { 
@@ -2406,12 +2551,10 @@ pub fn loop_position(
 
         //Create swap to collateral SubMsg
         let swap_msg = create_swap_to_collateral_msg(
-            env.clone(), 
-            CDT_DENOM.to_string(), 
-            debt_amount_to_mint, 
-            collateral_price, 
-            debt_price, 
-            get_swap_in_routes_to_collateral(market.clone())?, 
+            config.clone(), 
+            env.clone(),
+            collateral_denom.clone(), 
+            borrowable_amount, 
             max_slippage,
         )?;
 

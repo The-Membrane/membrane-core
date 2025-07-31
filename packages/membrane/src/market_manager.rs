@@ -3,14 +3,14 @@ use std::option;
 
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Addr, Decimal, Uint128};
-use crate::{managed_market::{BorrowCap, CollateralParams, MarketParams, RateParams, Config as MarketConfig}, oracle::PriceResponse, types::{AssetOracleInfo, BorrowOptions, ClaimTracker, RangeBounds, RangePositions, RangeTokens, UserInfo, UserIntentState, UserPosition}};
+use crate::{managed_market::{BorrowCap, CollateralParams, Config as MarketConfig, MarketParams, RateParams}, oracle::PriceResponse, types::{AssetOracleInfo, BorrowOptions, ClaimTracker, OsmosisOracleInfo, RangeBounds, RangePositions, RangeTokens, UserInfo, UserIntentState, UserPosition}};
 
 #[cw_serde]
 pub struct PendingMarket {
     pub name: String,
-    pub socials: Vec<String>,
     pub manager: String,
     pub permissionless_add_debt_amount: Option<Uint128>,
+    pub params: MarketInstantiation
 }
 
 #[cw_serde]
@@ -35,7 +35,12 @@ pub struct MarketInstantiation {
     pub max_slippage: Decimal,
     pub collateral_params: CollateralParams,
     pub rate_params: RateParams,
-    pub pool_for_oracle_and_liquidations: AssetOracleInfo,
+    pub oracle_contract: String,
+    pub swap_contract: String,
+    pub token_factory_contract: String,
+    pub debt_token: String,
+    pub collateral_oracle_info: OsmosisOracleInfo,
+    pub debt_oracle_info: OsmosisOracleInfo,
     pub borrow_fee: Decimal,
     pub whitelisted_collateral_suppliers: Option<Vec<String>>,
     pub pause_option: bool,

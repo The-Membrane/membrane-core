@@ -9,14 +9,13 @@ use crate::{oracle::PriceResponse, types::{AssetOracleInfo, AutoCloseParams, Bor
 pub struct InstantiateMsg {
     /// If owner isn't set, we'll set it to Membrane governance in the Manager contract.
     pub owner: String,
-    pub osmosis_proxy_contract: String,
+    pub token_factory_contract: String,
     pub whitelisted_debt_suppliers: Option<Vec<String>>,
     // pub debt_supply_vault_token: String,
 
 //////////////Market params////////
     pub collateral_params: CollateralParams,
     pub rate_params: RateParams,
-    pub pool_for_oracle_and_liquidations: AssetOracleInfo,
     pub borrow_fee: Decimal,
     /// Max slippage for liquidation swaps & TP/SL/AutoClose limits.
     /// If the swaps fail, liquidations fail.
@@ -35,6 +34,12 @@ pub struct InstantiateMsg {
     pub debt_minimum: Option<Uint128>,
     //Manager fee
     pub manager_fee: Option<Decimal>,
+    //External Oracle contract
+    pub oracle_contract: String,
+    //External Swap contract
+    pub swap_contract: String,
+    //Debt token
+    pub debt_token: String,
 }
 
 
@@ -178,7 +183,9 @@ pub enum ExecuteMsg {
     UpdateConfig {
         owner: Option<String>,
         markets_manager_contract: Option<String>,
-        osmosis_proxy_contract_addr: Option<String>,
+        oracle_contract: Option<String>,
+        swap_contract: Option<String>,
+        token_factory_contract: Option<String>,
         // oracle_contract_addr: Option<String>,
         pause_actions: Option<bool>,
         manager_fee: Option<Decimal>,
@@ -196,7 +203,6 @@ pub enum ExecuteMsg {
         whitelisted_collateral_suppliers: Option<Option<Vec<String>>>,
         borrow_cap: Option<BorrowCap>,
         max_slippage: Option<Decimal>,
-        pool_for_oracle_and_liquidations: Option<AssetOracleInfo>,
         per_user_debt_cap: Option<Option<Uint128>>,
         debt_minimum: Option<Uint128>,
     },
@@ -252,6 +258,15 @@ pub enum QueryMsg {
     ClaimTracker { is_junior: bool },
     #[returns(bool)]
     ActionsPaused {},
+    #[returns(Uint128)]
+    SimulateBorrowAmount {
+        /// User
+        user: String,
+        /// Market signifier
+        collateral_denom: String,
+        /// Borrow amount or ltv
+        borrow_amount: BorrowOptions,
+     },
     #[returns(PriceResponse)]
     GetCollateralPrice { asset: String },
     #[returns(PriceResponse)]
@@ -263,12 +278,12 @@ pub enum QueryMsg {
         /// Market signifier
         collateral_denom: String,
     },
-    #[returns(())]
-    TestDebtAllowance { 
-        /// Market signifier
-        collateral_denom: String,
-        potential_total_debt: Option<Uint128>
-     },
+    // #[returns(())]
+    // TestDebtAllowance { 
+    //     /// Market signifier
+    //     collateral_denom: String,
+    //     potential_total_debt: Option<Uint128>
+    //  },
      #[returns(Vec<UserPositionResponse>)]
     GetUserPositions { 
         /// Market signifier
@@ -340,11 +355,13 @@ pub struct DebtInfo {
     pub bad_debt: Uint128,
 }
 
+//Set optional fields to non-optional post upgrade.
 #[cw_serde]
 pub struct Config {
     pub owner: Addr,
     pub markets_manager_contract: Addr,
-    pub osmosis_proxy_contract: Addr,
+    //Can remove.
+    pub osmosis_proxy_contract: Option<Addr>,
     pub global_rate_index: RateIndex,
     /// This includes supplied CDT & CDT accrued from interest to make sure debt suppliers always withdraw their full share.
     /// This is for senior debt 
@@ -361,6 +378,14 @@ pub struct Config {
     pub manager_fee: Decimal,
     ///Total borrowed in all markets, needed for rate calculation
     pub total_borrowed: Option<Uint128>,
+    //Abstract debt token
+    pub debt_token: Option<String>,
+    //External Oracle contract
+    pub oracle_contract: Option<Addr>,
+    //External Swap contract
+    pub swap_contract: Option<Addr>,
+    //External Token Factory contract
+    pub token_factory_contract: Option<Addr>,
 }
 
 
@@ -371,7 +396,8 @@ pub struct MarketParams {
     pub market_rate_index: RateIndex,
     /// This is the total amount of debt that has been borrowed.
     pub total_borrowed: Uint128,
-    pub pool_for_oracle_and_liquidations: AssetOracleInfo,
+    //Unused
+    pub pool_for_oracle_and_liquidations: Option<AssetOracleInfo>,
     pub borrow_fee: Decimal,
     ///Set Whitelists to None to disable new capital
     pub whitelisted_collateral_suppliers: Option<Vec<String>>,

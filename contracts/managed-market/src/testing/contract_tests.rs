@@ -69,6 +69,9 @@ mod tests {
             per_user_debt_cap: Some(Uint128::new(500_000)),
             debt_minimum: Some(Uint128::new(100)),
             manager_fee: Some(Decimal::percent(5)),
+            debt_token: CDT_DENOM.to_string(),
+            oracle_contract: "oracle".to_string(),
+            swap_contract: "swap".to_string(),
         }
     }
 
@@ -1825,6 +1828,9 @@ fn test_yield_distribution_target_and_remainder() {
         whitelisted_debt_suppliers: None,
         manager_fee: Decimal::zero(),
         total_borrowed: Some(Uint128::zero()),
+        debt_token: Some(CDT_DENOM.to_string()),
+        oracle_contract: Some(Addr::unchecked("oracle")),
+        swap_contract: Some(Addr::unchecked("swap")),
     };
 
     // expected yearly senior yield
@@ -1902,6 +1908,9 @@ fn test_bad_debt_distribution_waterfall() {
             whitelisted_debt_suppliers: None,
             manager_fee: Decimal::zero(),
             total_borrowed: Some(Uint128::zero()),
+            debt_token: Some(CDT_DENOM.to_string()),
+            oracle_contract: Some(Addr::unchecked("oracle")),
+            swap_contract: Some(Addr::unchecked("swap")),
         }
     };
 
@@ -1945,6 +1954,9 @@ fn test_distribute_yield_edge_cases() {
         whitelisted_debt_suppliers: None,
         manager_fee: Decimal::percent(5),
         total_borrowed: Some(Uint128::new(800_000)),
+        debt_token: Some(CDT_DENOM.to_string()),
+        oracle_contract: Some(Addr::unchecked("oracle")),
+        swap_contract: Some(Addr::unchecked("swap")),
     };
 
         let result = distribute_yield(&mut config, Uint128::zero(), SECONDS_PER_YEAR, Uint128::new(800_000), Uint128::new(1_000_000_000_000), Uint128::new(500_000_000_000));
@@ -1971,6 +1983,9 @@ fn test_distribute_yield_edge_cases() {
         whitelisted_debt_suppliers: None,
         manager_fee: Decimal::percent(5),
         total_borrowed: Some(Uint128::new(800_000)),
+        debt_token: Some(CDT_DENOM.to_string()),
+        oracle_contract: Some(Addr::unchecked("oracle")),
+        swap_contract: Some(Addr::unchecked("swap")),
     };
 
         let result = distribute_yield(&mut config, Uint128::new(100_000), SECONDS_PER_YEAR, Uint128::new(800_000), Uint128::new(1_000_000_000_000), Uint128::new(500_000_000_000));
@@ -1997,6 +2012,9 @@ fn test_distribute_yield_edge_cases() {
         whitelisted_debt_suppliers: None,
         manager_fee: Decimal::percent(5),
         total_borrowed: Some(Uint128::new(800_000)),
+        debt_token: Some(CDT_DENOM.to_string()),
+        oracle_contract: Some(Addr::unchecked("oracle")),
+        swap_contract: Some(Addr::unchecked("swap")),
     };
 
         let result = distribute_yield(&mut config, Uint128::new(100_000), SECONDS_PER_YEAR, Uint128::zero(), Uint128::new(1_000_000_000_000), Uint128::new(500_000_000_000));
@@ -2023,6 +2041,9 @@ fn test_distribute_yield_edge_cases() {
         whitelisted_debt_suppliers: None,
         manager_fee: Decimal::percent(5),
         total_borrowed: Some(Uint128::new(800_000)),
+        debt_token: Some(CDT_DENOM.to_string()),
+        oracle_contract: Some(Addr::unchecked("oracle")),
+        swap_contract: Some(Addr::unchecked("swap")),
     };
 
         let result = distribute_yield(&mut config, Uint128::new(100_000), SECONDS_PER_YEAR, Uint128::new(800_000), Uint128::new(1_000_000_000_000), Uint128::new(500_000_000_000));
@@ -2046,6 +2067,9 @@ fn test_distribute_yield_edge_cases() {
         whitelisted_debt_suppliers: None,
         manager_fee: Decimal::percent(5),
         total_borrowed: Some(Uint128::new(800_000)),
+        debt_token: Some(CDT_DENOM.to_string()),
+        oracle_contract: Some(Addr::unchecked("oracle")),
+        swap_contract: Some(Addr::unchecked("swap")),
     };
 
         let result = distribute_yield(&mut config, Uint128::new(100_000), SECONDS_PER_YEAR, Uint128::new(800_000), Uint128::new(1_000_000_000_000), Uint128::new(500_000_000_000));
@@ -2575,6 +2599,9 @@ fn test_tranche_yield_target_edge_cases() {
         whitelisted_debt_suppliers: None,
         manager_fee: Decimal::percent(5),
         total_borrowed: Some(Uint128::new(800_000)),
+        debt_token: Some(CDT_DENOM.to_string()),
+        oracle_contract: Some(Addr::unchecked("oracle")),
+        swap_contract: Some(Addr::unchecked("swap")),
     };
 
         let result = distribute_yield(&mut config, Uint128::new(100_000), SECONDS_PER_YEAR, Uint128::new(800_000), Uint128::new(1_000_000_000_000), Uint128::new(500_000_000_000));
@@ -2654,6 +2681,9 @@ fn test_tranche_market_share_calculation() {
         whitelisted_debt_suppliers: None,
         manager_fee: Decimal::percent(5),
         total_borrowed: Some(Uint128::new(1_600_000)),
+        debt_token: Some(CDT_DENOM.to_string()),
+        oracle_contract: Some(Addr::unchecked("oracle")),
+        swap_contract: Some(Addr::unchecked("swap")),
     };
 
     // Test market with 50% share (800k out of 1.6M total borrowed)
@@ -2695,6 +2725,9 @@ fn test_tranche_bad_debt_overflow_protection() {
         whitelisted_debt_suppliers: None,
         manager_fee: Decimal::percent(5),
         total_borrowed: Some(Uint128::new(800_000)),
+        debt_token: Some(CDT_DENOM.to_string()),
+        oracle_contract: Some(Addr::unchecked("oracle")),
+        swap_contract: Some(Addr::unchecked("swap")),
     };
 
     // This should fail due to overflow

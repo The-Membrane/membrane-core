@@ -337,9 +337,7 @@ pub fn get_cAsset_ratios(
                 //Index can't hit 0
                 volatility_store.index = decimal_multiplication(volatility_store.index, change_in_index)?;
                 //Index can't go above 1
-                volatility_store.index = Decimal::one().min(volatility_store.index);
-                
-                // println!("Avg: {:?} --- New: {:?}-- Index: {}", avg_volatility, speed_of_volatility, volatility_store.index);
+                // volatility_store.index = Decimal::one().min(volatility_store.index);
                 //Save the new volatility store
                 VOLATILITY.save(storage, cAsset.asset.info.to_string(), &volatility_store)?;
                 

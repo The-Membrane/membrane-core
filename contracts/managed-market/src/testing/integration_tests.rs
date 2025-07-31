@@ -13,6 +13,7 @@ mod tests {
     use membrane::cdp::{ExecuteMsg, InstantiateMsg, QueryMsg, EditBasket, UpdateConfig, CreateBasket};
     use membrane::stability_pool::LiquidatibleResponse as SP_LiquidatibleResponse;
     use membrane::staking::Config as Staking_Config;
+    use membrane::market_manager::{ManagerEdit, MarketInstantiation};
     use membrane::types::{
         cAsset, Asset, AssetInfo, AssetOracleInfo, Deposit, LiquidityInfo, TWAPPoolInfo,
         UserInfo, MultiAssetSupplyCap, AssetPool, StakeDistribution, PoolType, DebtCap, Owner, PoolStateResponse
@@ -1212,22 +1213,94 @@ mod tests {
 
     pub fn discounts_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new(
-            |deps, _, info, msg: Discounts_MockExecuteMsg| -> StdResult<Response> {
-                Ok(Response::default())
+            |_deps, _env, _info, _msg: Discounts_MockExecuteMsg| -> StdResult<Response> {
+                Ok(Response::new())
             },
-            |_, _, _, _: Discounts_MockInstantiateMsg| -> StdResult<Response> {
-                Ok(Response::default())
+            |_deps, _env, _info, _msg: Discounts_MockInstantiateMsg| -> StdResult<Response> {
+                Ok(Response::new())
             },
-            |_, _, msg: Discounts_MockQueryMsg| -> StdResult<Binary> {
+            |_deps, _env, msg: Discounts_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
                     Discounts_MockQueryMsg::UserDiscount { user } => {
-
-                        if user == String::from("discounty"){
-                            Ok(to_binary(&Decimal::percent(90))?)
+                        let discount = if user == "user_with_discount" {
+                            Decimal::percent(10)
                         } else {
-                            Ok(to_binary(&Decimal::zero())?)
-                        }
-                        
+                            Decimal::zero()
+                        };
+                        to_binary(&discount)
+                    }
+                }
+            },
+        );
+        Box::new(contract)
+    }
+
+    // Mock Markets Manager Contract
+    #[cw_serde]
+    pub enum MarketsManager_MockExecuteMsg {
+        UpdateConfig {
+            owner: Option<String>,
+            managed_market_code_id: Option<u64>,
+            edit_managers: Option<ManagerEdit>,
+            managed_market_fee: Option<Decimal>,
+            minimum_cdt_for_permissionless_instantiation: Option<Uint128>,
+            osmosis_proxy_contract: Option<String>,
+        },
+        UpdateMarketItem {
+            market_address: String,
+            manager: Option<String>,
+            socials: Option<Vec<String>>,
+            name: Option<String>,
+            remove: Option<bool>,
+        },
+        InstantiateMarket {
+            params: MarketInstantiation,
+        },
+        MigrateMarkets {
+            market_addresses: Vec<String>,
+        },
+    }
+
+    #[cw_serde]
+    pub struct MarketsManager_MockInstantiateMsg {}
+
+    #[cw_serde]
+    pub enum MarketsManager_MockQueryMsg {
+        Config {},
+        MarketsManaged { manager: String },
+        Managers { start_after: Option<String>, limit: Option<u32> },
+        MarketParams { manager: String, start_after: Option<String>, limit: Option<u32> },
+    }
+
+    pub fn markets_manager_contract() -> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new(
+            |_deps, _env, _info, _msg: MarketsManager_MockExecuteMsg| -> StdResult<Response> {
+                Ok(Response::new())
+            },
+            |_deps, _env, _info, _msg: MarketsManager_MockInstantiateMsg| -> StdResult<Response> {
+                Ok(Response::new())
+            },
+            |_deps, _env, msg: MarketsManager_MockQueryMsg| -> StdResult<Binary> {
+                match msg {
+                    MarketsManager_MockQueryMsg::Config {} => {
+                        let config = membrane::market_manager::Config {
+                            owner: Addr::unchecked("owner"),
+                            managed_market_code_id: 1,
+                            manager_whitelist: vec![Addr::unchecked("manager")],
+                            osmosis_proxy_contract: Addr::unchecked("osmosis_proxy"),
+                            managed_market_fee: Decimal::percent(5),
+                            minimum_cdt_for_permissionless_instantiation: None,
+                        };
+                        to_binary(&config)
+                    }
+                    MarketsManager_MockQueryMsg::MarketsManaged { manager: _ } => {
+                        to_binary(&vec!["market1".to_string(), "market2".to_string()])
+                    }
+                    MarketsManager_MockQueryMsg::Managers { start_after: _, limit: _ } => {
+                        to_binary(&vec!["manager1".to_string(), "manager2".to_string()])
+                    }
+                    MarketsManager_MockQueryMsg::MarketParams { manager: _, start_after: _, limit: _ } => {
+                        to_binary(&vec![])
                     }
                 }
             },
@@ -1783,6 +1856,20 @@ mod tests {
             )
             .unwrap();
 
+        //Instaniate Markets Manager Contract
+        let mm_id: u64 = app.store_code(markets_manager_contract());
+
+        let markets_manager_contract_addr = app
+            .instantiate_contract(
+                mm_id,
+                Addr::unchecked(ADMIN),
+                &MarketsManager_MockInstantiateMsg {},
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
+
         //Instantiate CDP contract
         let cdp_id = app.store_code(cdp_contract());
         
@@ -1824,6 +1911,7 @@ mod tests {
             debt_auction: Some(auction_contract_addr.to_string()),
             liquidity_contract: Some(liquidity_contract_addr.to_string()),
             discounts_contract: Some(discounts_contract_addr.to_string()),
+            markets_manager_contract: Some(markets_manager_contract_addr.to_string()),
             oracle_time_limit: 60u64,
             debt_minimum: Uint128::new(2000u128),
             collateral_twap_timeframe: 60u64,
@@ -2019,8 +2107,7 @@ mod tests {
                 revenue_destinations: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-            
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();            
             //Partial withdrawal for Position #1
             let withdrawal_msg = ExecuteMsg::Withdraw {
                 position_id: Uint128::from(1u128),
@@ -4170,7 +4257,7 @@ mod tests {
                     msg,
                     vec![Coin {
                         denom: "lp_denom".to_string(),
-                        amount: Uint128::from(100_000_000_000_000_000_000_000u128),
+                        amount: Uint128::from(100_000_000_000_000_000_000u128),
                     }],
                 )
                 .unwrap();
@@ -4400,34 +4487,6 @@ mod tests {
             app.execute(Addr::unchecked("test"), cosmos_msg)
                 .unwrap_err();
 
-            //Call liquidate on CDP contract
-            // let msg = ExecuteMsg::Liquidate {
-            //     position_id: Uint128::new(1u128),
-            //     position_owner: "test".to_string(),
-            // };
-            // let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            // app.set_block(BlockInfo {
-            //     height: app.block_info().height,
-            //     time: app.block_info().time.plus_seconds(31536000u64), //Added a year
-            //     chain_id: app.block_info().chain_id,
-            // });
-            // app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
-
-            // // Would normally liquidate and leave 97770 "debit"
-            // // but w/ accrued interest its leaving 97442
-            // let query_msg = QueryMsg::GetUserPositions {
-            //     user: String::from("test"),
-            //     limit: None,
-            // };
-            // let res: Vec<PositionResponse> = app
-            //     .wrap()
-            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-            //     .unwrap();
-            // assert_eq!(
-            //     res[0].collateral_assets[0].asset.amount,
-            //     Uint128::new(97442)
-            // );           
-
             //////////////NEGATIVE RATES///////
             ///
             /// ///////
@@ -4476,11 +4535,6 @@ mod tests {
                     }],
                 )
                 .unwrap();
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(31536000u64), //Added a year
-                chain_id: app.block_info().chain_id,
-            });
             app.execute(Addr::unchecked("test"), cosmos_msg).unwrap();
 
             //Successful Increase
@@ -4926,17 +4980,6 @@ mod tests {
             assert_eq!(res.premium_infos[0].users_of_premium.len(), 1);
             assert_eq!(res.premium_infos[0].users_of_premium[0].position_infos.len(), 1);
             
-            //Query Basket Debt Caps
-            // let query_msg = QueryMsg::GetBasketDebtCaps { };
-            // let res: Vec<DebtCap> = app
-            //     .wrap()
-            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-            //     .unwrap();
-            // assert_eq!(
-            //     format!("{:?}", res),
-            //     String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(2000000000), cap: Uint128(249995000001) }]")
-            // );
-            
             //Accrue position bc queries no longer accrue new rates
             let msg = ExecuteMsg::Accrue { 
                 position_ids: vec![Uint128::new(1u128)],
@@ -4971,17 +5014,6 @@ mod tests {
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
 
-            //Query Basket Debt Caps
-            // let query_msg = QueryMsg::GetBasketDebtCaps { };
-            // let res: Vec<DebtCap> = app
-            //     .wrap()
-            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-            //     .unwrap();
-            // assert_eq!(
-            //     format!("{:?}", res),
-            //     String::from("[DebtCap { collateral: NativeToken { denom: \"debit\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"base\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"quote\" }, debt_total: Uint128(0), cap: Uint128(0) }, DebtCap { collateral: NativeToken { denom: \"lp_denom\" }, debt_total: Uint128(198000000000), cap: Uint128(249995000001) }]")
-            // );
-            
             //Accrue position since query will use old rates if not
             let msg = ExecuteMsg::Accrue { 
                 position_ids: vec![Uint128::new(1u128)],
@@ -6407,50 +6439,6 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             //Send CDP the LP pool assets to mimic a withdrawal
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
-
-            // let query_msg = QueryMsg::GetBasketPositions {
-            //     start_after: None, 
-            //     limit: None,
-            //     user: None,
-            //     user_info: Some(
-            //         UserInfo {
-            //             position_id: Uint128::new(1),
-            //             position_owner: "bigger_bank".to_string(),
-            //         }
-            //     ),
-            // };
-            // let res: Vec<BasketPositionsResponse> = app
-            //     .wrap()
-            //     .query_wasm_smart(cdp_contract.addr(), &query_msg.clone())
-            //     .unwrap();
-            // assert_eq!(res[0].positions[0].collateral_assets[0].asset.amount, Uint128::new(98291_777778055555555986));
-
-
-            // //Assert 1% fee was sent.
-            // //This is 13 instead of 27 bc the share token is the only collateral worth $2 instead of 1.
-            // assert_eq!(
-            //     app.wrap()
-            //         .query_all_balances(staking_contract.clone())
-            //         .unwrap(),
-            //     vec![coin(13_888888888888888875, "lp_denom")]
-            // );
-            // //Assert 30% fee
-            // //Same here, 416 instead of 833 if it were valued at a $1.
-            // assert_eq!(
-            //     app.wrap().query_all_balances(USER).unwrap(),
-            //     vec![coin(100000000000, "2nddebit"), coin(100000000000, "debit"), coin(416_666666666666666250, "lp_denom")]
-            // );
-
-            // //Assert collateral to be liquidated was sent
-            // assert_eq!(
-            //     app.wrap().query_all_balances(lq_contract.addr()).unwrap(),
-            //     vec![coin(1277_666666388888888889, "lp_denom")]
-            // );            
-            // //Assert SP wasn't sent any due to the Error
-            // assert_eq!(
-            //     app.wrap().query_all_balances(sp_addr.clone()).unwrap(),
-            //     vec![coin(2777_777777, "credit_fulldenom")]
-            // );
 
             //////LQ Errors///
             /// The query erroring will skip all LQ msgs and use the SP.
@@ -9282,7 +9270,7 @@ mod tests {
         fn misc_query() {
             let (mut app, cdp_contract, lq_contract) =
                 proper_instantiate(false, false, false, false);
-          
+
             //Edit Basket 1
             let msg = ExecuteMsg::EditBasket(EditBasket {
                 take_revenue: None,

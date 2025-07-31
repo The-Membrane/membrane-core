@@ -1,4 +1,3 @@
-
 mod tests {
 
     use std::str::FromStr;
@@ -14,7 +13,7 @@ mod tests {
     use membrane::stability_pool::LiquidatibleResponse as SP_LiquidatibleResponse;
     use membrane::staking::Config as Staking_Config;
     use membrane::types::{
-        cAsset, Asset, AssetInfo, AssetOracleInfo, AssetPool, DebtCap, Deposit, LiquidityInfo, MultiAssetSupplyCap, Owner, PoolStateResponse, PoolType, StakeDistribution, SupplyCap, TWAPPoolInfo, UserInfo
+        cAsset, Asset, AssetInfo, AssetOracleInfo, AssetPool, DebtCap, Deposit, LiquidityInfo, MultiAssetSupplyCap, Owner, PoolStateResponse, PoolType, StakeDistribution, SupplyCap, TWAPPoolInfo, UserInfo, VaultTokenInfo
     };
     use membrane::liquidity_check::LiquidityResponse;
 
@@ -792,6 +791,7 @@ mod tests {
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
+                                vault_info: None,
                             }],
                         },
                         AssetResponse {
@@ -809,6 +809,7 @@ mod tests {
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
+                                vault_info: None,
                             }],
                         }
                     ])?),
@@ -869,6 +870,7 @@ mod tests {
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
+                                vault_info: None,
                             }],
                         },
                         AssetResponse {
@@ -886,6 +888,7 @@ mod tests {
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
+                                vault_info: None,
                             }],
                         }
                     ])?),
@@ -947,6 +950,7 @@ mod tests {
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
+                                vault_info: None,
                             }],
                         },
                         AssetResponse {
@@ -964,6 +968,7 @@ mod tests {
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
+                                vault_info: None,
                             }],
                         }
                     ])?),
@@ -1025,6 +1030,7 @@ mod tests {
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
+                                vault_info: None,
                             }],
                         },
                         AssetResponse {
@@ -1042,6 +1048,7 @@ mod tests {
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
+                                vault_info: None,
                             }],
                         }
                     ])?),
@@ -1102,6 +1109,7 @@ mod tests {
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
+                                vault_info: None,
                             }],
                         },
                         AssetResponse {
@@ -1119,6 +1127,7 @@ mod tests {
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
+                                vault_info: None,
                             }],
                         }
                     ])?),
@@ -1180,6 +1189,7 @@ mod tests {
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
+                                vault_info: None,
                             }],
                         },
                         AssetResponse {
@@ -1197,6 +1207,7 @@ mod tests {
                                 lp_pool_info: None,
                                 decimals: 6,
                                 pyth_price_feed_id: None,
+                                vault_info: None,
                             }],
                         }
                     ])?),
@@ -1555,6 +1566,7 @@ mod tests {
                 max_LTV: Decimal::percent(70),
                 pool_info: None,
                 rate_index: Decimal::one(),
+                hike_rates: None,
             }],
             credit_asset: Asset {
                 info: AssetInfo::NativeToken {
@@ -1606,6 +1618,7 @@ mod tests {
                 max_LTV: Decimal::percent(60),
                 pool_info: None,
                 rate_index: Decimal::one(),
+                hike_rates: None,
             }),
             liq_queue: None,
             credit_pool_infos: None,
@@ -1617,6 +1630,7 @@ mod tests {
             frozen: None,
             rev_to_stakers: None,
             multi_asset_supply_caps: None,
+            revenue_destinations: None,
         });
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
         app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1659,6 +1673,7 @@ mod tests {
             multi_asset_supply_caps: None,
             credit_pool_infos: None,
             take_revenue: None,
+            revenue_destinations: None,
         });
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
         app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1703,8 +1718,9 @@ mod tests {
             let msg = ExecuteMsg::IncreaseDebt {
                 position_id: Uint128::from(1u128),
                 amount: Some(Uint128::from(2_000_000_000u128)),
-                LTV: None,
-                mint_to_addr: None,
+                    LTV: None,
+                    mint_to_addr: None,
+                    mint_intent: None,
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
@@ -1729,6 +1745,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1769,6 +1787,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1807,6 +1827,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1847,6 +1869,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1885,6 +1909,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1925,6 +1951,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1963,6 +1991,729 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+            //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
+            });
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            //Add 11 mins to store new price and new vol
+            app.set_block(BlockInfo {
+                height: app.block_info().height,
+                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+                chain_id: app.block_info().chain_id,
+            });
+
+            //Accrue position to set Volatility
+            let msg = ExecuteMsg::Accrue { 
+                position_ids: vec![Uint128::new(1u128)],
+                position_owner: Some("bigger_bank".to_string()),
+            };      
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+                .unwrap();
+
+    //Swap Oracle price to $5
+            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+                owner: None,
+                stability_pool: None,
+                dex_router: None,
+                osmosis_proxy: None,
+                debt_auction: None,
+                staking_contract: None,
+                oracle_contract: Some(five.0.to_string()),
+                liquidity_contract: None,
+                discounts_contract: None,
+                liq_fee: None,
+                debt_minimum: None,
+                base_debt_cap_multiplier: None,
+                oracle_time_limit: None,
+                collateral_twap_timeframe: None,
+                credit_twap_timeframe: None,
+                cpc_multiplier: None,
+                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2003,6 +2754,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2041,6 +2794,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2081,6 +2836,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2119,6 +2876,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2159,6 +2918,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2197,46 +2958,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2275,46 +2998,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2353,46 +3038,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2431,46 +3078,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2509,46 +3118,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2587,46 +3158,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2665,85 +3198,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2782,46 +3238,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2860,46 +3278,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2938,46 +3318,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3016,46 +3358,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3094,194 +3398,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(two.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };       
-            //Swap Oracle price to $1
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(one.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            //Swap Oracle price to $2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(two.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3320,46 +3438,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3398,46 +3478,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3476,46 +3518,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3554,46 +3558,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3632,46 +3598,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3710,6 +3638,8 @@ mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
+                rate_hike_rate: None,
+                redemption_fee: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3729,2263 +3659,1939 @@ mod tests {
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
                 .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            ////Jiggle btwn 5 & 5.2 to lower vol and increase index
-            /// 
-            //Swap Oracle price to $5.2
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(fivetwo.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-            //Query basket to check interest rates
-            let msg = QueryMsg::GetBasket {  };
-            let resp: Basket = app
-                .wrap()
-                .query_wasm_smart(cdp_contract.addr(), &msg.clone())
-                .unwrap();
-            panic!("{:?}", resp.lastest_collateral_rates);
-
-            //Edit Basket Supply Caps
-            let msg = ExecuteMsg::EditBasket(EditBasket {
-                take_revenue: None,
-                added_cAsset: None,
-                liq_queue: None,
-                credit_pool_infos: None,
-                collateral_supply_caps: Some(vec![SupplyCap {
-                    asset_info: AssetInfo::NativeToken {
-                        denom: "debit".to_string(),
-                    },
-                    current_supply: Uint128::zero(),
-                    debt_total: Uint128::zero(),
-                    supply_cap_ratio: Decimal::percent(100),
-                    lp: false,
-                    stability_pool_ratio_for_debt_cap: None,
-                },SupplyCap {
-                    asset_info: AssetInfo::NativeToken {
-                        denom: "base".to_string(),
-                    },
-                    current_supply: Uint128::zero(),
-                    debt_total: Uint128::zero(),
-                    supply_cap_ratio: Decimal::percent(100),
-                    lp: false,
-                    stability_pool_ratio_for_debt_cap: None,
-                }]),
-                base_interest_rate: None,
-                credit_asset_twap_price_source: None,
-                negative_rates: None,
-                cpc_margin_of_error: None,
-                frozen: None,
-                rev_to_stakers: None,
-                multi_asset_supply_caps: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-            //Edit Basket Multi asset Supply Caps
-            //make sure this resets the index
-            // let msg = ExecuteMsg::EditBasket(EditBasket {
-            //     take_revenue: None,
-            //     added_cAsset: None,
-            //     liq_queue: None,
-            //     credit_pool_infos: None,
-            //     collateral_supply_caps: None,
-            //     base_interest_rate: None,
-            //     credit_asset_twap_price_source: None,
-            //     negative_rates: None,
-            //     cpc_margin_of_error: None,
-            //     frozen: None,
-            //     rev_to_stakers: None,
-            //     multi_asset_supply_caps: Some(vec![MultiAssetSupplyCap {
-            //         assets: vec![AssetInfo::NativeToken {
-            //             denom: "debit".to_string(),
-            //         },
-            //         AssetInfo::NativeToken {
-            //             denom: "base".to_string(),
-            //         }],
-            //         supply_cap_ratio: Decimal::percent(100),
-            //     }]),
-            // });
-            // let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            // app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-            //Swap Oracle price to $5
-            let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
-                owner: None,
-                stability_pool: None,
-                dex_router: None,
-                osmosis_proxy: None,
-                debt_auction: None,
-                staking_contract: None,
-                oracle_contract: Some(five.0.to_string()),
-                liquidity_contract: None,
-                discounts_contract: None,
-                liq_fee: None,
-                debt_minimum: None,
-                base_debt_cap_multiplier: None,
-                oracle_time_limit: None,
-                collateral_twap_timeframe: None,
-                credit_twap_timeframe: None,
-                cpc_multiplier: None,
-                rate_slope_multiplier: None,
-            });
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
-
-            //Add 11 mins to store new price and new vol
-            app.set_block(BlockInfo {
-                height: app.block_info().height,
-                time: app.block_info().time.plus_seconds(60*11u64), //11 mins
-                chain_id: app.block_info().chain_id,
-            });
-
-            //Accrue position to set Volatility
-            let msg = ExecuteMsg::Accrue { 
-                position_ids: vec![Uint128::new(1u128)],
-                position_owner: Some("bigger_bank".to_string()),
-            };      
-            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
-            app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
-                .unwrap();
-
-            //Check that the index is reset to 1 on debt cap updates
-            // This panic is to show any printlns: panic!();
+ //Swap Oracle price to $5
+ let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+////Jiggle btwn 5 & 5.2 to lower vol and increase index
+/// 
+//Swap Oracle price to $5.2
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(fivetwo.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+////Jiggle btwn 5 & 5.2 to lower vol and increase index
+/// 
+//Swap Oracle price to $5.2
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(fivetwo.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+////Jiggle btwn 5 & 5.2 to lower vol and increase index
+/// 
+//Swap Oracle price to $5.2
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(fivetwo.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+////Jiggle btwn 5 & 5.2 to lower vol and increase index
+/// 
+//Swap Oracle price to $5.2
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(fivetwo.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+////Jiggle btwn 5 & 5.2 to lower vol and increase index
+/// 
+//Swap Oracle price to $5.2
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(fivetwo.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+////Jiggle btwn 5 & 5.2 to lower vol and increase index
+/// 
+//Swap Oracle price to $5.2
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(fivetwo.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+//Swap Oracle price to $5
+let msg = ExecuteMsg::UpdateConfig(UpdateConfig {
+    owner: None,
+    stability_pool: None,
+    dex_router: None,
+    osmosis_proxy: None,
+    debt_auction: None,
+    staking_contract: None,
+    oracle_contract: Some(five.0.to_string()),
+    liquidity_contract: None,
+    discounts_contract: None,
+    liq_fee: None,
+    debt_minimum: None,
+    base_debt_cap_multiplier: None,
+    oracle_time_limit: None,
+    collateral_twap_timeframe: None,
+    credit_twap_timeframe: None,
+    cpc_multiplier: None,
+    rate_slope_multiplier: None,
+    rate_hike_rate: None,
+    redemption_fee: None,
+});
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+//Add 11 mins to store new price and new vol
+app.set_block(BlockInfo {
+    height: app.block_info().height,
+    time: app.block_info().time.plus_seconds(60*11u64), //11 mins
+    chain_id: app.block_info().chain_id,
+});
+
+//Accrue position to set Volatility
+let msg = ExecuteMsg::Accrue { 
+    position_ids: vec![Uint128::new(1u128)],
+    position_owner: Some("bigger_bank".to_string()),
+};      
+let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+app.execute(Addr::unchecked("bigger_bank"), cosmos_msg)
+    .unwrap();
+
         }
     }
 }

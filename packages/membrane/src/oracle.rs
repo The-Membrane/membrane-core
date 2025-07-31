@@ -77,7 +77,7 @@ pub enum QueryMsg {
         asset_infos: Vec<AssetInfo>,
         /// Timeframe in minutes
         twap_timeframe: u64,
-        /// Pyth Oracle time limit in seconds
+        /// (Pyth) Oracle time limit in seconds
         oracle_time_limit: u64,
     },
     /// Return list of asset oracle info

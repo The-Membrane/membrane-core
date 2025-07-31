@@ -166,7 +166,7 @@ pub fn accrue(
     if config.total_debt_tokens.is_zero() && config.junior_debt_info.clone().unwrap().total_debt.is_zero() {
         return Ok(());
     }
-    //println!("get_total_debt_tokens(config.clone(), Some(true))?: {}", get_total_debt_tokens(config.clone(), Some(true))?);
+    //// println!("get_total_debt_tokens(config.clone(), Some(true))?: {}", get_total_debt_tokens(config.clone(), Some(true))?);
 
     //Calc Time-elapsed and update last_Accrued
     let mut time_elapsed = env.block.time.seconds() - config.global_rate_index.last_accrued;
@@ -254,15 +254,15 @@ pub fn accrue(
                 user_position.debt_amount = new_credit_amount;
             }
         }
-        //println!("market_params.total_borrowed: {}", market_params.total_borrowed);
-        //println!("market_rate: {}", market_rate);
+        //// println!("market_params.total_borrowed: {}", market_params.total_borrowed);
+        //// println!("market_rate: {}", market_rate);
         //Calculate market's total accrued interest
         let market_new_credit_amount = decimal_multiplication(
             Decimal::from_ratio(market_params.total_borrowed, Uint128::one()),
             market_rate
         )?.to_uint_floor();
-        //println!("market_new_credit_amount: {}", market_new_credit_amount);
-        //println!("market_params.total_borrowed: {}", market_params.total_borrowed);
+        //// println!("market_new_credit_amount: {}", market_new_credit_amount);
+        //// println!("market_params.total_borrowed: {}", market_params.total_borrowed);
         let total_accrued_interest = market_new_credit_amount;
 
         //Add accrued interest to market's total borrowed
@@ -270,12 +270,12 @@ pub fn accrue(
             market_params.total_borrowed += market_new_credit_amount;
         }
 
-        //println!("get_total_debt_tokens(config.clone(), Some(true))?: {}", get_total_debt_tokens(config.clone(), Some(true))?);
+        //// println!("get_total_debt_tokens(config.clone(), Some(true))?: {}", get_total_debt_tokens(config.clone(), Some(true))?);
         //Distribute yield between senior and junior tranches
         distribute_yield(config, total_accrued_interest, time_elapsed, market_params.total_borrowed, get_total_vault_tokens(storage, false)?, junior_vault_token_supply)?;
 
-        //println!("get_total_debt_tokens(config.clone(), Some(true))?: {}", get_total_debt_tokens(config.clone(), Some(true))?);
-        //println!("total_accrued_interest: {}", total_accrued_interest);
+        //// println!("get_total_debt_tokens(config.clone(), Some(true))?: {}", get_total_debt_tokens(config.clone(), Some(true))?);
+        //// println!("total_accrued_interest: {}", total_accrued_interest);
 
         //Calc manager revenue
         if !total_accrued_interest.is_zero() {
@@ -299,25 +299,25 @@ pub fn accrue(
 
 
 
-    //println!("manager_revenue: {}", manager_revenue);
-    //println!("membrane_revenue: {}", membrane_revenue);
+    //// println!("manager_revenue: {}", manager_revenue);
+    //// println!("membrane_revenue: {}", membrane_revenue);
 
     /////Managers get Junior, Membrane gets Senior/////
     //Calculate the amount of vault tokens to mint to the manager as the fee
     if manager_revenue > Uint128::zero() || membrane_revenue > Uint128::zero() {
         //////////Manager Revenue//////////
         /// 
-        //println!("junior_vault_token_supply: {}", junior_vault_token_supply);
-        println!("manager_revenue: {}", manager_revenue);
-        //println!("config {:?}", config);
-        //println!("get_total_debt_tokens(config.clone(), Some(true))?: {}", get_total_debt_tokens(config.clone(), Some(true))?);
+        //// println!("junior_vault_token_supply: {}", junior_vault_token_supply);
+        // println!("manager_revenue: {}", manager_revenue);
+        //// println!("config {:?}", config);
+        //// println!("get_total_debt_tokens(config.clone(), Some(true))?: {}", get_total_debt_tokens(config.clone(), Some(true))?);
         let vt_to_mint_to_manager = calculate_vault_tokens(
             manager_revenue, 
             get_total_debt_tokens(config.clone(), Some(true))?, 
             junior_vault_token_supply
         )?;
 
-        //println!("vt_to_mint_to_manager: {}", vt_to_mint_to_manager);
+        //// println!("vt_to_mint_to_manager: {}", vt_to_mint_to_manager);
         //Mint the vault tokens to the manager
         if !vt_to_mint_to_manager.is_zero() {
             let mint_vault_tokens_msg: CosmosMsg = TokenFactory::MsgMint {
@@ -375,8 +375,8 @@ pub fn accrue(
         //////////Save vault token supply//////////
         DEBT_VAULT_TOKEN.save(storage, &new_vault_token_supply)?;
 
-        //println!("senior_vault_token_supply: {}", senior_vault_token_supply);
-        //println!("vt_to_mint_to_membrane: {}", vt_to_mint_to_membrane);
+        //// println!("senior_vault_token_supply: {}", senior_vault_token_supply);
+        //// println!("vt_to_mint_to_membrane: {}", vt_to_mint_to_membrane);
         //Add rate assurance callback msg
         if !senior_vault_token_supply.is_zero() && !vt_to_mint_to_membrane.is_zero() {
             msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {

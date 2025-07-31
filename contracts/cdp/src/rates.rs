@@ -346,7 +346,7 @@ pub fn transform_caps_based_on_volatility(
                     };
                     // println!("New Supply Cap: {:?} --- Current Index: {:?}", new_supply_cap, vol_store.index);
                     Ok(SupplyCap {
-                        supply_cap_ratio: new_supply_cap,
+                        supply_cap_ratio: min(new_supply_cap, Decimal::one()),
                         ..cap                
                     })
                 } else {

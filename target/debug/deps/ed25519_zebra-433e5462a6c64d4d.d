@@ -1,0 +1,11 @@
+/Users/EBmic/membrane-core/target/debug/deps/libed25519_zebra-433e5462a6c64d4d.rmeta: /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/lib.rs /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/batch.rs /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/error.rs /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/signature.rs /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/signing_key.rs /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/verification_key.rs /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/../README.md
+
+/Users/EBmic/membrane-core/target/debug/deps/ed25519_zebra-433e5462a6c64d4d.d: /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/lib.rs /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/batch.rs /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/error.rs /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/signature.rs /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/signing_key.rs /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/verification_key.rs /Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/../README.md
+
+/Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/lib.rs:
+/Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/batch.rs:
+/Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/error.rs:
+/Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/signature.rs:
+/Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/signing_key.rs:
+/Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/verification_key.rs:
+/Users/EBmic/.cargo/registry/src/index.crates.io-6f17d22bba15001f/ed25519-zebra-3.1.0/src/../README.md:

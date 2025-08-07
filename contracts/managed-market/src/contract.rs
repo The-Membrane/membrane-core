@@ -16,8 +16,9 @@ use membrane::managed_market::{BorrowCap, Config, DebtInfo, ExecuteMsg, Instanti
 use membrane::stability_pool_vault::calculate_base_tokens;
 use membrane::tokenfactory::ExecuteMsg as TokenFactory;
 use membrane::mm_oracle::ExecuteMsg as OracleExecuteMsg;
+use membrane::mm_swap::ExecuteMsg as SwapExecuteMsg;
 use membrane::types::{
-    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, BorrowOptions, ClaimTracker, OsmosisOracleInfo, TWAPPoolInfo, UXBoosts, UserHistory, UserInfo, UserPosition, VTClaimCheckpoint
+    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, BorrowOptions, ClaimTracker, OsmosisOracleInfo, OsmosisRouteInfo, TWAPPoolInfo, UXBoosts, UserHistory, UserInfo, UserPosition, VTClaimCheckpoint
 };
 
 use crate::error::ContractError;
@@ -842,7 +843,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     };
     //Load Config
     let mut config = CONFIG.load(deps.storage)?;
-    todo!();
+    // todo!();
     //Set oracle contract
     config.oracle_contract = Some(Addr::unchecked(""));
     //Set swap contract``
@@ -857,43 +858,81 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     let mut msgs: Vec<CosmosMsg<Empty>> = vec![];
     let oracle_info = market_params.clone().pool_for_oracle_and_liquidations.unwrap();
     //Add current collateral & debt tokens to oracle
-    let collateral_add: CosmosMsg<Empty> = CosmosMsg::Wasm(WasmMsg::Execute {
+    //Set debt pools
+    let debt_pools = vec![
+        TWAPPoolInfo {
+            pool_id: 1268,
+            base_asset_denom: CDT_DENOM.to_string(), 
+            quote_asset_denom: NOBLE_USDC_DENOM.to_string(), 
+        }
+    ];
+    //Add debt oracle info
+    let debt_oracle_info = OsmosisOracleInfo {
+        pyth_price_feed_id: None, 
+        pools_for_osmo_twap: debt_pools.clone(), 
+        lp_pool_info: None, 
+        vault_info: None, 
+        decimals: 6u64
+    };
+
+    //Add collateral asset to oracle
+    let oracle_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.oracle_contract.clone().unwrap().to_string(),
         msg: to_json_binary(&OracleExecuteMsg::AddAsset {
-            asset_info: AssetInfo::NativeToken { denom: market_params.clone().collateral_params.collateral_asset },
+            asset_info: market_params.clone().collateral_params.collateral_asset,
             oracle_info: OsmosisOracleInfo {
-                pyth_price_feed_id: oracle_info.pyth_price_feed_id, 
-                pools_for_osmo_twap: oracle_info.pools_for_osmo_twap, 
-                lp_pool_info: oracle_info.lp_pool_info, 
-                vault_info: oracle_info.vault_info, 
-                decimals: oracle_info.decimals
+                pyth_price_feed_id: oracle_info.clone().pyth_price_feed_id,
+                pools_for_osmo_twap: oracle_info.clone().pools_for_osmo_twap,
+                lp_pool_info: oracle_info.clone().lp_pool_info,
+                vault_info: oracle_info.clone().vault_info,
+                decimals: oracle_info.clone().decimals
+            },
+            caller: env.contract.address.to_string(),
+        })?,
+        funds: vec![],
+    });
+    msgs.push(oracle_msg);
+
+    //Add collateral asset to swap contract
+    let swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.swap_contract.clone().unwrap().to_string(),
+        msg: to_json_binary(&SwapExecuteMsg::AddRoute {
+            caller: env.contract.address.to_string(),
+            denom: market_params.clone().collateral_params.collateral_asset,
+            route_info: OsmosisRouteInfo {
+                pools_for_osmo_twap: oracle_info.pools_for_osmo_twap
             },
         })?,
         funds: vec![],
     });
-    msgs.push(collateral_add);
-    //Add debt token to oracle
-    let debt_add: CosmosMsg<Empty> = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.oracle_contract.unwrap().to_string(),
+    msgs.push(swap_msg);
+    ////// Do the same for the debt contracts
+    /// 
+    //Add debt asset to swap contract
+    let debt_swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.swap_contract.clone().unwrap().to_string(),
+        msg: to_json_binary(&SwapExecuteMsg::AddRoute {
+            caller: env.contract.address.to_string(),
+            denom: config.debt_token.clone().unwrap(),
+            route_info: OsmosisRouteInfo {
+                pools_for_osmo_twap: debt_pools.clone()
+            },
+        })?,
+        funds: vec![],
+    });
+    msgs.push(debt_swap_msg);
+    //Add debt asset to oracle
+    let debt_oracle_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.oracle_contract.clone().unwrap().to_string(),
         msg: to_json_binary(&OracleExecuteMsg::AddAsset {
-            asset_info: AssetInfo::NativeToken { denom: config.debt_token.clone().unwrap() },
-            oracle_info: OsmosisOracleInfo {
-                pyth_price_feed_id: None, 
-                pools_for_osmo_twap: vec![
-                    TWAPPoolInfo {
-                        pool_id: 1268,
-                        base_asset_denom: CDT_DENOM.to_string(), 
-                        quote_asset_denom: NOBLE_USDC_DENOM.to_string(), 
-                    }
-                ], 
-                lp_pool_info: None, 
-                vault_info: None, 
-                decimals: 6
-            },
+            asset_info: config.debt_token.clone().unwrap(),
+            oracle_info: debt_oracle_info,
+            caller: env.contract.address.to_string(),
         })?,
         funds: vec![],
     });
-    msgs.push(debt_add);
+    msgs.push(debt_oracle_msg);
+
 
     Ok(Response::new()
         .add_attribute("migrate", "abstracted")

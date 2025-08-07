@@ -10,7 +10,9 @@ use crate::{types::{AssetInfo, OsmosisOracleInfo, OsmosisRouteInfo, PriceInfo, T
 #[cw_serde]
 pub struct InstantiateMsg {
     /// Contract owner, defaults to info.sender
-    pub owner: Option<String>
+    pub owner: Option<String>,
+    /// Oracle contract address
+    pub oracle_address: Option<String>,
 }
 
 #[cw_serde]
@@ -30,6 +32,8 @@ pub enum ExecuteMsg {
     UpdateConfig {
         /// Contract owner
         owner: Option<String>,
+        /// Oracle address
+        oracle_address: Option<String>,
     },
     /// Add a new asset route
     AddRoute {
@@ -62,7 +66,7 @@ pub enum QueryMsg {
         /// Caller
         caller: String,
         /// List of asset denoms
-        asset_infos: Option<Vec<String>> 
+        asset_infos: Option<Vec<String>>, 
     },
 }
 
@@ -71,6 +75,8 @@ pub enum QueryMsg {
 pub struct Config {
     /// Contract owner
     pub owner: Addr,
+    /// Oracle contract address
+    pub oracle_address: Option<Addr>,
 }
 
 

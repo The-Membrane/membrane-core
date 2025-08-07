@@ -10,7 +10,8 @@ use membrane::market_manager::{Config, ExecuteMsg, InstantiateMsg, ManagerEdit, 
 use membrane::managed_market::{InstantiateMsg as ManagedMarketInstantiateMsg, Config as ManagedMarketConfig, MarketParams, QueryMsg as ManagedMarketQueryMsg, ExecuteMsg as ManagedMarketExecuteMsg};
 use membrane::mm_oracle::{ExecuteMsg as Oracle_ExecuteMsg, QueryMsg as Oracle_QueryMsg};
 use membrane::oracle::PriceResponse;
-
+use membrane::types::OsmosisRouteInfo;
+use membrane::mm_swap::{ExecuteMsg as Swap_ExecuteMsg};
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, MANAGED_MARKETS, OWNERSHIP_TRANSFER, PENDING_MARKET};
@@ -585,11 +586,34 @@ pub fn handle_instantiate_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResul
             msgs.push(SubMsg::new(oracle_msg));
 
             //Add collateral asset to swap contract
-
-
-            todo!();
+            let swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: pending_market.params.swap_contract.clone(),
+                msg: to_json_binary(&Swap_ExecuteMsg::AddRoute {
+                    caller: contract_address.clone(),
+                    denom: pending_market.params.clone().collateral_params.collateral_asset,
+                    route_info: OsmosisRouteInfo {
+                        pools_for_osmo_twap: pending_market.params.clone().collateral_oracle_info.pools_for_osmo_twap
+                    },
+                })?,
+                funds: vec![],
+            });
+            msgs.push(SubMsg::new(swap_msg));
+            // todo!();
             ////// Do the same for the debt contracts
             /// 
+            //Add debt asset to swap contract
+            let debt_swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: pending_market.params.swap_contract.clone(),
+                msg: to_json_binary(&Swap_ExecuteMsg::AddRoute {
+                    caller: contract_address.clone(),
+                    denom: pending_market.params.clone().debt_token,
+                    route_info: OsmosisRouteInfo {
+                        pools_for_osmo_twap: pending_market.params.clone().debt_oracle_info.pools_for_osmo_twap
+                    },
+                })?,
+                funds: vec![],
+            });
+            msgs.push(SubMsg::new(debt_swap_msg));
             //Add debt asset to oracle
             let debt_oracle_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: pending_market.params.oracle_contract.clone(),

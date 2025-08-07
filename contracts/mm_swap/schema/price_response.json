@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PriceResponse",
+  "type": "object",
+  "required": [
+    "decimals",
+    "price",
+    "prices"
+  ],
+  "properties": {
+    "decimals": {
+      "description": "Asset decimals",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0.0
+    },
+    "price": {
+      "description": "Median price",
+      "allOf": [
+        {
+          "$ref": "#/definitions/Decimal"
+        }
+      ]
+    },
+    "prices": {
+      "description": "List of PriceInfo from different sources",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/PriceInfo"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Decimal": {
+      "description": "A fixed-point decimal value with 18 fractional digits, i.e. Decimal(1_000_000_000_000_000_000) == 1.0\n\nThe greatest possible value that can be represented is 340282366920938463463.374607431768211455 (which is (2^128 - 1) / 10^18)",
+      "type": "string"
+    },
+    "PriceInfo": {
+      "type": "object",
+      "required": [
+        "price",
+        "source"
+      ],
+      "properties": {
+        "price": {
+          "description": "Price",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Decimal"
+            }
+          ]
+        },
+        "source": {
+          "description": "Source of price, Chain name, Oracle Address or static",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

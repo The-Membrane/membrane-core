@@ -1,0 +1,1 @@
+Box<ContractWrapper<TokenFactory_MockExecuteMsg, TokenFactory_MockInstantiateMsg, TokenFactory_MockQueryMsg, cosmwasm_std::StdError, cosmwasm_std::StdError, cosmwasm_std::StdError>>

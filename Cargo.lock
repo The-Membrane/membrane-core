@@ -913,6 +913,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "mm_swap"
+version = "0.1.0"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cosmwasm-storage",
+ "cw-multi-test 0.13.4",
+ "cw-storage-plus 0.13.4",
+ "cw2 0.13.4",
+ "membrane",
+ "osmosis-std 0.16.2",
+ "pyth-sdk-cw",
+ "schemars",
+ "serde",
+ "thiserror",
+ "wasm",
+]
+
+[[package]]
 name = "num"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

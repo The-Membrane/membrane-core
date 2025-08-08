@@ -260,7 +260,7 @@ fn instantiate_market(
             owner: manager.to_string(),
             oracle_contract: params.clone().oracle_contract.to_string(),
             swap_contract: params.clone().swap_contract.to_string(),
-            token_factory_contract: params.clone().token_factory_contract.to_string(),
+            token_factory_contract: params.clone().token_factory_contract.clone(),
             debt_token: params.clone().debt_token,
             whitelisted_debt_suppliers: params.clone().whitelisted_debt_suppliers,
             max_slippage: params.clone().max_slippage,

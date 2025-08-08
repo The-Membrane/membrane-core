@@ -37,7 +37,7 @@ pub struct MarketInstantiation {
     pub rate_params: RateParams,
     pub oracle_contract: String,
     pub swap_contract: String,
-    pub token_factory_contract: String,
+    pub token_factory_contract: Option<String>,
     pub debt_token: String,
     pub collateral_oracle_info: OsmosisOracleInfo,
     pub debt_oracle_info: OsmosisOracleInfo,

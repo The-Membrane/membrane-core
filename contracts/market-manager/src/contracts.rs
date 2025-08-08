@@ -262,6 +262,7 @@ fn instantiate_market(
             swap_contract: params.clone().swap_contract.to_string(),
             token_factory_contract: params.clone().token_factory_contract.clone(),
             debt_token: params.clone().debt_token,
+            protocol_revenue_collector: params.clone().protocol_revenue_collector,
             whitelisted_debt_suppliers: params.clone().whitelisted_debt_suppliers,
             max_slippage: params.clone().max_slippage,
             collateral_params: params.clone().collateral_params,

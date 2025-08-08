@@ -9,11 +9,11 @@ use crate::{oracle::PriceResponse, types::{AssetOracleInfo, AutoCloseParams, Bor
 pub struct InstantiateMsg {
     /// If owner isn't set, we'll set it to Membrane governance in the Manager contract.
     pub owner: String,
+    pub protocol_revenue_collector: Option<String>,
     pub token_factory_contract: Option<String>,
     pub whitelisted_debt_suppliers: Option<Vec<String>>,
     // pub debt_supply_vault_token: String,
-
-//////////////Market params////////
+    //////////////Market params////////
     pub collateral_params: CollateralParams,
     pub rate_params: RateParams,
     pub borrow_fee: Decimal,
@@ -186,7 +186,7 @@ pub enum ExecuteMsg {
         oracle_contract: Option<String>,
         swap_contract: Option<String>,
         token_factory_contract: Option<String>,
-        // oracle_contract_addr: Option<String>,
+        protocol_revenue_collector: Option<Option<String>>,
         pause_actions: Option<bool>,
         manager_fee: Option<Decimal>,
         whitelisted_debt_suppliers: Option<Option<Vec<String>>>,
@@ -378,14 +378,16 @@ pub struct Config {
     pub manager_fee: Decimal,
     ///Total borrowed in all markets, needed for rate calculation
     pub total_borrowed: Option<Uint128>,
-    //Abstract debt token
+    //Abstract debt token (fake optional)
     pub debt_token: Option<String>,
-    //External Oracle contract
+    //External Oracle contract (fake optional)
     pub oracle_contract: Option<Addr>,
-    //External Swap contract
+    //External Swap contract (fake optional)
     pub swap_contract: Option<Addr>,
     //External Token Factory contract
     pub token_factory_contract: Option<Addr>,
+    //Revenue collector (if none, no protocol revenue is collected)
+    pub protocol_revenue_collector: Option<Addr>,
 }
 
 

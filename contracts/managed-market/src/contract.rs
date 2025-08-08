@@ -59,12 +59,18 @@ pub fn instantiate(
     } else {
         None
     };
+    let protocol_revenue_collector = if msg.protocol_revenue_collector.is_some() {
+        Some(deps.api.addr_validate(&msg.protocol_revenue_collector.clone().unwrap())?)
+    } else {
+        None
+    };
     //Instantiate config
     let config = Config {
         owner: deps.api.addr_validate(&msg.owner)?,
         markets_manager_contract: info.sender.clone(),
         osmosis_proxy_contract: None,
-        token_factory_contract: token_factory_contract,
+        token_factory_contract,
+        protocol_revenue_collector,
         global_rate_index: RateIndex {
             rate_index: Decimal::one(),
             last_accrued: 0u64
@@ -196,12 +202,13 @@ pub fn execute(
             oracle_contract,
             swap_contract   ,
             token_factory_contract,
+            protocol_revenue_collector,
             pause_actions,
             manager_fee,
             whitelisted_debt_suppliers,
             debt_supply_cap,
             senior_debt_fixed_yield_target,
-        } => update_config(deps, info, owner, markets_manager_contract, oracle_contract, swap_contract, token_factory_contract, pause_actions, manager_fee, whitelisted_debt_suppliers, debt_supply_cap, senior_debt_fixed_yield_target),
+        } => update_config(deps, info, owner, markets_manager_contract, oracle_contract, swap_contract, token_factory_contract, protocol_revenue_collector, pause_actions, manager_fee, whitelisted_debt_suppliers, debt_supply_cap, senior_debt_fixed_yield_target),
         ExecuteMsg::UpdateMarket {
             collateral_denom,
             max_borrow_LTV,
@@ -281,7 +288,8 @@ fn update_config(
     markets_manager_contract: Option<String>,
     oracle_contract: Option<String>,
     swap_contract: Option<String>,
-    token_factory_contract:     Option<String>,
+    token_factory_contract: Option<String>,
+    protocol_revenue_collector: Option<Option<String>>,
     pause_actions: Option<bool>,
     manager_fee: Option<Decimal>,
     whitelisted_debt_suppliers: Option<Option<Vec<String>>>,
@@ -360,6 +368,16 @@ fn update_config(
     if let Some(senior_debt_fixed_yield_target) = senior_debt_fixed_yield_target {
         config.senior_debt_fixed_yield_target = Some(senior_debt_fixed_yield_target);
         attrs.push(attr("senior_debt_fixed_yield_target", format!("{:?}", senior_debt_fixed_yield_target)));
+    }
+    if let Some(protocol_revenue_collector) = protocol_revenue_collector {
+        if let Some(valid_addr) = protocol_revenue_collector {
+            let valid_addr = deps.api.addr_validate(&valid_addr)?;
+            config.protocol_revenue_collector = Some(valid_addr.clone());
+            attrs.push(attr("protocol_revenue_collector", valid_addr));
+        } else {
+            config.protocol_revenue_collector = None;
+            attrs.push(attr("protocol_revenue_collector", "None"));
+        }
     }
 
     //Save new Config
@@ -853,6 +871,8 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     config.oracle_contract = Some(Addr::unchecked("osmo1a0k36dskvskmghhkmwtkgt2qmxpkwzfnspupl09fnsezljhxxryqu2wyxe"));
     //Set swap contract
     config.swap_contract = Some(Addr::unchecked("osmo1zwfha9a73a7wsug3vvn2mmvhp3x53v886eskrmsusyy2mgx8faxqw7fjjw"));
+    //Set protocol revenue collector
+    config.protocol_revenue_collector = Some(Addr::unchecked("osmo1wk0zlag50ufu5wrsfyelrylykfe3cw68fgv9s8xqj20qznhfm44qgdnq86"));
     //Set osmosis proxy contract
     config.osmosis_proxy_contract = None;
     //Set debt token

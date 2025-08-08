@@ -101,15 +101,16 @@ fn edit_asset(
     info: MessageInfo,
     asset_info: String,
     oracle_info: Option<OsmosisOracleInfo>,
-    caller: String,
+    mut caller: String,
     remove: bool,
 ) -> Result<Response, ContractError> {
 
     let config = CONFIG.load(deps.storage)?;
 
-    //Owner can edit_assets
+    //Anyone can edit_assets
+    //Only the owner can use caller's that are not themselves
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        caller = info.sender.to_string();
     }
 
     let mut attrs = vec![
@@ -156,7 +157,7 @@ fn add_asset(
     info: MessageInfo,
     asset_info: String,
     oracle_info: OsmosisOracleInfo,
-    caller: String,
+    mut caller: String,
 ) -> Result<Response, ContractError> {
 
     let config = CONFIG.load(deps.storage)?;
@@ -166,10 +167,13 @@ fn add_asset(
         attr("asset", asset_info.clone()),
     ];
 
-    //Owner can add_assets
+    //Anyone can add_assets
+    //Only the owner can use caller's that are not themselves
     if info.sender != config.owner {
-        return Err(ContractError::Unauthorized {});
+        caller = info.sender.to_string();
     }
+
+
 
     //Save Oracle
     match ASSETS.load(deps.storage, (caller.clone(), asset_info.clone())) {

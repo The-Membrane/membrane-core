@@ -185,11 +185,16 @@ fn update_config(
 fn add_route(
     deps: DepsMut,
     info: MessageInfo,
-    caller: String,
+    mut caller: String,
     denom: String,
     route_info: OsmosisRouteInfo,
 ) -> Result<Response, ContractError> {
-    assert_owner(deps.storage, &info.sender)?;
+    let config = CONFIG.load(deps.storage)?;
+    //Anyone can add_routes
+    //Only the owner can use caller's that are not themselves
+    if info.sender != config.owner {
+        caller = info.sender.to_string();
+    }
 
     // Save OsmosisRouteInfo for reference
     ROUTES.save(deps.storage, (caller.clone(), denom.clone()), &route_info)?;
@@ -237,12 +242,17 @@ fn add_route(
 fn edit_route(
     deps: DepsMut,
     info: MessageInfo,
-    caller: String,
+    mut caller: String,
     denom: String,
     route_info: Option<OsmosisRouteInfo>,
     remove: bool,
 ) -> Result<Response, ContractError> {
-    assert_owner(deps.storage, &info.sender)?;
+    let config = CONFIG.load(deps.storage)?;
+    //Anyone can edit_routes
+    //Only the owner can use caller's that are not themselves
+    if info.sender != config.owner {
+        caller = info.sender.to_string();
+    }
 
     // Update ROUTES and SWAP_ROUTES accordingly
     if remove {

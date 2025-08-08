@@ -9,7 +9,7 @@ use crate::{oracle::PriceResponse, types::{AssetOracleInfo, AutoCloseParams, Bor
 pub struct InstantiateMsg {
     /// If owner isn't set, we'll set it to Membrane governance in the Manager contract.
     pub owner: String,
-    pub token_factory_contract: String,
+    pub token_factory_contract: Option<String>,
     pub whitelisted_debt_suppliers: Option<Vec<String>>,
     // pub debt_supply_vault_token: String,
 

@@ -14,7 +14,7 @@ use membrane::helpers::{assert_sent_native_token_balance, get_contract_balances}
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::managed_market::{BorrowCap, Config, DebtInfo, ExecuteMsg, InstantiateMsg, LTVRamp, MarketParams, MigrateMsg, QueryMsg, RateIndex, RateParams, UserPositionResponse};
 use membrane::stability_pool_vault::calculate_base_tokens;
-use membrane::tokenfactory::ExecuteMsg as TokenFactory;
+use membrane::tokenfactory::{ExecuteMsg as TokenFactory, create_denom_msg};
 use membrane::mm_oracle::ExecuteMsg as OracleExecuteMsg;
 use membrane::mm_swap::ExecuteMsg as SwapExecuteMsg;
 use membrane::types::{
@@ -53,12 +53,18 @@ pub fn instantiate(
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
 
-    
+    //Validate token factory contract
+    let token_factory_contract = if msg.token_factory_contract.is_some() {
+        Some(deps.api.addr_validate(&msg.token_factory_contract.clone().unwrap())?)
+    } else {
+        None
+    };
+    //Instantiate config
     let config = Config {
         owner: deps.api.addr_validate(&msg.owner)?,
         markets_manager_contract: info.sender.clone(),
         osmosis_proxy_contract: None,
-        token_factory_contract: Some(deps.api.addr_validate(&msg.token_factory_contract)?),
+        token_factory_contract: token_factory_contract,
         global_rate_index: RateIndex {
             rate_index: Decimal::one(),
             last_accrued: 0u64
@@ -153,20 +159,19 @@ pub fn instantiate(
     })?;
     
     //Create Debt VT Msg
-    let debt_vt_denom_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
-        msg: to_json_binary(&TokenFactory::CreateDenom {
-            subdenom: String::from("debt-suppliers"),
-        })?,
-        funds: vec![],
-    });
-    let junior_debt_vt_denom_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
-        msg: to_json_binary(&TokenFactory::CreateDenom {
-            subdenom: String::from("junior-debt-suppliers"),
-        })?,
-        funds: vec![],
-    });
+
+    let debt_vt_denom_msg = create_denom_msg(
+        config.token_factory_contract.clone(),
+        env.contract.address.as_str(),
+        "debt-suppliers",
+    );
+    
+    let junior_debt_vt_denom_msg = create_denom_msg(
+        config.token_factory_contract.clone(),
+        env.contract.address.as_str(),
+        "junior-debt-suppliers",
+    );
+    
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -846,7 +851,7 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     // todo!();
     //Set oracle contract
     config.oracle_contract = Some(Addr::unchecked("osmo1a0k36dskvskmghhkmwtkgt2qmxpkwzfnspupl09fnsezljhxxryqu2wyxe"));
-    //Set swap contract``
+    //Set swap contract
     config.swap_contract = Some(Addr::unchecked("osmo1zwfha9a73a7wsug3vvn2mmvhp3x53v886eskrmsusyy2mgx8faxqw7fjjw"));
     //Set osmosis proxy contract
     config.osmosis_proxy_contract = None;
@@ -934,7 +939,6 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     msgs.push(debt_oracle_msg);
 
     //Create junior debt token 
-
     let junior_debt_vt_denom_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
         msg: to_json_binary(&TokenFactory::CreateDenom {
@@ -943,6 +947,15 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
         funds: vec![],
     });
     msgs.push(junior_debt_vt_denom_msg);
+    //Create senior debt token 
+    let senior_debt_vt_denom_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
+        msg: to_json_binary(&TokenFactory::CreateDenom {
+            subdenom: String::from("debt-suppliers"),
+        })?,
+        funds: vec![],
+    });
+    msgs.push(senior_debt_vt_denom_msg);
 
 
     Ok(Response::new()

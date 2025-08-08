@@ -9,7 +9,8 @@ use membrane::system_discounts::{QueryMsg as DiscountQueryMsg, UserDiscountRespo
 use membrane::types::{cAsset, Basket, UserPosition, Rate, SupplyCap};
 use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction};
-use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
+// use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory};
+use membrane::tokenfactory::mint_msg;
 
 use crate::positions::{get_total_debt_tokens, get_total_vault_tokens, query_markets_manager_fee};
 use crate::ContractError;
@@ -320,14 +321,13 @@ pub fn accrue(
         //// println!("vt_to_mint_to_manager: {}", vt_to_mint_to_manager);
         //Mint the vault tokens to the manager
         if !vt_to_mint_to_manager.is_zero() {
-            let mint_vault_tokens_msg: CosmosMsg = TokenFactory::MsgMint {
-                sender: env.contract.address.to_string(), 
-                amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
-                    denom: config.junior_debt_supply_vault_token.clone().unwrap(),
-                    amount: vt_to_mint_to_manager.to_string(),
-                }), 
-                mint_to_address: config.owner.clone().to_string(),
-            }.into();
+            let mint_vault_tokens_msg = mint_msg(
+                config.token_factory_contract.clone(),
+                env.contract.address.as_str(),
+                &config.junior_debt_supply_vault_token.clone().unwrap(),
+                vt_to_mint_to_manager,
+                &config.owner.to_string(),
+            );
             msgs.push(mint_vault_tokens_msg);
         }
 
@@ -353,14 +353,13 @@ pub fn accrue(
 
         //Mint membrane revenue to MarketsManager Contract
         if vt_to_mint_to_membrane > Uint128::zero() {
-            let mint_vault_tokens_msg: CosmosMsg = TokenFactory::MsgMint {
-                sender: env.contract.address.to_string(), 
-                amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
-                    denom: config.debt_supply_vault_token.clone(),
-                    amount: vt_to_mint_to_membrane.to_string(),
-                }), 
-                mint_to_address: config.markets_manager_contract.clone().to_string(),
-            }.into();
+            let mint_vault_tokens_msg = mint_msg(
+                config.token_factory_contract.clone(),
+                env.contract.address.as_str(),
+                &config.debt_supply_vault_token,
+                vt_to_mint_to_membrane,
+                &config.markets_manager_contract.to_string(),
+            );
             msgs.push(mint_vault_tokens_msg);
         }
 

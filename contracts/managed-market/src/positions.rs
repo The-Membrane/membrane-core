@@ -41,6 +41,8 @@ use crate::{
     ContractError,
 };
 
+use membrane::tokenfactory::{mint_msg, burn_msg};
+
 //Liquidation reply ids
 pub const LIQUIDATE_REPLY_ID: u64 = 1u64;
 pub const CLOSE_POSITION_REPLY_ID: u64 = 2u64;
@@ -393,17 +395,13 @@ pub fn supply_debt(
 
     //Mint vault tokens to user
     if !vault_tokens_to_send.is_zero() {
-        let mint_vault_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
-            msg: to_json_binary(&TokenFactory::MintTokens {
-                amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
-                    denom: mint_denom.clone(),
-                    amount: vault_tokens_to_send.to_string(),
-                }),
-                mint_to_address: send_to.clone().to_string(),
-            })?,
-            funds: vec![],
-        });
+        let mint_vault_tokens_msg = mint_msg(
+            config.token_factory_contract.clone(),
+            env.contract.address.as_str(),
+            &mint_denom,
+            vault_tokens_to_send,
+            &send_to.to_string(),
+        );
         msgs.push(mint_vault_tokens_msg);
     }
 
@@ -550,14 +548,13 @@ pub fn withdraw_debt(
     //Send base tokens to user.
     if !base_tokens_to_send.is_zero() {
         //Burn vault tokens.
-        let burn_vault_tokens_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
-            msg: to_json_binary(&TokenFactory::BurnTokens { })?,
-            funds: vec![Coin {
-                denom: mint_denom.clone(),
-                amount: vault_tokens_sent,
-            }],
-        });
+        let burn_vault_tokens_msg = burn_msg(
+            config.token_factory_contract.clone(),
+            env.contract.address.as_str(),
+            &mint_denom,
+            vault_tokens_sent,
+            env.contract.address.as_str(),
+        );
         msgs.push(burn_vault_tokens_msg);
 
         //Send base tokens to user.

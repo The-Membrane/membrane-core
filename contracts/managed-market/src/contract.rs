@@ -830,7 +830,7 @@ fn get_user_positions(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    // Get the collateral paramsof the first market
+    // Get the collateral params of the first market
     let market_params = match MARKET_PARAMS
         .range(deps.storage, None, None, Order::Ascending)
         .take(1)
@@ -845,9 +845,9 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     let mut config = CONFIG.load(deps.storage)?;
     // todo!();
     //Set oracle contract
-    config.oracle_contract = Some(Addr::unchecked(""));
+    config.oracle_contract = Some(Addr::unchecked("osmo1a0k36dskvskmghhkmwtkgt2qmxpkwzfnspupl09fnsezljhxxryqu2wyxe"));
     //Set swap contract``
-    config.swap_contract = Some(Addr::unchecked(""));
+    config.swap_contract = Some(Addr::unchecked("osmo1zwfha9a73a7wsug3vvn2mmvhp3x53v886eskrmsusyy2mgx8faxqw7fjjw"));
     //Set osmosis proxy contract
     config.osmosis_proxy_contract = None;
     //Set debt token
@@ -932,6 +932,17 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
         funds: vec![],
     });
     msgs.push(debt_oracle_msg);
+
+    //Create junior debt token 
+
+    let junior_debt_vt_denom_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
+        msg: to_json_binary(&TokenFactory::CreateDenom {
+            subdenom: String::from("junior-debt-suppliers"),
+        })?,
+        funds: vec![],
+    });
+    msgs.push(junior_debt_vt_denom_msg);
 
 
     Ok(Response::new()

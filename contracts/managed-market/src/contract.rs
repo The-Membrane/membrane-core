@@ -965,13 +965,13 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     });
     msgs.push(debt_oracle_msg);
 
-    //Create junior debt token 
-    let junior_debt_vt_denom_msg = create_denom_msg(
-        config.token_factory_contract.clone(),
-        &env.contract.address.to_string(),
-        &String::from("junior-debt-suppliers"),
-    );
-    msgs.push(junior_debt_vt_denom_msg);
+    // //Create junior debt token 
+    // let junior_debt_vt_denom_msg = create_denom_msg(
+    //     config.token_factory_contract.clone(),
+    //     &env.contract.address.to_string(),
+    //     &String::from("junior-debt-suppliers"),
+    // );
+    // msgs.push(junior_debt_vt_denom_msg);
     //Create senior debt token 
     // let senior_debt_vt_denom_msg = create_denom_msg(
     //     config.token_factory_contract.clone().unwrap().to_string(),

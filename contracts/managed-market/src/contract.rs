@@ -959,23 +959,18 @@ pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, Co
     msgs.push(debt_oracle_msg);
 
     //Create junior debt token 
-    let junior_debt_vt_denom_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
-        msg: to_json_binary(&TokenFactory::CreateDenom {
-            subdenom: String::from("junior-debt-suppliers"),
-        })?,
-        funds: vec![],
-    });
+    let junior_debt_vt_denom_msg = create_denom_msg(
+        config.token_factory_contract.clone(),
+        &env.contract.address.to_string(),
+        &String::from("junior-debt-suppliers"),
+    );
     msgs.push(junior_debt_vt_denom_msg);
     //Create senior debt token 
-    let senior_debt_vt_denom_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.token_factory_contract.clone().unwrap().to_string(),
-        msg: to_json_binary(&TokenFactory::CreateDenom {
-            subdenom: String::from("debt-suppliers"),
-        })?,
-        funds: vec![],
-    });
-    msgs.push(senior_debt_vt_denom_msg);
+    // let senior_debt_vt_denom_msg = create_denom_msg(
+    //     config.token_factory_contract.clone().unwrap().to_string(),
+    //     String::from("debt-suppliers"),
+    // );
+    // msgs.push(senior_debt_vt_denom_msg);
 
 
     Ok(Response::new()

@@ -37,3 +37,4 @@ wasm = "0.0.0"
 [dev-dependencies]
 cw-multi-test = "0.13.4"
 apollo-cw-asset = "0.1.0"
+prost = "0.11"

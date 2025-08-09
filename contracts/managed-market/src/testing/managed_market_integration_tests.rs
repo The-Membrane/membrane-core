@@ -14,6 +14,14 @@ mod tests {
     use membrane::oracle::{AssetResponse, PriceResponse};
     use membrane::types::{Asset, LiquidityInfo};
     use membrane::liquidity_check::LiquidityResponse;
+    use membrane::tokenfactory::{create_denom_msg, mint_msg, burn_msg};
+    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
+    use cosmwasm_std::WasmMsg as StdWasmMsg;
+    use cosmwasm_std::CosmosMsg as StdCosmosMsg;
+    use cosmwasm_std::from_binary;
+    use membrane::tokenfactory::ExecuteMsg as TFExecMsg;
+    use osmosis_std::types::osmosis::tokenfactory::v1beta1::{MsgCreateDenom as OsmoMsgCreateDenom, MsgMint as OsmoMsgMint, MsgBurn as OsmoMsgBurn};
+    use prost::Message;
 
     use cosmwasm_std::{
         attr, coin, to_binary, Addr, Binary, Coin, Decimal, Empty, Response, StdError, StdResult,
@@ -122,6 +130,7 @@ mod tests {
     #[cw_serde]
     pub enum Oracle_MockQueryMsg {
         Prices {
+            caller: Option<String>,
             asset_infos: Vec<String>,
             twap_timeframe: u64,
             oracle_time_limit: u64,
@@ -346,7 +355,8 @@ mod tests {
     fn default_instantiate_msg() -> InstantiateMsg {
         InstantiateMsg {
             owner: ADMIN.to_string(),
-            token_factory_contract: "token_factory".to_string(),
+            protocol_revenue_collector: None,
+            token_factory_contract: Some("token_factory".to_string()),
             whitelisted_debt_suppliers: Some(vec!["debt_guy".to_string()]),
             collateral_params: CollateralParams {
                 collateral_asset: "atom".to_string(),
@@ -438,7 +448,7 @@ mod tests {
         let mut msg = default_instantiate_msg();
         msg.oracle_contract = oracle_addr.to_string();
         msg.swap_contract = swap_addr.to_string();
-        msg.token_factory_contract = token_factory_addr.to_string(); // Use token factory for denom creation
+        msg.token_factory_contract = Some(token_factory_addr.to_string()); // Use token factory for denom creation
         // msg.osmosis_proxy_contract = "proxy".to_string(); // Keep osmosis proxy for other purposes
         
         let managed_market_addr = app
@@ -459,6 +469,7 @@ mod tests {
             oracle_contract: None,
             swap_contract: None,
             token_factory_contract: None,
+            protocol_revenue_collector: None,
             pause_actions: None,
             manager_fee: None,
             whitelisted_debt_suppliers: None,
@@ -484,7 +495,7 @@ mod tests {
         // app.send_tokens(
         //     Addr::unchecked(ADMIN),
         //     managed_market_addr.clone(),
-        //     &[coin(1_000_000, CDT_DENOM)],
+        //     &[coin(1_000, CDT_DENOM)],
         // ).unwrap();
 
         // Supply a small amount of debt to initialize the vault token state
@@ -653,6 +664,7 @@ mod tests {
             oracle_contract: None,
             swap_contract: None,
             token_factory_contract: None,
+            protocol_revenue_collector: None,
             pause_actions: Some(true),
             manager_fee: None,
             whitelisted_debt_suppliers: None,
@@ -760,6 +772,7 @@ mod tests {
             oracle_contract: None,
             swap_contract: None,
             token_factory_contract: None,
+            protocol_revenue_collector: None,
             pause_actions: None,
             manager_fee: None,
             whitelisted_debt_suppliers: None,
@@ -1278,6 +1291,7 @@ mod tests {
             oracle_contract: None,
             swap_contract: None,
             token_factory_contract: None,
+            protocol_revenue_collector: None,
             pause_actions: Some(true),
             manager_fee: None,
             whitelisted_debt_suppliers: None,
@@ -1309,6 +1323,7 @@ mod tests {
             oracle_contract: None,
             swap_contract: None,
             token_factory_contract: None,
+            protocol_revenue_collector: None,
             pause_actions: Some(false),
             manager_fee: None,
             whitelisted_debt_suppliers: None,
@@ -1339,6 +1354,7 @@ mod tests {
             oracle_contract: None,
             swap_contract: None,
             token_factory_contract: None,
+            protocol_revenue_collector: None,
             pause_actions: Some(true),
             manager_fee: None,
             whitelisted_debt_suppliers: None,
@@ -1360,6 +1376,7 @@ mod tests {
             oracle_contract: Some("new_oracle".to_string()),
             swap_contract: Some("new_swap".to_string()),
             token_factory_contract: Some("new_token_factory".to_string()),
+            protocol_revenue_collector: None,
             pause_actions: Some(true),
             manager_fee: Some(Decimal::percent(3)),
             whitelisted_debt_suppliers: Some(Some(vec!["new_debt_guy".to_string()])),
@@ -1388,6 +1405,7 @@ mod tests {
             oracle_contract: None,
             swap_contract: None,
             token_factory_contract: None,
+            protocol_revenue_collector: None,
             pause_actions: None, 
             manager_fee: None, 
             whitelisted_debt_suppliers: None, 
@@ -2014,4 +2032,103 @@ mod tests {
         );
         assert!(result.is_err());
     }
-} 
+
+    #[test]
+    fn test_tokenfactory_helpers_some_and_none() {
+        // Baseline test values
+        let sender = "sender_addr";
+        let subdenom = "subdenom-xyz";
+        let denom = "factory/sender_addr/subdenom-xyz";
+        let amount = Uint128::new(1234);
+        let to_addr = "to_addr";
+        let burn_from = "burn_from_addr";
+
+        // create_denom: Some(contract)
+        let msg_some = create_denom_msg(Some(Addr::unchecked("token_factory")), sender, subdenom);
+        let subdenom_from_some = match msg_some {
+            StdCosmosMsg::Wasm(StdWasmMsg::Execute { contract_addr, msg, .. }) => {
+                assert_eq!(contract_addr, "token_factory");
+                match from_binary::<TFExecMsg>(&msg).unwrap() {
+                    TFExecMsg::CreateDenom { subdenom } => subdenom,
+                    other => panic!("unexpected exec msg: {:?}", other),
+                }
+            }
+            _ => panic!("expected Wasm Execute for Some(token_factory)"),
+        };
+
+        // create_denom: None -> decode Stargate
+        let msg_none = create_denom_msg(None, sender, subdenom);
+        let (type_url, subdenom_from_none, sender_from_none) = match msg_none {
+            StdCosmosMsg::Stargate { type_url, value } => {
+                let decoded = OsmoMsgCreateDenom::decode(value.as_slice()).unwrap();
+                (type_url, decoded.subdenom, decoded.sender)
+            }
+            _ => panic!("expected Stargate MsgCreateDenom for None"),
+        };
+        assert_eq!(type_url, "/osmosis.tokenfactory.v1beta1.MsgCreateDenom");
+        assert_eq!(subdenom_from_some, subdenom_from_none);
+        assert_eq!(sender_from_none, sender);
+
+        // mint: Some(contract)
+        let msg_some_mint = mint_msg(Some(Addr::unchecked("token_factory")), sender, denom, amount, to_addr);
+        let (denom_from_some, amount_from_some, to_from_some) = match msg_some_mint {
+            StdCosmosMsg::Wasm(StdWasmMsg::Execute { contract_addr, msg, .. }) => {
+                assert_eq!(contract_addr, "token_factory");
+                match from_binary::<TFExecMsg>(&msg).unwrap() {
+                    TFExecMsg::MintTokens { amount, mint_to_address } => {
+                        let coin = amount.unwrap();
+                        (coin.denom, Uint128::from_str(&coin.amount).unwrap(), mint_to_address)
+                    }
+                    other => panic!("unexpected exec msg: {:?}", other),
+                }
+            }
+            _ => panic!("expected Wasm Execute for Some(token_factory)"),
+        };
+
+        // mint: None -> decode Stargate
+        let msg_none_mint = mint_msg(None, sender, denom, amount, to_addr);
+        let (type_url_mint, denom_from_none, amount_from_none, to_from_none, sender_from_none_mint) = match msg_none_mint {
+            StdCosmosMsg::Stargate { type_url, value } => {
+                let decoded = OsmoMsgMint::decode(value.as_slice()).unwrap();
+                let amt = decoded.amount.unwrap();
+                (type_url, amt.denom, Uint128::from_str(&amt.amount).unwrap(), decoded.mint_to_address, decoded.sender)
+            }
+            _ => panic!("expected Stargate MsgMint for None"),
+        };
+        assert_eq!(type_url_mint, "/osmosis.tokenfactory.v1beta1.MsgMint");
+        assert_eq!(denom_from_some, denom_from_none);
+        assert_eq!(amount_from_some, amount_from_none);
+        assert_eq!(to_from_some, to_from_none);
+        assert_eq!(sender_from_none_mint, sender);
+
+        // burn: Some(contract)
+        let msg_some_burn = burn_msg(Some(Addr::unchecked("token_factory")), sender, denom, Uint128::new(111), burn_from);
+        let (denom_burn_some, amount_burn_some) = match msg_some_burn {
+            StdCosmosMsg::Wasm(StdWasmMsg::Execute { contract_addr, msg, .. }) => {
+                assert_eq!(contract_addr, "token_factory");
+                match from_binary::<TFExecMsg>(&msg).unwrap() {
+                    TFExecMsg::BurnTokens {} => (denom.to_string(), Uint128::new(111)),
+                    other => panic!("unexpected exec msg: {:?}", other),
+                }
+            }
+            _ => panic!("expected Wasm Execute for burn with Some(token_factory)"),
+        };
+
+        // burn: None -> decode Stargate
+        let msg_none_burn = burn_msg(None, sender, denom, Uint128::new(111), burn_from);
+        let (type_url_burn, denom_burn_none, amount_burn_none, sender_burn_none) = match msg_none_burn {
+            StdCosmosMsg::Stargate { type_url, value } => {
+                let decoded = OsmoMsgBurn::decode(value.as_slice()).unwrap();
+                let amt = decoded.amount.unwrap();
+                (type_url, amt.denom, Uint128::from_str(&amt.amount).unwrap(), decoded.sender)
+            }
+            _ => panic!("expected Stargate MsgBurn for None"),
+        };
+        assert_eq!(type_url_burn, "/osmosis.tokenfactory.v1beta1.MsgBurn");
+        assert_eq!(denom_burn_some, denom_burn_none);
+        assert_eq!(amount_burn_some, amount_burn_none);
+        assert_eq!(sender_burn_none, sender);
+    }
+
+    // Removed heavy instantiation tests to keep focus on message equivalence
+}

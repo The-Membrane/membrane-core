@@ -52,6 +52,13 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, ContractError> {
+    //Set token creation address
+    let token_creation_address = if msg.token_factory_contract.is_some() {
+        msg.token_factory_contract.clone().unwrap().to_string()
+    } else {
+        env.contract.address.to_string()
+    };
+    
 
     //Validate token factory contract
     let token_factory_contract = if msg.token_factory_contract.is_some() {
@@ -79,8 +86,8 @@ pub fn instantiate(
         debt_supply_cap: msg.debt_supply_cap,
         bad_debt: Uint128::zero(),
         whitelisted_debt_suppliers: msg.clone().whitelisted_debt_suppliers,
-        debt_supply_vault_token: String::from("factory/".to_owned() + env.contract.address.as_str() + "/debt-suppliers"),
-        junior_debt_supply_vault_token: Some(String::from("factory/".to_owned() + env.contract.address.as_str() + "/junior-debt-suppliers")),
+        debt_supply_vault_token: String::from("factory/".to_owned() + token_creation_address.as_str() + "/debt-suppliers"),
+        junior_debt_supply_vault_token: Some(String::from("factory/".to_owned() + token_creation_address.as_str() + "/junior-debt-suppliers")),
         junior_debt_info: Some(DebtInfo {
             total_debt: Uint128::zero(),
             bad_debt: Uint128::zero(),

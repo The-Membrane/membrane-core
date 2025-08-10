@@ -19,6 +19,9 @@ pub enum ContractError {
 
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },
+
+    #[error("Zero amount")]
+    ZeroAmount {},
 }
 
 impl From<OverflowError> for ContractError {

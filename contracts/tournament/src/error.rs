@@ -1,6 +1,6 @@
 use cosmwasm_std::StdError;
 use thiserror::Error;
-use racing::types::TournamentStatus;
+use membrane::types::TournamentStatus;
 
 #[derive(Error, Debug)]
 pub enum TournamentError {

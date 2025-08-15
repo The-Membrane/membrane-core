@@ -1101,6 +1101,7 @@ dependencies = [
  "cosmwasm-std",
  "cw-coins",
  "cw-storage-plus 0.13.4",
+ "cw721-base",
  "osmosis-std 0.16.2",
  "prost 0.11.9",
  "pyth-sdk-cw",

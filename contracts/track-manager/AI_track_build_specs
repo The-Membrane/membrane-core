@@ -1,0 +1,90 @@
+// track_manager/TRACK_CREATION_GUIDE.md
+
+# 🛠️ Track Creation Guide for AI
+
+This document provides rules and formatting guidelines for generating new racing tracks for the Membrane Racing Arena.
+
+---
+
+## 🎯 Objective
+Design a 2D grid-based race track using `TileType` values to create diverse, fair, and navigable racing arenas. Each tile guides agent decisions and affects speed, strategy, and outcome.
+
+---
+
+## 🎨 Tile Types (enum `TileType`)
+Use one of the following tile types for every cell in the grid:
+
+| TileType | Description | Effect |
+|----------|-------------|--------|
+| `Normal` | Standard road | Move 2 tiles per turn |
+| `Boost`  | High-speed zone | Move 3 tiles if uninterrupted |
+| `Stick`  | Sticky or muddy terrain | Move as normal but **skip next turn** |
+| `Slow`   | Slows cars | Only 1 tile moved this turn |
+| `Wall`   | Impassable | Cannot enter tile |
+| `Finish` | Race end goal | BFS root for distance calculation |
+
+---
+
+## 🧱 Formatting Rules
+- A track is represented as a **2D `Vec<Vec<TileType>>`**, where each row is a `Vec<TileType>`.
+- Grids must be **rectangular**: all rows must have the same number of columns.
+- Include **at least one `Finish` tile**.
+- The `Wall` tile fully blocks traversal and is useful for shaping the path.
+
+---
+
+## 📏 Size Guidelines
+- Width: 5–15 tiles
+- Height: 5–20 tiles
+- Recommended minimum: 7×10
+
+---
+
+## 🧠 Design Principles
+- **Use walls to form paths**, obstacles, or force corners.
+- **Place boosts** in straightaways or risky areas.
+- **Stick zones** near sharp turns or as traps.
+- **Slow tiles** to penalize greedy routes.
+- **Finish tiles** can form a vertical or horizontal line, or be staggered (all are valid).
+
+---
+
+## ✅ Example Output (7×5 Grid)
+```rust
+vec![
+    vec![Wall, Wall,  Wall,   Wall,  Wall],
+    vec![Wall, Normal,Normal, Boost, Wall],
+    vec![Wall, Slow,  Wall,   Stick, Wall],
+    vec![Wall, Normal,Normal, Normal,Wall],
+    vec![Finish,Finish,Finish,Finish,Finish],
+]
+```
+
+---
+
+## 🧪 Validation
+- The contract computes `progress_towards_finish` for all tiles using `TileType::Finish`.
+- AI should ensure there are valid paths from start areas to finish.
+
+---
+
+## ⚠️ Warnings
+- Tracks with no `Finish` tile will be rejected.
+- Paths blocked by `Wall` tiles from all sides will not be traversable.
+- No randomness is added—races rely on track design for variation.
+
+---
+
+## 📎 Submission Format
+Pass the `grid` as a `Vec<Vec<TileType>>` in the `AddTrack` message, e.g.:
+```rust
+ExecuteMsg::AddTrack {
+    track_id: 1,
+    name: "Turbo Canyon",
+    grid: vec![ ... ],
+}
+```
+
+---
+
+Happy track building!

@@ -70,13 +70,13 @@ pub fn execute(
     }
 }
 
-fn assert_owner(storage: &dyn cosmwasm_std::Storage, sender: &cosmwasm_std::Addr) -> Result<(), ContractError> {
-    let config = CONFIG.load(storage)?;
-    if &config.owner != sender {
-        return Err(ContractError::Unauthorized {});
-    }
-    Ok(())
-}
+// fn assert_owner(storage: &dyn cosmwasm_std::Storage, sender: &cosmwasm_std::Addr) -> Result<(), ContractError> {
+//     let config = CONFIG.load(storage)?;
+//     if &config.owner != sender {
+//         return Err(ContractError::Unauthorized {});
+//     }
+//     Ok(())
+// }
 
 fn execute_swap(
     deps: DepsMut,

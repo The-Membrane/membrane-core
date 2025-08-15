@@ -9,9 +9,9 @@ use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
 use crate::state::{CAR_TRACK_TRAINING_STATS, add_recent_race, get_config, get_q_values, get_recent_races, set_config, set_q_values, CONFIG, MAX_TICKS, Q_TABLE, update_solo_training_stats, update_pvp_training_stats, get_track_training_stats};
-use racing::types::{ActionSelectionStrategy, QTableEntry, RewardNumbers, Track, TrackTile};
-use racing::race_engine::{CarState, Config, ConfigResponse, ExecuteMsg, GetQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
-use racing::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
+use membrane::types::{ActionSelectionStrategy, QTableEntry, RewardNumbers, Track, TrackTile};
+use membrane::race_engine::{CarState, Config, ConfigResponse, ExecuteMsg, GetQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
+use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
 // Race simulation constants
 const MAX_CARS: usize = 8;
 // const MAX_TRACK_SIZE: usize = 50;
@@ -235,7 +235,7 @@ pub fn instantiate(
     let track_contract = deps.api.addr_validate(&msg.track_contract)?;
     let car_contract = deps.api.addr_validate(&msg.car_contract)?;
     
-    let config = racing::race_engine::Config {
+    let config = membrane::race_engine::Config {
         admin: admin.to_string(),
         track_contract: track_contract.to_string(),
         car_contract: car_contract.to_string(),
@@ -284,7 +284,7 @@ fn execute_reset_q(storage: &mut dyn Storage, car_id: u128) -> Result<Response, 
     Ok(Response::new())
 }
 
-fn find_start_indices(track_layout: &[Vec<racing::types::TrackTile>]) -> Vec<(usize, usize)> {
+fn find_start_indices(track_layout: &[Vec<membrane::types::TrackTile>]) -> Vec<(usize, usize)> {
     let mut start_indices = vec![];
     for (y, row) in track_layout.iter().enumerate() {
         for (x, tile) in row.iter().enumerate() {
@@ -334,7 +334,7 @@ pub fn execute_simulate_race(
             distance: 1,
             no_move: NO_MOVE_PENALTY,
             explore: EXPLORATION_BONUS,
-            rank: racing::types::RankReward {
+            rank: membrane::types::RankReward {
                 first: RANK_REWARDS[0],
                 second: RANK_REWARDS[1],
                 third: RANK_REWARDS[2],
@@ -400,7 +400,7 @@ pub fn execute_simulate_race(
     let race_id = format!("race_{}_{}", track_id, env.block.time.seconds());
 
     // Create race result
-    let race_result_struct = racing::race_engine::RaceResult {
+    let race_result_struct = membrane::race_engine::RaceResult {
         race_id: race_id.clone(),
         track_id,
         car_ids: car_ids.clone(),
@@ -459,7 +459,7 @@ fn load_track_from_manager(deps: Deps, config: Config, track_id: Uint128) -> Res
     // For testing purposes, return a simple test track
     // In a real implementation, this would query the track manager contract
     let track: Track = deps.querier.query_wasm_smart::<Track>(
-        config.track_contract, &racing::track_manager::QueryMsg::GetTrack {
+        config.track_contract, &membrane::track_manager::QueryMsg::GetTrack {
         track_id: track_id,
     })?;
     
@@ -472,8 +472,8 @@ fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training
     
     // Initialize play_by_play for each car
     for car in &race_state.cars {
-        race_state.play_by_play.insert(car.car_id.clone(), racing::race_engine::PlayByPlay {
-            starting_position: racing::race_engine::Position {
+        race_state.play_by_play.insert(car.car_id.clone(), membrane::race_engine::PlayByPlay {
+            starting_position: membrane::race_engine::Position {
                 car_id: car.car_id.clone(),
                 x: car.x as u32,
                 y: car.y as u32,
@@ -633,9 +633,9 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
         
         // Record action in play_by_play for this car
         if let Some(play_by_play) = race_state.play_by_play.get_mut(&car.car_id) {
-            play_by_play.actions.push(racing::race_engine::Action {
+            play_by_play.actions.push(membrane::race_engine::Action {
                 action: action.to_string(),
-                resulting_position: racing::race_engine::Position {
+                resulting_position: membrane::race_engine::Position {
                     car_id: car.car_id.clone(),
                     x: new_x as u32,
                     y: new_y as u32,
@@ -651,7 +651,7 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
 fn calculate_car_action(
     car: &mut CarState,
     storage: &mut dyn Storage,
-    track_layout: &[Vec<racing::types::TrackTile>],
+    track_layout: &[Vec<membrane::types::TrackTile>],
     x: i32,
     y: i32,
     car_speed: u32,
@@ -758,7 +758,7 @@ fn calculate_car_action(
 // /// Query Q-table from car contract
 // fn query_car_q_table(
 //     car_id: u128,
-//     track_layout: &[Vec<racing::types::TrackTile>],
+//     track_layout: &[Vec<membrane::types::TrackTile>],
 //     x: i32,
 //     y: i32,
 //     car_speed: u32,
@@ -867,7 +867,7 @@ fn calculate_new_position(
     y: i32,
     action: usize,
     tiles_moved: u32,
-    track_layout: &[Vec<racing::types::TrackTile>],
+    track_layout: &[Vec<membrane::types::TrackTile>],
 ) -> Result<(i32, i32, bool), ContractError> {
     let (dx, dy) = match action {
         ACTION_UP => (0, -(tiles_moved as i32)),
@@ -923,7 +923,7 @@ fn apply_tile_effects_to_car(
     car: &mut CarState,
     new_x: i32,
     new_y: i32,
-    track_layout: &[Vec<racing::types::TrackTile>],
+    track_layout: &[Vec<membrane::types::TrackTile>],
 ) -> Result<(), ContractError> {
     //Increment steps taken
     car.steps_taken += 1;
@@ -1001,7 +1001,7 @@ fn all_cars_finished(cars: &[CarState]) -> bool {
 }
 
 /// Calculate race results using progress_towards_finish from tile properties
-fn calculate_results(cars: &[CarState], track_layout: &[Vec<racing::types::TrackTile>]) -> (Vec<u128>, Vec<racing::race_engine::Rank>, Vec<racing::race_engine::Step>) {
+fn calculate_results(cars: &[CarState], track_layout: &[Vec<membrane::types::TrackTile>]) -> (Vec<u128>, Vec<membrane::race_engine::Rank>, Vec<membrane::race_engine::Step>) {
     let mut finished_cars: Vec<_> = cars.iter()
         .filter(|car| car.finished)
         .collect();
@@ -1028,13 +1028,13 @@ fn calculate_results(cars: &[CarState], track_layout: &[Vec<racing::types::Track
     // Rankings: finished cars first (by steps), then unfinished cars (by progress)
     let mut rankings = vec![];
     for (rank, car) in finished_cars.iter().enumerate() {
-        rankings.push(racing::race_engine::Rank {
+        rankings.push(membrane::race_engine::Rank {
             car_id: car.car_id.clone(),
             rank: rank as u32,
         });
     }
     for (rank, car) in unfinished_cars.iter().enumerate() {
-        rankings.push(racing::race_engine::Rank {
+        rankings.push(membrane::race_engine::Rank {
             car_id: car.car_id.clone(),
             rank: (finished_cars.len() + rank) as u32,
         });
@@ -1042,7 +1042,7 @@ fn calculate_results(cars: &[CarState], track_layout: &[Vec<racing::types::Track
     
     // Steps taken for each car
     let steps_taken = cars.iter()
-        .map(|car| racing::race_engine::Step {
+        .map(|car| membrane::race_engine::Step {
             car_id: car.car_id.clone(),
             steps_taken: car.steps_taken,
         })
@@ -1052,12 +1052,12 @@ fn calculate_results(cars: &[CarState], track_layout: &[Vec<racing::types::Track
 }
 
 /// Create a test track for development
-fn create_test_track() -> Vec<Vec<racing::types::TrackTile>> {
+fn create_test_track() -> Vec<Vec<membrane::types::TrackTile>> {
     let width = 10;
     let height = 10;
     
-    let mut track = vec![vec![racing::types::TrackTile {
-        properties: racing::types::TileProperties::normal(),
+    let mut track = vec![vec![membrane::types::TrackTile {
+        properties: membrane::types::TileProperties::normal(),
         progress_towards_finish: 0,
         x: 0,
         y: 0,
@@ -1065,8 +1065,8 @@ fn create_test_track() -> Vec<Vec<racing::types::TrackTile>> {
     
     // Set finish line at the top
     for x in 0..width {
-        track[0][x] = racing::types::TrackTile {
-            properties: racing::types::TileProperties::finish(),
+        track[0][x] = membrane::types::TrackTile {
+            properties: membrane::types::TileProperties::finish(),
             progress_towards_finish: 0,
             x: x as u8,
             y: 0,
@@ -1075,8 +1075,8 @@ fn create_test_track() -> Vec<Vec<racing::types::TrackTile>> {
     
     // Set start line at the bottom
     for x in 0..width {
-        track[height-1][x] = racing::types::TrackTile {
-            properties: racing::types::TileProperties::start(),
+        track[height-1][x] = membrane::types::TrackTile {
+            properties: membrane::types::TileProperties::start(),
             progress_towards_finish: height as u16 - 1,
             x: x as u8,
             y: (height-1) as u8,
@@ -1084,44 +1084,44 @@ fn create_test_track() -> Vec<Vec<racing::types::TrackTile>> {
     }
     
     // Add some obstacles
-    track[5][5] = racing::types::TrackTile {
-        properties: racing::types::TileProperties::wall(),
+    track[5][5] = membrane::types::TrackTile {
+        properties: membrane::types::TileProperties::wall(),
         progress_towards_finish: 5,
         x: 5,
         y: 5,
     };
     
-    track[3][3] = racing::types::TrackTile {
-        properties: racing::types::TileProperties::sticky(),
+    track[3][3] = membrane::types::TrackTile {
+        properties: membrane::types::TileProperties::sticky(),
         progress_towards_finish: 3,
         x: 3,
         y: 3,
     };
     
-    track[7][7] = racing::types::TrackTile {
-        properties: racing::types::TileProperties::boost(DEFAULT_BOOST_SPEED as u32),
+    track[7][7] = membrane::types::TrackTile {
+        properties: membrane::types::TileProperties::boost(DEFAULT_BOOST_SPEED as u32),
         progress_towards_finish: 7,
         x: 7,
         y: 7,
     };
     
     //No more slow tiles 
-    track[2][2] = racing::types::TrackTile {
-        properties: racing::types::TileProperties::normal(),
+    track[2][2] = membrane::types::TrackTile {
+        properties: membrane::types::TileProperties::normal(),
         progress_towards_finish: 2,
         x: 2,
         y: 2,
     };
     
-    track[4][4] = racing::types::TrackTile {
-        properties: racing::types::TileProperties::normal(),
+    track[4][4] = membrane::types::TrackTile {
+        properties: membrane::types::TileProperties::normal(),
         progress_towards_finish: 4,
         x: 4,
         y: 4,
     };
     
-    track[6][6] = racing::types::TrackTile {
-        properties: racing::types::TileProperties::normal(),
+    track[6][6] = membrane::types::TrackTile {
+        properties: membrane::types::TileProperties::normal(),
         progress_towards_finish: 6,
         x: 6,
         y: 6,
@@ -1250,13 +1250,13 @@ pub fn query_track_training_stats(
         Some(track_id_str) => {
             // Single track query - return just this track's stats
             let stats = get_track_training_stats(deps.storage, car_id, track_id_str)
-                .unwrap_or_else(|_| racing::types::TrackTrainingStats {
-                    solo: racing::types::TrainingStats {
+                .unwrap_or_else(|_| membrane::types::TrackTrainingStats {
+                    solo: membrane::types::TrainingStats {
                         tally: 0,
                         win_rate: 0,
                         fastest: u32::MAX,
                     },
-                    pvp: racing::types::TrainingStats {
+                    pvp: membrane::types::TrainingStats {
                         tally: 0,
                         win_rate: 0,
                         fastest: u32::MAX,
@@ -1299,7 +1299,7 @@ pub fn query_track_training_stats(
 
 // (Can we add actions later? Can we make the actions more abstract to keep the Q-Table simpler? 
 // Can we compress the current statehash without losing tile information?? )
-// CONTINUE BUILDING REWARD FUNCTION INTO THE RACING CONTRACT.
+// CONTINUE BUILDING REWARD FUNCTION INTO THE membrane CONTRACT.
 // WE'RE MOVING THE REWARD FUNCTION INTO THIS CONTRACT & MAKING IT DO THE TRAINING (I.E. THE Q TABLE UPDATES)
 // - migrate the q-table updates from the trainer contract to here
 // = update table per tick or tick batch (see trainer contract) (it updates per tick but we can group them & batch update)
@@ -1370,8 +1370,8 @@ fn calculate_action_reward(
     car: &CarState,
     race_result: &RaceResult,
     action: usize,
-    last_tile: racing::types::TrackTile,
-    tile: racing::types::TrackTile,
+    last_tile: membrane::types::TrackTile,
+    tile: membrane::types::TrackTile,
     action_index: usize,
     total_actions: usize,
     reward_config: RewardNumbers,

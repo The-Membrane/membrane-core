@@ -1267,3 +1267,318 @@ pub struct OsmosisRouteInfo {
     pub pools_for_osmo_twap: Vec<TWAPPoolInfo>,
 }
 
+/////RACING/////
+
+// ===== SHARED TYPES =====
+
+#[cw_serde]
+pub struct CarMetadata {
+    /// Name of the car
+    pub name: String,
+    /// Optional svg image data
+    pub image_data: Option<String>,
+    /// Optional list of car attributes/traits
+    pub attributes: Option<Vec<CarAttribute>>,
+    /// Optional on-chain car id (stringified), auto-populated by the contract
+    pub car_id: Option<String>,
+}
+
+#[cw_serde]
+pub struct CarAttribute {
+    /// Type of the attribute (e.g., "Speed", "Handling", "Durability")
+    pub trait_type: String,
+    /// Value of the attribute (e.g., "High", "Medium", "Low")
+    pub value: String,
+}
+
+#[cw_serde]
+pub struct QTableEntry {
+    /// Hash representing the state of the car
+    pub state_hash:  [u8; 32],
+    /// Q-values for all 4 actions [Up, Down, Left, Right]
+    pub action_values: [i32; 4],
+}
+
+#[cw_serde]
+pub enum RewardType {
+    /// Distance-based reward with specific value
+    Distance(i32),
+    /// Penalty for getting stuck (negative reward)
+    Stuck,
+    /// Penalty for hitting a wall (negative reward)
+    Wall,
+    /// Penalty for no movement (negative reward)
+    NoMove,
+    /// Bonus for exploration (positive reward)
+    Explore,
+    /// Rank-based reward (0=1st place, 1=2nd place, etc.)
+    Rank(u8),
+}
+
+
+#[cw_serde]
+pub struct RewardNumbers {
+    /// Distance-based reward with specific value
+    pub distance: i32,
+    /// Penalty for getting stuck (negative reward)
+    pub stuck: i32,
+    /// Penalty for hitting a wall (negative reward)
+    pub wall: i32,
+    /// Penalty for no movement (negative reward)
+    pub no_move: i32,
+    /// Bonus for exploration (positive reward)
+    pub explore: i32,
+    /// Rank-based reward (0=1st place, 1=2nd place, etc.)
+    pub rank: RankReward,
+}
+
+#[cw_serde]
+pub struct RankReward {
+    pub first: i32,
+    pub second: i32,
+    pub third: i32,
+    pub other: i32,
+}
+
+#[cw_serde]
+pub struct TrackTrainingStats {
+    /// Solo training statistics
+    pub solo: TrainingStats,
+    /// PvP training statistics
+    pub pvp: TrainingStats,
+}
+
+#[cw_serde]
+pub struct TrainingStats {
+    /// Total number of training runs
+    pub tally: u32,
+    /// Win rate as a percentage (0-100)
+    pub win_rate: u32,
+    /// Fastest completion time in ticks
+    pub fastest: u32,
+}
+
+#[cw_serde]
+pub struct QUpdate {
+    /// Unique identifier for the car being trained
+    pub car_id: String,
+    /// Hash representing the current state of the car
+    pub state_hash:  [u8; 32],
+    /// Action taken (0=Up, 1=Down, 2=Left, 3=Right)
+    pub action: u8,
+    /// Type and value of reward received for this action
+    pub reward_type: RewardType,
+    /// Hash of the next state (None if terminal state)
+    pub next_state_hash: Option< [u8; 32]>,
+}
+
+#[cw_serde]
+pub struct TileProperties {
+    /// Speed modifier (2 = normal, 1 = slow, 3 = boost, etc.)
+    pub speed_modifier: u32,
+    /// Whether this tile blocks movement
+    pub blocks_movement: bool,
+    /// Whether this tile causes the car to skip the next turn
+    pub skip_next_turn: bool,
+    /// Damage dealt to car when entering this tile (negative for healing)
+    pub damage: i32,
+    /// Whether this tile is a finish line
+    pub is_finish: bool,
+    /// Whether this tile is a start line
+    pub is_start: bool,
+}
+
+impl Default for TileProperties {
+    fn default() -> Self {
+        Self {
+            speed_modifier: 1, 
+            blocks_movement: false,
+            skip_next_turn: false,
+            damage: 0,
+            is_finish: false,
+            is_start: false,
+        }
+    }
+}
+
+impl TileProperties {
+    /// Create a normal tile
+    pub fn normal() -> Self {
+        Self {
+            ..Default::default()
+        }
+    }
+
+    /// Create a boost tile
+    pub fn boost(speed_modifier: u32) -> Self {
+        Self {
+            speed_modifier,
+            ..Default::default()
+        }
+    }
+
+    //No more slow tiles bc normal speed is 1
+    /// Create a slow tile
+    // pub fn slow(speed_modifier: u32) -> Self {
+    //     Self {
+    //         speed_modifier,
+    //         ..Default::default()
+    //     }
+    // }
+
+    /// Create a sticky tile
+    pub fn sticky() -> Self {
+        Self {
+            skip_next_turn: true,
+            ..Default::default()
+        }
+    }
+
+    /// Create a wall tile
+    pub fn wall() -> Self {
+        Self {
+            blocks_movement: true,
+            ..Default::default()
+        }
+    }
+
+    /// Create a finish tile
+    pub fn finish() -> Self {
+        Self {
+            is_finish: true,
+            ..Default::default()
+        }
+    }
+
+    /// Create a start tile
+    pub fn start() -> Self {
+        Self {
+            is_start: true,
+            ..Default::default()
+        }
+    }
+
+    /// Create a damage tile (e.g., spikes)
+    pub fn damage(damage_amount: i32) -> Self {
+        Self {
+            damage: damage_amount,
+            ..Default::default()
+        }
+    }
+
+    /// Create a healing tile
+    pub fn healing() -> Self {
+        Self {
+            damage: -1,
+            ..Default::default()
+        }
+    }
+}
+
+#[cw_serde]
+pub struct TrackTile {
+    /// Properties of the track tile
+    pub properties: TileProperties,
+    /// Progress towards the finish line in positions
+    pub progress_towards_finish: u16,
+    /// x position of the tile
+    pub x: u8,
+    /// y position of the tile
+    pub y: u8,
+}
+
+#[cw_serde]
+pub struct Track {
+    /// Creator of the track
+    pub creator: String,    
+    /// Unique identifier for the track
+    pub id: u128,
+    /// Name of the track
+    pub name: String,
+    /// Width of the track in tiles
+    pub width: u8,
+    /// Height of the track in tiles
+    pub height: u8,
+    /// 2D layout of the track with tile information
+    pub layout: Vec<Vec<TrackTile>>,
+    /// Fastest possible tick time 
+    pub fastest_tick_time: u64,
+}
+
+
+#[cw_serde]
+pub enum TournamentCriteria {
+    /// Random selection of cars
+    Random,
+    /// Top trained cars with minimum training updates
+    TopTrained { 
+        /// Minimum number of training updates required
+        min_training_updates: u32 
+    },
+    /// All cars participate
+    AllCars,
+}
+
+#[cw_serde]
+pub enum TournamentStatus {
+    /// Tournament has not started yet
+    NotStarted,
+    /// Tournament is currently in progress
+    InProgress,
+    /// Tournament has completed
+    Completed,
+}
+
+#[cw_serde]
+pub struct TournamentMatch {
+    /// Unique identifier for the match
+    pub match_id: String,
+    /// First car in the match
+    pub car1: String,
+    /// Second car in the match
+    pub car2: String,
+    /// Winner of the match (None if not completed)
+    pub winner: Option<String>,
+    /// Whether the match has been completed
+    pub completed: bool,
+}
+
+#[cw_serde]
+pub struct TournamentResult {
+    /// Unique identifier for the car
+    pub car_id: String,
+    /// Final rank in the tournament
+    pub rank: u32,
+    /// Number of wins in the tournament
+    pub wins: u32,
+    /// Number of losses in the tournament
+    pub losses: u32,
+}
+
+#[cw_serde]
+pub struct TournamentRanking {
+    /// Unique identifier for the car
+    pub car_id: String,
+    /// Final rank in the tournament
+    pub rank: u32,
+    /// Number of wins in the tournament
+    pub wins: u32,
+    /// Number of losses in the tournament
+    pub losses: u32,
+}
+
+
+/// Strategies for selecting actions during training or racing
+#[cw_serde]
+pub enum ActionSelectionStrategy {
+    Best,                       // Exploit: highest Q-value
+    Random,                     // Pure exploration
+    EpsilonGreedy(f32),         // Exploration with ε chance
+    Softmax(f32),               // Probabilistic based on Q-values
+    EpsilonDecay {              // Epsilon that decays over training progress
+        initial_epsilon: f32,   // Starting epsilon value
+        final_epsilon: f32,     // Final epsilon value
+        current_tick: u32,      // Current training tick
+        total_ticks: u32,       // Total training ticks
+    },
+}

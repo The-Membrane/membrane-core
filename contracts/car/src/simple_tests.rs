@@ -4,8 +4,8 @@ mod tests {
     use crate::state::{CONFIG, get_car_info};
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cosmwasm_std::{coins, Addr};
-    use racing::car::{Config, ExecuteMsg, InstantiateMsg};
-    use racing::types::CarMetadata;
+    use membrane::car::{Config, ExecuteMsg, InstantiateMsg};
+    use membrane::types::CarMetadata;
 
     const CREATOR: &str = "creator";
     const CONTRACT_NAME: &str = "Test Car NFT";
@@ -73,7 +73,7 @@ mod tests {
             name: "Test Car".to_string(),
             image_data: Some("data:image/svg+xml;base64,...".to_string()),
             attributes: Some(vec![
-                racing::types::CarAttribute {
+                membrane::types::CarAttribute {
                     trait_type: "Speed".to_string(),
                     value: "High".to_string(),
                 },

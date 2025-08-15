@@ -2,8 +2,8 @@ use cosmwasm_std::{StdError, StdResult, Storage};
 use cw_storage_plus::{Item, Map};
 use serde::{Deserialize, Serialize};
 
-use racing::race_engine::{Config, RaceResult};
-use racing::types::{TrackTrainingStats, TrainingStats};
+use membrane::race_engine::{Config, RaceResult};
+use membrane::types::{TrackTrainingStats, TrainingStats};
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const CAR_RECENT_RACES: Map<u128, Vec<RaceResult>> = Map::new("car_recent_races");

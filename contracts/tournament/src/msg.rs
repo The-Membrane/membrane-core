@@ -1,5 +1,5 @@
 // Re-export types from the shared package
-pub use racing::tournament::{
+pub use membrane::tournament::{
     InstantiateMsg,
     ExecuteMsg,
     QueryMsg,

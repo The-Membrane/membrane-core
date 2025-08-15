@@ -2,7 +2,7 @@ use cosmwasm_std::{Addr, StdResult, Storage};
 use cw_storage_plus::{Item, Map};
 use serde::{Deserialize, Serialize};
 
-use racing::types::{TournamentStatus, TournamentMatch, TournamentRanking, TournamentCriteria};
+use membrane::types::{TournamentStatus, TournamentMatch, TournamentRanking, TournamentCriteria};
 
 pub const ADMIN: Item<Addr> = Item::new("admin");
 pub const RACE_ENGINE: Item<Addr> = Item::new("race_engine");

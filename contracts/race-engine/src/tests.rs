@@ -2,8 +2,8 @@ use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{from_json, to_json_binary, Addr, Binary, OwnedDeps, Querier, QuerierResult, QueryRequest, SystemResult, ContractResult};
 
 use crate::contract::{execute, instantiate, query};
-use racing::race_engine::{ExecuteMsg, InstantiateMsg, QueryMsg, TrainingConfig, GetTrackTrainingStatsResponse};
-use racing::types::{RewardNumbers, Track, TrackTile, TileProperties};
+use membrane::race_engine::{ExecuteMsg, InstantiateMsg, QueryMsg, TrainingConfig, GetTrackTrainingStatsResponse};
+use membrane::types::{RewardNumbers, Track, TrackTile, TileProperties};
 
 const ADMIN: &str = "admin";
 const CAR_CONTRACT: &str = "car_contract";
@@ -626,7 +626,7 @@ fn test_initial_q_values_investigation() {
     };
     
     let response = query(deps.as_ref(), env.clone(), query_msg).unwrap();
-    let q_response: racing::race_engine::GetQResponse = from_json(response).unwrap();
+    let q_response: membrane::race_engine::GetQResponse = from_json(response).unwrap();
     
     println!("Initial Q-values for car 1:");
     for (i, q_entry) in q_response.q_values.iter().take(5).enumerate() {
@@ -903,7 +903,7 @@ fn test_pvp_training_stats() {
             wall: -8,
             no_move: 0,
             explore: 6,
-            rank: racing::types::RankReward {
+            rank: membrane::types::RankReward {
                 first: 100,
                 second: 50,
                 third: 25,

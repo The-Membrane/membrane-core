@@ -5,7 +5,7 @@ use cosmwasm_std::{
 use crate::error::TournamentError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{ADMIN, RACE_ENGINE, get_tournament_state, set_tournament_state, get_participants, set_participants, get_tournament_results, set_tournament_results, get_tournament_matches, set_tournament_matches};
-use racing::types::{TournamentCriteria, TournamentStatus, TournamentMatch, TournamentRanking};
+use membrane::types::{TournamentCriteria, TournamentStatus, TournamentMatch, TournamentRanking};
 
 // Tournament constants
 const MAX_PARTICIPANTS: u32 = 32;

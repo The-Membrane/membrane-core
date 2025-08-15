@@ -1,7 +1,7 @@
 [package]
 name = "car"
 version = "0.1.0"
-edition = "2021"
+edition = "2018"
 
 exclude = [
   # Those files are rust-optimizer artifacts. You might want to commit them for convenience but they should not be part of the source code publication.
@@ -42,7 +42,7 @@ optimize = """docker run --rm -v "$(pwd)":/code \
 
 
 [dependencies]
-racing = { path = "../../packages/racing" }
+membrane = { path = "../../packages/membrane" }
 cosmwasm-schema = "1.5.11"
 cosmwasm-std = "1.5.11"
 cosmwasm-storage = "1.5.2"

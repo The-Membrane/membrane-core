@@ -10,9 +10,9 @@ use cw721_base::{Cw721Contract, ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as
 use crate::error::CarError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use crate::state::{CAR_ID_COUNTER, CONFIG, PENDING_OWNER};
-use racing::types::CarMetadata;
-use racing::car::Config;
-use racing::traits_engine::{default_rarity_table, generate_traits_with_rarity, traits_to_attributes};
+use membrane::types::CarMetadata;
+use membrane::car::Config;
+use membrane::traits_engine::{default_rarity_table, generate_traits_with_rarity, traits_to_attributes};
 
 const CONTRACT_NAME: &str = "car_nft";
 const CONTRACT_VERSION: &str = "0.1.0";
@@ -243,11 +243,11 @@ fn execute_update_custom_decal(
             }
         }
         if !has_decal_attr {
-            attrs.push(racing::types::CarAttribute { trait_type: "decal".to_string(), value: svg.clone() });
+            attrs.push(membrane::types::CarAttribute { trait_type: "decal".to_string(), value: svg.clone() });
             has_decal_attr = true;
         }
     } else {
-        ext.attributes = Some(vec![racing::types::CarAttribute { trait_type: "decal".to_string(), value: svg.clone() }]);
+        ext.attributes = Some(vec![membrane::types::CarAttribute { trait_type: "decal".to_string(), value: svg.clone() }]);
         has_decal_attr = true;
     }
 

@@ -30,3 +30,8 @@ pub mod types;
 pub mod math;
 pub mod managed_market;
 pub mod tokenfactory;
+pub mod car;
+pub mod race_engine;
+pub mod traits_engine;
+pub mod track_manager;
+pub mod tournament;

@@ -2,8 +2,8 @@ use cosmwasm_std::{Addr, Coin, StdResult, Storage, Uint128};
 use cw_storage_plus::{Item, Map};
 use serde::{Deserialize, Serialize};
 
-use racing::types::{CarMetadata, QTableEntry};
-use racing::car::Config;
+use membrane::types::{CarMetadata, QTableEntry};
+use membrane::car::Config;
 
 
 // Pending owner transfer

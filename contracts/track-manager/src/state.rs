@@ -1,7 +1,7 @@
 use cosmwasm_std::{Addr, StdResult, Storage, Uint128};
 use cw_storage_plus::{Item, Map};
 
-use racing::types::{Track, TrackTile};
+use membrane::types::{Track, TrackTile};
 
 pub const ADMIN: Item<Addr> = Item::new("admin");
 pub const TRACK_ID_COUNTER: Item<Uint128> = Item::new("track_id_counter");

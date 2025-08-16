@@ -116,7 +116,7 @@ fn execute_mint_car(
     mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    owner: String,
+    owner: Option<String>,
     token_uri: Option<String>,
     mut extension: Option<CarMetadata>,
 ) -> Result<Response, CarError> {
@@ -135,6 +135,9 @@ fn execute_mint_car(
             return Err(CarError::Std(cosmwasm_std::StdError::generic_err("insufficient payment: must include at least one accepted option")));
         }
     }
+
+    // If owner is not provided, use the sender
+    let owner = owner.unwrap_or(info.sender.to_string());
 
     // Generate incremental token_id from CAR_ID_COUNTER
     let next_id = CAR_ID_COUNTER.load(deps.storage)?;

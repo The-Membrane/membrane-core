@@ -14,6 +14,10 @@ exclude = [
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "schema"
+path = "schema.rs"
+
 
 [features]
 # for more explicit tests, cargo test --features=backtraces

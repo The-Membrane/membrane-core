@@ -9,6 +9,10 @@ use cosmwasm_std::Addr;
 use crate::types::CarMetadata;
 use cosmwasm_std::Coin;
 
+// Type alias to avoid generic parameter issues in enum variants
+pub type Cw721ExecuteMsg = cw721_base::ExecuteMsg<Option<CarMetadata>, cosmwasm_std::Empty>;
+pub type Cw721QueryMsg = cw721_base::QueryMsg<cosmwasm_std::Empty>;
+
 #[cw_serde]
 pub struct InstantiateMsg {
     pub name: String,
@@ -19,11 +23,11 @@ pub struct InstantiateMsg {
 #[cw_serde]
 pub enum ExecuteMsg {
     /// Forward all standard CW721 executes through this variant
-    Base(cw721_base::ExecuteMsg<Option<CarMetadata>, cosmwasm_std::Empty>),
+    Base(Cw721ExecuteMsg),
     /// Request the contract to mint a new NFT. The contract will mint by self-calling,
     /// so only the contract (minter) can actually perform the mint.
     MintCar {
-        owner: String,
+        owner: Option<String>,
         token_uri: Option<String>,
         extension: Option<CarMetadata>,
     },
@@ -43,7 +47,7 @@ pub enum ExecuteMsg {
 #[derive(QueryResponses)]
 pub enum QueryMsg {
     #[returns(cosmwasm_std::Binary)]
-    Base(cw721_base::QueryMsg<cosmwasm_std::Empty>),
+    Base(Cw721QueryMsg),
 }
 
 

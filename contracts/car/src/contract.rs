@@ -67,7 +67,7 @@ pub fn execute(
                 .map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))
                 .map_err(CarError::from)
         }
-        ExecuteMsg::MintCar { owner, token_uri, extension } => execute_mint_car(deps, env, info, owner, token_uri, extension),
+        ExecuteMsg::CreateCar { owner, token_uri, extension } => execute_mint_car(deps, env, info, owner, token_uri, extension),
         ExecuteMsg::UpdateConfig { payment_options, new_owner } => execute_update_config(deps, info, payment_options, new_owner),
         ExecuteMsg::UpdateCustomDecal { token_id, svg } => execute_update_custom_decal(deps, info, token_id, svg),
     }

@@ -26,7 +26,7 @@ pub enum ExecuteMsg {
     Base(Cw721ExecuteMsg),
     /// Request the contract to mint a new NFT. The contract will mint by self-calling,
     /// so only the contract (minter) can actually perform the mint.
-    MintCar {
+    CreateCar {
         owner: Option<String>,
         token_uri: Option<String>,
         extension: Option<CarMetadata>,

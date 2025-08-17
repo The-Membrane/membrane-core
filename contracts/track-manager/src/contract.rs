@@ -6,6 +6,7 @@ use cosmwasm_std::{
 };
 use cw_storage_plus::Bound;
 use membrane::race_engine::DEFAULT_SPEED;
+use membrane::track_manager::MigrateMsg;
 
 use crate::error::TrackManagerError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
@@ -341,6 +342,6 @@ pub fn query_list_tracks(deps: Deps, start_after: Option<u128>, limit: Option<u3
 }
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, CarError> {
+pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, TrackManagerError> {
     Ok(Response::new())
 }

@@ -193,7 +193,7 @@ fn execute_mint_car(
         token_id,
         owner,
         token_uri,
-        extension,
+        extension: extension.clone(),
     }));
 
     let msg = WasmMsg::Execute {

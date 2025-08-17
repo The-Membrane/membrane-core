@@ -8,7 +8,7 @@ use cw2::set_contract_version;
 use cw721_base::{Cw721Contract, ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg, MintMsg};
 
 use crate::error::CarError;
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::car::{ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg};
 use crate::state::{CAR_ID_COUNTER, CONFIG, PENDING_OWNER};
 use membrane::types::CarMetadata;
 use membrane::car::Config;
@@ -275,3 +275,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     }
 }
 
+#[entry_point]
+pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, CarError> {
+    Ok(Response::new())
+}

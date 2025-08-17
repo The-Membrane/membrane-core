@@ -57,3 +57,6 @@ pub struct Config {
     pub owner: Addr,
     pub payment_options: Vec<Coin>,
 }
+
+#[cw_serde]
+pub struct MigrateMsg {}

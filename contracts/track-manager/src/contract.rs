@@ -339,3 +339,8 @@ pub fn query_list_tracks(deps: Deps, start_after: Option<u128>, limit: Option<u3
     }
     Ok(crate::msg::ListTracksResponse { tracks })
 }
+
+#[entry_point]
+pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, CarError> {
+    Ok(Response::new())
+}

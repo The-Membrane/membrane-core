@@ -25,6 +25,9 @@ pub fn instantiate(
     let admin = deps.api.addr_validate(&msg.admin)?;
     ADMIN.save(deps.storage, &admin)?;
 
+    //Set the track id counter to 0
+    TRACK_ID_COUNTER.save(deps.storage, &Uint128::zero())?;
+
     Ok(Response::new()
         .add_attribute("method", "instantiate")
         .add_attribute("admin", admin))
@@ -343,5 +346,11 @@ pub fn query_list_tracks(deps: Deps, start_after: Option<u128>, limit: Option<u3
 
 #[entry_point]
 pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, TrackManagerError> {
-    Ok(Response::new())
+
+    //Set the track id counter to 0
+    TRACK_ID_COUNTER.save(deps.storage, &Uint128::zero())?;
+
+    Ok(Response::new()
+        .add_attribute("method", "migrate")
+        .add_attribute("track_id_counter", Uint128::zero()))
 }

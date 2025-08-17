@@ -8,10 +8,9 @@ use cw2::set_contract_version;
 use cw721_base::{Cw721Contract, ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg, MintMsg};
 
 use crate::error::CarError;
-use membrane::car::{ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg};
+use membrane::car::{ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg, Config};
 use crate::state::{CAR_ID_COUNTER, CONFIG, PENDING_OWNER};
 use membrane::types::CarMetadata;
-use membrane::car::Config;
 use membrane::traits_engine::{default_rarity_table, generate_traits_with_rarity, traits_to_attributes};
 
 const CONTRACT_NAME: &str = "car_nft";
@@ -190,12 +189,12 @@ fn execute_mint_car(
     }
 
     // Perform a self-call to cw721-base Mint
-    let self_mint = Cw721ExecuteMsg::<Option<CarMetadata>, cosmwasm_std::Empty>::Mint(MintMsg {
+    let self_mint = ExecuteMsg::Base(Cw721ExecuteMsg::Mint(MintMsg {
         token_id,
         owner,
         token_uri,
         extension,
-    });
+    }));
 
     let msg = WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),

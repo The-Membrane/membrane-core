@@ -204,7 +204,9 @@ fn execute_mint_car(
 
     Ok(Response::new()
         .add_message(msg)
-        .add_attribute("action", "mint_car"))
+        .add_attribute("action", "mint_car")
+        .add_attribute("extension", format!("{:?}", extension))
+    )
 }
 
 fn execute_update_custom_decal(

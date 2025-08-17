@@ -39,3 +39,6 @@ pub enum QueryMsg {
 pub struct ListTracksResponse {
     pub tracks: Vec<Track>,
 } 
+
+#[cw_serde]
+pub struct MigrateMsg {}

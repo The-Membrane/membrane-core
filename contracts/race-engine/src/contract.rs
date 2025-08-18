@@ -9,8 +9,8 @@ use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
 use crate::state::{CAR_TRACK_TRAINING_STATS, add_recent_race, get_config, get_q_values, get_recent_races, set_config, set_q_values, CONFIG, MAX_TICKS, Q_TABLE, update_solo_training_stats, update_pvp_training_stats, get_track_training_stats};
-use membrane::types::{ActionSelectionStrategy, QTableEntry, RewardNumbers, Track, TrackTile};
-use membrane::race_engine::{CarState, Config, ConfigResponse, ExecuteMsg, GetQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
+use membrane::types::{ActionSelectionStrategy, QTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TrainingStats};
+use membrane::race_engine::{CarState, Config, ConfigResponse, ExecuteMsg, GetQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
 // Race simulation constants
 const MAX_CARS: usize = 8;
@@ -330,7 +330,7 @@ pub fn execute_simulate_race(
     let training_config = match training_config {
         Some(config) => config,
         None => TrainingConfig {
-            training_mode: true,
+            training_mode: train,
             epsilon: Decimal::percent((EPSILON * 100.0) as u64),
             temperature: Decimal::zero(),
             enable_epsilon_decay: true,
@@ -1266,11 +1266,13 @@ pub fn query_track_training_stats(
                         tally: 0,
                         win_rate: 0,
                         fastest: u32::MAX,
+                        first_time: u32::MAX,
                     },
                     pvp: membrane::types::TrainingStats {
                         tally: 0,
                         win_rate: 0,
                         fastest: u32::MAX,
+                        first_time: u32::MAX,
                     },
                 });
             
@@ -1442,4 +1444,43 @@ fn calculate_action_reward(
     }
     println!("Reward: {}", reward);
     Ok(reward)
+}
+
+#[entry_point]
+pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
+
+    //Set the training stats of car 0 track 0 
+    CAR_TRACK_TRAINING_STATS.save(deps.storage, (0, 0), &TrackTrainingStats {
+        solo: TrainingStats {
+            tally: 4,
+            win_rate: 1000,
+            fastest: 59,
+            first_time: 59,
+        },
+        pvp: TrainingStats {
+            tally: 0,
+            win_rate: 0,
+            fastest: u32::MAX,
+            first_time: u32::MAX,
+        },
+    })?;
+
+    //Set the training stats of car 1 track 0 
+    CAR_TRACK_TRAINING_STATS.save(deps.storage, (1, 0), &TrackTrainingStats {
+        solo: TrainingStats {
+            tally: 1,
+            win_rate: 1000,
+            fastest: 39,
+            first_time: 39,
+        },
+        pvp: TrainingStats {
+            tally: 0,
+            win_rate: 0,
+            fastest: u32::MAX,
+            first_time: u32::MAX,
+        },
+    })?;
+
+    Ok(Response::new()
+        .add_attribute("method", "migrate"))
 }

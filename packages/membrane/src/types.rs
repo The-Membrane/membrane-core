@@ -1356,6 +1356,8 @@ pub struct TrainingStats {
     pub win_rate: u32,
     /// Fastest completion time in ticks
     pub fastest: u32,
+    /// First time completion in ticks
+    pub first_time: u32,
 }
 
 #[cw_serde]

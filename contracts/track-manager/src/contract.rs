@@ -347,8 +347,8 @@ pub fn query_list_tracks(deps: Deps, start_after: Option<u128>, limit: Option<u3
 #[entry_point]
 pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, TrackManagerError> {
 
-    //Set the track id counter to 0
-    TRACK_ID_COUNTER.save(deps.storage, &Uint128::zero())?;
+    // //Set the track id counter to 0
+    // TRACK_ID_COUNTER.save(deps.storage, &Uint128::zero())?;
 
     Ok(Response::new()
         .add_attribute("method", "migrate")

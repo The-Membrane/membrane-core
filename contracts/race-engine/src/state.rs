@@ -118,11 +118,13 @@ pub fn update_solo_training_stats(
                 tally: 0,
                 win_rate: 0,
                 fastest: u32::MAX,
+                first_time: u32::MAX,
             },
             pvp: TrainingStats {
                 tally: 0,
                 win_rate: 0,
                 fastest: u32::MAX,
+                first_time: u32::MAX,
             },
         });
     
@@ -137,6 +139,11 @@ pub fn update_solo_training_stats(
     // Update fastest time if this run was faster
     if completion_time < stats.solo.fastest {
         stats.solo.fastest = completion_time;
+    }
+
+    // Update first time completion
+    if stats.solo.first_time == u32::MAX {
+        stats.solo.first_time = completion_time;
     }
     
     CAR_TRACK_TRAINING_STATS.save(storage, (car_id, track_id), &stats)?;
@@ -156,11 +163,13 @@ pub fn update_pvp_training_stats(
                 tally: 0,
                 win_rate: 0,
                 fastest: u32::MAX,
+                first_time: u32::MAX,
             },
             pvp: TrainingStats {
                 tally: 0,
                 win_rate: 0,
                 fastest: u32::MAX,
+                first_time: u32::MAX,
             },
         });
     
@@ -175,6 +184,11 @@ pub fn update_pvp_training_stats(
     // Update fastest time if this run was faster
     if completion_time < stats.pvp.fastest {
         stats.pvp.fastest = completion_time;
+    }
+
+    // Update first time completion
+    if stats.pvp.first_time == u32::MAX {
+        stats.pvp.first_time = completion_time;
     }
     
     CAR_TRACK_TRAINING_STATS.save(storage, (car_id, track_id), &stats)?;

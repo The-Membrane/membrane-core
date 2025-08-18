@@ -182,3 +182,7 @@ pub struct TrainingConfig {
     pub temperature: Decimal,
     pub enable_epsilon_decay: bool,
 }
+
+
+#[cw_serde]
+pub struct MigrateMsg {}

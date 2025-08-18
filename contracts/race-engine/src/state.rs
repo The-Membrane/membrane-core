@@ -194,3 +194,32 @@ pub fn update_pvp_training_stats(
     CAR_TRACK_TRAINING_STATS.save(storage, (car_id, track_id), &stats)?;
     Ok(stats)
 }
+
+pub fn update_fastest_time(storage: &mut dyn Storage, car_id: u128, track_id: u128, completion_time: u32) -> StdResult<()> {
+    let mut stats = CAR_TRACK_TRAINING_STATS.load(storage, (car_id, track_id))
+        .unwrap_or_else(|_| TrackTrainingStats {
+            solo: TrainingStats {
+                tally: 0,
+                win_rate: 0,
+                fastest: u32::MAX,
+                first_time: u32::MAX,
+            },
+            pvp: TrainingStats {
+                tally: 0,
+                win_rate: 0,
+                fastest: u32::MAX,
+                first_time: u32::MAX,
+            },
+        });
+
+    if completion_time < stats.solo.fastest {
+        stats.solo.fastest = completion_time;
+    }
+
+    if completion_time < stats.pvp.fastest {
+        stats.pvp.fastest = completion_time;
+    }
+
+    CAR_TRACK_TRAINING_STATS.save(storage, (car_id, track_id), &stats)?;
+    Ok(())
+}

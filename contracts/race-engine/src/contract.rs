@@ -8,7 +8,7 @@ use cosmwasm_std::{
 use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
-use crate::state::{CAR_TRACK_TRAINING_STATS, add_recent_race, get_config, get_q_values, get_recent_races, set_config, set_q_values, CONFIG, MAX_TICKS, Q_TABLE, update_solo_training_stats, update_pvp_training_stats, get_track_training_stats};
+use crate::state::{add_recent_race, get_config, get_q_values, get_recent_races, get_track_training_stats, set_config, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, CAR_TRACK_TRAINING_STATS, CONFIG, MAX_TICKS, Q_TABLE};
 use membrane::types::{ActionSelectionStrategy, QTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TrainingStats};
 use membrane::race_engine::{CarState, Config, ConfigResponse, ExecuteMsg, GetQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
@@ -422,8 +422,10 @@ pub fn execute_simulate_race(
 
     // Save race result
     add_recent_race(deps.storage, race_result_struct.clone(), None, Some(track_id.into()))?;
-    for car_id in car_ids.clone() {
-        add_recent_race(deps.storage, race_result_struct.clone(), Some(car_id), None)?;
+    for car in &race_state.cars {
+        add_recent_race(deps.storage, race_result_struct.clone(), Some(car.car_id), None)?;
+        //Update fastest time
+        update_fastest_time(deps.storage, car.car_id, track_id.into(), car.steps_taken)?;
     }
 
     // **NEW**: Apply Q-learning updates directly to car model in storage
@@ -452,6 +454,7 @@ pub fn execute_simulate_race(
             }
         }
     }
+
 
     let mut response = Response::new()
         .add_attribute("method", "simulate_race")
@@ -1450,36 +1453,36 @@ fn calculate_action_reward(
 pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
 
     //Set the training stats of car 0 track 0 
-    CAR_TRACK_TRAINING_STATS.save(deps.storage, (0, 0), &TrackTrainingStats {
-        solo: TrainingStats {
-            tally: 4,
-            win_rate: 1000,
-            fastest: 59,
-            first_time: 59,
-        },
-        pvp: TrainingStats {
-            tally: 0,
-            win_rate: 0,
-            fastest: u32::MAX,
-            first_time: u32::MAX,
-        },
-    })?;
+    // CAR_TRACK_TRAINING_STATS.save(deps.storage, (0, 0), &TrackTrainingStats {
+    //     solo: TrainingStats {
+    //         tally: 4,
+    //         win_rate: 1000,
+    //         fastest: 59,
+    //         first_time: 59,
+    //     },
+    //     pvp: TrainingStats {
+    //         tally: 0,
+    //         win_rate: 0,
+    //         fastest: u32::MAX,
+    //         first_time: u32::MAX,
+    //     },
+    // })?;
 
-    //Set the training stats of car 1 track 0 
-    CAR_TRACK_TRAINING_STATS.save(deps.storage, (1, 0), &TrackTrainingStats {
-        solo: TrainingStats {
-            tally: 1,
-            win_rate: 1000,
-            fastest: 39,
-            first_time: 39,
-        },
-        pvp: TrainingStats {
-            tally: 0,
-            win_rate: 0,
-            fastest: u32::MAX,
-            first_time: u32::MAX,
-        },
-    })?;
+    // //Set the training stats of car 1 track 0 
+    // CAR_TRACK_TRAINING_STATS.save(deps.storage, (1, 0), &TrackTrainingStats {
+    //     solo: TrainingStats {
+    //         tally: 1,
+    //         win_rate: 1000,
+    //         fastest: 39,
+    //         first_time: 39,
+    //     },
+    //     pvp: TrainingStats {
+    //         tally: 0,
+    //         win_rate: 0,
+    //         fastest: u32::MAX,
+    //         first_time: u32::MAX,
+    //     },
+    // })?;
 
     Ok(Response::new()
         .add_attribute("method", "migrate"))

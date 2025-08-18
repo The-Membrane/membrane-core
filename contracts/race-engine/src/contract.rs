@@ -45,7 +45,7 @@ const MIN_Q_VALUE: i32 = -100;
 // Reward constants
 const STUCK_PENALTY: i32 = -5;
 const WALL_PENALTY: i32 = -8;
-const NO_MOVE_PENALTY: i32 = 0;
+const NO_MOVE_PENALTY: i32 = -1;
 const EXPLORATION_BONUS: i32 = 6;
 const RANK_REWARDS: [i32; 3] = [100, 50, 25]; // 1st, 2nd, 3rd place
 

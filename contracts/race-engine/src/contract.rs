@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use cosmwasm_std::{
-    entry_point, to_json_binary, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, Response, StdResult, Storage, Uint128, from_json
+    entry_point, to_json_binary, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, Response, StdResult, Storage, Uint128, from_json, Decimal
 };
 use cw_storage_plus::Bound;
 
@@ -54,6 +54,13 @@ fn pseudo_random(seed: u32, modulus: u32) -> u32 {
     let a: u32 = 1103515245;
     let c: u32 = 12345;
     (a.wrapping_mul(seed).wrapping_add(c)) % modulus
+}
+
+/// Convert Decimal (fixed 18 fractional digits) to f32
+fn decimal_to_f32(d: Decimal) -> f32 {
+    let num = d.atomics().u128() as f64;
+    let denom = 1e18f64;
+    (num / denom) as f32
 }
 
 /// Create action strategy based on training configuration
@@ -297,7 +304,10 @@ fn find_start_indices(track_layout: &[Vec<membrane::types::TrackTile>]) -> Vec<(
 }
 
 
-
+//TODO: 
+// - Can't train (but can race) a car ID that doesn't exist (check the car ID counter)
+// - Can't train a car ID unless owned by the caller (fullfills the above)
+// -- Big Bad Boss car will bypass this training (maybe we should make it the 0'd ID)
 pub fn execute_simulate_race(
     deps: DepsMut,
     env: Env,
@@ -321,8 +331,8 @@ pub fn execute_simulate_race(
         Some(config) => config,
         None => TrainingConfig {
             training_mode: true,
-            epsilon: EPSILON,
-            temperature: TEMPERATURE,
+            epsilon: Decimal::percent((EPSILON * 100.0) as u64),
+            temperature: Decimal::zero(),
             enable_epsilon_decay: true,
         },
     };
@@ -546,7 +556,7 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
         }
         
         //Get action strategy
-        let strategy = make_action_strategy(training_config.training_mode, training_config.epsilon, training_config.temperature, tick_index, MAX_TICKS, training_config.enable_epsilon_decay); // ε-greedy with 10% explore        
+        let strategy = make_action_strategy(training_config.training_mode, decimal_to_f32(training_config.epsilon), decimal_to_f32(training_config.temperature), tick_index, MAX_TICKS, training_config.enable_epsilon_decay); // ε-greedy with 10% explore        
         // Get car action based on Q-table or heuristic
         // Get other cars' current positions (excluding this car)
         let other_cars_positions: Vec<(i32, i32)> = all_car_positions.iter()
@@ -563,13 +573,15 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
     
     // Second pass: calculate new positions based on actions
     for i in 0..race_state.cars.len() {
-        let car = &race_state.cars[i];
+        let car = &mut race_state.cars[i];
         if car.finished || car.stuck {
             continue; // Already handled in first pass
         }
         
         let action = car_actions[i];
-        
+
+        //Save action
+        car.last_action = action;
         // **NEW**: Use car's current speed instead of tile speed
         let tile_speed = car.current_speed;
 
@@ -609,19 +621,19 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
             .collect();
         
         let state_hash = generate_state_hash(&race_state.track_layout, car.x, car.y, car.current_speed, &other_cars_positions);
-        let action = if car.x != new_x || car.y != new_y { 
-            // Determine action based on movement
-            if car.x < new_x { ACTION_RIGHT }
-            else if car.x > new_x { ACTION_LEFT }
-            else if car.y < new_y { ACTION_DOWN }
-            else if car.y > new_y { ACTION_UP }
-            else { ACTION_RIGHT } // Default to right if no movement
-        } else { 
-            ACTION_RIGHT // Default to right if no movement
-        };
+        // let action = if car.x != new_x || car.y != new_y { 
+        //     // Determine action based on movement
+        //     if car.x < new_x { ACTION_RIGHT }
+        //     else if car.x > new_x { ACTION_LEFT }
+        //     else if car.y < new_y { ACTION_DOWN }
+        //     else if car.y > new_y { ACTION_UP }
+        //     else { ACTION_RIGHT } // Default to right if no movement
+        // } else { 
+        //     ACTION_RIGHT // Default to right if no movement
+        // };
         
         // Record action in history
-        car.action_history.push((state_hash, action, car.tile.clone()));
+        car.action_history.push((state_hash, car.last_action, car.tile.clone()));
         
         // **NEW**: Track wall collision
         car.hit_wall = hit_wall;
@@ -629,12 +641,11 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
         // **NEW**: Apply tile effects using properties directly
         apply_tile_effects_to_car(car, new_x, new_y, &race_state.track_layout)?;
         
-        car.last_action = action;
         
         // Record action in play_by_play for this car
         if let Some(play_by_play) = race_state.play_by_play.get_mut(&car.car_id) {
             play_by_play.actions.push(membrane::race_engine::Action {
-                action: action.to_string(),
+                action: car.last_action.to_string(),
                 resulting_position: membrane::race_engine::Position {
                     car_id: car.car_id.clone(),
                     x: new_x as u32,

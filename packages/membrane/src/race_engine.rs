@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use cosmwasm_schema::{cw_serde, QueryResponses};
-use cosmwasm_std::Uint128;
+use cosmwasm_std::{Uint128, Decimal};
 
 use crate::types::{QTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats};
 
@@ -178,7 +178,7 @@ pub struct Config {
 #[cw_serde]
 pub struct TrainingConfig {
     pub training_mode: bool,
-    pub epsilon: f32,
-    pub temperature: f32,
+    pub epsilon: Decimal,
+    pub temperature: Decimal,
     pub enable_epsilon_decay: bool,
 }

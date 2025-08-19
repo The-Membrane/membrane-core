@@ -100,6 +100,7 @@ pub fn execute_add_track(
         height,
         layout: track_layout,
         fastest_tick_time,
+        starting_tiles: stats.starting_tiles,
     };
 
     set_track(deps.storage, &track_id.into(), track)?;
@@ -124,6 +125,7 @@ struct TrackStats {
     stick_tiles: u32,
     wall_tiles: u32,
     normal_tiles: u32,
+    starting_tiles: u32,
 }
 
 /// Calculate statistics for a track layout
@@ -139,6 +141,7 @@ fn calculate_track_statistics(
         stick_tiles: 0,
         wall_tiles: 0,
         normal_tiles: 0,
+        starting_tiles: 0,
     };
 
     for y in 0..height {
@@ -146,6 +149,8 @@ fn calculate_track_statistics(
             let tile = &layout[y as usize][x as usize];
             if tile.is_finish {
                 stats.finish_tiles += 1;
+            } else if tile.is_start {
+                stats.starting_tiles += 1;
             } else if tile.speed_modifier > DEFAULT_SPEED.into() {
                 stats.boost_tiles += 1;
             } else if tile.speed_modifier < DEFAULT_SPEED.into() {
@@ -352,8 +357,11 @@ pub fn query_list_tracks(deps: Deps, start_after: Option<u128>, limit: Option<u3
 #[entry_point]
 pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, TrackManagerError> {
 
-    // //Set the track id counter to 0
-    // TRACK_ID_COUNTER.save(deps.storage, &Uint128::zero())?;
+    //Set the track id counter to 0
+    TRACK_ID_COUNTER.save(deps.storage, &Uint128::zero())?;
+
+    //Delete all tracks
+    TRACKS.remove(deps.storage, 0u128);
 
     Ok(Response::new()
         .add_attribute("method", "migrate")

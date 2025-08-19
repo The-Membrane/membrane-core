@@ -1586,3 +1586,18 @@ pub enum ActionSelectionStrategy {
         total_ticks: u32,       // Total training ticks
     },
 }
+
+// Top times per track
+#[cw_serde]
+pub struct TopTimeEntry {
+    pub car_id: u128,
+    pub time: u16,
+}
+
+#[cw_serde]
+pub struct TopTimes {
+    pub entries: Vec<TopTimeEntry>,
+    pub highest: Option<TopTimeEntry>,
+    pub highest_index: Option<u16>,
+    pub car_index: std::collections::BTreeMap<u128, u16>,
+}

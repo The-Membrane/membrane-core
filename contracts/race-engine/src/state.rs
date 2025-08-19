@@ -3,7 +3,7 @@ use cw_storage_plus::{Item, Map};
 use serde::{Deserialize, Serialize};
 
 use membrane::race_engine::{Config, RaceResult};
-use membrane::types::{TrackTrainingStats, TrainingStats};
+use membrane::types::{TrackTrainingStats, TrainingStats, TopTimes, TopTimeEntry};
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const CAR_RECENT_RACES: Map<u128, Vec<RaceResult>> = Map::new("car_recent_races");
@@ -20,6 +20,10 @@ pub const Q_TABLE: Map<(u128, &[u8; 32]), [i32; 4]> = Map::new("q_table");
 
 // Training stats storage: (car_id, track_id) -> TrackTrainingStats
 pub const CAR_TRACK_TRAINING_STATS: Map<(u128, u128), TrackTrainingStats> = Map::new("car_track_training_stats");
+
+
+pub const MAX_TOP_TIMES: usize = 100;
+pub const TRACK_TOP_TIMES: Map<u128, TopTimes> = Map::new("track_top_times");
 
 pub fn get_q_values(storage: &dyn Storage, car_id: u128, state_hash: & [u8; 32]) -> StdResult<[i32; 4]> {
     Q_TABLE.load(storage, (car_id, state_hash))
@@ -88,6 +92,105 @@ pub fn add_recent_race(storage: &mut dyn cosmwasm_std::Storage, race_result: Rac
     }
     
     Ok(())
+}
+
+// Helper: recompute the highest entry (the slowest time among current top entries)
+fn recompute_highest_with_index(entries: &Vec<TopTimeEntry>) -> (Option<TopTimeEntry>, Option<u16>) {
+    if entries.is_empty() { return (None, None); }
+    let mut worst_idx: usize = 0;
+    let mut worst_time: u16 = entries[0].time;
+    for (i, e) in entries.iter().enumerate() {
+        if e.time > worst_time {
+            worst_time = e.time;
+            worst_idx = i;
+        }
+    }
+    (
+        Some(TopTimeEntry { car_id: entries[worst_idx].car_id, time: entries[worst_idx].time }),
+        Some(worst_idx as u16),
+    )
+}
+
+pub fn get_track_top_times(storage: &dyn Storage, track_id: u128) -> StdResult<TopTimes> {
+    TRACK_TOP_TIMES.load(storage, track_id)
+}
+
+/// Update the top-N times for a track with a new (car_id, time)
+/// - Only one entry per car is allowed
+/// - Keep at most MAX_TOP_TIMES entries
+/// - Unordered storage; maintain a cached `highest` entry (slowest time) for quick thresholding
+pub fn update_track_top_times(storage: &mut dyn Storage, track_id: u128, car_id: u128, time: u32) -> StdResult<TopTimes> {
+    let mut top = TRACK_TOP_TIMES.load(storage, track_id).unwrap_or(TopTimes { entries: vec![], highest: None, highest_index: None, car_index: std::collections::BTreeMap::new() });
+    let time_u16: u16 = time as u16;
+
+    // If car already exists, update only if improved (lower time)
+    if let Some(&idx_u16) = top.car_index.get(&car_id) {
+        let idx = idx_u16 as usize;
+        if let Some(existing) = top.entries.get_mut(idx) {
+            if time_u16 < existing.time {
+                existing.time = time_u16;
+                // If this was the highest, we must recompute; otherwise no change to highest
+                if top.highest_index.map(|i| i as usize) == Some(idx) {
+                    let (new_highest, new_idx) = recompute_highest_with_index(&top.entries);
+                    top.highest = new_highest;
+                    top.highest_index = new_idx;
+                }
+                TRACK_TOP_TIMES.save(storage, track_id, &top)?;
+            }
+        }
+        return Ok(top);
+    }
+
+    // Car not present: if capacity not full, push
+    if top.entries.len() < MAX_TOP_TIMES {
+        let new_idx = top.entries.len();
+        top.entries.push(TopTimeEntry { car_id, time: time_u16 });
+        top.car_index.insert(car_id, new_idx as u16);
+        // Update highest caches: if empty or new time is slower than current highest
+        match (&top.highest, top.highest_index) {
+            (Some(h), Some(h_idx)) => {
+                if time_u16 > h.time {
+                    top.highest = Some(TopTimeEntry { car_id, time: time_u16 });
+                    top.highest_index = Some(new_idx as u16);
+                }
+            }
+            _ => {
+                // First entry
+                top.highest = Some(TopTimeEntry { car_id, time: time_u16 });
+                top.highest_index = Some(new_idx as u16);
+            }
+        }
+        TRACK_TOP_TIMES.save(storage, track_id, &top)?;
+        return Ok(top);
+    }
+
+    // Capacity full: check against current worst (largest time)
+    let should_insert = match &top.highest {
+        Some(highest) => time_u16 < highest.time,
+        None => true,
+    };
+
+    if should_insert {
+        // Replace the current worst entry with the new one
+        let worst_idx = top.highest_index.map(|i| i as usize)
+            .unwrap_or_else(|| top.entries.iter().enumerate().max_by_key(|(_, e)| e.time).map(|(i, _)| i).unwrap_or(0));
+
+        // Remove old car index mapping for the replaced entry
+        let old_car_id = top.entries[worst_idx].car_id;
+        top.car_index.remove(&old_car_id);
+
+        // Insert new entry in place
+        top.entries[worst_idx] = TopTimeEntry { car_id, time: time_u16 };
+        top.car_index.insert(car_id, worst_idx as u16);
+
+        // Recompute highest caches after replacement
+        let (new_highest, new_idx) = recompute_highest_with_index(&top.entries);
+        top.highest = new_highest;
+        top.highest_index = new_idx;
+        TRACK_TOP_TIMES.save(storage, track_id, &top)?;
+    }
+
+    Ok(top)
 }
 
 // Training stats functions

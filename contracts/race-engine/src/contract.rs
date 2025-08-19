@@ -8,7 +8,7 @@ use cosmwasm_std::{
 use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
-use crate::state::{add_recent_race, get_config, get_q_values, get_recent_races, get_track_training_stats, set_config, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, CAR_TRACK_TRAINING_STATS, CONFIG, MAX_TICKS, Q_TABLE};
+use crate::state::{add_recent_race, get_config, get_q_values, get_recent_races, get_track_training_stats, set_config, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, CAR_TRACK_TRAINING_STATS, CONFIG, MAX_TICKS, Q_TABLE};
 use membrane::types::{ActionSelectionStrategy, QTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TrainingStats};
 use membrane::race_engine::{CarState, Config, ConfigResponse, ExecuteMsg, GetQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
@@ -48,6 +48,16 @@ const WALL_PENALTY: i32 = -8;
 const NO_MOVE_PENALTY: i32 = -1;
 const EXPLORATION_BONUS: i32 = 6;
 const RANK_REWARDS: [i32; 3] = [100, 50, 25]; // 1st, 2nd, 3rd place
+
+// New imports for ownership checks
+use serde::Deserialize;
+use membrane::car::Cw721QueryMsg;
+
+// Minimal response type for cw721 "owner_of" query
+#[derive(Deserialize)]
+struct OwnerOfResponse {
+    owner: String,
+}
 
 /// Deterministic but simple RNG for on-chain use (fallback if no external crate)
 fn pseudo_random(seed: u32, modulus: u32) -> u32 {
@@ -268,7 +278,7 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::SimulateRace { track_id, car_ids, train, training_config, reward_config } => {
-            execute_simulate_race(deps, _env, track_id, car_ids, train, training_config, reward_config)
+            execute_simulate_race(deps, _env, _info, track_id, car_ids, train, training_config, reward_config)
         },
         ExecuteMsg::ResetQ { car_id } => {
             execute_reset_q(deps.storage, car_id.into())
@@ -305,12 +315,11 @@ fn find_start_indices(track_layout: &[Vec<membrane::types::TrackTile>]) -> Vec<(
 
 
 //TODO: 
-// - Can't train (but can race) a car ID that doesn't exist (check the car ID counter)
-// - Can't train a car ID unless owned by the caller (fullfills the above)
 // -- Big Bad Boss car will bypass this training (maybe we should make it the 0'd ID)
 pub fn execute_simulate_race(
     deps: DepsMut,
     env: Env,
+    info: MessageInfo,
     track_id: Uint128,
     car_ids: Vec<u128>,
     train: bool,
@@ -324,6 +333,24 @@ pub fn execute_simulate_race(
             expected: MIN_CARS as u32, 
             actual: car_ids.len() as u32
         });
+    }
+
+    // Enforce training restrictions: car must exist and be owned by caller
+    if train {
+        for car_id in &car_ids {
+            // Query cw721 owner_of via car contract; treat not found as CarNotFound
+            let owner_resp: OwnerOfResponse = deps.querier.query_wasm_smart::<OwnerOfResponse>(
+                config.car_contract.clone(),
+                &Car_QueryMsg::Base(Cw721QueryMsg::OwnerOf { 
+                    token_id: car_id.to_string(), 
+                    include_expired: None,
+                })
+            ).map_err(|_| ContractError::CarNotFound { car_id: car_id.to_string() })?;
+
+            if owner_resp.owner != info.sender.to_string() {
+                return Err(ContractError::Unauthorized {});
+            }
+        }
     }
 
     //If training_config is None, use default values
@@ -426,6 +453,10 @@ pub fn execute_simulate_race(
         add_recent_race(deps.storage, race_result_struct.clone(), Some(car.car_id), None)?;
         //Update fastest time
         update_fastest_time(deps.storage, car.car_id, track_id.into(), car.steps_taken)?;
+        // Update per-track top times only for finished cars
+        if car.finished {
+            let _ = update_track_top_times(deps.storage, track_id.into(), car.car_id, car.steps_taken);
+        }
     }
 
     // **NEW**: Apply Q-learning updates directly to car model in storage
@@ -960,7 +991,7 @@ fn apply_tile_effects_to_car(
     
     // Apply other effects
     if tile.properties.is_finish {
-        println!("Car finished, new position: ({}, {})", new_x, new_y);
+        // println!("Car finished, new position: ({}, {})", new_x, new_y);
         car.finished = true;
         car.x = new_x;
         car.y = new_y;
@@ -1164,6 +1195,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetConfig {  } => to_json_binary(&CONFIG.load(deps.storage).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetQ { car_id, state_hash } => to_json_binary(&query_q_values(deps, car_id, state_hash).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetTrackTrainingStats { car_id, track_id, start_after, limit } => to_json_binary(&query_track_training_stats(deps, car_id, track_id, start_after, limit).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
+        QueryMsg::GetTopTimes { track_id } => to_json_binary(&crate::state::get_track_top_times(deps.storage, track_id).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
     }
 }
 
@@ -1434,7 +1466,7 @@ fn calculate_action_reward(
     }
 
     // Movement reward
-
+    
     let delta = tile.progress_towards_finish as i32 - last_tile.progress_towards_finish as i32;
     // println!("Delta: {}", delta);
     if delta == 0 {
@@ -1445,7 +1477,7 @@ fn calculate_action_reward(
     if delta > 0 {
         reward += reward_config.distance * tile.progress_towards_finish as i32;
     }
-    println!("Reward: {}", reward);
+    // println!("Reward: {}", reward);
     Ok(reward)
 }
 

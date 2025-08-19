@@ -46,6 +46,7 @@ fn create_test_track() -> Track {
         height: 5,
         layout,
         fastest_tick_time: 10,
+        starting_tiles: 5,
     }
 }
 
@@ -115,8 +116,8 @@ fn test_training_stats_after_race() {
         train: true,
         training_config: Some(TrainingConfig {
             training_mode: true,
-            epsilon: 0.1,
-            temperature: 0.0,
+            epsilon: cosmwasm_std::Decimal::percent(10),
+            temperature: cosmwasm_std::Decimal::zero(),
             enable_epsilon_decay: false,
         }),
         reward_config: None,
@@ -152,8 +153,8 @@ fn test_training_stats_after_race() {
         train: true,
         training_config: Some(TrainingConfig {
                 training_mode: true,
-                epsilon: 0.1,
-            temperature: 0.0,
+                epsilon: cosmwasm_std::Decimal::percent(10),
+            temperature: cosmwasm_std::Decimal::zero(),
             enable_epsilon_decay: false,
         }),
         reward_config: None,
@@ -200,8 +201,8 @@ fn test_multiple_tracks_query() {
             train: true,
             training_config: Some(TrainingConfig {
             training_mode: true,
-            epsilon: 0.1,
-            temperature: 0.0,
+            epsilon: cosmwasm_std::Decimal::percent(10),
+            temperature: cosmwasm_std::Decimal::zero(),
             enable_epsilon_decay: false,
             }),
             reward_config: None,
@@ -250,8 +251,8 @@ fn test_random_behavior_variability() {
             train: true,
             training_config: Some(TrainingConfig {
                 training_mode: true,
-                epsilon: 0.9, // 90% random exploration
-                temperature: 0.0,
+                epsilon: cosmwasm_std::Decimal::percent(90), // 90% random exploration
+                temperature: cosmwasm_std::Decimal::zero(),
                 enable_epsilon_decay: false,
             }),
             reward_config: None,
@@ -313,8 +314,8 @@ fn test_deterministic_vs_random() {
         train: true,
         training_config: Some(TrainingConfig {
             training_mode: true,
-            epsilon: 0.0, // No randomness
-            temperature: 0.0,
+            epsilon: cosmwasm_std::Decimal::zero(), // No randomness
+            temperature: cosmwasm_std::Decimal::zero(),
             enable_epsilon_decay: false,
         }),
         reward_config: None,
@@ -343,8 +344,8 @@ fn test_deterministic_vs_random() {
         train: true,
         training_config: Some(TrainingConfig {
             training_mode: true,
-            epsilon: 1.0, // 100% random
-            temperature: 0.0,
+            epsilon: cosmwasm_std::Decimal::one(), // 100% random
+            temperature: cosmwasm_std::Decimal::zero(),
             enable_epsilon_decay: false,
         }),
         reward_config: None,
@@ -379,8 +380,8 @@ fn test_empty_q_table_behavior() {
         train: true,
         training_config: Some(TrainingConfig {
             training_mode: true,
-            epsilon: 0.0, // No randomness - pure Q-learning
-                temperature: 0.0,
+            epsilon: cosmwasm_std::Decimal::zero(), // No randomness - pure Q-learning
+                temperature: cosmwasm_std::Decimal::zero(),
                 enable_epsilon_decay: false,
         }),
             reward_config: None,
@@ -410,8 +411,8 @@ fn test_empty_q_table_behavior() {
         train: true,
         training_config: Some(TrainingConfig {
                 training_mode: true,
-            epsilon: 0.0, // No randomness - pure Q-learning
-                temperature: 0.0,
+            epsilon: cosmwasm_std::Decimal::zero(), // No randomness - pure Q-learning
+                temperature: cosmwasm_std::Decimal::zero(),
             enable_epsilon_decay: false,
         }),
         reward_config: None,
@@ -463,8 +464,8 @@ fn test_learning_process_investigation() {
             train: true,
             training_config: Some(TrainingConfig {
                 training_mode: true,
-                epsilon: 0.1, // 10% random
-                temperature: 0.0,
+                epsilon: cosmwasm_std::Decimal::percent(10), // 10% random
+                temperature: cosmwasm_std::Decimal::zero(),
                 enable_epsilon_decay: false,
             }),
             reward_config: None,
@@ -533,8 +534,8 @@ fn test_seed_determinism_explanation() {
         train: true,
         training_config: Some(TrainingConfig {
             training_mode: true,
-            epsilon: 0.5, // 50% random
-            temperature: 0.0,
+            epsilon: cosmwasm_std::Decimal::percent(50), // 50% random
+            temperature: cosmwasm_std::Decimal::zero(),
             enable_epsilon_decay: false,
         }),
         reward_config: None,
@@ -569,8 +570,8 @@ fn test_seed_determinism_explanation() {
         train: true,
         training_config: Some(TrainingConfig {
                 training_mode: true,
-            epsilon: 0.5, // Same 50% random
-                temperature: 0.0,
+            epsilon: cosmwasm_std::Decimal::percent(50), // Same 50% random
+                temperature: cosmwasm_std::Decimal::zero(),
                 enable_epsilon_decay: false,
         }),
         reward_config: None,
@@ -650,7 +651,7 @@ fn test_initial_q_values_investigation() {
             training_config: Some(TrainingConfig {
                 training_mode: true,
                 epsilon,
-                temperature: 0.0,
+                temperature: cosmwasm_std::Decimal::zero(),
                 enable_epsilon_decay: false,
             }),
             reward_config: None,
@@ -719,7 +720,7 @@ fn test_epsilon_variance_investigation() {
             training_config: Some(TrainingConfig {
                 training_mode: true,
                 epsilon,
-                temperature: 0.0,
+                temperature: cosmwasm_std::Decimal::zero(),
                 enable_epsilon_decay: false,
             }),
             reward_config: None,
@@ -805,8 +806,8 @@ fn test_epsilon_06_specific_investigation() {
         train: true,
         training_config: Some(TrainingConfig {
             training_mode: true,
-            epsilon: 0.6, // 60% random
-            temperature: 0.0,
+            epsilon: cosmwasm_std::Decimal::percent(60), // 60% random
+            temperature: cosmwasm_std::Decimal::zero(),
             enable_epsilon_decay: false,
         }),
         reward_config: None,
@@ -841,8 +842,8 @@ fn test_epsilon_06_specific_investigation() {
         train: true,
         training_config: Some(TrainingConfig {
             training_mode: true,
-            epsilon: 0.1, // 10% random
-            temperature: 0.0,
+            epsilon: cosmwasm_std::Decimal::percent(10), // 10% random
+            temperature: cosmwasm_std::Decimal::zero(),
             enable_epsilon_decay: false,
         }),
         reward_config: None,
@@ -893,8 +894,8 @@ fn test_pvp_training_stats() {
         train: true,
         training_config: Some(TrainingConfig {
             training_mode: true,
-            epsilon: 0.1,
-            temperature: 0.0,
+            epsilon: cosmwasm_std::Decimal::percent(10),
+            temperature: cosmwasm_std::Decimal::zero(),
             enable_epsilon_decay: false,
         }),
         reward_config: Some(RewardNumbers {

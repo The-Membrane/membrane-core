@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Uint128, Decimal};
 
-use crate::types::{QTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats};
+use crate::types::{QTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TopTimes};
 
 pub const DEFAULT_SPEED: u8 = 1;
 pub const DEFAULT_BOOST_SPEED: u8 = 3;
@@ -63,6 +63,8 @@ pub enum QueryMsg {
         start_after: Option<u128>,
         limit: Option<u32>,
     },
+    #[returns(TopTimes)]
+    GetTopTimes { track_id: u128 },
 }
 
 #[cw_serde]

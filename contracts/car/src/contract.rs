@@ -28,8 +28,9 @@ pub fn instantiate(
 ) -> Result<Response, CarError> {
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    // Initialize car ID counter to 0
-    CAR_ID_COUNTER.save(deps.storage, &Uint128::zero())?;
+    // Initialize car ID counter to 1.
+    //ID 0 is reserved for The Singularity..
+    CAR_ID_COUNTER.save(deps.storage, &Uint128::one())?;
 
     // Save owner and payment options
     let owner = info.sender.clone();

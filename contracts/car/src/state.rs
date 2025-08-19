@@ -20,6 +20,9 @@ pub const CAR_ID_COUNTER: Item<Uint128> = Item::new("car_id_counter");
 // Q-table storage: (car_id, state_hash) -> [i32; 4]
 pub const Q_TABLE: Map<(u128, &str), [i32; 4]> = Map::new("q_table");
 
+// Used trait combinations encoded as compact u64 bit patterns
+pub const USED_TRAIT_COMBOS: Map<u64, bool> = Map::new("used_trait_combos");
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct CarInfo {
     pub owners: Vec<Addr>,

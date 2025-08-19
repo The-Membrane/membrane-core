@@ -28,6 +28,8 @@ pub enum QueryMsg {
         start_after: Option<u128>,
         limit: Option<u32>,
     },
+    #[returns(Uint128)]
+    GetTrackCount {},
 }
 
 // #[cw_serde]

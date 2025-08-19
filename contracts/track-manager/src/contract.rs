@@ -321,6 +321,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             start_after,
             limit,
         } => to_json_binary(&query_list_tracks(deps, start_after, limit).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
+        QueryMsg::GetTrackCount {} => to_json_binary(&TRACK_ID_COUNTER.load(deps.storage)?),
     }
 }
 
@@ -332,13 +333,17 @@ pub fn query_get_track(deps: Deps, track_id: Uint128) -> Result<Track, TrackMana
 
 pub fn query_list_tracks(deps: Deps, start_after: Option<u128>, limit: Option<u32>) -> Result<crate::msg::ListTracksResponse, TrackManagerError> {
     let mut tracks = vec![];
-    let start_after = start_after.unwrap_or(0);
+    let start_after = if let Some(start_after) = start_after {
+        Some(Bound::exclusive(start_after))
+    } else {
+        None
+    };
     let limit = limit.unwrap_or(MAX_LIMIT);
 
     for item in TRACKS
-        .range(deps.storage, Some(Bound::exclusive(start_after)), None, Order::Ascending)
+        .range(deps.storage, start_after, None, Order::Ascending)
         .take(limit as usize) {
-        let (track_id, track) = item?;
+        let (_, track) = item?;
         tracks.push(track);
     }
     Ok(crate::msg::ListTracksResponse { tracks })

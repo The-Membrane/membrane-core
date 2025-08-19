@@ -76,8 +76,7 @@ pub fn add_recent_race(storage: &mut dyn cosmwasm_std::Storage, race_result: Rac
     
     // Keep only the most recent races
     if races.len() > max {
-        races = races.into_iter().rev().take(max).collect();
-        races.reverse();
+        races.remove(0);
     }
     
     if let Some(car_id) = car_id {

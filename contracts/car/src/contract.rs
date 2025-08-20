@@ -57,7 +57,28 @@ pub fn instantiate(
         .instantiate(deps, env.clone(), info, cw_msg)
         .map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?;
 
-    Ok(resp.add_attribute("minter", env.contract.address))
+    // Mint the reserved token_id "0" named "The Singularity" to the contract owner
+    let singularity_ext = Some(CarMetadata {
+        name: "The Singularity".to_string(),
+        image_data: None,
+        attributes: None,
+        car_id: Some("0".to_string()),
+    });
+    let self_mint = ExecuteMsg::Base(Cw721ExecuteMsg::Mint(MintMsg {
+        token_id: "0".to_string(),
+        owner: owner.to_string(),
+        token_uri: None,
+        extension: singularity_ext,
+    }));
+    let msg = WasmMsg::Execute {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_json_binary(&self_mint)?,
+        funds: vec![],
+    };
+
+    Ok(resp
+        .add_message(msg)
+        .add_attribute("minter", env.contract.address))
 }
 
 #[entry_point]
@@ -308,6 +329,9 @@ fn execute_mint_car(
     let chosen_breakdown;
     let encoded_combo: u64;
     loop {
+        if attempt > 64 {
+            return Err(CarError::Std(cosmwasm_std::StdError::generic_err("failed to find unique trait combination after retries")));
+        }
         let attempt_seed = mix64(base_seed ^ (attempt as u64));
         let (traits, breakdown) = generate_traits_with_rarity(attempt_seed, &table);
         let code = encode_traits_combo(&traits);
@@ -318,9 +342,6 @@ fn execute_mint_car(
             break;
         }
         attempt = attempt.wrapping_add(1);
-        if attempt > 64 {
-            return Err(CarError::Std(cosmwasm_std::StdError::generic_err("failed to find unique trait combination after retries")));
-        }
     }
 
     // Persist used combination

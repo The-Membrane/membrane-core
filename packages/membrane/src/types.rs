@@ -1506,7 +1506,7 @@ pub struct Track {
     /// Fastest possible tick time 
     pub fastest_tick_time: u64,
     /// Number of starting tiles
-    pub starting_tiles: u32,
+    pub starting_tiles: Vec<TrackTile>,
 }
 
 

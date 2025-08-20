@@ -1,9 +1,9 @@
 #[cfg(test)]
 mod tests {
     use crate::contract::{execute, instantiate};
-    use crate::state::{CONFIG, get_car_info};
+    use crate::state::{CONFIG, USED_TRAIT_COMBOS};
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{coins, Addr};
+    use cosmwasm_std::{coins, Addr, Order};
     use membrane::car::{Config, ExecuteMsg, InstantiateMsg};
     use membrane::types::CarMetadata;
 
@@ -78,25 +78,18 @@ mod tests {
                     value: "High".to_string(),
                 },
             ]),
-            car_id: None, // Will be auto-populated
+            car_id: None, // Will be auto-populated by the contract
         };
 
-        let mint_msg = ExecuteMsg::MintCar {
-            owner: owner.to_string(),
+        let mint_msg = ExecuteMsg::CreateCar {
+            owner: Some(owner.to_string()),
             token_uri: Some("ipfs://QmTest...".to_string()),
             extension: Some(metadata.clone()),
         };
 
         let res = execute(deps.as_mut(), env, creator_info, mint_msg).unwrap();
-        
-        // Should have messages for the cw721 mint
+        // Should have a self-call message for the cw721 mint
         assert!(res.messages.len() > 0);
-        
-        // Verify car info was saved
-        let car_info = get_car_info(&deps.storage, 0).unwrap();
-        assert_eq!(car_info.owners.len(), 1);
-        assert_eq!(car_info.owners[0], Addr::unchecked(owner));
-        assert_eq!(car_info.metadata, Some(metadata));
     }
 
     #[test]
@@ -126,5 +119,48 @@ mod tests {
         // Verify config was updated
         let config: Config = CONFIG.load(&deps.storage).unwrap();
         assert_eq!(config.payment_options, new_payment_options);
+    }
+
+    #[test]
+    fn test_generate_unique_cars() {
+        let unique_combos = 256;
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        let creator_info = mock_info(CREATOR, &[]);
+
+        // Instantiate without payment options
+        let instantiate_msg = InstantiateMsg {
+            name: CONTRACT_NAME.to_string(),
+            symbol: CONTRACT_SYMBOL.to_string(),
+            payment_options: None,
+        };
+        instantiate(deps.as_mut(), env.clone(), creator_info.clone(), instantiate_msg).unwrap();
+
+        // Mint 256 cars; uniqueness is enforced by the contract and combos are stored
+        for i in 0..unique_combos {
+            let owner = format!("owner_{}", i);
+            let mint_msg = ExecuteMsg::CreateCar {
+                owner: Some(owner),
+                token_uri: None,
+                extension: None,
+            };
+            let _ = execute(deps.as_mut(), env.clone(), creator_info.clone(), mint_msg).unwrap();
+        }
+
+        // Count used combos in storage
+        let mut count: usize = 0;
+        for item in USED_TRAIT_COMBOS.range(&deps.storage, None, None, Order::Ascending) {
+            let _ = item.unwrap();
+            count += 1;
+        }
+        assert_eq!(count, unique_combos);
+
+        // Print all stored combos for inspection
+        let mut entries: Vec<(u64, bool)> = Vec::new();
+        for item in USED_TRAIT_COMBOS.range(&deps.storage, None, None, Order::Ascending) {
+            let (k, v) = item.unwrap();
+            entries.push((k, v));
+        }
+        println!("used_trait_combos: {:?}", entries);
     }
 } 

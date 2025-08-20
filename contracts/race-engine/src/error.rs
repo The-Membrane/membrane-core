@@ -12,6 +12,9 @@ pub enum ContractError {
     #[error("Invalid action: {action}")]
     InvalidAction { action: usize },
 
+    #[error("Invalid track: {track_id}")]
+    InvalidTrack { track_id: String },
+
     #[error("Track not found: {track_id}")]
     TrackNotFound { track_id: String },
 

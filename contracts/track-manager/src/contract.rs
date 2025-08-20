@@ -87,7 +87,11 @@ pub fn execute_add_track(
     validate_track_layout(&layout, width, height)?;
 
     // Calculate progress_towards_finish using A* pathfinding
-    let (track_layout, fastest_tick_time) = calculate_progress_towards_finish(&layout, width, height);
+    let (track_layout, fastest_tick_time, starting_tiles) = calculate_progress_towards_finish(
+        &layout, 
+        width, 
+        height
+    );
 
     // Calculate track statistics
     let stats = calculate_track_statistics(&layout, width, height);
@@ -100,7 +104,7 @@ pub fn execute_add_track(
         height,
         layout: track_layout,
         fastest_tick_time,
-        starting_tiles: stats.starting_tiles,
+        starting_tiles,
     };
 
     set_track(deps.storage, &track_id.into(), track)?;
@@ -275,7 +279,7 @@ fn calculate_progress_towards_finish(
     layout: &Vec<Vec<TileProperties>>,
     width: u8,
     height: u8,
-) -> (Vec<Vec<TrackTile>>, u64) {
+) -> (Vec<Vec<TrackTile>>, u64, Vec<TrackTile>) {
     // Use combined distance calculation and validation
     let distances = calculate_distances_and_validate(layout, width, height)
         .expect("Track validation should have passed");
@@ -309,13 +313,13 @@ fn calculate_progress_towards_finish(
 
     let mut fastest = u64::MAX;
     //Find the fastest path from any starting tile
-    for start_tile in starting_tiles {
+    for start_tile in &starting_tiles {
         if (start_tile.progress_towards_finish as u64) < fastest {
             fastest = start_tile.progress_towards_finish as u64;
         }
     }
     
-    (track_layout, fastest)
+    (track_layout, fastest, starting_tiles)
 }
 
 #[entry_point]

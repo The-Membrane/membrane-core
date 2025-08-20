@@ -20,6 +20,7 @@ pub enum ExecuteMsg {
     SimulateRace {
         track_id: Uint128,
         car_ids: Vec<u128>,
+        pvp: Option<bool>,
         train: bool,
         training_config: Option<TrainingConfig>,
         reward_config: Option<RewardNumbers>,

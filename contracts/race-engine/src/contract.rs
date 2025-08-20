@@ -277,8 +277,8 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::SimulateRace { track_id, car_ids, train, training_config, reward_config } => {
-            execute_simulate_race(deps, _env, _info, track_id, car_ids, train, training_config, reward_config)
+        ExecuteMsg::SimulateRace { track_id, car_ids, pvp, train, training_config, reward_config } => {
+            execute_simulate_race(deps, _env, _info, track_id, car_ids, pvp, train, training_config, reward_config)
         },
         ExecuteMsg::ResetQ { car_id } => {
             execute_reset_q(deps.storage, car_id.into())
@@ -301,27 +301,24 @@ fn execute_reset_q(storage: &mut dyn Storage, car_id: u128) -> Result<Response, 
     Ok(Response::new())
 }
 
-fn find_start_indices(track_layout: &[Vec<membrane::types::TrackTile>]) -> Vec<(usize, usize)> {
+fn get_starting_tiles(track: Track) -> Vec<(usize, usize)> {
     let mut start_indices = vec![];
-    for (y, row) in track_layout.iter().enumerate() {
-        for (x, tile) in row.iter().enumerate() {
-            if tile.properties.is_start {   
-                start_indices.push((x, y));
-            }
-        }
+    for tile in &track.starting_tiles {
+        start_indices.push((tile.x as usize, tile.y as usize));
     }
     start_indices
 }
 
 
 //TODO: 
-// -- Big Bad Boss car will bypass this training (maybe we should make it the 0'd ID)
+// -- The Singularity car will bypass this training (maybe we should make it the 0'd ID)
 pub fn execute_simulate_race(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
     track_id: Uint128,
-    car_ids: Vec<u128>,
+    mut car_ids: Vec<u128>,
+    pvp: Option<bool>,
     train: bool,
     training_config: Option<TrainingConfig>,
     reward_config: Option<RewardNumbers>,
@@ -334,6 +331,25 @@ pub fn execute_simulate_race(
             actual: car_ids.len() as u32
         });
     }
+
+    //If train, ensure there is only one car
+    if train && car_ids.len() != 1 {
+        return Err(ContractError::InvalidCarCount { 
+            expected: 1, 
+            actual: car_ids.len() as u32
+        });
+    }
+
+    //Set pvp to false if not provided
+    let pvp = if let Some(pvp) = pvp {
+        pvp
+    } else {
+        if car_ids.len() == 1 {
+            false
+        } else {
+            true
+        }
+    };
 
     // Enforce training restrictions: car must exist and be owned by caller
     if train {
@@ -351,6 +367,11 @@ pub fn execute_simulate_race(
                 return Err(ContractError::Unauthorized {});
             }
         }
+    }
+
+    //If pvp is true & its training, add the Singularity car to the car_ids
+    if pvp && train {
+        car_ids.push(0);
     }
 
     //If training_config is None, use default values
@@ -382,11 +403,18 @@ pub fn execute_simulate_race(
 
     // Load track from track manager contract
     let track = load_track_from_manager(deps.as_ref(), config.clone(), track_id.clone())?;
-    let track_layout = track.layout;
-    let fastest_track_tick_time = track.fastest_tick_time;
+    let track_layout = track.clone().layout;
+    let fastest_track_tick_time = track.clone().fastest_tick_time;
+
+    //If car_ids.len() > 1, ensure the track has enough starting tiles
+    if car_ids.len() > 1 {
+        if track.starting_tiles.len() < car_ids.len() {
+            return Err(ContractError::InvalidTrack { track_id: track_id.into() });
+        }
+    }
 
     //Find the indices of any starting tiles
-    let start_indices = find_start_indices(&track_layout);
+    let start_indices = get_starting_tiles(track);
 
     // Initialize car states
     let mut cars = vec![];

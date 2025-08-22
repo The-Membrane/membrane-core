@@ -657,3 +657,50 @@ fn test_no_training_stats_when_training_disabled() {
     assert_eq!(stats.stats.pvp.tally, 0, "PvP tally should remain 0 when training disabled");
     // fastest fields may be influenced by non-training race recording; focus on tallies only
 }
+
+#[test]
+fn test_purge_car_removes_all_state() {
+    let mut deps = setup_test_app();
+    let env = mock_env();
+    let info = mock_info(ADMIN, &[]);
+
+    // Pre-populate Q_TABLE, training stats, and recent races for car 42
+    let car_id: u128 = 42;
+    // Insert one recent race for car
+    let result = execute(deps.as_mut(), env.clone(), mock_info("test_user", &[]), ExecuteMsg::SimulateRace {
+        track_id: cosmwasm_std::Uint128::from(1u128),
+        car_ids: vec![car_id],
+        pvp: Some(false),
+        train: true,
+        training_config: Some(TrainingConfig { training_mode: true, epsilon: cosmwasm_std::Decimal::percent(10), temperature: cosmwasm_std::Decimal::zero(), enable_epsilon_decay: false }),
+        reward_config: None,
+    });
+    assert!(result.is_ok());
+
+    // Manually set one Q-table entry
+    crate::state::set_q_values(deps.as_mut().storage, car_id, &[1u8; 32], [1,2,3,4]).unwrap();
+    // Manually set one training stats entry
+    crate::state::set_track_training_stats(deps.as_mut().storage, car_id, 1u128, membrane::types::TrackTrainingStats { 
+        solo: membrane::types::TrainingStats { tally: 1, win_rate: 100, fastest: 50, first_time: 50 },
+        pvp: membrane::types::TrainingStats { tally: 0, win_rate: 0, fastest: u32::MAX, first_time: u32::MAX },
+    }).unwrap();
+
+    // Call PurgeCar from car contract authority
+    let purge = ExecuteMsg::PurgeCar { car_id: cosmwasm_std::Uint128::from(car_id) };
+    let res = execute(deps.as_mut(), env.clone(), mock_info(CAR_CONTRACT, &[]), purge).unwrap();
+    assert_eq!(0, res.messages.len());
+
+    // Assert Q-table removed for this car
+    let mut any_q = false;
+    for _ in crate::state::Q_TABLE.prefix(car_id).range(deps.as_ref().storage, None, None, cosmwasm_std::Order::Ascending) { any_q = true; break; }
+    assert!(!any_q, "Q-table entries should be removed");
+
+    // Assert training stats removed for all tracks for this car
+    let mut any_stats = false;
+    for _ in crate::state::CAR_TRACK_TRAINING_STATS.prefix(car_id).range(deps.as_ref().storage, None, None, cosmwasm_std::Order::Ascending) { any_stats = true; break; }
+    assert!(!any_stats, "Training stats should be removed");
+
+    // Assert recent races removed for this car
+    let has_recent = crate::state::CAR_RECENT_RACES.has(deps.as_ref().storage, car_id);
+    assert!(!has_recent, "Recent races should be removed");
+}

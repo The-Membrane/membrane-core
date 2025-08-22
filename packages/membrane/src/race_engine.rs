@@ -30,6 +30,10 @@ pub enum ExecuteMsg {
     ResetQ {
         car_id: Uint128,
     },
+    /// Purge all state for a car (Q-table and training stats). Only callable by car contract
+    PurgeCar {
+        car_id: Uint128,
+    },
 }
 
 #[cw_serde]

@@ -8,11 +8,14 @@ use cw2::set_contract_version;
 use cw721_base::{Cw721Contract, ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg, MintMsg};
 
 use crate::error::CarError;
-use membrane::car::{ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg, Config};
+use membrane::car::{ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg, Config, MAX_NAME_SIZE};
 use crate::state::{CAR_ID_COUNTER, CONFIG, PENDING_OWNER};
 use membrane::types::CarMetadata;
 use membrane::traits_engine::{default_rarity_table, generate_traits_with_rarity, traits_to_attributes};
 use crate::state::USED_TRAIT_COMBOS;
+use crate::state::NAME_REGISTRY;
+use crate::state::{PENDING_FREE_CARS, PendingFreeCar, CAR_INFO, set_car_info};
+use cosmwasm_std::Addr;
 use membrane::traits_engine::{
     CarTraits,
     BaseColor, AccentPattern, PaintFinish, HeadlightColor, UnderglowColor, BrakeLightStyle,
@@ -26,6 +29,17 @@ const CONTRACT_VERSION: &str = "0.1.0";
 
 // Plug our extension into cw721-base
 pub type CarCw721<'a> = Cw721Contract<'a, Option<CarMetadata>, cosmwasm_std::Empty, cosmwasm_std::Empty, cosmwasm_std::Empty>;
+
+// Produce a compact u128 key for a name (trimmed), using a stable hash
+fn name_key(name_trimmed: &str) -> u128 {
+    // 128-bit hash via XXH3-style mixing (deterministic). Keep simple but stable.
+    let mut h: u128 = 0x9E37_79B9_7F4A_7C15_6C8E_9CF5_9D1B_BCD7u128;
+    for b in name_trimmed.as_bytes() {
+        h ^= (*b as u128).wrapping_mul(0x100_0000_01B3);
+        h = h.rotate_left(13).wrapping_mul(0xC2B2_AE3D_27D4_EB4Fu128);
+    }
+    h
+}
 
 #[entry_point]
 pub fn instantiate(
@@ -43,7 +57,16 @@ pub fn instantiate(
     // Save owner and payment options
     let owner = info.sender.clone();
     let payment_options = msg.payment_options.unwrap_or_default();
-    CONFIG.save(deps.storage, &Config { owner: owner.clone(), payment_options })?;
+    CONFIG.save(
+        deps.storage, 
+        &Config { owner: owner.clone(), 
+            payment_options, 
+            race_engine_contract: None 
+        })?;
+
+    // Register reserved name to enforce uniqueness
+    let reserved_key = name_key("The Singularity");
+    NAME_REGISTRY.save(deps.storage, reserved_key, &true)?;
 
     // Set minter to this contract address so only self-calls can mint
     let cw_msg = Cw721InstantiateMsg {
@@ -64,6 +87,7 @@ pub fn instantiate(
         attributes: None,
         car_id: Some("0".to_string()),
     });
+
     let self_mint = ExecuteMsg::Base(Cw721ExecuteMsg::Mint(MintMsg {
         token_id: "0".to_string(),
         owner: owner.to_string(),
@@ -97,8 +121,11 @@ pub fn execute(
                 .map_err(CarError::from)
         }
         ExecuteMsg::CreateCar { owner, token_uri, extension } => execute_mint_car(deps, env, info, owner, token_uri, extension),
-        ExecuteMsg::UpdateConfig { payment_options, new_owner } => execute_update_config(deps, info, payment_options, new_owner),
+        ExecuteMsg::UpdateConfig { payment_options, new_owner, race_engine_contract } => execute_update_config(deps, info, payment_options, new_owner, race_engine_contract),
         ExecuteMsg::UpdateCustomDecal { token_id, svg } => execute_update_custom_decal(deps, info, token_id, svg),
+        ExecuteMsg::UpdateCarName { token_id, new_name } => execute_update_car_name(deps, info, token_id, new_name),
+        ExecuteMsg::PayToFinalize { token_id } => execute_pay_to_finalize(deps, env, info, token_id),
+        ExecuteMsg::ExpireCar { token_id } => execute_expire_car(deps, env, info, token_id),
     }
 }
 
@@ -107,6 +134,7 @@ fn execute_update_config(
     info: MessageInfo,
     payment_options: Option<Vec<Coin>>,
     new_owner: Option<String>,
+    race_engine_contract: Option<String>,
 ) -> Result<Response, CarError> {
     let mut config = CONFIG.load(deps.storage)?;
     let current_owner = config.owner.clone();
@@ -135,6 +163,14 @@ fn execute_update_config(
     // Update config
     if let Some(payment_options) = payment_options {
         config.payment_options = payment_options;
+    }
+    if let Some(race_engine_contract) = race_engine_contract {
+        if !race_engine_contract.is_empty() {
+            let _ = deps.api.addr_validate(&race_engine_contract)?;
+            config.race_engine_contract = Some(race_engine_contract);
+        } else {
+            config.race_engine_contract = None;
+        }
     }
     CONFIG.save(deps.storage, &config)?;
 
@@ -264,24 +300,40 @@ fn execute_mint_car(
     token_uri: Option<String>,
     mut extension: Option<CarMetadata>,
 ) -> Result<Response, CarError> {
-    // Enforce payment: at least one of the configured options must be present in funds
+    // Enforce payment or allow pending free option
     let config = CONFIG.load(deps.storage)?;
-    if !config.payment_options.is_empty() {
-        let sent = &info.funds;
-        let mut ok = false;
-        for Coin { denom, amount } in config.payment_options.iter() {
-            if sent.iter().any(|c| c.denom == *denom && c.amount >= *amount) {
-                ok = true;
-                break;
-            }
-        }
-        if !ok {
-            return Err(CarError::Std(cosmwasm_std::StdError::generic_err("insufficient payment: must include at least one accepted option")));
-        }
+    let sent = &info.funds;
+    let has_free_opt = config.payment_options.iter().find(|c| c.denom == "free");
+    let paid_ok = if config.payment_options.is_empty() { true } else {
+        config.payment_options.iter().any(|Coin { denom, amount }| {
+            if denom == "free" { return false; }
+            sent.iter().any(|c| c.denom == *denom && c.amount >= *amount)
+        })
+    };
+    if !paid_ok && has_free_opt.is_none() {
+        return Err(CarError::Std(cosmwasm_std::StdError::generic_err("insufficient payment: must include at least one accepted option or free option not configured")));
     }
 
     // If owner is not provided, use the sender
     let owner = owner.unwrap_or(info.sender.to_string());
+    let owner_addr: Addr = deps.api.addr_validate(&owner)?;
+
+    // Validate and ensure name existence + uniqueness
+    let car_name: String = match &extension {
+        Some(meta) => meta.name.clone(),
+        None => return Err(CarError::Std(cosmwasm_std::StdError::generic_err("car name required"))),
+    };
+    let trimmed = car_name.trim();
+    if trimmed.is_empty() {
+        return Err(CarError::Std(cosmwasm_std::StdError::generic_err("car name cannot be empty")));
+    }
+    if trimmed.chars().count() > MAX_NAME_SIZE {
+        return Err(CarError::Std(cosmwasm_std::StdError::generic_err("car name too long")));
+    }
+    let key = name_key(trimmed);
+    if NAME_REGISTRY.has(deps.storage, key) {
+        return Err(CarError::Std(cosmwasm_std::StdError::generic_err("car name already exists")));
+    }
 
     // Generate incremental token_id from CAR_ID_COUNTER
     let next_id = CAR_ID_COUNTER.load(deps.storage)?;
@@ -291,14 +343,21 @@ fn execute_mint_car(
     // Populate car_id in metadata
     if let Some(meta) = &mut extension {
         meta.car_id = Some(token_id.clone());
+        // normalize stored name to trimmed
+        if meta.name != trimmed {
+            meta.name = trimmed.to_string();
+        }
     } else {
         extension = Some(CarMetadata {
-            name: String::new(),
+            name: trimmed.to_string(),
             image_data: None,
             attributes: None,
             car_id: Some(token_id.clone()),
         });
     }
+
+    // Reserve the name to prevent race conditions
+    NAME_REGISTRY.save(deps.storage, key, &true)?;
 
     // Build a deterministic seed from known data
     fn mix64(mut x: u64) -> u64 {
@@ -356,6 +415,31 @@ fn execute_mint_car(
         meta.attributes = Some(attrs);
     }
 
+    // If not paid but free option exists: create pending free car state and return
+    if !paid_ok {
+        let free_minutes: u64 = has_free_opt.unwrap().amount.u128() as u64;
+        let expires_at_nanos = env.block.time.nanos().saturating_add(free_minutes.saturating_mul(60).saturating_mul(1_000_000_000));
+
+        let car_id_u128: u128 = token_id.parse().unwrap();
+        // Snapshot minimal info for potential later use
+        set_car_info(deps.storage, car_id_u128, crate::state::CarInfo {
+            owners: vec![owner_addr.clone()],
+            metadata: extension.clone(),
+            created_at: env.block.time.nanos(),
+        })?;
+
+        PENDING_FREE_CARS.save(deps.storage, car_id_u128, &PendingFreeCar {
+            reserved_for: owner_addr,
+            expires_at_nanos,
+            trait_code: encoded_combo,
+        })?;
+
+        return Ok(Response::new()
+            .add_attribute("action", "create_pending_free_car")
+            .add_attribute("token_id", token_id)
+            .add_attribute("expires_at_nanos", expires_at_nanos.to_string()));
+    }
+
     // Perform a self-call to cw721-base Mint
     let self_mint = ExecuteMsg::Base(Cw721ExecuteMsg::Mint(MintMsg {
         token_id,
@@ -375,6 +459,99 @@ fn execute_mint_car(
         .add_attribute("action", "mint_car")
         .add_attribute("extension", format!("{:?}", extension))
     )
+}
+
+fn execute_pay_to_finalize(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    token_id: String,
+) -> Result<Response, CarError> {
+    let car_id: u128 = token_id.parse().map_err(|_| CarError::Std(cosmwasm_std::StdError::generic_err("invalid token id")))?;
+    let pending = PENDING_FREE_CARS.load(deps.storage, car_id)
+        .map_err(|_| CarError::Std(cosmwasm_std::StdError::generic_err("not pending free car")))?;
+
+    //Anyone can pay to finalize
+    // if info.sender != pending.reserved_for {
+    //     return Err(CarError::Unauthorized {});
+    // }
+
+    // Require payment matching a non-free option
+    let config = CONFIG.load(deps.storage)?;
+    let sent = &info.funds;
+    let paid_ok = config.payment_options.iter().any(|Coin { denom, amount }| {
+        if denom == "free" { return false; }
+        sent.iter().any(|c| c.denom == *denom && c.amount >= *amount)
+    });
+    if !paid_ok {
+        return Err(CarError::Std(cosmwasm_std::StdError::generic_err("payment required to finalize")));
+    }
+
+    // Load metadata saved during pending creation
+    let car_info = CAR_INFO.load(deps.storage, car_id)?;
+    let extension = car_info.metadata;
+
+    // Perform cw721 mint now
+    let self_mint = ExecuteMsg::Base(Cw721ExecuteMsg::Mint(MintMsg {
+        token_id: token_id.clone(),
+        owner: pending.reserved_for.to_string(),
+        token_uri: None,
+        extension: extension.clone(),
+    }));
+    let msg = WasmMsg::Execute { contract_addr: env.contract.address.to_string(), msg: to_json_binary(&self_mint)?, funds: vec![] };
+
+    // Clear pending state
+    PENDING_FREE_CARS.remove(deps.storage, car_id);
+
+    Ok(Response::new()
+        .add_message(msg)
+        .add_attribute("action", "finalize_free_car")
+        .add_attribute("token_id", token_id))
+}
+
+fn execute_expire_car(
+    mut deps: DepsMut,
+    env: Env,
+    _info: MessageInfo,
+    token_id: String,
+) -> Result<Response, CarError> {
+    let car_id: u128 = token_id.parse().map_err(|_| CarError::Std(cosmwasm_std::StdError::generic_err("invalid token id")))?;
+    let pending = PENDING_FREE_CARS.load(deps.storage, car_id)
+        .map_err(|_| CarError::Std(cosmwasm_std::StdError::generic_err("car not pending or already finalized")))?;
+    if env.block.time.nanos() < pending.expires_at_nanos {
+        return Err(CarError::Std(cosmwasm_std::StdError::generic_err("car has not yet expired")));
+    }
+
+    // Free name registry if present
+    if let Ok(info) = CAR_INFO.load(deps.storage, car_id) {
+        if let Some(meta) = info.metadata {
+            let old_trim = meta.name.trim().to_string();
+            if !old_trim.is_empty() {
+                let old_key = name_key(&old_trim);
+                NAME_REGISTRY.remove(deps.storage, old_key);
+            }
+        }
+    }
+
+    // Free used trait combo and mapping
+    USED_TRAIT_COMBOS.remove(deps.storage, pending.trait_code);
+
+    // Remove pending and car info snapshot
+    PENDING_FREE_CARS.remove(deps.storage, car_id);
+    CAR_INFO.remove(deps.storage, car_id);
+
+    // Purge race engine state if configured
+    let config = CONFIG.load(deps.storage)?;
+    let mut resp = Response::new().add_attribute("action", "expire_free_car").add_attribute("token_id", token_id);
+    if let Some(addr) = config.race_engine_contract {
+        if !addr.is_empty() {
+            let purge = membrane::race_engine::ExecuteMsg::PurgeCar { car_id: Uint128::from(car_id) };
+            let msg = WasmMsg::Execute { contract_addr: addr, msg: to_json_binary(&purge)?, funds: vec![] };
+            resp = resp.add_message(msg);
+        }
+    }
+
+    Ok(resp)
 }
 
 fn execute_update_custom_decal(
@@ -432,6 +609,71 @@ fn execute_update_custom_decal(
     Ok(Response::new()
         .add_attribute("action", "update_custom_decal")
         .add_attribute("token_id", token_id))
+}
+
+fn execute_update_car_name(
+    mut deps: DepsMut,
+    info: MessageInfo,
+    token_id: String,
+    new_name: String,
+) -> Result<Response, CarError> {
+    let trimmed = new_name.trim();
+    if trimmed.is_empty() {
+        return Err(CarError::Std(cosmwasm_std::StdError::generic_err("car name cannot be empty")));
+    }
+    if trimmed.chars().count() > MAX_NAME_SIZE {
+        return Err(CarError::Std(cosmwasm_std::StdError::generic_err("car name too long")));
+    }
+
+    // Only token owner may update
+    let contract: CarCw721 = Cw721Contract::default();
+    let token = contract.tokens.load(deps.storage, &token_id)
+        .map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?;
+    if token.owner != info.sender {
+        return Err(CarError::Unauthorized {});
+    }
+
+    // Load current metadata to read prior name
+    let mut ext = token.extension.clone().unwrap_or(CarMetadata {
+        name: String::new(),
+        image_data: None,
+        attributes: None,
+        car_id: Some(token_id.clone()),
+    });
+
+    // If unchanged, no-op
+    if ext.name.trim() == trimmed {
+        return Ok(Response::new()
+            .add_attribute("action", "update_car_name")
+            .add_attribute("token_id", token_id)
+            .add_attribute("name", trimmed));
+    }
+
+    // Ensure uniqueness via hashed key
+    let new_key = name_key(trimmed);
+    if NAME_REGISTRY.has(deps.storage, new_key) {
+        return Err(CarError::Std(cosmwasm_std::StdError::generic_err("car name already exists")));
+    }
+
+    // Update registry: remove old, add new
+    let old_name_trim = ext.name.trim().to_string();
+    if !old_name_trim.is_empty() {
+        let old_key = name_key(&old_name_trim);
+        NAME_REGISTRY.remove(deps.storage, old_key);
+    }
+    NAME_REGISTRY.save(deps.storage, new_key, &true)?;
+
+    // Persist new metadata
+    ext.name = trimmed.to_string();
+    let mut token_mut = token;
+    token_mut.extension = Some(ext);
+    contract.tokens.save(deps.storage, &token_id, &token_mut)
+        .map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?;
+
+    Ok(Response::new()
+        .add_attribute("action", "update_car_name")
+        .add_attribute("token_id", token_id)
+        .add_attribute("name", trimmed))
 }
 
 #[entry_point]

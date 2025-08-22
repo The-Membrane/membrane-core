@@ -13,6 +13,9 @@ use cosmwasm_std::Coin;
 pub type Cw721ExecuteMsg = cw721_base::ExecuteMsg<Option<CarMetadata>, cosmwasm_std::Empty>;
 pub type Cw721QueryMsg = cw721_base::QueryMsg<cosmwasm_std::Empty>;
 
+// Add a shared maximum name size for validation in contracts/clients
+pub const MAX_NAME_SIZE: usize = 240;
+
 #[cw_serde]
 pub struct InstantiateMsg {
     pub name: String,
@@ -35,11 +38,25 @@ pub enum ExecuteMsg {
     UpdateConfig {
         payment_options: Option<Vec<Coin>>,
         new_owner: Option<String>,
+        race_engine_contract: Option<String>,
     },
     /// Owner-only: update the custom decal SVG for a token
     UpdateCustomDecal {
         token_id: String,
         svg: String,
+    },
+    /// Owner-only: update the car name, with length and uniqueness checks
+    UpdateCarName {
+        token_id: String,
+        new_name: String,
+    },
+    /// Pay for a free-minted car before it expires to finalize ownership (removes time limit)
+    PayToFinalize {
+        token_id: String,
+    },
+    /// Expire and delete a pending free car if its time has elapsed
+    ExpireCar {
+        token_id: String,
     },
 }
 
@@ -56,6 +73,7 @@ pub enum QueryMsg {
 pub struct Config {
     pub owner: Addr,
     pub payment_options: Vec<Coin>,
+    pub race_engine_contract: Option<String>,
 }
 
 #[cw_serde]

@@ -23,19 +23,32 @@ pub const Q_TABLE: Map<(u128, &str), [i32; 4]> = Map::new("q_table");
 // Used trait combinations encoded as compact u64 bit patterns
 pub const USED_TRAIT_COMBOS: Map<u64, bool> = Map::new("used_trait_combos");
 
+// Registry to ensure car name uniqueness: hashed name key -> true
+pub const NAME_REGISTRY: Map<u128, bool> = Map::new("car_names");
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PendingFreeCar {
+	pub reserved_for: Addr,
+	pub expires_at_nanos: u64,
+	pub trait_code: u64,
+}
+
+// Map of pending free cars by car_id
+pub const PENDING_FREE_CARS: Map<u128, PendingFreeCar> = Map::new("pending_free_cars");
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct CarInfo {
-    pub owners: Vec<Addr>,
-    pub metadata: Option<CarMetadata>,
-    pub created_at: u64,
+	pub owners: Vec<Addr>,
+	pub metadata: Option<CarMetadata>,
+	pub created_at: u64,
 }
 
 pub fn get_car_info(storage: &dyn Storage, car_id: u128) -> StdResult<CarInfo> {
-    CAR_INFO.load(storage, car_id)
+	CAR_INFO.load(storage, car_id)
 }
 
 pub fn set_car_info(storage: &mut dyn Storage, car_id: u128, car_info: CarInfo) -> StdResult<()> {
-    CAR_INFO.save(storage, car_id, &car_info)
+	CAR_INFO.save(storage, car_id, &car_info)
 }
 
 

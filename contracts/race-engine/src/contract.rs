@@ -8,12 +8,12 @@ use cosmwasm_std::{
 use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
-use crate::state::{add_recent_race, get_config, get_q_values, get_recent_races, get_track_training_stats, set_config, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, CAR_TRACK_TRAINING_STATS, CONFIG, MAX_TICKS, Q_TABLE};
+use crate::state::{add_recent_race, get_config, get_q_values, get_recent_races, get_track_training_stats, set_config, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, MAX_TICKS, Q_TABLE};
 use membrane::types::{ActionSelectionStrategy, QTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TrainingStats};
 use membrane::race_engine::{CarState, Config, ConfigResponse, ExecuteMsg, GetQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
 // Race simulation constants
-const MAX_CARS: usize = 8;
+// const MAX_CARS: usize = 8;
 // const MAX_TRACK_SIZE: usize = 50;
 const MIN_CARS: usize = 1;
 
@@ -283,6 +283,13 @@ pub fn execute(
         ExecuteMsg::ResetQ { car_id } => {
             execute_reset_q(deps.storage, car_id.into())
         },
+        ExecuteMsg::PurgeCar { car_id } => {
+            let config = get_config(deps.storage)?;
+            if _info.sender.as_str() != config.car_contract {
+                return Err(ContractError::Unauthorized {});
+            }
+            execute_purge_car(deps.storage, car_id.u128())
+        },
     }
 }
 
@@ -298,6 +305,32 @@ fn execute_reset_q(storage: &mut dyn Storage, car_id: u128) -> Result<Response, 
     for key in keys {
         Q_TABLE.remove(storage, (car_id, &key));
     }
+    Ok(Response::new())
+}
+
+/// Purge all state for a car: Q-table, training stats, recent races
+fn execute_purge_car(storage: &mut dyn Storage, car_id: u128) -> Result<Response, ContractError> {
+    // Remove all Q-table entries for car
+    let prefix = Q_TABLE.prefix(car_id);
+    let range = prefix.range(storage, None, None, cosmwasm_std::Order::Ascending);
+    let keys: Vec<[u8; 32]> = range.map(|item| {
+        let (key, _) = item.unwrap();
+        key
+    }).collect();
+    for key in keys { Q_TABLE.remove(storage, (car_id, &key)); }
+
+    // Remove all training stats for car across tracks
+    let stats_prefix = CAR_TRACK_TRAINING_STATS.prefix(car_id);
+    let stats_range = stats_prefix.range(storage, None, None, cosmwasm_std::Order::Ascending);
+    let track_ids: Vec<u128> = stats_range.map(|item| {
+        let (track_id, _) = item.unwrap();
+        track_id
+    }).collect();
+    for track_id in track_ids { CAR_TRACK_TRAINING_STATS.remove(storage, (car_id, track_id)); }
+
+    // Remove recent races for car
+    CAR_RECENT_RACES.remove(storage, car_id);
+
     Ok(Response::new())
 }
 
@@ -325,10 +358,10 @@ pub fn execute_simulate_race(
 ) -> Result<Response, ContractError> {
     let config = get_config(deps.storage)?;
     // Validate input
-    if car_ids.len() < MIN_CARS || car_ids.len() > MAX_CARS {
+    if car_ids.len() < MIN_CARS {
         return Err(ContractError::InvalidCarCount { 
-            expected: MIN_CARS as u32, 
-            actual: car_ids.len() as u32
+            expected: MIN_CARS as u32,
+            actual: car_ids.len() as u32,
         });
     }
 
@@ -407,29 +440,37 @@ pub fn execute_simulate_race(
     let fastest_track_tick_time = track.clone().fastest_tick_time;
 
     //If car_ids.len() > 1, ensure the track has enough starting tiles
-    if car_ids.len() > 1 {
-        if track.starting_tiles.len() < car_ids.len() {
-            return Err(ContractError::InvalidTrack { track_id: track_id.into() });
-        }
+    if car_ids.len() > 1 && track.starting_tiles.len() < car_ids.len() {
+        return Err(ContractError::InvalidTrack { track_id: track_id.into() });
     }
 
     //Find the indices of any starting tiles
     let start_indices = get_starting_tiles(track);
 
-    // Initialize car states
+    // Initialize car states with random, non-overlapping starting tiles
+    // Deterministic shuffle of starting indices
     let mut cars = vec![];
+    let mut perm: Vec<usize> = (0..start_indices.len()).collect();
+    let mut seed: u32 = (env.block.height as u32)
+        ^ (env.block.time.seconds() as u32)
+        ^ (car_ids.len() as u32);
+    // Fisher-Yates
+    if perm.len() > 1 {
+        let mut i = perm.len() - 1;
+        while i > 0 {
+            let r = (pseudo_random(seed.wrapping_add(i as u32), (i as u32) + 1)) as usize;
+            perm.swap(i, r);
+            i -= 1;
+        }
+    }
+    // Assign first N positions to cars
     for (i, car_id) in car_ids.iter().enumerate() {
-        //if there are multiple starting tiles, choose car ID mod start_indices.len()
-        let start_index = if start_indices.len() > 1 {
-            (i % start_indices.len()) as usize
-        } else {
-            0
-        };
+        let start_index = if start_indices.len() > 0 { perm[i] } else { 0 };
         
         // **NEW**: Query all Q-tables for this car upfront
         // let q_tables_res = query_full_q_tables(config.clone(), deps.querier, car_id)?;
         // let q_tables = get_q_tables(q_tables_res)?;
-
+ 
         cars.push(CarState {
             car_id: car_id.clone(),
             tile: track_layout[start_indices[start_index].1][start_indices[start_index].0].clone(),

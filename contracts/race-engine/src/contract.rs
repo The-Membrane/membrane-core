@@ -8,10 +8,11 @@ use cosmwasm_std::{
 use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
-use crate::state::{add_recent_race, get_config, get_q_values, get_recent_races, get_track_training_stats, set_config, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, MAX_TICKS, Q_TABLE};
+use crate::state::{add_recent_race, get_config, get_q_values, get_recent_races, get_track_training_stats, set_config, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, Q_TABLE};
 use membrane::types::{ActionSelectionStrategy, QTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TrainingStats};
 use membrane::race_engine::{CarState, Config, ConfigResponse, ExecuteMsg, GetQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
+use membrane::byte_minter::{QueryMsg as ByteMinterQueryMsg, VerifyEventRaceResponse, ExecuteMsg as ByteMinterExecuteMsg, EventType as ByteEventType};
 // Race simulation constants
 // const MAX_CARS: usize = 8;
 // const MAX_TRACK_SIZE: usize = 50;
@@ -256,8 +257,9 @@ pub fn instantiate(
         admin: admin.to_string(),
         track_contract: track_contract.to_string(),
         car_contract: car_contract.to_string(),
-        max_ticks: MAX_TICKS,
+        max_ticks: 100,
         max_recent_races: 10,
+        byte_minter_contract: None,
     };
     
     set_config(deps.storage, config)?;
@@ -290,6 +292,14 @@ pub fn execute(
             }
             execute_purge_car(deps.storage, car_id.u128())
         },
+        ExecuteMsg::UpdateConfig { max_ticks, byte_minter_contract } => {
+            let mut config = get_config(deps.storage)?;
+            if _info.sender.as_str() != config.admin { return Err(ContractError::Unauthorized {}); }
+            if let Some(v) = max_ticks { config.max_ticks = v; }
+            if let Some(addr) = byte_minter_contract { config.byte_minter_contract = Some(addr); }
+            set_config(deps.storage, config)?;
+            Ok(Response::new().add_attribute("action", "update_config"))
+        }
     }
 }
 
@@ -499,8 +509,21 @@ pub fn execute_simulate_race(
         play_by_play: std::collections::HashMap::new(),
     };
 
-    // Simulate race
-    let race_result = simulate_race(deps.storage, &mut race_state, training_config)?;
+    // Response accumulator
+    let mut response = Response::new();
+
+    // Before simulating, check if this is a byte-minter event race
+    let mut event_for_this_race: Option<ByteEventType> = None;
+    if let Some(byte_minter_addr) = config.byte_minter_contract.clone() {
+        let verify: VerifyEventRaceResponse = deps.querier.query_wasm_smart(
+            byte_minter_addr.clone(),
+            &ByteMinterQueryMsg::VerifyEventRace { track_id: track_id.u128(), car_ids: car_ids.clone(), pvp }
+        )?;
+        if verify.allowed { event_for_this_race = verify.event; }
+    }
+
+    // Simulate race using configured max_ticks
+    let race_result = simulate_race(deps.storage, &mut race_state, training_config, config.max_ticks)?;
 
     // Generate race ID
     let race_id = format!("race_{}_{}", track_id, env.block.time.seconds());
@@ -528,7 +551,7 @@ pub fn execute_simulate_race(
         }
     }
 
-    // **NEW**: Apply Q-learning updates directly to car model in storage
+    // Apply Q-learning updates directly to car model in storage
     if train {
         apply_q_learning_updates(
             deps.storage, 
@@ -540,11 +563,11 @@ pub fn execute_simulate_race(
             fastest_track_tick_time
         )?;
         
-        // **NEW**: Update training stats for each car
+        // Update training stats for each car
         let is_solo = car_ids.len() == 1;
         for car in &race_state.cars {
             let won = race_result.winner_ids.contains(&car.car_id);
-            let completion_time = if car.finished { car.steps_taken } else { MAX_TICKS };
+            let completion_time = if car.finished { car.steps_taken } else { config.max_ticks };
             
             // Update training stats
             if is_solo {
@@ -555,8 +578,30 @@ pub fn execute_simulate_race(
         }
     }
 
+    // Post-race: if this was a byte-minter event, record winners/finishers
+    if let Some(event) = event_for_this_race.clone() {
+        if let Some(byte_minter_addr) = config.byte_minter_contract.clone() {
+            match event {
+                ByteEventType::Maze => {
+                    for car in &race_state.cars {
+                        if car.finished {
+                            let msg = cosmwasm_std::WasmMsg::Execute { contract_addr: byte_minter_addr.clone(), msg: to_json_binary(&ByteMinterExecuteMsg::RecordWin { event: ByteEventType::Maze, car_id: car.car_id })?, funds: vec![] };
+                            response = response.add_message(CosmosMsg::Wasm(msg));
+                        }
+                    }
+                }
+                ByteEventType::Pvp => {
+                    if let Some(winner) = race_result.winner_ids.first() { if *winner != 0 {
+                        let msg = cosmwasm_std::WasmMsg::Execute { contract_addr: byte_minter_addr.clone(), msg: to_json_binary(&ByteMinterExecuteMsg::RecordWin { event: ByteEventType::Pvp, car_id: *winner })?, funds: vec![] };
+                        response = response.add_message(CosmosMsg::Wasm(msg));
+                    }}
+                }
+            }
+        }
+    }
 
-    let mut response = Response::new()
+
+    response = response
         .add_attribute("method", "simulate_race")
         .add_attribute("race_id", race_id)
         .add_attribute("car_count", car_ids.len().to_string())
@@ -580,7 +625,7 @@ fn load_track_from_manager(deps: Deps, config: Config, track_id: Uint128) -> Res
 }
 
 /// Simulate the complete race
-fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training_config: TrainingConfig) -> Result<RaceResult, ContractError> {
+fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training_config: TrainingConfig, max_ticks: u32) -> Result<RaceResult, ContractError> {
     let mut tick = 0;
     
     // Initialize play_by_play for each car
@@ -595,9 +640,9 @@ fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training
         });
     }
     
-    while tick < MAX_TICKS && !all_cars_finished(&race_state.cars) {
+    while tick < max_ticks && !all_cars_finished(&race_state.cars) {
         // Simulate one tick
-        simulate_tick(storage, race_state, training_config.clone(), tick)?;
+        simulate_tick(storage, race_state, training_config.clone(), tick, max_ticks)?;
         
         tick += 1;
         race_state.tick = tick;
@@ -620,7 +665,7 @@ fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training
 }
 
 /// Simulate one tick of the race
-fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training_config: TrainingConfig, tick_index: u32) -> Result<(), ContractError> {
+fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training_config: TrainingConfig, tick_index: u32, max_ticks: u32) -> Result<(), ContractError> {
     // **NEW**: Reset car states for this tick
     for car in &mut race_state.cars {
         reset_car_state_for_tick(car);
@@ -659,7 +704,7 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
         }
         
         //Get action strategy
-        let strategy = make_action_strategy(training_config.training_mode, decimal_to_f32(training_config.epsilon), decimal_to_f32(training_config.temperature), tick_index, MAX_TICKS, training_config.enable_epsilon_decay); // ε-greedy with 10% explore        
+        let strategy = make_action_strategy(training_config.training_mode, decimal_to_f32(training_config.epsilon), decimal_to_f32(training_config.temperature), tick_index, max_ticks, training_config.enable_epsilon_decay); // ε-greedy with 10% explore        
         // Get car action based on Q-table or heuristic
         // Get other cars' current positions (excluding this car)
         let other_cars_positions: Vec<(i32, i32)> = all_car_positions.iter()

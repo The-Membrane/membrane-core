@@ -23,6 +23,7 @@ use membrane::traits_engine::{
     EngineVisuals, RimStyle, RimColor, TireType, NumberFont, RoofAccessory, SideMirror,
     WindowTint, TrailEffect, Decal, DecalPreset,
 };
+// use crate::state::get_car_info;
 
 const CONTRACT_NAME: &str = "car_nft";
 const CONTRACT_VERSION: &str = "0.1.0";
@@ -43,7 +44,7 @@ fn name_key(name_trimmed: &str) -> u128 {
 
 #[entry_point]
 pub fn instantiate(
-    mut deps: DepsMut,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
     msg: InstantiateMsg,
@@ -59,10 +60,16 @@ pub fn instantiate(
     let payment_options = msg.payment_options.unwrap_or_default();
     CONFIG.save(
         deps.storage, 
-        &Config { owner: owner.clone(), 
+        &Config { 
+            owner: owner.clone(), 
             payment_options, 
-            race_engine_contract: None 
-        })?;
+            race_engine_contract: None,
+            max_energy: 100,
+            energy_recovery_hours: 24,
+            energy_per_training: 10,
+            training_payment_options: vec![],
+        }
+    )?;
 
     // Register reserved name to enforce uniqueness
     let reserved_key = name_key("The Singularity");
@@ -122,15 +129,19 @@ pub fn execute(
         }
         ExecuteMsg::CreateCar { owner, token_uri, extension } => execute_mint_car(deps, env, info, owner, token_uri, extension),
         ExecuteMsg::UpdateConfig { payment_options, new_owner, race_engine_contract } => execute_update_config(deps, info, payment_options, new_owner, race_engine_contract),
+        ExecuteMsg::UpdateEnergyParams { max_energy, energy_recovery_hours, energy_per_training } => execute_update_energy_params(deps, info, max_energy, energy_recovery_hours, energy_per_training),
+        ExecuteMsg::UpdateTrainingPayments { training_payment_options } => execute_update_training_payments(deps, info, training_payment_options),
         ExecuteMsg::UpdateCustomDecal { token_id, svg } => execute_update_custom_decal(deps, info, token_id, svg),
         ExecuteMsg::UpdateCarName { token_id, new_name } => execute_update_car_name(deps, info, token_id, new_name),
         ExecuteMsg::PayToFinalize { token_id } => execute_pay_to_finalize(deps, env, info, token_id),
         ExecuteMsg::ExpireCar { token_id } => execute_expire_car(deps, env, info, token_id),
+        ExecuteMsg::PayForTraining { token_id } => execute_pay_for_training(deps, env, info, token_id),
+        ExecuteMsg::ConsumeTrainingEnergy { token_id, sessions } => execute_consume_training_energy(deps, env, info, token_id, sessions),
     }
 }
 
 fn execute_update_config(
-    mut deps: DepsMut,
+    deps: DepsMut,
     info: MessageInfo,
     payment_options: Option<Vec<Coin>>,
     new_owner: Option<String>,
@@ -175,6 +186,36 @@ fn execute_update_config(
     CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new().add_attribute("action", "update_config"))
+}
+
+fn execute_update_energy_params(
+    deps: DepsMut,
+    info: MessageInfo,
+    max_energy: Option<u32>,
+    energy_recovery_hours: Option<u32>,
+    energy_per_training: Option<u32>,
+) -> Result<Response, CarError> {
+    let mut config = CONFIG.load(deps.storage)?;
+    if info.sender != config.owner {
+        return Err(CarError::Unauthorized {});
+    }
+    if let Some(v) = max_energy { config.max_energy = v; }
+    if let Some(v) = energy_recovery_hours { config.energy_recovery_hours = v; }
+    if let Some(v) = energy_per_training { config.energy_per_training = v; }
+    CONFIG.save(deps.storage, &config)?;
+    Ok(Response::new().add_attribute("action", "update_energy_params"))
+}
+
+fn execute_update_training_payments(
+    deps: DepsMut,
+    info: MessageInfo,
+    training_payment_options: Vec<Coin>,
+) -> Result<Response, CarError> {
+    let mut config = CONFIG.load(deps.storage)?;
+    if info.sender != config.owner { return Err(CarError::Unauthorized {}); }
+    config.training_payment_options = training_payment_options;
+    CONFIG.save(deps.storage, &config)?;
+    Ok(Response::new().add_attribute("action", "update_training_payments"))
 }
 
 fn encode_traits_combo(t: &CarTraits) -> u64 {
@@ -293,7 +334,7 @@ fn encode_traits_combo(t: &CarTraits) -> u64 {
 }
 
 fn execute_mint_car(
-    mut deps: DepsMut,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
     owner: Option<String>,
@@ -422,10 +463,13 @@ fn execute_mint_car(
 
         let car_id_u128: u128 = token_id.parse().unwrap();
         // Snapshot minimal info for potential later use
+        let cfg_snapshot = CONFIG.load(deps.storage)?;
         set_car_info(deps.storage, car_id_u128, crate::state::CarInfo {
             owners: vec![owner_addr.clone()],
             metadata: extension.clone(),
             created_at: env.block.time.nanos(),
+            current_energy: cfg_snapshot.max_energy,
+            last_energy_update_nanos: env.block.time.nanos(),
         })?;
 
         PENDING_FREE_CARS.save(deps.storage, car_id_u128, &PendingFreeCar {
@@ -442,7 +486,7 @@ fn execute_mint_car(
 
     // Perform a self-call to cw721-base Mint
     let self_mint = ExecuteMsg::Base(Cw721ExecuteMsg::Mint(MintMsg {
-        token_id,
+        token_id: token_id.clone(),
         owner,
         token_uri,
         extension: extension.clone(),
@@ -454,11 +498,100 @@ fn execute_mint_car(
         funds: vec![],
     };
 
+    // Persist CarInfo for minted car with full energy
+    let car_id_u128: u128 = token_id.parse().unwrap_or_default();
+    let cfg_snapshot = CONFIG.load(deps.storage)?;
+    set_car_info(deps.storage, car_id_u128, crate::state::CarInfo {
+        owners: vec![owner_addr],
+        metadata: extension.clone(),
+        created_at: env.block.time.nanos(),
+        current_energy: cfg_snapshot.max_energy * 3,
+        last_energy_update_nanos: env.block.time.nanos(),
+    })?;
+
     Ok(Response::new()
         .add_message(msg)
         .add_attribute("action", "mint_car")
         .add_attribute("extension", format!("{:?}", extension))
     )
+}
+
+fn execute_pay_for_training(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    token_id: String,
+) -> Result<Response, CarError> {
+    // Anyone can pay for any car's training
+    let car_id: u128 = token_id.parse().map_err(|_| CarError::Std(cosmwasm_std::StdError::generic_err("invalid token id")))?;
+    let mut car = CAR_INFO.load(deps.storage, car_id)
+        .map_err(|_| CarError::CarNotFound { car_id })?;
+    let cfg = CONFIG.load(deps.storage)?;
+
+    // Payment logic: if no training payment options are configured, refilling is free
+    if !cfg.training_payment_options.is_empty() {
+        let sent = &info.funds;
+        let paid_ok = cfg.training_payment_options.iter().any(|Coin { denom, amount }| {
+            sent.iter().any(|c| c.denom == *denom && c.amount >= *amount)
+        });
+        if !paid_ok {
+            return Err(CarError::Std(cosmwasm_std::StdError::generic_err("training payment required")));
+        }
+    }
+
+    // Refill energy to full
+    car.current_energy = cfg.max_energy;
+    car.last_energy_update_nanos = env.block.time.nanos();
+    CAR_INFO.save(deps.storage, car_id, &car)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "pay_for_training")
+        .add_attribute("token_id", token_id))
+}
+
+fn ensure_race_engine_only(deps: &DepsMut, info: &MessageInfo) -> Result<(), CarError> {
+    let cfg = CONFIG.load(deps.storage)?;
+    if let Some(addr) = cfg.race_engine_contract {
+        if !addr.is_empty() && info.sender == Addr::unchecked(addr) {
+            return Ok(());
+        }
+    }
+    Err(CarError::Unauthorized {})
+}
+
+fn execute_consume_training_energy(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    token_id: String,
+    sessions: u32,
+) -> Result<Response, CarError> {
+    // Only race engine may meter energy consumption during training
+    ensure_race_engine_only(&deps, &info)?;
+    let car_id: u128 = token_id.parse().map_err(|_| CarError::Std(cosmwasm_std::StdError::generic_err("invalid token id")))?;
+    let mut car = CAR_INFO.load(deps.storage, car_id)
+        .map_err(|_| CarError::CarNotFound { car_id })?;
+    let cfg = CONFIG.load(deps.storage)?;
+
+    // Recover before consuming
+    car.recover_energy(env.block.time.nanos(), &cfg);
+
+    // Compute required energy and check availability
+    let required = (cfg.energy_per_training as u64)
+        .saturating_mul(sessions as u64) as u32;
+    if car.current_energy < required {
+        return Err(CarError::Std(cosmwasm_std::StdError::generic_err("insufficient energy for training")));
+    }
+
+    car.current_energy = car.current_energy.saturating_sub(required);
+    // Update last update timestamp to now for consistency
+    car.last_energy_update_nanos = env.block.time.nanos();
+    CAR_INFO.save(deps.storage, car_id, &car)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "consume_training_energy")
+        .add_attribute("token_id", token_id)
+        .add_attribute("sessions", sessions.to_string()))
 }
 
 fn execute_pay_to_finalize(
@@ -503,6 +636,15 @@ fn execute_pay_to_finalize(
     // Clear pending state
     PENDING_FREE_CARS.remove(deps.storage, car_id);
 
+    // Initialize energy tracking snapshot as minted
+    // If CAR_INFO existed from pending snapshot, update energy to full and timestamp
+    if let Ok(mut info_snap) = CAR_INFO.load(deps.storage, car_id) {
+        let cfg = CONFIG.load(deps.storage)?;
+        info_snap.current_energy = cfg.max_energy;
+        info_snap.last_energy_update_nanos = env.block.time.nanos();
+        CAR_INFO.save(deps.storage, car_id, &info_snap)?;
+    }
+
     Ok(Response::new()
         .add_message(msg)
         .add_attribute("action", "finalize_free_car")
@@ -510,7 +652,7 @@ fn execute_pay_to_finalize(
 }
 
 fn execute_expire_car(
-    mut deps: DepsMut,
+    deps: DepsMut,
     env: Env,
     _info: MessageInfo,
     token_id: String,
@@ -555,7 +697,7 @@ fn execute_expire_car(
 }
 
 fn execute_update_custom_decal(
-    mut deps: DepsMut,
+    deps: DepsMut,
     info: MessageInfo,
     token_id: String,
     svg: String,
@@ -578,26 +720,24 @@ fn execute_update_custom_decal(
 
     // Ensure the car has a custom slot either set or empty
     // We update the attributes list: find existing decal attribute and set to raw SVG
-    let mut has_decal_attr = false;
     if let Some(attrs) = &mut ext.attributes {
+        let mut found = false;
         for a in attrs.iter_mut() {
             if a.trait_type == "decal" {
                 // Prevent editing preset decals
                 if a.value.starts_with("Preset::") {
                     return Err(CarError::NotCustomDecal {});
                 }
-                has_decal_attr = true;
                 a.value = svg.clone();
+                found = true;
                 break;
             }
         }
-        if !has_decal_attr {
+        if !found {
             attrs.push(membrane::types::CarAttribute { trait_type: "decal".to_string(), value: svg.clone() });
-            has_decal_attr = true;
         }
     } else {
         ext.attributes = Some(vec![membrane::types::CarAttribute { trait_type: "decal".to_string(), value: svg.clone() }]);
-        has_decal_attr = true;
     }
 
     // Persist new metadata by updating token via cw721-base extension replace
@@ -612,7 +752,7 @@ fn execute_update_custom_decal(
 }
 
 fn execute_update_car_name(
-    mut deps: DepsMut,
+    deps: DepsMut,
     info: MessageInfo,
     token_id: String,
     new_name: String,
@@ -683,10 +823,30 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             let contract: CarCw721 = Cw721Contract::default();
             contract.query(deps, env, q)
         }
+        QueryMsg::GetCarInfo { token_id } => {
+            let id: u128 = token_id.parse().map_err(|_| cosmwasm_std::StdError::generic_err("invalid token id"))?;
+            let mut car = CAR_INFO.load(deps.storage, id)
+                .map_err(|_| cosmwasm_std::StdError::generic_err("car not found"))?;
+            // Apply regen on the fly for query
+            let cfg = CONFIG.load(deps.storage)?;
+            car.recover_energy(env.block.time.nanos(), &cfg);
+            let resp = membrane::car::CarInfoResponse {
+                owners: car.owners.iter().map(|a| a.to_string()).collect(),
+                metadata: car.metadata,
+                created_at: car.created_at,
+                current_energy: car.current_energy,
+                last_energy_update_nanos: car.last_energy_update_nanos,
+                max_energy: cfg.max_energy,
+                energy_recovery_hours: cfg.energy_recovery_hours,
+                energy_per_training: cfg.energy_per_training,
+                training_payment_options: cfg.training_payment_options,
+            };
+            to_json_binary(&resp)
+        }
     }
 }
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, CarError> {
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, CarError> {
     Ok(Response::new())
 }

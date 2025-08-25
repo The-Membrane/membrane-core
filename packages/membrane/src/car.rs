@@ -40,6 +40,16 @@ pub enum ExecuteMsg {
         new_owner: Option<String>,
         race_engine_contract: Option<String>,
     },
+    /// Owner-only: update energy parameters
+    UpdateEnergyParams {
+        max_energy: Option<u32>,
+        energy_recovery_hours: Option<u32>,
+        energy_per_training: Option<u32>,
+    },
+    /// Owner-only: update training payment options
+    UpdateTrainingPayments {
+        training_payment_options: Vec<Coin>,
+    },
     /// Owner-only: update the custom decal SVG for a token
     UpdateCustomDecal {
         token_id: String,
@@ -58,6 +68,15 @@ pub enum ExecuteMsg {
     ExpireCar {
         token_id: String,
     },
+    /// Pay to refill a car's training energy to full using configured training payment options
+    PayForTraining {
+        token_id: String,
+    },
+    /// Race engine only: consume energy for one or more training sessions
+    ConsumeTrainingEnergy {
+        token_id: String,
+        sessions: u32,
+    },
 }
 
 #[cw_serde]
@@ -65,6 +84,8 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     #[returns(cosmwasm_std::Binary)]
     Base(Cw721QueryMsg),
+    #[returns(CarInfoResponse)]
+    GetCarInfo { token_id: String },
 }
 
 
@@ -74,7 +95,30 @@ pub struct Config {
     pub owner: Addr,
     pub payment_options: Vec<Coin>,
     pub race_engine_contract: Option<String>,
+    // Energy system configuration
+    pub max_energy: u32,
+    /// Hours required to fully recover from 0 to max energy (linear regen)
+    pub energy_recovery_hours: u32,
+    /// Energy units consumed per training session
+    pub energy_per_training: u32,
+    /// Accepted payment options for refilling training energy
+    pub training_payment_options: Vec<Coin>,
 }
 
 #[cw_serde]
 pub struct MigrateMsg {}
+
+// Query responses
+#[cw_serde]
+pub struct CarInfoResponse {
+    pub owners: Vec<String>,
+    pub metadata: Option<CarMetadata>,
+    pub created_at: u64,
+    pub current_energy: u32,
+    pub last_energy_update_nanos: u64,
+    // Echo selected config values to support UI without another query
+    pub max_energy: u32,
+    pub energy_recovery_hours: u32,
+    pub energy_per_training: u32,
+    pub training_payment_options: Vec<Coin>,
+}

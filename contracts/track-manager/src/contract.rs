@@ -10,7 +10,7 @@ use membrane::track_manager::MigrateMsg;
 
 use crate::error::TrackManagerError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{get_track, set_track, ADMIN, TRACKS, TRACK_ID_COUNTER};
+use crate::state::{get_track, set_track, ADMIN, TRACKS, TRACK_ID_COUNTER, PVP_TRACK_IDS};
 use membrane::types::{Track, TrackTile, TileProperties};
 
 const MAX_LIMIT: u32 = 32;
@@ -108,6 +108,9 @@ pub fn execute_add_track(
     };
 
     set_track(deps.storage, &track_id.into(), track)?;
+
+    // Mark PvP-eligible tracks (>=2 starting tiles)
+    if stats.starting_tiles >= 2 { PVP_TRACK_IDS.save(deps.storage, track_id.u128(), &true)?; }
 
     Ok(Response::new()
         .add_attribute("method", "add_track")
@@ -331,6 +334,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             limit,
         } => to_json_binary(&query_list_tracks(deps, start_after, limit).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetTrackCount {} => to_json_binary(&TRACK_ID_COUNTER.load(deps.storage)?),
+        QueryMsg::ListPvpTrackIds { start_after, limit } => to_json_binary(&query_list_pvp_track_ids(deps, start_after, limit).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
     }
 }
 
@@ -356,6 +360,17 @@ pub fn query_list_tracks(deps: Deps, start_after: Option<u128>, limit: Option<u3
         tracks.push(track);
     }
     Ok(crate::msg::ListTracksResponse { tracks })
+}
+
+pub fn query_list_pvp_track_ids(deps: Deps, start_after: Option<u128>, limit: Option<u32>) -> Result<membrane::track_manager::PvpTrackIdsResponse, TrackManagerError> {
+    let mut ids = vec![];
+    let start_after = if let Some(sa) = start_after { Some(Bound::exclusive(sa)) } else { None };
+    let limit = limit.unwrap_or(MAX_LIMIT).min(1024);
+    for item in PVP_TRACK_IDS.range(deps.storage, start_after, None, Order::Ascending).take(limit as usize) {
+        let (id, _) = item?;
+        ids.push(id);
+    }
+    Ok(membrane::track_manager::PvpTrackIdsResponse { ids })
 }
 
 #[entry_point]

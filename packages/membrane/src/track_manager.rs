@@ -30,6 +30,11 @@ pub enum QueryMsg {
     },
     #[returns(Uint128)]
     GetTrackCount {},
+    #[returns(PvpTrackIdsResponse)]
+    ListPvpTrackIds {
+        start_after: Option<u128>,
+        limit: Option<u32>,
+    },
 }
 
 // #[cw_serde]
@@ -41,6 +46,11 @@ pub enum QueryMsg {
 pub struct ListTracksResponse {
     pub tracks: Vec<Track>,
 } 
+
+#[cw_serde]
+pub struct PvpTrackIdsResponse {
+    pub ids: Vec<u128>,
+}
 
 #[cw_serde]
 pub struct MigrateMsg {}

@@ -34,6 +34,11 @@ pub enum ExecuteMsg {
     PurgeCar {
         car_id: Uint128,
     },
+    /// Update contract configuration (admin only)
+    UpdateConfig {
+        max_ticks: Option<u32>,
+        byte_minter_contract: Option<String>,
+    },
 }
 
 #[cw_serde]
@@ -180,6 +185,7 @@ pub struct Config {
     pub car_contract: String,
     pub max_ticks: u32,
     pub max_recent_races: u32,
+    pub byte_minter_contract: Option<String>,
 } 
 
 #[cw_serde]

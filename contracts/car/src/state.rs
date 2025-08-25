@@ -1,8 +1,8 @@
-use cosmwasm_std::{Addr, Coin, StdResult, Storage, Uint128};
+use cosmwasm_std::{Addr, StdResult, Storage, Uint128};
 use cw_storage_plus::{Item, Map};
 use serde::{Deserialize, Serialize};
 
-use membrane::types::{CarMetadata, QTableEntry};
+use membrane::types::CarMetadata;
 use membrane::car::Config;
 
 
@@ -41,6 +41,33 @@ pub struct CarInfo {
 	pub owners: Vec<Addr>,
 	pub metadata: Option<CarMetadata>,
 	pub created_at: u64,
+	// Energy system
+	pub current_energy: u32,
+	pub last_energy_update_nanos: u64,
+}
+
+impl CarInfo {
+	pub fn recover_energy(&mut self, now_nanos: u64, cfg: &Config) {
+		let max_energy = cfg.max_energy as u64;
+		if self.current_energy as u64 >= max_energy { self.last_energy_update_nanos = now_nanos; return; }
+		let elapsed = now_nanos.saturating_sub(self.last_energy_update_nanos);
+		if cfg.energy_recovery_hours == 0 { return; }
+		let full_recover_ns: u64 = (cfg.energy_recovery_hours as u64)
+			.saturating_mul(60).saturating_mul(60).saturating_mul(1_000_000_000);
+		if full_recover_ns == 0 { return; }
+		let recovered = ((elapsed as u128)
+			.saturating_mul(cfg.max_energy as u128)
+			/ (full_recover_ns as u128)) as u32;
+		if recovered > 0 {
+			let new_energy = (self.current_energy as u64 + recovered as u64).min(max_energy) as u32;
+			self.current_energy = new_energy;
+			// advance last update proportionally to consumed elapsed that produced recovery
+			let used = (recovered as u128)
+				.saturating_mul(full_recover_ns as u128)
+				/ (cfg.max_energy as u128);
+			self.last_energy_update_nanos = self.last_energy_update_nanos.saturating_add(used as u64);
+		}
+	}
 }
 
 pub fn get_car_info(storage: &dyn Storage, car_id: u128) -> StdResult<CarInfo> {

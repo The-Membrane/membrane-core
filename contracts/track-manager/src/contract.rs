@@ -7,10 +7,11 @@ use cosmwasm_std::{
 use cw_storage_plus::Bound;
 use membrane::race_engine::DEFAULT_SPEED;
 use membrane::track_manager::MigrateMsg;
+use sha2::{Sha256, Digest};
 
 use crate::error::TrackManagerError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{get_track, set_track, ADMIN, TRACKS, TRACK_ID_COUNTER, PVP_TRACK_IDS};
+use crate::state::{get_track, set_track, ADMIN, TRACKS, TRACK_ID_COUNTER, PVP_TRACK_IDS, save_track_hash, has_track_hash, save_track_id_hash_mapping, get_track_layout_hash};
 use membrane::types::{Track, TrackTile, TileProperties};
 
 const MAX_LIMIT: u32 = 32;
@@ -63,6 +64,12 @@ pub fn execute_add_track(
         return Err(TrackManagerError::InvalidTrackDimensions { width, height });
     }
 
+    // Check for duplicate layout using hash
+    let layout_hash = calculate_layout_hash(&layout);
+    if has_track_hash(deps.storage, &layout_hash)? {
+        return Err(TrackManagerError::DuplicateTrackLayout {});
+    }
+
     //Generate a new track id
     let track_id = TRACK_ID_COUNTER.load(deps.storage)?;
     TRACK_ID_COUNTER.save(deps.storage, &(track_id + Uint128::one()))?;
@@ -109,6 +116,12 @@ pub fn execute_add_track(
 
     set_track(deps.storage, &track_id.into(), track)?;
 
+    // Save the layout hash to prevent duplicates
+    save_track_hash(deps.storage, &layout_hash, &track_id.into())?;
+    
+    // Save the reverse mapping for queries
+    save_track_id_hash_mapping(deps.storage, &track_id.into(), &layout_hash)?;
+
     // Mark PvP-eligible tracks (>=2 starting tiles)
     if stats.starting_tiles >= 2 { PVP_TRACK_IDS.save(deps.storage, track_id.u128(), &true)?; }
 
@@ -121,7 +134,8 @@ pub fn execute_add_track(
         .add_attribute("boost_tiles", stats.boost_tiles.to_string())
         .add_attribute("slow_tiles", stats.slow_tiles.to_string())
         .add_attribute("stick_tiles", stats.stick_tiles.to_string())
-        .add_attribute("wall_tiles", stats.wall_tiles.to_string()))
+        .add_attribute("wall_tiles", stats.wall_tiles.to_string())
+        .add_attribute("layout_hash", layout_hash))
 }
 
 /// Track statistics for validation and analysis
@@ -325,6 +339,27 @@ fn calculate_progress_towards_finish(
     (track_layout, fastest, starting_tiles)
 }
 
+/// Calculate SHA-256 hash of track layout for duplicate detection
+fn calculate_layout_hash(layout: &Vec<Vec<TileProperties>>) -> String {
+    let mut hasher = Sha256::new();
+    
+    // Serialize the layout in a deterministic way
+    for row in layout {
+        for tile in row {
+            // Convert tile properties to bytes in a consistent order
+            hasher.update(&tile.speed_modifier.to_le_bytes());
+            hasher.update(&[tile.blocks_movement as u8]);
+            hasher.update(&[tile.skip_next_turn as u8]);
+            hasher.update(&tile.damage.to_le_bytes());
+            hasher.update(&[tile.is_finish as u8]);
+            hasher.update(&[tile.is_start as u8]);
+        }
+    }
+    
+    // Return hex string of the hash
+    format!("{:x}", hasher.finalize())
+}
+
 #[entry_point]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -335,6 +370,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         } => to_json_binary(&query_list_tracks(deps, start_after, limit).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetTrackCount {} => to_json_binary(&TRACK_ID_COUNTER.load(deps.storage)?),
         QueryMsg::ListPvpTrackIds { start_after, limit } => to_json_binary(&query_list_pvp_track_ids(deps, start_after, limit).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
+        QueryMsg::HasLayoutHash { layout_hash } => to_json_binary(&query_has_layout_hash(deps, layout_hash).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
+        QueryMsg::GetTrackLayoutHash { track_id } => to_json_binary(&query_get_track_layout_hash(deps, track_id).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
     }
 }
 
@@ -373,8 +410,16 @@ pub fn query_list_pvp_track_ids(deps: Deps, start_after: Option<u128>, limit: Op
     Ok(membrane::track_manager::PvpTrackIdsResponse { ids })
 }
 
+pub fn query_has_layout_hash(deps: Deps, layout_hash: String) -> Result<bool, TrackManagerError> {
+    has_track_hash(deps.storage, &layout_hash)
+}
+
+pub fn query_get_track_layout_hash(deps: Deps, track_id: Uint128) -> Result<String, TrackManagerError> {
+    get_track_layout_hash(deps.storage, &track_id.into())
+}
+
 #[entry_point]
-pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, TrackManagerError> {
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, TrackManagerError> {
 
     //Set the track id counter to 0
     TRACK_ID_COUNTER.save(deps.storage, &Uint128::zero())?;

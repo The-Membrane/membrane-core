@@ -30,6 +30,12 @@ pub enum TrackManagerError {
     #[error("Track too large: width={width}, height={height}. Maximum size is 50x50")]
     TrackTooLarge { width: u8, height: u8 },
 
+    #[error("Duplicate track layout detected")]
+    DuplicateTrackLayout {},
+
+    #[error("Storage operation failed")]
+    StorageError {},
+
     #[error("{0}")]
     Std(#[from] StdError),
 }

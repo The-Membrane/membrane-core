@@ -35,6 +35,10 @@ pub enum QueryMsg {
         start_after: Option<u128>,
         limit: Option<u32>,
     },
+    #[returns(bool)]
+    HasLayoutHash { layout_hash: String },
+    #[returns(String)]
+    GetTrackLayoutHash { track_id: Uint128 },
 }
 
 // #[cw_serde]

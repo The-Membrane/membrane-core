@@ -27,16 +27,31 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.90.0
+          toolchain: 1.89.0  # Use the version we know works locally
           override: true
 
       - name: Install cargo make
         uses: davidB/rust-cargo-make@v1
 
-      - name: Clear Cargo registry cache
+      - name: Clear Cargo registry cache and update
         run: |
+          # Clear corrupted registry cache
           rm -rf ~/.cargo/registry/src/index.crates.io-*
           rm -rf ~/.cargo/registry/index/*
+          # Force update registry
+          cargo update --verbose
+          # Verify registry is working
+          cargo search base64ct --limit 1
+
+      - name: Alternative registry approach (if main fails)
+        if: failure()
+        run: |
+          # Try using a different registry source
+          echo "Main registry failed, trying alternative approach..."
+          # Clear everything again
+          rm -rf ~/.cargo/registry/*
+          # Force fresh download
+          cargo update --verbose
 
       - name: Compile contracts to wasm
         run: cargo make rust-optimizer

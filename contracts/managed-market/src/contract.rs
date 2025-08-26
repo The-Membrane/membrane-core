@@ -44,6 +44,9 @@ const MAX_LIMIT: u32 = 30;
 //NOTE:
 // - Bc risk tranches were added later, anything debt names that are not specified are senior. Junior is explicitly specified.
 
+//WARNING:
+// - The collateral asset pricing is returning a querier error
+// - Total borrowed is not being updated correctly between config, market and user positions
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(

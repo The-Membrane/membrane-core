@@ -4,7 +4,13 @@ use membrane::byte_minter as bm;
 use membrane::tokenfactory::{mint_msg, create_denom_msg};
 use membrane::track_manager as tm;
 use membrane::types::{TileProperties, Track, TrackTile};
-use cw721_base::OwnerOfResponse;
+// use cw721_base::OwnerOfResponse; // This type doesn't exist in cw721_base 0.16.0
+
+// Define our own OwnerOfResponse type
+#[derive(serde::Deserialize)]
+struct OwnerOfResponse {
+    pub owner: String,
+}
 
 use crate::error::ContractError;
 use crate::state::{get_config, set_config, MAZE_EVENT_INFO, MazeEventInfo, CONFIG, MAZE_WINDOW_START, PVP_WINDOW_START, MAZE_WINNERS, PVP_WINNERS, PVP_EVENT_TRACK_ID};

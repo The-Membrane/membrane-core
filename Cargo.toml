@@ -50,3 +50,6 @@ overflow-checks = true
 panic = 'abort'
 rpath = false
 
+[workspace.dependencies]
+base64ct = "=1.7.3"
+

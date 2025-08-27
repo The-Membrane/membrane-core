@@ -36,19 +36,44 @@ fi
 
 # Create a temporary Cargo.toml that excludes problematic contracts
 cp Cargo.toml Cargo.toml.backup
+
+# Create the modified Cargo.toml with explicit members instead of wildcards
 cat > Cargo.toml << 'EOF'
 [workspace]
-members = ["contracts/*", "packages/*"]
+members = [
+    "packages/membrane",
+    "contracts/auction",
+    "contracts/byte-minter",
+    "contracts/car",
+    "contracts/cdp",
+    "contracts/discount_vault",
+    "contracts/governance",
+    "contracts/launch",
+    "contracts/liq-queue",
+    "contracts/liquidity_check",
+    "contracts/mars-vault-token",
+    "contracts/oracle",
+    "contracts/osmosis-proxy",
+    "contracts/points-system",
+    "contracts/race-engine",
+    "contracts/range-bound-lp-vault",
+    "contracts/stability-pool",
+    "contracts/stability-pool-vault",
+    "contracts/stable-earn-vault",
+    "contracts/staking",
+    "contracts/system_discounts",
+    "contracts/tokenfactory",
+    "contracts/tournament",
+    "contracts/track-manager",
+    "contracts/vesting",
+    "contracts/vol-earn-vault"
+]
 
 exclude = [
     "my_scripts", 
     "artifacts", 
     "contracts/cdp/src/testing/*", 
-    "contracts/target/*",
-    "contracts/managed-market",
-    "contracts/market-manager", 
-    "contracts/mm-swap",
-    "contracts/mm_osmosis_oracle"
+    "contracts/target/*"
 ]
 
 [profile.release]
@@ -63,7 +88,11 @@ panic = 'abort'
 rpath = false
 EOF
 
-# Run the optimizer
+# Verify the exclusions are in place
+echo "Modified Cargo.toml contents:"
+cat Cargo.toml
+
+# Run the optimizer with the modified workspace
 docker run --rm -v "$(pwd)":/code \
   --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \
   --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
@@ -71,4 +100,5 @@ docker run --rm -v "$(pwd)":/code \
 
 # Restore original Cargo.toml
 mv Cargo.toml.backup Cargo.toml
+echo "Restored original Cargo.toml"
 """

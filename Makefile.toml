@@ -37,7 +37,7 @@ fi
 # Create a temporary Cargo.toml that excludes problematic contracts
 cp Cargo.toml Cargo.toml.backup
 
-# Create the modified Cargo.toml with explicit members instead of wildcards
+# Create the modified Cargo.toml with explicit members and dependency overrides
 cat > Cargo.toml << 'EOF'
 [workspace]
 members = [
@@ -76,6 +76,9 @@ exclude = [
     "contracts/target/*"
 ]
 
+[patch.crates-io]
+base64ct = "=1.7.3"
+
 [profile.release]
 codegen-units = 1
 debug = false
@@ -91,6 +94,9 @@ EOF
 # Verify the exclusions are in place
 echo "Modified Cargo.toml contents:"
 cat Cargo.toml
+
+# Clear any existing registry cache to force fresh downloads
+rm -rf ~/.cargo/registry/src/index.crates.io-* ~/.cargo/registry/index/* 2>/dev/null || true
 
 # Run the optimizer with the modified workspace
 docker run --rm -v "$(pwd)":/code \

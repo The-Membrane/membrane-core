@@ -1003,41 +1003,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "managed_market"
-version = "0.1.0"
-dependencies = [
- "apollo-cw-asset",
- "cosmwasm-schema",
- "cosmwasm-std",
- "cosmwasm-storage",
- "cw-multi-test 0.13.4",
- "cw-storage-plus 0.13.4",
- "membrane",
- "osmosis-std 0.16.2",
- "prost 0.11.9",
- "schemars",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "market_manager"
-version = "0.1.0"
-dependencies = [
- "cosmwasm-schema",
- "cosmwasm-std",
- "cosmwasm-storage",
- "cw-multi-test 0.13.4",
- "cw-storage-plus 0.13.4",
- "cw2 0.13.4",
- "membrane",
- "osmo-bindings",
- "schemars",
- "serde",
- "thiserror",
-]
-
-[[package]]
 name = "mars_vault_token"
 version = "0.1.0"
 dependencies = [
@@ -1081,24 +1046,6 @@ name = "memchr"
 version = "2.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
-
-[[package]]
-name = "mm_osmosis_oracle"
-version = "0.1.0"
-dependencies = [
- "cosmwasm-schema",
- "cosmwasm-std",
- "cosmwasm-storage",
- "cw-multi-test 0.13.4",
- "cw-storage-plus 0.13.4",
- "cw2 0.13.4",
- "membrane",
- "osmosis-std 0.16.2",
- "pyth-sdk-cw",
- "schemars",
- "serde",
- "thiserror",
-]
 
 [[package]]
 name = "mm_swap"

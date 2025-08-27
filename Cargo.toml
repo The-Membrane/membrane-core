@@ -1,8 +1,15 @@
 [workspace]
 members = ["contracts/*", "packages/*"]
-
-exclude = ["my_scripts", "artifacts", "contracts/cdp/src/testing/*", "contracts/target/*"]
-
+exclude = [
+    "my_scripts", 
+    "artifacts", 
+    "contracts/cdp/src/testing/*", 
+    "contracts/target/*",
+    "contracts/managed-market",
+    "contracts/market-manager", 
+    "contracts/mm-swap",
+    "contracts/mm_osmosis_oracle"
+]
 
 [profile.release]
 codegen-units = 1

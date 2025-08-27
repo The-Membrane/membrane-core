@@ -24,3 +24,51 @@ docker run --rm -v "$(pwd)":/code \
   --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
   ${image}
 """
+
+[tasks.rust-optimizer-exclude]
+cwd = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
+script = """
+if [[ $(arch) == "arm64" ]]; then
+  image="cosmwasm/workspace-optimizer-arm64:${RUST_OPTIMIZER_VERSION}"
+else
+  image="cosmwasm/workspace-optimizer:${RUST_OPTIMIZER_VERSION}"
+fi
+
+# Create a temporary Cargo.toml that excludes problematic contracts
+cp Cargo.toml Cargo.toml.backup
+cat > Cargo.toml << 'EOF'
+[workspace]
+members = ["contracts/*", "packages/*"]
+
+exclude = [
+    "my_scripts", 
+    "artifacts", 
+    "contracts/cdp/src/testing/*", 
+    "contracts/target/*",
+    "contracts/managed-market",
+    "contracts/market-manager", 
+    "contracts/mm-swap",
+    "contracts/mm_osmosis_oracle"
+]
+
+[profile.release]
+codegen-units = 1
+debug = false
+debug-assertions = false
+incremental = false
+lto = true
+opt-level = 'z'
+overflow-checks = true
+panic = 'abort'
+rpath = false
+EOF
+
+# Run the optimizer
+docker run --rm -v "$(pwd)":/code \
+  --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \
+  --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
+  ${image}
+
+# Restore original Cargo.toml
+mv Cargo.toml.backup Cargo.toml
+"""

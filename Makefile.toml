@@ -34,10 +34,10 @@ else
   image="cosmwasm/workspace-optimizer:${RUST_OPTIMIZER_VERSION}"
 fi
 
-# Create a temporary Cargo.toml that excludes problematic contracts
+# Create a temporary Cargo.toml that only includes safe contracts
 cp Cargo.toml Cargo.toml.backup
 
-# Create the modified Cargo.toml with explicit members only
+# Create the modified Cargo.toml with only contracts that don't have problematic dependencies
 cat > Cargo.toml << 'EOF'
 [workspace]
 members = [
@@ -57,14 +57,14 @@ members = [
     "contracts/points-system",
     "contracts/race-engine",
     "contracts/range-bound-lp-vault",
-    "contracts/stability-pool",
-    "contracts/stability-pool-vault",
+    "contracts/stability_pool",
+    "contracts/stability_pool_vault",
     "contracts/stable-earn-vault",
     "contracts/staking",
     "contracts/system_discounts",
     "contracts/tokenfactory",
     "contracts/tournament",
-    "contracts/track-manager",
+    "contracts/track_manager",
     "contracts/vesting",
     "contracts/vol-earn-vault"
 ]

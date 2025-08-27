@@ -34,7 +34,9 @@ jobs:
         uses: davidB/rust-cargo-make@v1
 
       - name: Compile contracts to wasm
-        run: cargo make rust-optimizer-exclude
+        run: |
+          chmod +x ./build-all-contracts.sh
+          ./build-all-contracts.sh
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

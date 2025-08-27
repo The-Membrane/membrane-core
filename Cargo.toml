@@ -49,3 +49,4 @@ opt-level = 'z'
 overflow-checks = true
 panic = 'abort'
 rpath = false
+

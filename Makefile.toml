@@ -37,7 +37,7 @@ fi
 # Create a temporary Cargo.toml that excludes problematic contracts
 cp Cargo.toml Cargo.toml.backup
 
-# Create the modified Cargo.toml with explicit members and dependency overrides
+# Create the modified Cargo.toml with explicit members only
 cat > Cargo.toml << 'EOF'
 [workspace]
 members = [
@@ -75,9 +75,6 @@ exclude = [
     "contracts/cdp/src/testing/*", 
     "contracts/target/*"
 ]
-
-[patch.crates-io]
-base64ct = "=1.7.3"
 
 [profile.release]
 codegen-units = 1

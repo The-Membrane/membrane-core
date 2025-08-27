@@ -64,7 +64,7 @@ members = [
     "contracts/system_discounts",
     "contracts/tokenfactory",
     "contracts/tournament",
-    "contracts/track_manager",
+    "contracts/track-manager",
     "contracts/vesting",
     "contracts/vol-earn-vault"
 ]

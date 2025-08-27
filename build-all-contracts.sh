@@ -91,4 +91,4 @@ done
 
 echo "Build complete! All contracts have been built and optimized with rust-optimizer."
 echo "Generated files:"
-ls -la artifacts/*.wasm 
+ls -la artifacts/*.wasm

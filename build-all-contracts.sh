@@ -48,8 +48,11 @@ for contract_dir in contracts/*/; do
             image="cosmwasm/workspace-optimizer:$RUST_OPTIMIZER_VERSION"
         fi
         
+        echo "Using Docker image: $image"
+        
         # Create a temporary workspace for this single contract
-        cat > Cargo.toml.temp << EOF
+        cp Cargo.toml Cargo.toml.original
+        cat > Cargo.toml << EOF
 [workspace]
 members = ["."]
 
@@ -72,7 +75,7 @@ EOF
             "$image"
         
         # Restore original Cargo.toml
-        mv Cargo.toml.temp Cargo.toml.temp.bak
+        mv Cargo.toml.original Cargo.toml
         
         # Copy the generated wasm file
         if [ -f "../../target/wasm32-unknown-unknown/release/${contract_name//-/_}.wasm" ]; then

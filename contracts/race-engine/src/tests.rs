@@ -704,3 +704,82 @@ fn test_purge_car_removes_all_state() {
     let has_recent = crate::state::CAR_RECENT_RACES.has(deps.as_ref().storage, car_id);
     assert!(!has_recent, "Recent races should be removed");
 }
+
+#[test]
+fn test_epsilon_decay_debug() {
+    let mut deps = setup_test_app();
+    let env = mock_env();
+    let info = mock_info("test_user", &[]);
+    
+    println!("=== EPSILON DECAY DEBUG TEST ===");
+    
+    // Test 1: Run with NO training config (should use 90% default epsilon with decay enabled)
+    println!("\n--- Test 1: No training config (90% default with decay) ---");
+    let simulate_msg1 = ExecuteMsg::SimulateRace {
+        track_id: cosmwasm_std::Uint128::from(1u128),
+        car_ids: vec![1u128],
+        pvp: Some(false),
+        train: true,
+        training_config: None, // This should use default: 90% epsilon, decay enabled
+        reward_config: None,
+    };
+    
+    let result1 = execute(deps.as_mut(), env.clone(), info.clone(), simulate_msg1);
+    assert!(result1.is_ok(), "Race 1 failed: {:?}", result1.err());
+    
+    // Test 2: Run with explicit training config (15% epsilon with decay enabled)
+    println!("\n--- Test 2: Explicit training config (15% epsilon with decay) ---");
+    let simulate_msg2 = ExecuteMsg::SimulateRace {
+        track_id: cosmwasm_std::Uint128::from(1u128),
+        car_ids: vec![1u128],
+        pvp: Some(false),
+        train: true,
+        training_config: Some(TrainingConfig {
+            training_mode: true,
+            epsilon: cosmwasm_std::Decimal::percent(15), // 15% epsilon
+            temperature: cosmwasm_std::Decimal::zero(),
+            enable_epsilon_decay: true, // Decay enabled
+        }),
+        reward_config: None,
+    };
+    
+    let result2 = execute(deps.as_mut(), env.clone(), info.clone(), simulate_msg2);
+    assert!(result2.is_ok(), "Race 2 failed: {:?}", result2.err());
+    
+    // Test 3: Run with explicit training config but NO decay (15% epsilon, no decay)
+    println!("\n--- Test 3: Explicit training config (15% epsilon, NO decay) ---");
+    let simulate_msg3 = ExecuteMsg::SimulateRace {
+        track_id: cosmwasm_std::Uint128::from(1u128),
+        car_ids: vec![1u128],
+        pvp: Some(false),
+        train: true,
+        training_config: Some(TrainingConfig {
+            training_mode: true,
+            epsilon: cosmwasm_std::Decimal::percent(15), // 15% epsilon
+            temperature: cosmwasm_std::Decimal::zero(),
+            enable_epsilon_decay: false, // Decay disabled
+        }),
+        reward_config: None,
+    };
+    
+    let result3 = execute(deps.as_mut(), env.clone(), info.clone(), simulate_msg3);
+    assert!(result3.is_ok(), "Race 3 failed: {:?}", result3.err());
+    
+    // Query training stats to see completion times
+    for test_num in 1..=3 {
+        let query_msg = QueryMsg::GetTrackTrainingStats {
+            car_id: 1u128,
+            track_id: Some(1u128),
+            start_after: None,
+            limit: None,
+        };
+        
+        let response = query(deps.as_ref(), env.clone(), query_msg).unwrap();
+        let stats: Vec<GetTrackTrainingStatsResponse> = from_json(response).unwrap();
+        let stats = &stats[0];
+        
+        println!("Test {} completion time: {} ticks", test_num, stats.stats.solo.fastest);
+    }
+    
+    println!("=== EPSILON DECAY DEBUG TEST COMPLETE ===");
+}

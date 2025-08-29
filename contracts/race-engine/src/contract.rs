@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use cosmwasm_std::{
-    entry_point, to_json_binary, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, Response, StdResult, Storage, Uint128, from_json, Decimal
+    entry_point, from_json, to_json_binary, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, Response, StdResult, Storage, Uint128, WasmMsg
 };
 use cw_storage_plus::Bound;
 
@@ -367,6 +367,8 @@ pub fn execute_simulate_race(
     reward_config: Option<RewardNumbers>,
 ) -> Result<Response, ContractError> {
     let config = get_config(deps.storage)?;
+    let mut msgs = vec![];
+    
     // Validate input
     if car_ids.len() < MIN_CARS {
         return Err(ContractError::InvalidCarCount { 
@@ -600,8 +602,28 @@ pub fn execute_simulate_race(
         }
     }
 
+    //Update car energy
+    if train {
+        for car in &race_state.cars {
+            //Skip The Singularity
+            if car.car_id == 0 {
+                continue;
+            }
+            
+            //Update car energy
+            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.car_contract.clone(),
+                msg: to_json_binary(&Car_ExecuteMsg::ConsumeTrainingEnergy {
+                    token_id: car.car_id.to_string(),
+                    sessions: 1,
+                })?,
+                funds: vec![],
+            }));
+        }
+    }
 
     response = response
+        .add_messages(msgs)
         .add_attribute("method", "simulate_race")
         .add_attribute("race_id", race_id)
         .add_attribute("car_count", car_ids.len().to_string())

@@ -116,7 +116,7 @@ fn exec_set_event_config(deps: DepsMut, info: MessageInfo, maze_cad: Option<u64>
 }
 
 fn exec_start_new_windows(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
-    assert_admin(&deps, &info)?;
+    // assert_admin(&deps, &info)?;
     let cfg = get_config(deps.storage)?;
     let now = env.block.time.seconds();
     let new_maze_start = now - (now % cfg.maze_event_cadence_seconds);

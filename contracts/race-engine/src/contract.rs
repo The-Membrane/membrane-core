@@ -1062,6 +1062,14 @@ fn calculate_new_position(
     let mut new_y = y + dy;
     let mut hit_wall = false;
 
+    // Safety check: ensure we don't have integer overflow
+    if new_x < 0 || new_y < 0 || new_x > i32::MAX - 100 || new_y > i32::MAX - 100 {
+        hit_wall = true;
+        new_x = x;
+        new_y = y;
+        return Ok((new_x, new_y, hit_wall));
+    }
+
     // Check bounds first
     let out_of_bounds = new_x < 0 || new_y < 0 || 
        new_x >= track_layout[0].len() as i32 || 
@@ -1071,28 +1079,23 @@ fn calculate_new_position(
     if out_of_bounds {
         // Wall collision - out of bounds
         hit_wall = true;
-        // Bounce off wall
-            match action {
-                ACTION_UP => new_y -= 1,
-                ACTION_DOWN => new_y += 1,
-                ACTION_LEFT => new_x += 1,
-                ACTION_RIGHT => new_x -= 1,
-                _ => {},
-            };
+        // Bounce off wall - ensure we stay within bounds
+        match action {
+            ACTION_UP => new_y = 0, // Clamp to top edge
+            ACTION_DOWN => new_y = (track_layout.len() - 1) as i32, // Clamp to bottom edge
+            ACTION_LEFT => new_x = 0, // Clamp to left edge
+            ACTION_RIGHT => new_x = (track_layout[0].len() - 1) as i32, // Clamp to right edge
+            _ => {},
+        };
     } else {
         // Check if the target tile blocks movement
         let target_tile = &track_layout[new_y as usize][new_x as usize];
         if target_tile.properties.blocks_movement {
             // Wall collision
             hit_wall = true;
-            // Bounce off wall
-            match action {
-                ACTION_UP => new_y -= 1,
-                ACTION_DOWN => new_y += 1,
-                ACTION_LEFT => new_x += 1,
-                ACTION_RIGHT => new_x -= 1,
-                _ => {},
-            };
+            // Bounce off wall - stay in current position
+            new_x = x;
+            new_y = y;
         }
     }
 
@@ -1137,7 +1140,11 @@ fn apply_tile_effects_to_car(
         car.y = new_y;
         car.tile = tile.clone();
     } else if tile.properties.blocks_movement {
-        // Wall - stay in place
+        // Wall - position already handled in calculate_new_position (bounced back)
+        // Update car position to the bounced position
+        car.x = new_x;
+        car.y = new_y;
+        car.tile = tile.clone();
     } else if tile.properties.skip_next_turn {
         // Sticky tile - move but skip next turn
         car.x = new_x;

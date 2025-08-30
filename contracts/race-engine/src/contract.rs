@@ -525,7 +525,7 @@ pub fn execute_simulate_race(
     }
 
     // Simulate race using configured max_ticks
-    let race_result = simulate_race(deps.storage, &mut race_state, training_config, config.max_ticks)?;
+    let race_result = simulate_race(deps.storage, &mut race_state, training_config, config.max_ticks, env.block.time.seconds() as u32)?;
 
     // Generate race ID
     let race_id = format!("race_{}_{}", track_id, env.block.time.seconds());
@@ -647,7 +647,7 @@ fn load_track_from_manager(deps: Deps, config: Config, track_id: Uint128) -> Res
 }
 
 /// Simulate the complete race
-fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training_config: TrainingConfig, max_ticks: u32) -> Result<RaceResult, ContractError> {
+fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training_config: TrainingConfig, max_ticks: u32, seed: u32) -> Result<RaceResult, ContractError> {
     let mut tick = 0;
     
     // Initialize play_by_play for each car
@@ -664,7 +664,7 @@ fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training
     
     while tick < max_ticks && !all_cars_finished(&race_state.cars) {
         // Simulate one tick
-        simulate_tick(storage, race_state, training_config.clone(), tick, max_ticks)?;
+        simulate_tick(storage, race_state, training_config.clone(), tick, max_ticks, seed)?;
         
         tick += 1;
         race_state.tick = tick;
@@ -687,7 +687,7 @@ fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training
 }
 
 /// Simulate one tick of the race
-fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training_config: TrainingConfig, tick_index: u32, max_ticks: u32) -> Result<(), ContractError> {
+fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training_config: TrainingConfig, tick_index: u32, max_ticks: u32, seed: u32) -> Result<(), ContractError> {
     // **NEW**: Reset car states for this tick
     for car in &mut race_state.cars {
         reset_car_state_for_tick(car);
@@ -736,7 +736,7 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
             .collect();
         
         // Calculate action and update Q-table cache
-        let action = calculate_car_action(&mut race_state.cars[i], storage, &race_state.track_layout, car_x, car_y, car_speed, &other_cars_positions, strategy, tick_index)?;
+        let action = calculate_car_action(&mut race_state.cars[i], storage, &race_state.track_layout, car_x, car_y, car_speed, &other_cars_positions, strategy, tick_index, seed)?;
         car_actions.push(action);
         // println!("Car action: {}, position: ({}, {})", action, car_x, car_y);
     }
@@ -838,11 +838,12 @@ fn calculate_car_action(
     car_speed: u32,
     other_cars: &[(i32, i32)],
     strategy: ActionSelectionStrategy,
+    tick_index: u32,
     seed: u32, // required for deterministic randomness
 ) -> Result<usize, ContractError> {
     //Set seed.
     // - Allows for deterministic randomness for each car to be different
-    let seed = seed * car.car_id as u32;
+    let seed = seed * (car.car_id as u32 + tick_index);
     // Generate state hash for current position
     let state_hash = generate_state_hash(track_layout, x, y, car_speed, other_cars);
     

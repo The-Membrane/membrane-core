@@ -1,6 +1,6 @@
-use cosmwasm_std::{Addr, Storage, StdResult};
+use cosmwasm_std::{Storage, StdResult};
 use cw_storage_plus::{Item, Map};
-use membrane::byte_minter::Config;
+use membrane::byte_minter::{Config, DifficultyAdjustmentConfig};
 use serde::{Deserialize, Serialize};
 
 pub const CONFIG: Item<Config> = Item::new("config");
@@ -23,6 +23,17 @@ pub const PVP_EVENT_TRACK_ID: Item<Option<u128>> = Item::new("pvp_event_track_id
 // Winners set per window
 pub const MAZE_WINNERS: Map<(u64, u128), bool> = Map::new("maze_winners");
 pub const PVP_WINNERS: Map<(u64, u128), bool> = Map::new("pvp_winners");
+
+// Win count tracking for difficulty adjustment
+pub const MAZE_WIN_COUNT: Item<u32> = Item::new("maze_win_count");
+pub const PVP_WIN_COUNT: Item<u32> = Item::new("pvp_win_count");
+
+// Historical win averages for difficulty adjustment (rolling window of last N windows)
+pub const MAZE_WIN_HISTORY: Item<Vec<u32>> = Item::new("maze_win_history");
+pub const PVP_WIN_HISTORY: Item<Vec<u32>> = Item::new("pvp_win_history");
+
+// Difficulty adjustment configuration
+pub const DIFFICULTY_ADJUSTMENT_CONFIG: Item<DifficultyAdjustmentConfig> = Item::new("difficulty_adjustment_config");
 
 pub fn get_config(storage: &dyn Storage) -> StdResult<Config> { CONFIG.load(storage) }
 pub fn set_config(storage: &mut dyn Storage, config: Config) -> StdResult<()> { CONFIG.save(storage, &config) } 

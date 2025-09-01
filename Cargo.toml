@@ -25,7 +25,8 @@ members = [
     "contracts/tournament",
     "contracts/track-manager",
     "contracts/vesting",
-    "contracts/vol-earn-vault"
+    "contracts/vol-earn-vault",
+    "contracts/racing-revenue"
 ]
 
 exclude = [

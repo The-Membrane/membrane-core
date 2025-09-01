@@ -516,12 +516,15 @@ pub fn execute_simulate_race(
 
     // Before simulating, check if this is a byte-minter event race
     let mut event_for_this_race: Option<ByteEventType> = None;
-    if let Some(byte_minter_addr) = config.byte_minter_contract.clone() {
-        let verify: VerifyEventRaceResponse = deps.querier.query_wasm_smart(
-            byte_minter_addr.clone(),
-            &ByteMinterQueryMsg::VerifyEventRace { track_id: track_id.u128(), car_ids: car_ids.clone(), pvp }
-        )?;
-        if verify.allowed { event_for_this_race = verify.event; }
+    // Only check for byte-minter events if not training
+    if !train {
+        if let Some(byte_minter_addr) = config.byte_minter_contract.clone() {
+            let verify: VerifyEventRaceResponse = deps.querier.query_wasm_smart(
+                byte_minter_addr.clone(),
+                &ByteMinterQueryMsg::VerifyEventRace { track_id: track_id.u128(), car_ids: car_ids.clone(), pvp }
+            )?;
+            if verify.allowed { event_for_this_race = verify.event; }
+        }
     }
 
     // Simulate race using configured max_ticks
@@ -587,14 +590,30 @@ pub fn execute_simulate_race(
                 ByteEventType::Maze => {
                     for car in &race_state.cars {
                         if car.finished {
-                            let msg = cosmwasm_std::WasmMsg::Execute { contract_addr: byte_minter_addr.clone(), msg: to_json_binary(&ByteMinterExecuteMsg::RecordWin { event: ByteEventType::Maze, car_id: car.car_id })?, funds: vec![] };
+                            let msg = cosmwasm_std::WasmMsg::Execute { 
+                                contract_addr: byte_minter_addr.clone(), 
+                                msg: to_json_binary(&ByteMinterExecuteMsg::RecordWin { 
+                                    event: ByteEventType::Maze, 
+                                    car_id: car.car_id, 
+                                    runner: info.sender.to_string() 
+                                })?, 
+                                funds: vec![] 
+                            };
                             response = response.add_message(CosmosMsg::Wasm(msg));
                         }
                     }
                 }
                 ByteEventType::Pvp => {
                     if let Some(winner) = race_result.winner_ids.first() { if *winner != 0 {
-                        let msg = cosmwasm_std::WasmMsg::Execute { contract_addr: byte_minter_addr.clone(), msg: to_json_binary(&ByteMinterExecuteMsg::RecordWin { event: ByteEventType::Pvp, car_id: *winner })?, funds: vec![] };
+                        let msg = cosmwasm_std::WasmMsg::Execute { 
+                            contract_addr: byte_minter_addr.clone(), 
+                            msg: to_json_binary(&ByteMinterExecuteMsg::RecordWin { 
+                                event: ByteEventType::Pvp, 
+                                car_id: *winner, 
+                                runner: info.sender.to_string() 
+                            })?, 
+                            funds: vec![] 
+                        };
                         response = response.add_message(CosmosMsg::Wasm(msg));
                     }}
                 }

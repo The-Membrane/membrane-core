@@ -11,8 +11,8 @@ use sha2::{Sha256, Digest};
 
 use crate::error::TrackManagerError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{get_track, set_track, ADMIN, TRACKS, TRACK_ID_COUNTER, PVP_TRACK_IDS, save_track_hash, has_track_hash, save_track_id_hash_mapping, get_track_layout_hash};
-use membrane::types::{Track, TrackTile, TileProperties};
+use crate::state::{get_track, set_track, save_compressed_track, get_compressed_track, ADMIN, TRACKS, TRACK_ID_COUNTER, PVP_TRACK_IDS, save_track_hash, has_track_hash, save_track_id_hash_mapping, get_track_layout_hash};
+use membrane::types::{Track, TrackTile, TileProperties, CompressedTrack};
 
 const MAX_LIMIT: u32 = 32;
 
@@ -103,6 +103,17 @@ pub fn execute_add_track(
     // Calculate track statistics
     let stats = calculate_track_statistics(&layout, width, height);
 
+    // Create compressed track for efficient storage
+    let compressed_track = CompressedTrack::from_track_data(
+        _info.sender.to_string(),
+        name.clone(),
+        &layout
+    );
+    
+    // Store compressed track for space efficiency
+    save_compressed_track(deps.storage, &track_id.into(), compressed_track)?;
+
+    // Create full track for race engine compatibility (this will be expanded from compressed storage on queries)
     let track = Track {
         creator: _info.sender.to_string(),
         id: track_id.into(),
@@ -376,9 +387,27 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 pub fn query_get_track(deps: Deps, track_id: Uint128) -> Result<Track, TrackManagerError> {
-    let track = get_track(deps.storage, &track_id.into())?;
-    
-    Ok(track)
+    // Try to get from compressed storage first (new tracks)
+    if let Ok(compressed_track) = get_compressed_track(deps.storage, &track_id.into()) {
+        // Expand compressed layout to full layout
+        let full_layout = compressed_track.layout.to_full_layout();
+        
+        // Recalculate progress and starting tiles from expanded layout
+        let (_, fastest_tick_time, starting_tiles) = calculate_progress_towards_finish(
+            &full_layout, 
+            compressed_track.layout.width, 
+            compressed_track.layout.height
+        );
+        
+        // Create track with expanded layout using compressed track metadata
+        let track = compressed_track.to_track(track_id.into(), fastest_tick_time, starting_tiles);
+        
+        Ok(track)
+    } else {
+        // Fallback to old storage format for backward compatibility
+        let track = get_track(deps.storage, &track_id.into())?;
+        Ok(track)
+    }
 }
 
 pub fn query_list_tracks(deps: Deps, start_after: Option<u128>, limit: Option<u32>) -> Result<crate::msg::ListTracksResponse, TrackManagerError> {

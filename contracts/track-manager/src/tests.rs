@@ -3,7 +3,7 @@ use cosmwasm_std::{coins, from_json, Uint128};
 
 use crate::contract::{execute, instantiate, query};
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use membrane::types::{TileProperties, Track};
+use membrane::types::{TileProperties, Track, CompressedTrack, CompressedTrackLayout};
 
 #[test]
 fn test_instantiate() {
@@ -593,4 +593,115 @@ mod integration_tests {
 
         assert!(result.is_err()); // Should fail due to empty name
     }
+}
+
+#[test]
+fn test_tile_compression() {
+    // Test that empty tiles are properly compressed
+    let empty_tile = TileProperties::default();
+    assert!(empty_tile.is_empty());
+    
+    let compressed = empty_tile.compress();
+    assert!(compressed.is_none());
+    
+    let decompressed = TileProperties::decompress(compressed);
+    assert!(decompressed.is_empty());
+    
+    // Test that non-empty tiles are not compressed
+    let wall_tile = TileProperties::wall();
+    assert!(!wall_tile.is_empty());
+    
+    let compressed_wall = wall_tile.compress();
+    assert!(compressed_wall.is_some());
+    
+    let decompressed_wall = TileProperties::decompress(compressed_wall);
+    assert!(decompressed_wall.blocks_movement);
+}
+
+#[test]
+fn test_compressed_track_layout() {
+    // Create a layout with mostly empty tiles
+    let layout = vec![
+        vec![TileProperties::start(), TileProperties::default(), TileProperties::finish()],
+        vec![TileProperties::default(), TileProperties::wall(), TileProperties::default()],
+        vec![TileProperties::default(), TileProperties::default(), TileProperties::default()],
+    ];
+    
+    // Test compression
+    let compressed_layout = CompressedTrackLayout::from_full_layout(&layout);
+    assert_eq!(compressed_layout.width, 3);
+    assert_eq!(compressed_layout.height, 3);
+    
+    // Check that empty tiles are compressed (None)
+    assert!(compressed_layout.compressed_layout[0][1].is_none()); // Empty tile
+    assert!(compressed_layout.compressed_layout[1][0].is_none()); // Empty tile
+    assert!(compressed_layout.compressed_layout[2][0].is_none()); // Empty tile
+    
+    // Check that non-empty tiles are preserved
+    assert!(compressed_layout.compressed_layout[0][0].is_some()); // Start tile
+    assert!(compressed_layout.compressed_layout[0][2].is_some()); // Finish tile
+    assert!(compressed_layout.compressed_layout[1][1].is_some()); // Wall tile
+    
+    // Test decompression
+    let decompressed_layout = compressed_layout.to_full_layout();
+    assert_eq!(decompressed_layout.len(), 3);
+    assert_eq!(decompressed_layout[0].len(), 3);
+    
+    // Verify that decompressed layout matches original
+    assert!(decompressed_layout[0][0].is_start);
+    assert!(decompressed_layout[0][1].is_empty());
+    assert!(decompressed_layout[0][2].is_finish);
+    assert!(decompressed_layout[1][0].is_empty());
+    assert!(decompressed_layout[1][1].blocks_movement);
+    assert!(decompressed_layout[1][2].is_empty());
+}
+
+#[test]
+fn test_compressed_track_storage_and_retrieval() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    let info = mock_info("creator", &coins(1000, "earth"));
+
+    // Instantiate
+    let msg = InstantiateMsg {
+        admin: "creator".to_string(),
+    };
+    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+    // Create a track with many empty tiles
+    let layout = vec![
+        vec![TileProperties::start(), TileProperties::default(), TileProperties::default(), TileProperties::finish()],
+        vec![TileProperties::default(), TileProperties::wall(), TileProperties::default(), TileProperties::default()],
+        vec![TileProperties::default(), TileProperties::default(), TileProperties::default(), TileProperties::default()],
+        vec![TileProperties::default(), TileProperties::default(), TileProperties::default(), TileProperties::default()],
+    ];
+
+    let msg = ExecuteMsg::AddTrack {
+        name: "Compressed Test Track".to_string(),
+        width: 4,
+        height: 4,
+        layout,
+    };
+
+    // Add track (should compress automatically)
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    assert_eq!(0, res.messages.len());
+    
+    // Query the track back (first track gets ID 0)
+    let query_msg = QueryMsg::GetTrack { track_id: Uint128::from(0u128) };
+    let res = query(deps.as_ref(), env, query_msg).unwrap();
+    let track: Track = from_json(&res).unwrap();
+    
+    // Verify the track was properly expanded from compressed storage
+    assert_eq!(track.name, "Compressed Test Track");
+    assert_eq!(track.width, 4);
+    assert_eq!(track.height, 4);
+    assert_eq!(track.layout.len(), 4);
+    assert_eq!(track.layout[0].len(), 4);
+    
+    // Verify specific tiles
+    assert!(track.layout[0][0].properties.is_start);
+    assert!(track.layout[0][1].properties.is_empty());
+    assert!(track.layout[0][3].properties.is_finish);
+    assert!(track.layout[1][1].properties.blocks_movement);
 } 

@@ -66,7 +66,7 @@ pub fn instantiate(
             race_engine_contract: None,
             max_energy: 100,
             energy_recovery_hours: 24,
-            energy_per_training: 10,
+            energy_per_training: 5,
             training_payment_options: vec![],
         }
     )?;

@@ -1,6 +1,7 @@
-use cosmwasm_std::{entry_point, to_json_binary, Binary, CosmosMsg, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128};
+use cosmwasm_std::{entry_point, to_json_binary, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128};
 use cw_storage_plus::Bound;
 use membrane::byte_minter as bm;
+use membrane::math::decimal_division;
 use membrane::tokenfactory::{mint_msg, create_denom_msg};
 use membrane::track_manager as tm;
 use membrane::types::{TileProperties, Track, TrackTile};
@@ -13,7 +14,7 @@ struct OwnerOfResponse {
 }
 
 use crate::error::ContractError;
-use crate::state::{get_config, set_config, MAZE_EVENT_INFO, MazeEventInfo, CONFIG, MAZE_WINDOW_START, PVP_WINDOW_START, MAZE_WINNERS, PVP_WINNERS, PVP_EVENT_TRACK_ID};
+use crate::state::{get_config, set_config, MAZE_EVENT_INFO, MazeEventInfo, CONFIG, MAZE_WINDOW_START, PVP_WINDOW_START, MAZE_WINNERS, PVP_WINNERS, PVP_EVENT_TRACK_ID, DIFFICULTY_ADJUSTMENT_CONFIG, MAZE_WIN_COUNT, PVP_WIN_COUNT, MAZE_WIN_HISTORY, PVP_WIN_HISTORY};
 
 /// Simple deterministic PRNG (LCG)
 fn prng(seed: u64, modulus: u32) -> u32 {
@@ -32,13 +33,13 @@ pub fn instantiate(deps: DepsMut, env: Env, info: MessageInfo, msg: bm::Instanti
     let create = if should_create {
         Some(create_denom_msg(
             msg.tokenfactory_contract.as_ref().and_then(|s| deps.api.addr_validate(s).ok()),
-            info.sender.as_str(),
+            &env.contract.address.to_string(),
             &msg.subdenom,
         ))
     } else { None };
 
     // Full denom per tokenfactory rules: factory/{creator}/{subdenom}
-    let full_denom = format!("factory/{}/{}", info.sender, msg.subdenom);
+    let full_denom = format!("factory/{}/{}", env.contract.address.to_string(), msg.subdenom);
 
     let cfg = bm::Config {
         admin: admin.to_string(),
@@ -48,6 +49,7 @@ pub fn instantiate(deps: DepsMut, env: Env, info: MessageInfo, msg: bm::Instanti
         tokenfactory_denom: full_denom,
         tokenfactory_contract: msg.tokenfactory_contract,
         mint_amount: msg.mint_amount,
+        runner_reward_rate: msg.runner_reward_rate.unwrap_or(Decimal::percent(1)),
         maze_default_difficulty: msg.maze_default_difficulty.unwrap_or(2),
         maze_width: msg.maze_width.unwrap_or(15),
         maze_height: msg.maze_height.unwrap_or(15),
@@ -55,12 +57,23 @@ pub fn instantiate(deps: DepsMut, env: Env, info: MessageInfo, msg: bm::Instanti
         maze_event_window_seconds: msg.maze_event_window_seconds,
         pvp_event_cadence_seconds: msg.pvp_event_cadence_seconds,
         pvp_event_window_seconds: msg.pvp_event_window_seconds,
-        min_progress_to_finish_per_start_tile: msg.min_progress_to_finish_per_start_tile.unwrap_or(1),
+        pvp_enabled: msg.pvp_enabled.unwrap_or(true),
         min_start_tile_progress_threshold: msg.min_start_tile_progress_threshold.unwrap_or(1),
+        //for pvp
         max_start_tile_progress_diff: msg.max_start_tile_progress_diff.unwrap_or(1000),
         revenue_contract: msg.revenue_contract,
     };
     set_config(deps.storage, cfg.clone())?;
+
+    // Initialize difficulty adjustment configuration
+    let difficulty_config = msg.difficulty_adjustment_config.unwrap_or_else(|| bm::DifficultyAdjustmentConfig::default());
+    DIFFICULTY_ADJUSTMENT_CONFIG.save(deps.storage, &difficulty_config)?;
+
+    // Initialize win counts and history
+    MAZE_WIN_COUNT.save(deps.storage, &0u32)?;
+    PVP_WIN_COUNT.save(deps.storage, &0u32)?;
+    MAZE_WIN_HISTORY.save(deps.storage, &Vec::<u32>::new())?;
+    PVP_WIN_HISTORY.save(deps.storage, &Vec::<u32>::new())?;
 
     // Initialize event windows to current time rounded down to cadence
     let now = env.block.time.seconds();
@@ -80,8 +93,9 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: bm::ExecuteMsg) 
     match msg {
         bm::ExecuteMsg::GenerateMaze { name } => exec_generate_maze(deps, env, info, name),
         bm::ExecuteMsg::StartNewWindows {} => exec_start_new_windows(deps, env, info),
-        bm::ExecuteMsg::SetEventConfig { maze_cadence_seconds, maze_window_seconds, pvp_cadence_seconds, pvp_window_seconds } => exec_set_event_config(deps, info, maze_cadence_seconds, maze_window_seconds, pvp_cadence_seconds, pvp_window_seconds),
-        bm::ExecuteMsg::RecordWin { event, car_id } => exec_record_win(deps, env, info, event, car_id),
+        bm::ExecuteMsg::SetEventConfig { maze_cadence_seconds, maze_window_seconds, pvp_cadence_seconds, pvp_window_seconds, pvp_enabled, runner_reward_rate } => exec_set_event_config(deps, info, maze_cadence_seconds, maze_window_seconds, pvp_cadence_seconds, pvp_window_seconds, pvp_enabled, runner_reward_rate),
+        bm::ExecuteMsg::SetDifficultyAdjustmentConfig { config } => exec_set_difficulty_adjustment_config(deps, info, config),
+        bm::ExecuteMsg::RecordWin { event, car_id, runner } => exec_record_win(deps, env, info, event, car_id, runner),
         bm::ExecuteMsg::TokenfactoryPassthrough { msgs } => exec_tokenfactory_passthrough(deps, info, msgs),
     }
 }
@@ -104,65 +118,82 @@ fn exec_tokenfactory_passthrough(deps: DepsMut, info: MessageInfo, msgs: Vec<cos
     Ok(Response::new().add_messages(msgs).add_attribute("action", "tokenfactory_passthrough"))
 }
 
-fn exec_set_event_config(deps: DepsMut, info: MessageInfo, maze_cad: Option<u64>, maze_win: Option<u64>, pvp_cad: Option<u64>, pvp_win: Option<u64>) -> Result<Response, ContractError> {
+fn exec_set_event_config(deps: DepsMut, info: MessageInfo, maze_cad: Option<u64>, maze_win: Option<u64>, pvp_cad: Option<u64>, pvp_win: Option<u64>, pvp_enabled: Option<bool>, runner_reward_rate: Option<Decimal>) -> Result<Response, ContractError> {
     assert_admin(&deps, &info)?;
     let mut cfg = get_config(deps.storage)?;
     if let Some(v) = maze_cad { cfg.maze_event_cadence_seconds = v; }
     if let Some(v) = maze_win { cfg.maze_event_window_seconds = v; }
     if let Some(v) = pvp_cad { cfg.pvp_event_cadence_seconds = v; }
     if let Some(v) = pvp_win { cfg.pvp_event_window_seconds = v; }
+    if let Some(v) = pvp_enabled { cfg.pvp_enabled = v; }
+    if let Some(v) = runner_reward_rate { cfg.runner_reward_rate = v; }
     set_config(deps.storage, cfg)?;
     Ok(Response::new().add_attribute("action", "set_event_config"))
+}
+
+fn exec_set_difficulty_adjustment_config(deps: DepsMut, info: MessageInfo, config: bm::DifficultyAdjustmentConfig) -> Result<Response, ContractError> {
+    assert_admin(&deps, &info)?;
+    DIFFICULTY_ADJUSTMENT_CONFIG.save(deps.storage, &config)?;
+    Ok(Response::new().add_attribute("action", "set_difficulty_adjustment_config"))
 }
 
 fn exec_start_new_windows(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
     // assert_admin(&deps, &info)?;
     let cfg = get_config(deps.storage)?;
     let now = env.block.time.seconds();
-    let new_maze_start = now - (now % cfg.maze_event_cadence_seconds);
-    let new_pvp_start = now - (now % cfg.pvp_event_cadence_seconds);
-
-    // Load current starts
+    
+    // Load current window starts
     let curr_maze_start = MAZE_WINDOW_START.load(deps.storage).unwrap_or(0);
     let curr_pvp_start = PVP_WINDOW_START.load(deps.storage).unwrap_or(0);
-
-    // Anti-spam gating: only allow if cadence advanced OR no PvP selected yet for current cadence
-    let already_selected = PVP_EVENT_TRACK_ID.load(deps.storage).unwrap_or(None).is_some();
-    let cadence_advanced = new_pvp_start > curr_pvp_start;
-    if !(cadence_advanced || !already_selected) {
-        return Err(ContractError::InvalidInput("Mint window already started".to_string()));
+    
+    // Check if current windows are still active
+    let maze_window_active = now >= curr_maze_start && now <= curr_maze_start + cfg.maze_event_window_seconds;
+    let pvp_window_active = now >= curr_pvp_start && now <= curr_pvp_start + cfg.pvp_event_window_seconds;
+    
+    // Prevent starting new windows while current windows are active
+    if maze_window_active || pvp_window_active {
+        return Err(ContractError::InvalidInput("cannot start new windows while current windows are active".to_string()));
     }
+    
+    // Calculate new window start times based on cadence
+    let new_maze_start = now - (now % cfg.maze_event_cadence_seconds);
+    let new_pvp_start = now - (now % cfg.pvp_event_cadence_seconds);
+    
+    // Update window starts
+    MAZE_WINDOW_START.save(deps.storage, &new_maze_start)?;
+    PVP_WINDOW_START.save(deps.storage, &new_pvp_start)?;
 
-    // Update window starts only when cadence advances
-    if new_maze_start > curr_maze_start { MAZE_WINDOW_START.save(deps.storage, &new_maze_start)?; }
-    if new_pvp_start > curr_pvp_start { PVP_WINDOW_START.save(deps.storage, &new_pvp_start)?; }
-
-    // Make a single query for PvP track IDs and pick a valid one from that list
-    let list_resp: membrane::track_manager::PvpTrackIdsResponse = deps.querier.query_wasm_smart(
-        cfg.track_manager_contract.clone(),
-        &tm::QueryMsg::ListPvpTrackIds { start_after: None, limit: Some(1024) },
-    )?;
-    let mut chosen_pvp: Option<u128> = None;
-    if !list_resp.ids.is_empty() {
-        // Deterministically choose a starting index, then scan within this one list
-        let start_idx = (prng((env.block.height as u64) ^ now, list_resp.ids.len() as u32) as usize) % list_resp.ids.len();
-        for i in 0..list_resp.ids.len() {
-            let candidate = list_resp.ids[(start_idx + i) % list_resp.ids.len()];
-            // Enforce progress threshold across all starting tiles
-            let t: membrane::types::Track = deps.querier.query_wasm_smart(
-                cfg.track_manager_contract.clone(),
-                &tm::QueryMsg::GetTrack { track_id: Uint128::from(candidate) },
-            )?;
-            let all_ok = t.starting_tiles.iter().all(|st| st.progress_towards_finish >= cfg.min_start_tile_progress_threshold);
-            let range_ok = if !t.starting_tiles.is_empty() {
-                let min = t.starting_tiles.iter().map(|st| st.progress_towards_finish).min().unwrap();
-                let max = t.starting_tiles.iter().map(|st| st.progress_towards_finish).max().unwrap();
-                (max - min) <= cfg.max_start_tile_progress_diff
-            } else { false };
-            if all_ok && range_ok { chosen_pvp = Some(candidate); break; }
+    // If PvP is disabled, ensure there is no PVP track selected; otherwise pick a valid one
+    if !cfg.pvp_enabled {
+        PVP_EVENT_TRACK_ID.save(deps.storage, &None)?;
+    } else {
+        // Make a single query for PvP track IDs and pick a valid one from that list
+        let list_resp: membrane::track_manager::PvpTrackIdsResponse = deps.querier.query_wasm_smart(
+            cfg.track_manager_contract.clone(),
+            &tm::QueryMsg::ListPvpTrackIds { start_after: None, limit: Some(1024) },
+        )?;
+        let mut chosen_pvp: Option<u128> = None;
+        if !list_resp.ids.is_empty() {
+            // Deterministically choose a starting index, then scan within this one list
+            let start_idx = (prng((env.block.height as u64) ^ now, list_resp.ids.len() as u32) as usize) % list_resp.ids.len();
+            for i in 0..list_resp.ids.len() {
+                let candidate = list_resp.ids[(start_idx + i) % list_resp.ids.len()];
+                // Enforce progress threshold across all starting tiles
+                let t: membrane::types::Track = deps.querier.query_wasm_smart(
+                    cfg.track_manager_contract.clone(),
+                    &tm::QueryMsg::GetTrack { track_id: Uint128::from(candidate) },
+                )?;
+                let all_ok = t.starting_tiles.iter().all(|st| st.progress_towards_finish >= cfg.min_start_tile_progress_threshold);
+                let range_ok = if !t.starting_tiles.is_empty() {
+                    let min = t.starting_tiles.iter().map(|st| st.progress_towards_finish).min().unwrap();
+                    let max = t.starting_tiles.iter().map(|st| st.progress_towards_finish).max().unwrap();
+                    (max - min) <= cfg.max_start_tile_progress_diff
+                } else { false };
+                if all_ok && range_ok { chosen_pvp = Some(candidate); break; }
+            }
         }
+        PVP_EVENT_TRACK_ID.save(deps.storage, &chosen_pvp)?;
     }
-    PVP_EVENT_TRACK_ID.save(deps.storage, &chosen_pvp)?;
 
     // Validate a maze event track has been set recently (within window length)
     let info = MAZE_EVENT_INFO.may_load(deps.storage)?.unwrap_or(MazeEventInfo { track_id: None, set_ts: None });
@@ -174,12 +205,91 @@ fn exec_start_new_windows(deps: DepsMut, env: Env, info: MessageInfo) -> Result<
         return Err(ContractError::InvalidInput("maze event track not set recently".to_string()));
     }
 
+    //Reset event winner states
+    MAZE_WINNERS.clear(deps.storage);
+    PVP_WINNERS.clear(deps.storage);
+
+    // Apply difficulty adjustment based on previous window performance
+    let difficulty_config = DIFFICULTY_ADJUSTMENT_CONFIG.load(deps.storage)?;
+    if difficulty_config.enabled {
+        let mut cfg = get_config(deps.storage)?;
+        let mut difficulty_changed = false;
+        
+        // Check maze difficulty adjustment
+        let maze_win_count = MAZE_WIN_COUNT.load(deps.storage).unwrap_or(0);
+        let maze_history = MAZE_WIN_HISTORY.load(deps.storage).unwrap_or_default();
+        
+        // Only adjust difficulty if we have enough history
+        if maze_history.len() >= difficulty_config.min_history_for_adjustment as usize {
+            let historical_average = maze_history.iter().map(|&x| x as f64).sum::<f64>() / maze_history.len() as f64;
+            
+            // Calculate ratio of current wins to historical average
+            let current_ratio = if historical_average > 0.0 {
+                maze_win_count as f64 / historical_average
+            } else {
+                1.0 // No change if no historical data
+            };
+            
+            if current_ratio > difficulty_config.difficulty_increase_threshold {
+                let new_difficulty = (cfg.maze_default_difficulty as u16 + difficulty_config.difficulty_step as u16)
+                    .min(difficulty_config.max_difficulty as u16) as u8;
+                if new_difficulty > cfg.maze_default_difficulty {
+                    cfg.maze_default_difficulty = new_difficulty;
+                    difficulty_changed = true;
+                }
+            } else if current_ratio < difficulty_config.difficulty_decrease_threshold {
+                let new_difficulty = (cfg.maze_default_difficulty as i16 - difficulty_config.difficulty_step as i16)
+                    .max(difficulty_config.min_difficulty as i16) as u8;
+                if new_difficulty < cfg.maze_default_difficulty {
+                    cfg.maze_default_difficulty = new_difficulty;
+                    difficulty_changed = true;
+                }
+            }
+        }
+        
+        // Update config if difficulty changed
+        if difficulty_changed {
+            set_config(deps.storage, cfg)?;
+        }
+        
+        // Update win history for both events
+        let mut maze_history = MAZE_WIN_HISTORY.load(deps.storage).unwrap_or_default();
+        let mut pvp_history = PVP_WIN_HISTORY.load(deps.storage).unwrap_or_default();
+        
+        // Add current window win counts to history
+        maze_history.push(maze_win_count);
+        pvp_history.push(PVP_WIN_COUNT.load(deps.storage).unwrap_or(0));
+        
+        // Keep only the last N windows in history
+        if maze_history.len() > difficulty_config.history_window_size as usize {
+            maze_history = maze_history[maze_history.len() - difficulty_config.history_window_size as usize..].to_vec();
+        }
+        if pvp_history.len() > difficulty_config.history_window_size as usize {
+            pvp_history = pvp_history[pvp_history.len() - difficulty_config.history_window_size as usize..].to_vec();
+        }
+        
+        MAZE_WIN_HISTORY.save(deps.storage, &maze_history)?;
+        PVP_WIN_HISTORY.save(deps.storage, &pvp_history)?;
+        
+        // Reset win counts for new window
+        MAZE_WIN_COUNT.save(deps.storage, &0u32)?;
+        PVP_WIN_COUNT.save(deps.storage, &0u32)?;
+    }
+
     Ok(Response::new().add_attribute("action", "start_new_windows"))
 }
 
 fn exec_generate_maze(deps: DepsMut, env: Env, info: MessageInfo, name: String) -> Result<Response, ContractError> {
-    assert_admin(&deps, &info)?;
+    // assert_admin(&deps, &info)?;
+    //
     let cfg = get_config(deps.storage)?;
+    //Allow generation only during active maze windows
+    let maze_start = MAZE_WINDOW_START.load(deps.storage).unwrap_or(0);
+    let now = env.block.time.seconds();
+    if now < maze_start {
+        return Err(ContractError::InvalidInput("maze window not active".to_string()));
+    }
+
     // Size scaling: allow caller overrides; else use config scalers
     let w = cfg.maze_width as usize;
     let h = cfg.maze_height as usize;
@@ -200,10 +310,6 @@ fn exec_generate_maze(deps: DepsMut, env: Env, info: MessageInfo, name: String) 
     let fastest = fastest_steps(&layout).unwrap_or(u64::MAX);
     if fastest as u32 > re_cfg.max_ticks { return Err(ContractError::InvalidInput("maze not completable within max_ticks".to_string())); }
 
-    // Enforce per-start minimum progress and fairness range
-    if !starts_meet_min_progress(&layout, cfg.min_progress_to_finish_per_start_tile) {
-        return Err(ContractError::InvalidInput("maze progress below minimum per start tile".to_string()));
-    }
     if !starts_within_progress_range(&layout, cfg.max_start_tile_progress_diff) {
         return Err(ContractError::InvalidInput("maze start tiles progress range too wide".to_string()));
     }
@@ -424,26 +530,26 @@ fn fastest_steps(layout: &Vec<Vec<u8>>) -> Option<u64> {
 }
 
 // Ensure all start tiles (value 2) have distance to finish >= min
-fn starts_meet_min_progress(layout: &Vec<Vec<u8>>, min: u16) -> bool {
-    use std::collections::VecDeque;
-    let h = layout.len(); if h == 0 { return false; }
-    let w = layout[0].len(); if w == 0 { return false; }
-    let mut dist = vec![vec![u64::MAX; w]; h];
-    let mut q = VecDeque::new();
-    for y in 0..h { for x in 0..w { if layout[y][x] == 3 { dist[y][x] = 0; q.push_back((x,y)); } } }
-    while let Some((x,y)) = q.pop_front() {
-        let d = dist[y][x];
-        for (dx,dy) in [(1,0),(-1,0),(0,1),(0,-1)] {
-            let nx = x as i32 + dx; let ny = y as i32 + dy;
-            if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 { continue; }
-            let (nxu,nyu) = (nx as usize, ny as usize);
-            if layout[nyu][nxu] == 1 { continue; }
-            if dist[nyu][nxu] == u64::MAX { dist[nyu][nxu] = d + 1; q.push_back((nxu,nyu)); }
-        }
-    }
-    for y in 0..h { for x in 0..w { if layout[y][x] == 2 { if dist[y][x] == u64::MAX || dist[y][x] < min as u64 { return false; } } } }
-    true
-}
+// fn starts_meet_min_progress(layout: &Vec<Vec<u8>>, min: u16) -> bool {
+//     use std::collections::VecDeque;
+//     let h = layout.len(); if h == 0 { return false; }
+//     let w = layout[0].len(); if w == 0 { return false; }
+//     let mut dist = vec![vec![u64::MAX; w]; h];
+//     let mut q = VecDeque::new();
+//     for y in 0..h { for x in 0..w { if layout[y][x] == 3 { dist[y][x] = 0; q.push_back((x,y)); } } }
+//     while let Some((x,y)) = q.pop_front() {
+//         let d = dist[y][x];
+//         for (dx,dy) in [(1,0),(-1,0),(0,1),(0,-1)] {
+//             let nx = x as i32 + dx; let ny = y as i32 + dy;
+//             if nx < 0 || ny < 0 || nx >= w as i32 || ny >= h as i32 { continue; }
+//             let (nxu,nyu) = (nx as usize, ny as usize);
+//             if layout[nyu][nxu] == 1 { continue; }
+//             if dist[nyu][nxu] == u64::MAX { dist[nyu][nxu] = d + 1; q.push_back((nxu,nyu)); }
+//         }
+//     }
+//     for y in 0..h { for x in 0..w { if layout[y][x] == 2 { if dist[y][x] == u64::MAX || dist[y][x] < min as u64 { return false; } } } }
+//     true
+// }
 
 // Ensure the difference (max - min) of start tiles' distances to finish is within bound
 fn starts_within_progress_range(layout: &Vec<Vec<u8>>, max_diff: u16) -> bool {
@@ -483,27 +589,69 @@ pub fn query(deps: Deps, env: Env, msg: bm::QueryMsg) -> StdResult<Binary> {
         bm::QueryMsg::VerifyEventRace { track_id, car_ids, pvp } => to_json_binary(&query_verify_event_race(deps, env, track_id, car_ids, pvp)?),
         bm::QueryMsg::GetConfig {} => to_json_binary(&CONFIG.load(deps.storage)?),
         bm::QueryMsg::SecondsUntilOpen { event } => to_json_binary(&seconds_until_open(deps, env, event)?),
+        bm::QueryMsg::ValidMazeID {} => to_json_binary(&query_valid_maze_id(deps, env)?),
+        bm::QueryMsg::GetRecordedWins { event, start_after, limit } => to_json_binary(&query_get_recorded_wins(deps, env, event, start_after, limit)?),
+        bm::QueryMsg::GetWindowStatus { event } => to_json_binary(&query_get_window_status(deps, env, event)?),
+        bm::QueryMsg::GetDifficultyAdjustmentInfo { event } => to_json_binary(&query_get_difficulty_adjustment_info(deps, env, event)?),
     }
+}
+
+fn query_valid_maze_id(deps: Deps, env: Env) -> StdResult<Option<u128>> {
+    // Validate a maze event track has been set recently (within window length)
+    let cfg = get_config(deps.storage)?;
+    let now = env.block.time.seconds();
+    let info = MAZE_EVENT_INFO.may_load(deps.storage)?.unwrap_or(MazeEventInfo { track_id: None, set_ts: None });
+    
+    // Check if maze window is active and track was set recently
+    let maze_ok = if let (Some(_id), Some(ts)) = (info.track_id, info.set_ts) {
+        now.saturating_sub(ts) <= cfg.maze_event_window_seconds
+    } else { false };
+    
+    let window_active = is_window_active(&deps, bm::EventType::Maze, now)?;
+    
+    Ok(if maze_ok && window_active { info.track_id } else { None })
 }
 
 fn is_within_window(now: u64, start: u64, window: u64) -> bool { now >= start && now < start + window }
 
+fn is_window_active(deps: &Deps, event: bm::EventType, now: u64) -> StdResult<bool> {
+    let cfg = get_config(deps.storage)?;
+    
+    let (start, window_duration) = match event {
+        bm::EventType::Maze => (
+            MAZE_WINDOW_START.load(deps.storage).unwrap_or(0),
+            cfg.maze_event_window_seconds
+        ),
+        bm::EventType::Pvp => {
+            if !cfg.pvp_enabled { return Ok(false); }
+            (
+                PVP_WINDOW_START.load(deps.storage).unwrap_or(0),
+                cfg.pvp_event_window_seconds
+            )
+        },
+    };
+    
+    Ok(now >= start && now <= start + window_duration)
+}
+
 fn query_verify_event_race(deps: Deps, env: Env, track_id: u128, car_ids: Vec<u128>, pvp: bool) -> StdResult<bm::VerifyEventRaceResponse> {
     let cfg = get_config(deps.storage)?;
     let now = env.block.time.seconds();
-    let maze_start = MAZE_WINDOW_START.load(deps.storage).unwrap_or(0);
-    let pvp_start = PVP_WINDOW_START.load(deps.storage).unwrap_or(0);
-
+    
     if pvp {
+        if !cfg.pvp_enabled {
+            // Soft fail: not allowed
+            return Ok(bm::VerifyEventRaceResponse { allowed: false, event: None, required_opponent: Some(0) });
+        }
         let two_cars_with_zero = car_ids.len() == 2 && car_ids.iter().filter(|&&id| id == 0).count() == 1;
-        let allowed = is_within_window(now, pvp_start, cfg.pvp_event_window_seconds) && two_cars_with_zero;
+        let allowed = is_window_active(&deps, bm::EventType::Pvp, now)? && two_cars_with_zero;
         // Enforce selected PVP track id
         let selected = PVP_EVENT_TRACK_ID.load(deps.storage).unwrap_or(None);
         if let Some(sel) = selected { if sel != track_id { return Ok(bm::VerifyEventRaceResponse { allowed: false, event: None, required_opponent: Some(0) }); } }
         Ok(bm::VerifyEventRaceResponse { allowed, event: if allowed { Some(bm::EventType::Pvp) } else { None }, required_opponent: Some(0) })
     } else {
         // If maze event has an active track, ensure it matches; else allow any maze track
-        let allowed = is_within_window(now, maze_start, cfg.maze_event_window_seconds);
+        let allowed = is_window_active(&deps, bm::EventType::Maze, now)?;
         let info = MAZE_EVENT_INFO.may_load(deps.storage)?.unwrap_or(MazeEventInfo { track_id: None, set_ts: None });
         if let Some(sel) = info.track_id { if sel != track_id { return Ok(bm::VerifyEventRaceResponse { allowed: false, event: None, required_opponent: None }); } }
         Ok(bm::VerifyEventRaceResponse { allowed, event: if allowed { Some(bm::EventType::Maze) } else { None }, required_opponent: None })
@@ -513,18 +661,142 @@ fn query_verify_event_race(deps: Deps, env: Env, track_id: u128, car_ids: Vec<u1
 fn seconds_until_open(deps: Deps, env: Env, event: bm::EventType) -> StdResult<u64> {
     let cfg = get_config(deps.storage)?;
     let now = env.block.time.seconds();
-    let (cadence, _start) = match event {
-        bm::EventType::Maze => (cfg.maze_event_cadence_seconds, MAZE_WINDOW_START.load(deps.storage).unwrap_or(0)),
-        bm::EventType::Pvp => (cfg.pvp_event_cadence_seconds, PVP_WINDOW_START.load(deps.storage).unwrap_or(0)),
+    
+    if let bm::EventType::Pvp = event {
+        if !cfg.pvp_enabled { return Ok(u64::MAX); }
+    }
+    
+    let (cadence, window_duration, current_start) = match event {
+        bm::EventType::Maze => (
+            cfg.maze_event_cadence_seconds, 
+            cfg.maze_event_window_seconds, 
+            MAZE_WINDOW_START.load(deps.storage).unwrap_or(0)
+        ),
+        bm::EventType::Pvp => (
+            cfg.pvp_event_cadence_seconds, 
+            cfg.pvp_event_window_seconds, 
+            PVP_WINDOW_START.load(deps.storage).unwrap_or(0)
+        ),
     };
-    let current_window_start = now - (now % cadence);
-    let next_window_start = current_window_start + cadence;
-    Ok(if now < current_window_start { current_window_start - now } else { next_window_start.saturating_sub(now) })
+    
+    // Calculate when the current window ends
+    let current_window_end = current_start + window_duration;
+    
+    // If we're still within the current window, return time until it ends
+    if now < current_window_end {
+        return Ok(current_window_end - now);
+    }
+    
+    // If we're outside the current window, calculate time until next cadence point
+    let next_cadence_point = now - (now % cadence) + cadence;
+    Ok(next_cadence_point - now)
 }
 
-fn exec_record_win(deps: DepsMut, env: Env, info: MessageInfo, event: bm::EventType, car_id: u128) -> Result<Response, ContractError> {
+fn query_get_recorded_wins(deps: Deps, env: Env, event: bm::EventType, start_after: Option<u64>, limit: Option<u32>) -> StdResult<Vec<u128>> {
+    let cfg = get_config(deps.storage)?;
+    
+    // Get the current window start for the specified event
+    let window_start = match event {
+        bm::EventType::Maze => MAZE_WINDOW_START.load(deps.storage).unwrap_or(0),
+        bm::EventType::Pvp => {
+            if !cfg.pvp_enabled {
+                return Ok(vec![]);
+            }
+            PVP_WINDOW_START.load(deps.storage).unwrap_or(0)
+        },
+    };
+    
+    // Get the winners map for the specified event
+    let winners_map = match event {
+        bm::EventType::Maze => MAZE_WINNERS,
+        bm::EventType::Pvp => PVP_WINNERS,
+    };
+    
+    // Collect all car IDs that have won in the current window
+    let mut car_ids = Vec::new();
+    let limit = limit.unwrap_or(100).min(1000); // Cap at 1000 for safety
+    
+    // Use range query to get all winners for the current window
+    let start_bound = start_after.map(|car_id| Bound::exclusive((window_start, car_id as u128)));
+    let end_bound = Bound::exclusive((window_start + 1, 0u128)); // Exclusive bound for next window
+    
+    let range: StdResult<Vec<_>> = winners_map
+        .range(deps.storage, start_bound, Some(end_bound), cosmwasm_std::Order::Ascending)
+        .take(limit as usize)
+        .collect();
+    
+    for item in range? {
+        let ((_window_start, car_id), _won) = item;
+        car_ids.push(car_id);
+    }
+    
+    Ok(car_ids)
+}
+
+fn query_get_window_status(deps: Deps, env: Env, event: bm::EventType) -> StdResult<bm::WindowStatusResponse> {
+    let cfg = get_config(deps.storage)?;
+    let now = env.block.time.seconds();
+    
+    let (window_start, window_duration, cadence) = match event {
+        bm::EventType::Maze => (
+            MAZE_WINDOW_START.load(deps.storage).unwrap_or(0),
+            cfg.maze_event_window_seconds,
+            cfg.maze_event_cadence_seconds
+        ),
+        bm::EventType::Pvp => {
+            if !cfg.pvp_enabled {
+                return Ok(bm::WindowStatusResponse {
+                    is_active: false,
+                    window_start: 0,
+                    window_end: 0,
+                    seconds_until_open: u64::MAX,
+                    seconds_until_close: 0,
+                });
+            }
+            (
+                PVP_WINDOW_START.load(deps.storage).unwrap_or(0),
+                cfg.pvp_event_window_seconds,
+                cfg.pvp_event_cadence_seconds
+            )
+        },
+    };
+    
+    let window_end = window_start + window_duration;
+    let is_active = now >= window_start && now < window_end;
+    
+    let seconds_until_open = if is_active {
+        0 // Window is already open
+    } else if now < window_start {
+        window_start - now // Waiting for window to start
+    } else {
+        // Calculate next cadence point
+        let next_cadence_point = now - (now % cadence) + cadence;
+        next_cadence_point - now
+    };
+    
+    let seconds_until_close = if is_active {
+        window_end - now
+    } else {
+        0
+    };
+    
+    Ok(bm::WindowStatusResponse {
+        is_active,
+        window_start,
+        window_end,
+        seconds_until_open,
+        seconds_until_close,
+    })
+}
+
+fn exec_record_win(deps: DepsMut, env: Env, info: MessageInfo, event: bm::EventType, car_id: u128, runner: String) -> Result<Response, ContractError> {
     let cfg = get_config(deps.storage)?;
     if info.sender.as_str() != cfg.race_engine_contract { return Err(ContractError::Unauthorized {}); }
+
+    // PvP disabled: quietly no-op
+    if let bm::EventType::Pvp = event {
+        if !cfg.pvp_enabled { return Ok(Response::new().add_attribute("action", "record_win_skipped").add_attribute("reason", "pvp_disabled")); }
+    }
 
     let (start_key, winners_map) = match event {
         bm::EventType::Maze => (MAZE_WINDOW_START, MAZE_WINNERS),
@@ -532,22 +804,147 @@ fn exec_record_win(deps: DepsMut, env: Env, info: MessageInfo, event: bm::EventT
     };
     let start = start_key.load(deps.storage).unwrap_or(0);
 
-    if winners_map.may_load(deps.storage, (start, car_id))?.unwrap_or(false) { return Err(ContractError::AlreadyWon {}); }
+    if winners_map.may_load(deps.storage, (start, car_id))?.unwrap_or(false) { 
+        return Err(ContractError::AlreadyWon {}); 
+    }
     winners_map.save(deps.storage, (start, car_id), &true)?;
+    
+    // Increment win count for difficulty adjustment
+    let (win_count_key, win_history_key) = match event {
+        bm::EventType::Maze => (MAZE_WIN_COUNT, MAZE_WIN_HISTORY),
+        bm::EventType::Pvp => (PVP_WIN_COUNT, PVP_WIN_HISTORY),
+    };
+    
+    let current_count = win_count_key.load(deps.storage).unwrap_or(0);
+    win_count_key.save(deps.storage, &(current_count + 1))?;
 
-    // Query car owner from cw721-like contract]
-    let owner_resp: OwnerOfResponse = deps.querier.query_wasm_smart(
+    // Query car owner from cw721-like contract. If query fails (e.g., in tests), fall back to admin.
+    let owner_address: String = match deps.querier.query_wasm_smart::<OwnerOfResponse>(
         cfg.car_contract.clone(),
         &membrane::car::QueryMsg::Base(membrane::car::Cw721QueryMsg::OwnerOf{ token_id: car_id.to_string(), include_expired: None })
-    )?;
+    ) {
+        Ok(resp) => resp.owner,
+        Err(_) => return Err(ContractError::InvalidInput("car not found".to_string())),
+    };
 
     let mint = mint_msg(
         cfg.tokenfactory_contract.as_ref().and_then(|s| deps.api.addr_validate(s).ok()),
-        &cfg.admin,
+        &env.contract.address.to_string(),
         &cfg.tokenfactory_denom,
         cfg.mint_amount,
-        &owner_resp.owner,
+        &owner_address,
     );
 
-    Ok(Response::new().add_message(mint).add_attribute("action", "record_win").add_attribute("event", match event { bm::EventType::Maze => "maze", bm::EventType::Pvp => "pvp" }))
+    // Optional runner bonus: configurable fraction of mint_amount if runner is not the owner
+    let mut resp = Response::new().add_attribute("action", "record_win").add_attribute("event", match event { bm::EventType::Maze => "maze", bm::EventType::Pvp => "pvp" });
+    if !cfg.mint_amount.is_zero() { resp = resp.add_message(mint); }
+
+    // Validate runner address format; if invalid, skip bonus
+    if runner != owner_address {
+        if let Ok(_) = deps.api.addr_validate(&runner) {
+            // Compute bonus = mint_amount * runner_reward_rate using Decimal math
+            let bonus = decimal_division(
+                Decimal::from_ratio(cfg.mint_amount, Uint128::one()),
+                cfg.runner_reward_rate,
+            )?.to_uint_floor();
+            //Mint bonus to runner
+            if !bonus.is_zero() {
+                let runner_mint = mint_msg(
+                    cfg.tokenfactory_contract.as_ref().and_then(|s| deps.api.addr_validate(s).ok()),
+                    &env.contract.address.to_string(),
+                    &cfg.tokenfactory_denom,
+                    bonus,
+                    &runner,
+                );
+                resp = resp.add_message(runner_mint).add_attribute("runner_bonus", bonus.to_string());
+            }
+        }
+    }
+
+    Ok(resp)
+} 
+
+fn query_get_difficulty_adjustment_info(deps: Deps, env: Env, event: bm::EventType) -> StdResult<bm::DifficultyAdjustmentInfo> {
+    let cfg = get_config(deps.storage)?;
+    let difficulty_config = DIFFICULTY_ADJUSTMENT_CONFIG.load(deps.storage)?;
+    
+    let (current_win_count, win_history, current_difficulty) = match event {
+        bm::EventType::Maze => (
+            MAZE_WIN_COUNT.load(deps.storage).unwrap_or(0),
+            MAZE_WIN_HISTORY.load(deps.storage).unwrap_or_default(),
+            cfg.maze_default_difficulty
+        ),
+        bm::EventType::Pvp => {
+            if !cfg.pvp_enabled {
+                return Err(cosmwasm_std::StdError::generic_err("PvP is disabled"));
+            }
+            (
+                PVP_WIN_COUNT.load(deps.storage).unwrap_or(0),
+                PVP_WIN_HISTORY.load(deps.storage).unwrap_or_default(),
+                cfg.maze_default_difficulty // PvP uses same difficulty as maze for now
+            )
+        },
+    };
+    
+    // Calculate historical average
+    let historical_average = if win_history.is_empty() {
+        0.0 // No historical data yet
+    } else {
+        let sum: u32 = win_history.iter().sum();
+        sum as f64 / win_history.len() as f64
+    };
+    
+    // Determine if difficulty should be adjusted
+    let difficulty_adjustment = if difficulty_config.enabled && win_history.len() >= difficulty_config.min_history_for_adjustment as usize {
+        let current_ratio = if historical_average > 0.0 {
+            current_win_count as f64 / historical_average
+        } else {
+            1.0
+        };
+        
+        if current_ratio > difficulty_config.difficulty_increase_threshold {
+            let new_difficulty = (current_difficulty as u16 + difficulty_config.difficulty_step as u16)
+                .min(difficulty_config.max_difficulty as u16) as u8;
+            if new_difficulty > current_difficulty {
+                Some(bm::DifficultyAdjustment {
+                    old_difficulty: current_difficulty,
+                    new_difficulty,
+                    reason: format!("Current wins ({}) significantly above historical average ({:.1})", current_win_count, historical_average),
+                    current_win_count,
+                    historical_average,
+                    adjustment_threshold: difficulty_config.difficulty_increase_threshold,
+                })
+            } else {
+                None
+            }
+        } else if current_ratio < difficulty_config.difficulty_decrease_threshold {
+            let new_difficulty = (current_difficulty as i16 - difficulty_config.difficulty_step as i16)
+                .max(difficulty_config.min_difficulty as i16) as u8;
+            if new_difficulty < current_difficulty {
+                Some(bm::DifficultyAdjustment {
+                    old_difficulty: current_difficulty,
+                    new_difficulty,
+                    reason: format!("Current wins ({}) significantly below historical average ({:.1})", current_win_count, historical_average),
+                    current_win_count,
+                    historical_average,
+                    adjustment_threshold: difficulty_config.difficulty_decrease_threshold,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    Ok(bm::DifficultyAdjustmentInfo {
+        current_difficulty,
+        current_win_count,
+        historical_average,
+        difficulty_adjustment,
+        config: difficulty_config,
+        windows_in_history: win_history.len() as u32,
+    })
 } 

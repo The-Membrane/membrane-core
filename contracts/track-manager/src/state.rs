@@ -1,9 +1,10 @@
 use cosmwasm_std::{Uint128, Storage};
 use cw_storage_plus::{Item, Map};
-use membrane::types::Track;
+use membrane::types::{Track, CompressedTrack};
 
 pub const ADMIN: Item<cosmwasm_std::Addr> = Item::new("admin");
 pub const TRACKS: Map<u128, Track> = Map::new("tracks");
+pub const COMPRESSED_TRACKS: Map<u128, CompressedTrack> = Map::new("compressed_tracks");
 pub const TRACK_ID_COUNTER: Item<Uint128> = Item::new("track_id_counter");
 
 // New: PvP track ids set
@@ -39,6 +40,15 @@ pub fn save_track_id_hash_mapping(storage: &mut dyn Storage, track_id: &u128, la
 
 pub fn get_track_layout_hash(storage: &dyn Storage, track_id: &u128) -> Result<String, crate::error::TrackManagerError> {
     TRACK_ID_TO_HASH.load(storage, *track_id).map_err(|_| crate::error::TrackManagerError::TrackNotFound { track_id: (*track_id).to_string() })
+}
+
+// Compressed track storage functions
+pub fn save_compressed_track(storage: &mut dyn Storage, track_id: &u128, compressed_track: CompressedTrack) -> Result<(), crate::error::TrackManagerError> {
+    COMPRESSED_TRACKS.save(storage, *track_id, &compressed_track).map_err(|_| crate::error::TrackManagerError::StorageError {})
+}
+
+pub fn get_compressed_track(storage: &dyn Storage, track_id: &u128) -> Result<CompressedTrack, crate::error::TrackManagerError> {
+    COMPRESSED_TRACKS.load(storage, *track_id).map_err(|_| crate::error::TrackManagerError::TrackNotFound { track_id: (*track_id).to_string() })
 }
 
 // pub fn add_track_to_all_tracks(storage: &mut dyn Storage, track_id: &Uint128) -> StdResult<()> {

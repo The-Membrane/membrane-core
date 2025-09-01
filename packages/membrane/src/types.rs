@@ -1411,6 +1411,31 @@ impl TileProperties {
         }
     }
 
+    /// Check if this tile is empty (default properties)
+    pub fn is_empty(&self) -> bool {
+        self.speed_modifier == 1 &&
+        !self.blocks_movement &&
+        !self.skip_next_turn &&
+        self.damage == 0 &&
+        !self.is_finish &&
+        !self.is_start
+    }
+
+    /// Create a compressed representation for empty tiles
+    /// Returns None for empty tiles, Some(self) for non-empty tiles
+    pub fn compress(self) -> Option<Self> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self)
+        }
+    }
+
+    /// Decompress a tile, returning default empty tile if None
+    pub fn decompress(compressed: Option<Self>) -> Self {
+        compressed.unwrap_or_default()
+    }
+
     /// Create a boost tile
     pub fn boost(speed_modifier: u32) -> Self {
         Self {
@@ -1489,6 +1514,105 @@ pub struct TrackTile {
     pub y: u8,
 }
 
+/// Compressed track layout for efficient storage
+/// Uses Option<TileProperties> where None represents empty tiles
+#[cw_serde]
+pub struct CompressedTrackLayout {
+    /// Width of the track
+    pub width: u8,
+    /// Height of the track  
+    pub height: u8,
+    /// Compressed layout: None = empty tile, Some = actual tile properties
+    pub compressed_layout: Vec<Vec<Option<TileProperties>>>,
+}
+
+/// Compressed track with metadata for efficient storage
+#[cw_serde]
+pub struct CompressedTrack {
+    /// Creator of the track
+    pub creator: String,
+    /// Name of the track
+    pub name: String,
+    /// Compressed layout
+    pub layout: CompressedTrackLayout,
+}
+
+impl CompressedTrackLayout {
+    /// Create compressed layout from full layout
+    pub fn from_full_layout(layout: &Vec<Vec<TileProperties>>) -> Self {
+        let height = layout.len() as u8;
+        let width = if height > 0 { layout[0].len() as u8 } else { 0 };
+        
+        let compressed_layout = layout.iter()
+            .map(|row| row.iter().map(|tile| tile.clone().compress()).collect())
+            .collect();
+            
+        Self {
+            width,
+            height,
+            compressed_layout,
+        }
+    }
+    
+    /// Expand compressed layout to full layout for race simulation
+    pub fn to_full_layout(&self) -> Vec<Vec<TileProperties>> {
+        self.compressed_layout.iter()
+            .map(|row| row.iter().map(|compressed| TileProperties::decompress(compressed.clone())).collect())
+            .collect()
+    }
+    
+    /// Get tile properties at specific coordinates
+    pub fn get_tile(&self, x: usize, y: usize) -> TileProperties {
+        if y < self.compressed_layout.len() && x < self.compressed_layout[y].len() {
+            TileProperties::decompress(self.compressed_layout[y][x].clone())
+        } else {
+            TileProperties::default()
+        }
+    }
+}
+
+impl CompressedTrack {
+    /// Create compressed track from full track data
+    pub fn from_track_data(creator: String, name: String, layout: &Vec<Vec<TileProperties>>) -> Self {
+        Self {
+            creator,
+            name,
+            layout: CompressedTrackLayout::from_full_layout(layout),
+        }
+    }
+    
+    /// Expand to full Track for race engine compatibility
+    pub fn to_track(&self, track_id: u128, fastest_tick_time: u64, starting_tiles: Vec<TrackTile>) -> Track {
+        let full_layout = self.layout.to_full_layout();
+        
+        // Convert to TrackTile format with coordinates
+        let mut track_layout = vec![];
+        for (y, row) in full_layout.iter().enumerate() {
+            let mut track_row = vec![];
+            for (x, properties) in row.iter().enumerate() {
+                track_row.push(TrackTile {
+                    properties: properties.clone(),
+                    progress_towards_finish: 0, // Will be calculated by race engine
+                    x: x as u8,
+                    y: y as u8,
+                });
+            }
+            track_layout.push(track_row);
+        }
+        
+        Track {
+            creator: self.creator.clone(),
+            id: track_id,
+            name: self.name.clone(),
+            width: self.layout.width,
+            height: self.layout.height,
+            layout: track_layout,
+            fastest_tick_time,
+            starting_tiles,
+        }
+    }
+}
+
 #[cw_serde]
 pub struct Track {
     /// Creator of the track
@@ -1501,7 +1625,7 @@ pub struct Track {
     pub width: u8,
     /// Height of the track in tiles
     pub height: u8,
-    /// 2D layout of the track with tile information
+    /// 2D layout of the track with tile information (expanded from compressed storage)
     pub layout: Vec<Vec<TrackTile>>,
     /// Fastest possible tick time 
     pub fastest_tick_time: u64,

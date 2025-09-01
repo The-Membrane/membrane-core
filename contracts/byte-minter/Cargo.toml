@@ -20,3 +20,4 @@ cw721-base = { version = "0.16.0", default-features = false, features = ["librar
 cw-multi-test = "1.0.3"
 track_manager = { path = "../track-manager" }
 race-engine = { path = "../race-engine" } 
+tokenfactory = { path = "../tokenfactory" }

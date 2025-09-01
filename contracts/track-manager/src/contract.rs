@@ -55,8 +55,8 @@ pub fn execute_add_track(
     deps: DepsMut,
     _info: MessageInfo,
     name: String,
-    width: u8,
-    height: u8,
+    mut width: u8,
+    mut height: u8,
     layout: Vec<Vec<TileProperties>>,
 ) -> Result<Response, TrackManagerError> {
     // Validate track dimensions
@@ -79,17 +79,10 @@ pub fn execute_add_track(
     //     return Err(TrackManagerError::TrackAlreadyExists { track_id: track_id.clone() });
     // }
 
-    // Validate layout dimensions
-    if layout.len() != height as usize {
-        return Err(TrackManagerError::InvalidTrackDimensions { width, height });
-    }
-
-    for row in &layout {
-        if row.len() != width as usize {
-            return Err(TrackManagerError::InvalidTrackDimensions { width, height });
-        }
-    }
-
+    //Set track width and height
+    width = layout[0].len() as u8;
+    height = layout.len() as u8;
+    
     // Validate track layout
     validate_track_layout(&layout, width, height)?;
 

@@ -35,7 +35,7 @@ pub fn instantiate(deps: DepsMut, env: Env, info: MessageInfo, msg: bm::Instanti
             msg.tokenfactory_contract.as_ref().and_then(|s| deps.api.addr_validate(s).ok()),
             &env.contract.address.to_string(),
             &msg.subdenom,
-        ))
+        )?)
     } else { None };
 
     // Full denom per tokenfactory rules: factory/{creator}/{subdenom}
@@ -833,7 +833,7 @@ fn exec_record_win(deps: DepsMut, env: Env, info: MessageInfo, event: bm::EventT
         &cfg.tokenfactory_denom,
         cfg.mint_amount,
         &owner_address,
-    );
+    )?;
 
     // Optional runner bonus: configurable fraction of mint_amount if runner is not the owner
     let mut resp = Response::new().add_attribute("action", "record_win").add_attribute("event", match event { bm::EventType::Maze => "maze", bm::EventType::Pvp => "pvp" });
@@ -855,7 +855,7 @@ fn exec_record_win(deps: DepsMut, env: Env, info: MessageInfo, event: bm::EventT
                     &cfg.tokenfactory_denom,
                     bonus,
                     &runner,
-                );
+                )?;
                 resp = resp.add_message(runner_mint).add_attribute("runner_bonus", bonus.to_string());
             }
         }

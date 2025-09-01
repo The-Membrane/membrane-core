@@ -64,54 +64,54 @@ use osmosis_std::types::{
 
 /// Build a create denom CosmosMsg. If `contract` is Some, calls the external TokenFactory contract via Wasm; 
 /// otherwise emits the native MsgCreateDenom.
-pub fn create_denom_msg(contract: Option<Addr>, sender: &str, subdenom: &str) -> CosmosMsg {
+pub fn create_denom_msg(contract: Option<Addr>, sender: &str, subdenom: &str) -> Result<CosmosMsg, cosmwasm_std::StdError> {
     match contract {
-        Some(addr) => CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
+        Some(addr) => Ok(CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
             contract_addr: addr.to_string(),
-            msg: cosmwasm_std::to_binary(&ExecuteMsg::CreateDenom { subdenom: subdenom.to_string() }).unwrap(),
+            msg: cosmwasm_std::to_json_binary(&ExecuteMsg::CreateDenom { subdenom: subdenom.to_string() })?,
             funds: vec![],
-        }),
-        None => MsgCreateDenom {
+        })),
+        None => Ok(MsgCreateDenom {
             sender: sender.to_string(),
             subdenom: subdenom.to_string(),
         }
-        .into(),
+        .into()),
     }
 }
 
 /// Build a mint tokens CosmosMsg
-pub fn mint_msg(contract: Option<Addr>, sender: &str, denom: &str, amount: cosmwasm_std::Uint128, to: &str) -> CosmosMsg {
+pub fn mint_msg(contract: Option<Addr>, sender: &str, denom: &str, amount: cosmwasm_std::Uint128, to: &str) -> Result<CosmosMsg, cosmwasm_std::StdError> {
     match contract {
-        Some(addr) => CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
+        Some(addr) => Ok(CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
             contract_addr: addr.to_string(),
-            msg: cosmwasm_std::to_binary(&ExecuteMsg::MintTokens {
+            msg: cosmwasm_std::to_json_binary(&ExecuteMsg::MintTokens {
                 amount: Some(OsmosisCoin { denom: denom.to_string(), amount: amount.to_string() }),
                 mint_to_address: to.to_string(),
-            }).unwrap(),
+            })?,
             funds: vec![],
-        }),
-        None => MsgMint {
+        })),
+        None => Ok(MsgMint {
             sender: sender.to_string(),
             amount: Some(OsmosisCoin { denom: denom.to_string(), amount: amount.to_string() }),
             mint_to_address: to.to_string(),
         }
-        .into(),
+        .into()),
     }
 }
 
 /// Build a burn tokens CosmosMsg
-pub fn burn_msg(contract: Option<Addr>, sender: &str, denom: &str, amount: cosmwasm_std::Uint128, burn_from: &str) -> CosmosMsg {
+pub fn burn_msg(contract: Option<Addr>, sender: &str, denom: &str, amount: cosmwasm_std::Uint128, burn_from: &str) -> Result<CosmosMsg, cosmwasm_std::StdError> {
     match contract {
-        Some(addr) => CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
+        Some(addr) => Ok(CosmosMsg::Wasm(cosmwasm_std::WasmMsg::Execute {
             contract_addr: addr.to_string(),
-            msg: cosmwasm_std::to_binary(&ExecuteMsg::BurnTokens {}).unwrap(),
+            msg: cosmwasm_std::to_json_binary(&ExecuteMsg::BurnTokens {})?,
             funds: vec![cosmwasm_std::Coin { denom: denom.to_string(), amount }],
-        }),
-        None => MsgBurn {
+        })),
+        None => Ok(MsgBurn {
             sender: sender.to_string(),
             amount: Some(OsmosisCoin { denom: denom.to_string(), amount: amount.to_string() }),
             burn_from_address: burn_from.to_string(),
         }
-        .into(),
+        .into()),
     }
 } 

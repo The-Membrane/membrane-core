@@ -27,16 +27,17 @@ fn prng(seed: u64, modulus: u32) -> u32 {
 #[entry_point]
 pub fn instantiate(deps: DepsMut, env: Env, info: MessageInfo, msg: bm::InstantiateMsg) -> Result<Response, ContractError> {
     let admin = deps.api.addr_validate(&msg.admin)?;
+    let mut msgs: Vec<CosmosMsg> = vec![];
 
     // Create denom using tokenfactory. If a tokenfactory contract is set, call it; otherwise emit native MsgCreateDenom
     let should_create = msg.create_denom.unwrap_or(true);
-    let create = if should_create {
-        Some(create_denom_msg(
+    if should_create {
+        msgs.push(create_denom_msg(
             msg.tokenfactory_contract.as_ref().and_then(|s| deps.api.addr_validate(s).ok()),
             &env.contract.address.to_string(),
             &msg.subdenom,
-        )?)
-    } else { None };
+        )?);
+    } ;
 
     // Full denom per tokenfactory rules: factory/{creator}/{subdenom}
     let full_denom = format!("factory/{}/{}", env.contract.address.to_string(), msg.subdenom);
@@ -57,9 +58,9 @@ pub fn instantiate(deps: DepsMut, env: Env, info: MessageInfo, msg: bm::Instanti
         maze_event_window_seconds: msg.maze_event_window_seconds,
         pvp_event_cadence_seconds: msg.pvp_event_cadence_seconds,
         pvp_event_window_seconds: msg.pvp_event_window_seconds,
+        ////for pvp
         pvp_enabled: msg.pvp_enabled.unwrap_or(true),
         min_start_tile_progress_threshold: msg.min_start_tile_progress_threshold.unwrap_or(1),
-        //for pvp
         max_start_tile_progress_diff: msg.max_start_tile_progress_diff.unwrap_or(1000),
         revenue_contract: msg.revenue_contract,
     };
@@ -83,7 +84,7 @@ pub fn instantiate(deps: DepsMut, env: Env, info: MessageInfo, msg: bm::Instanti
     PVP_WINDOW_START.save(deps.storage, &pvp_start)?;
 
     Ok(Response::new()
-        .add_messages(create.into_iter())
+        .add_messages(msgs)
         .add_attribute("action", "instantiate")
         .add_attribute("denom", cfg.tokenfactory_denom))
 }

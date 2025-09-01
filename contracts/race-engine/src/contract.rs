@@ -1036,7 +1036,9 @@ fn calculate_car_action(
 ) -> Result<usize, ContractError> {
     //Set seed.
     // - Allows for deterministic randomness for each car to be different
-    let seed = seed * (car.car_id as u32 + tick_index);
+    // Use wrapping arithmetic to prevent overflow
+    let car_id_u32 = (car.car_id % (u32::MAX as u128)) as u32;
+    let seed = seed.wrapping_mul(car_id_u32.wrapping_add(tick_index));
     // Generate state hash for current position
     let state_hash = generate_state_hash(track_layout, x, y, car_speed, other_cars);
     
@@ -1151,8 +1153,8 @@ pub fn generate_state_hash(
     // ---------- 1. build 22-bit key ----------
     let mut key: u32 = 0;           // we'll only use lowest 22 bits
     for (i, &(dx,dy)) in DIRS.iter().enumerate() {
-        let tx = x + dx * speed as i32;
-        let ty = y + dy * speed as i32;
+        let tx = x + dx.wrapping_mul(speed as i32);
+        let ty = y + dy.wrapping_mul(speed as i32);
 
         // --- 3-bit tile flag ---
         let mut flag = TileFlag::Normal as u8;

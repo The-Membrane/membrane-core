@@ -1,5 +1,6 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{CosmosMsg, Decimal, Uint128};
+use std::str::FromStr;
 
 #[cw_serde]
 pub enum EventType {
@@ -112,8 +113,8 @@ pub struct Config {
 pub struct DifficultyAdjustmentConfig {
     pub enabled: bool,
     pub history_window_size: u32, // Number of windows to keep in history
-    pub difficulty_increase_threshold: f64, // Multiplier above historical average to trigger difficulty increase
-    pub difficulty_decrease_threshold: f64, // Multiplier below historical average to trigger difficulty decrease
+    pub difficulty_increase_threshold: Decimal, // Multiplier above historical average to trigger difficulty increase
+    pub difficulty_decrease_threshold: Decimal, // Multiplier below historical average to trigger difficulty decrease
     pub max_difficulty: u8, // Maximum difficulty level
     pub min_difficulty: u8, // Minimum difficulty level
     pub difficulty_step: u8, // How much to increase/decrease difficulty by
@@ -125,8 +126,8 @@ impl Default for DifficultyAdjustmentConfig {
         Self {
             enabled: true,
             history_window_size: 10, // Keep last 10 windows
-            difficulty_increase_threshold: 1.3, // Increase difficulty if 1.3x above historical average
-            difficulty_decrease_threshold: 0.7, // Decrease difficulty if 0.7x below historical average
+            difficulty_increase_threshold: Decimal::from_str("1.3").unwrap(), // Increase difficulty if 1.3x above historical average
+            difficulty_decrease_threshold: Decimal::from_str("0.7").unwrap(), // Decrease difficulty if 0.7x below historical average
             max_difficulty: 10, // Maximum difficulty level
             min_difficulty: 1, // Minimum difficulty level
             difficulty_step: 1, // Increase/decrease by 1
@@ -139,7 +140,7 @@ impl Default for DifficultyAdjustmentConfig {
 pub struct DifficultyAdjustmentInfo {
     pub current_difficulty: u8,
     pub current_win_count: u32,
-    pub historical_average: f64,
+    pub historical_average: Decimal,
     pub difficulty_adjustment: Option<DifficultyAdjustment>,
     pub config: DifficultyAdjustmentConfig,
     pub windows_in_history: u32,
@@ -151,8 +152,8 @@ pub struct DifficultyAdjustment {
     pub new_difficulty: u8,
     pub reason: String,
     pub current_win_count: u32,
-    pub historical_average: f64,
-    pub adjustment_threshold: f64,
+    pub historical_average: Decimal,
+    pub adjustment_threshold: Decimal,
 }
 
 #[cw_serde]

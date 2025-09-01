@@ -222,13 +222,16 @@ fn exec_start_new_windows(deps: DepsMut, env: Env, info: MessageInfo) -> Result<
         
         // Only adjust difficulty if we have enough history
         if maze_history.len() >= difficulty_config.min_history_for_adjustment as usize {
-            let historical_average = maze_history.iter().map(|&x| x as f64).sum::<f64>() / maze_history.len() as f64;
+            let historical_average = Decimal::from_ratio(
+                maze_history.iter().sum::<u32>(),
+                maze_history.len() as u32
+            );
             
             // Calculate ratio of current wins to historical average
-            let current_ratio = if historical_average > 0.0 {
-                maze_win_count as f64 / historical_average
+            let current_ratio = if !historical_average.is_zero() {
+                Decimal::from_ratio(maze_win_count, 1u32) / historical_average
             } else {
-                1.0 // No change if no historical data
+                Decimal::one() // No change if no historical data
             };
             
             if current_ratio > difficulty_config.difficulty_increase_threshold {
@@ -889,18 +892,20 @@ fn query_get_difficulty_adjustment_info(deps: Deps, env: Env, event: bm::EventTy
     
     // Calculate historical average
     let historical_average = if win_history.is_empty() {
-        0.0 // No historical data yet
+        Decimal::zero() // No historical data yet
     } else {
-        let sum: u32 = win_history.iter().sum();
-        sum as f64 / win_history.len() as f64
+        Decimal::from_ratio(
+            win_history.iter().sum::<u32>(),
+            win_history.len() as u32
+        )
     };
     
     // Determine if difficulty should be adjusted
     let difficulty_adjustment = if difficulty_config.enabled && win_history.len() >= difficulty_config.min_history_for_adjustment as usize {
-        let current_ratio = if historical_average > 0.0 {
-            current_win_count as f64 / historical_average
+        let current_ratio = if !historical_average.is_zero() {
+            Decimal::from_ratio(current_win_count, 1u32) / historical_average
         } else {
-            1.0
+            Decimal::one()
         };
         
         if current_ratio > difficulty_config.difficulty_increase_threshold {
@@ -910,7 +915,7 @@ fn query_get_difficulty_adjustment_info(deps: Deps, env: Env, event: bm::EventTy
                 Some(bm::DifficultyAdjustment {
                     old_difficulty: current_difficulty,
                     new_difficulty,
-                    reason: format!("Current wins ({}) significantly above historical average ({:.1})", current_win_count, historical_average),
+                    reason: format!("Current wins ({}) significantly above historical average ({})", current_win_count, historical_average),
                     current_win_count,
                     historical_average,
                     adjustment_threshold: difficulty_config.difficulty_increase_threshold,
@@ -925,7 +930,7 @@ fn query_get_difficulty_adjustment_info(deps: Deps, env: Env, event: bm::EventTy
                 Some(bm::DifficultyAdjustment {
                     old_difficulty: current_difficulty,
                     new_difficulty,
-                    reason: format!("Current wins ({}) significantly below historical average ({:.1})", current_win_count, historical_average),
+                    reason: format!("Current wins ({}) significantly below historical average ({})", current_win_count, historical_average),
                     current_win_count,
                     historical_average,
                     adjustment_threshold: difficulty_config.difficulty_decrease_threshold,

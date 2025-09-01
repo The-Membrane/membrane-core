@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    entry_point, to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
+    entry_point, to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult,
 };
 
 use cw2::set_contract_version;
@@ -44,7 +44,7 @@ pub fn execute(
 #[entry_point]
 pub fn query(_deps: Deps, _env: Env, _msg: QueryMsg) -> StdResult<Binary> {
     // This contract does nothing
-    to_json_binary(&"This contract does nothing")
+    to_binary(&"This contract does nothing")
 }
 
 #[cfg(test)]

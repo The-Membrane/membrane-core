@@ -64,6 +64,7 @@ pub fn instantiate(
             owner: owner.clone(), 
             payment_options, 
             race_engine_contract: None,
+            revenue_contract: None,
             max_energy: 100,
             energy_recovery_hours: 24,
             energy_per_training: 5,
@@ -128,7 +129,7 @@ pub fn execute(
                 .map_err(CarError::from)
         }
         ExecuteMsg::CreateCar { owner, token_uri, extension } => execute_mint_car(deps, env, info, owner, token_uri, extension),
-        ExecuteMsg::UpdateConfig { payment_options, new_owner, race_engine_contract } => execute_update_config(deps, info, payment_options, new_owner, race_engine_contract),
+        ExecuteMsg::UpdateConfig { payment_options, new_owner, race_engine_contract, revenue_contract } => execute_update_config(deps, info, payment_options, new_owner, race_engine_contract, revenue_contract),
         ExecuteMsg::UpdateEnergyParams { max_energy, energy_recovery_hours, energy_per_training } => execute_update_energy_params(deps, info, max_energy, energy_recovery_hours, energy_per_training),
         ExecuteMsg::UpdateTrainingPayments { training_payment_options } => execute_update_training_payments(deps, info, training_payment_options),
         ExecuteMsg::UpdateCustomDecal { token_id, svg } => execute_update_custom_decal(deps, info, token_id, svg),
@@ -146,6 +147,7 @@ fn execute_update_config(
     payment_options: Option<Vec<Coin>>,
     new_owner: Option<String>,
     race_engine_contract: Option<String>,
+    revenue_contract: Option<String>,
 ) -> Result<Response, CarError> {
     let mut config = CONFIG.load(deps.storage)?;
     let current_owner = config.owner.clone();
@@ -181,6 +183,14 @@ fn execute_update_config(
             config.race_engine_contract = Some(race_engine_contract);
         } else {
             config.race_engine_contract = None;
+        }
+    }
+    if let Some(revenue_contract) = revenue_contract {
+        if !revenue_contract.is_empty() {
+            let _ = deps.api.addr_validate(&revenue_contract)?;
+            config.revenue_contract = Some(revenue_contract);
+        } else {
+            config.revenue_contract = None;
         }
     }
     CONFIG.save(deps.storage, &config)?;

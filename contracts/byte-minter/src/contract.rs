@@ -94,8 +94,18 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: bm::ExecuteMsg) 
     match msg {
         bm::ExecuteMsg::GenerateMaze { name } => exec_generate_maze(deps, env, info, name),
         bm::ExecuteMsg::StartNewWindows {} => exec_start_new_windows(deps, env, info),
-        bm::ExecuteMsg::SetEventConfig { maze_cadence_seconds, maze_window_seconds, pvp_cadence_seconds, pvp_window_seconds, pvp_enabled, runner_reward_rate } => exec_set_event_config(deps, info, maze_cadence_seconds, maze_window_seconds, pvp_cadence_seconds, pvp_window_seconds, pvp_enabled, runner_reward_rate),
-        bm::ExecuteMsg::SetDifficultyAdjustmentConfig { config } => exec_set_difficulty_adjustment_config(deps, info, config),
+        bm::ExecuteMsg::UpdateConfig { 
+            maze_cadence_seconds, 
+            maze_window_seconds, 
+            pvp_cadence_seconds, 
+            pvp_window_seconds, 
+            pvp_enabled, 
+            runner_reward_rate,
+            maze_default_difficulty,
+            maze_width,
+            maze_height,
+            difficulty_adjustment_config
+        } => exec_update_config(deps, info, maze_cadence_seconds, maze_window_seconds, pvp_cadence_seconds, pvp_window_seconds, pvp_enabled, runner_reward_rate, maze_default_difficulty, maze_width, maze_height, difficulty_adjustment_config),
         bm::ExecuteMsg::RecordWin { event, car_id, runner } => exec_record_win(deps, env, info, event, car_id, runner),
         bm::ExecuteMsg::TokenfactoryPassthrough { msgs } => exec_tokenfactory_passthrough(deps, info, msgs),
     }
@@ -119,23 +129,44 @@ fn exec_tokenfactory_passthrough(deps: DepsMut, info: MessageInfo, msgs: Vec<cos
     Ok(Response::new().add_messages(msgs).add_attribute("action", "tokenfactory_passthrough"))
 }
 
-fn exec_set_event_config(deps: DepsMut, info: MessageInfo, maze_cad: Option<u64>, maze_win: Option<u64>, pvp_cad: Option<u64>, pvp_win: Option<u64>, pvp_enabled: Option<bool>, runner_reward_rate: Option<Decimal>) -> Result<Response, ContractError> {
+fn exec_update_config(
+    deps: DepsMut, 
+    info: MessageInfo, 
+    maze_cadence_seconds: Option<u64>,
+    maze_window_seconds: Option<u64>,
+    pvp_cadence_seconds: Option<u64>,
+    pvp_window_seconds: Option<u64>,
+    pvp_enabled: Option<bool>,
+    runner_reward_rate: Option<Decimal>,
+    maze_default_difficulty: Option<u8>,
+    maze_width: Option<u8>,
+    maze_height: Option<u8>,
+    difficulty_adjustment_config: Option<bm::DifficultyAdjustmentConfig>
+) -> Result<Response, ContractError> {
     assert_admin(&deps, &info)?;
+    
+    // Update main config
     let mut cfg = get_config(deps.storage)?;
-    if let Some(v) = maze_cad { cfg.maze_event_cadence_seconds = v; }
-    if let Some(v) = maze_win { cfg.maze_event_window_seconds = v; }
-    if let Some(v) = pvp_cad { cfg.pvp_event_cadence_seconds = v; }
-    if let Some(v) = pvp_win { cfg.pvp_event_window_seconds = v; }
+    if let Some(v) = maze_cadence_seconds { cfg.maze_event_cadence_seconds = v; }
+    if let Some(v) = maze_window_seconds { cfg.maze_event_window_seconds = v; }
+    if let Some(v) = pvp_cadence_seconds { cfg.pvp_event_cadence_seconds = v; }
+    if let Some(v) = pvp_window_seconds { cfg.pvp_event_window_seconds = v; }
     if let Some(v) = pvp_enabled { cfg.pvp_enabled = v; }
     if let Some(v) = runner_reward_rate { cfg.runner_reward_rate = v; }
+    if let Some(v) = maze_default_difficulty { cfg.maze_default_difficulty = v; }
+    if let Some(v) = maze_width { cfg.maze_width = v; }
+    if let Some(v) = maze_height { cfg.maze_height = v; }
     set_config(deps.storage, cfg)?;
-    Ok(Response::new().add_attribute("action", "set_event_config"))
-}
-
-fn exec_set_difficulty_adjustment_config(deps: DepsMut, info: MessageInfo, config: bm::DifficultyAdjustmentConfig) -> Result<Response, ContractError> {
-    assert_admin(&deps, &info)?;
-    DIFFICULTY_ADJUSTMENT_CONFIG.save(deps.storage, &config)?;
-    Ok(Response::new().add_attribute("action", "set_difficulty_adjustment_config"))
+    
+    // Update difficulty adjustment config if provided
+    if let Some(config) = difficulty_adjustment_config {
+        DIFFICULTY_ADJUSTMENT_CONFIG.save(deps.storage, &config)?;
+    }
+    
+    Ok(Response::new()
+    .add_attribute("action", "update_config")
+    .add_attribute("config", format!("{:?}", cfg))
+)
 }
 
 fn exec_start_new_windows(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {

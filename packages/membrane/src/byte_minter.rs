@@ -40,15 +40,21 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     GenerateMaze { name: String },
     StartNewWindows {},
-    SetEventConfig {
+    UpdateConfig {
+        // Event configuration
         maze_cadence_seconds: Option<u64>,
         maze_window_seconds: Option<u64>,
         pvp_cadence_seconds: Option<u64>,
         pvp_window_seconds: Option<u64>,
         pvp_enabled: Option<bool>,
         runner_reward_rate: Option<Decimal>,
+        // Maze configuration
+        maze_default_difficulty: Option<u8>,
+        maze_width: Option<u8>,
+        maze_height: Option<u8>,
+        // Difficulty adjustment configuration
+        difficulty_adjustment_config: Option<DifficultyAdjustmentConfig>,
     },
-    SetDifficultyAdjustmentConfig { config: DifficultyAdjustmentConfig },
     RecordWin { event: EventType, car_id: u128, runner: String },
     TokenfactoryPassthrough { msgs: Vec<CosmosMsg> },
 }

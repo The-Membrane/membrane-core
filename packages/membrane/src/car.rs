@@ -39,6 +39,7 @@ pub enum ExecuteMsg {
         payment_options: Option<Vec<Coin>>,
         new_owner: Option<String>,
         race_engine_contract: Option<String>,
+        revenue_contract: Option<String>,   
     },
     /// Owner-only: update energy parameters
     UpdateEnergyParams {
@@ -95,6 +96,7 @@ pub struct Config {
     pub owner: Addr,
     pub payment_options: Vec<Coin>,
     pub race_engine_contract: Option<String>,
+    pub revenue_contract: Option<String>,
     // Energy system configuration
     pub max_energy: u32,
     /// Hours required to fully recover from 0 to max energy (linear regen)

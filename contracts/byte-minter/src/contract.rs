@@ -156,7 +156,7 @@ fn exec_update_config(
     if let Some(v) = maze_default_difficulty { cfg.maze_default_difficulty = v; }
     if let Some(v) = maze_width { cfg.maze_width = v; }
     if let Some(v) = maze_height { cfg.maze_height = v; }
-    set_config(deps.storage, cfg)?;
+    set_config(deps.storage, cfg.clone())?;
     
     // Update difficulty adjustment config if provided
     if let Some(config) = difficulty_adjustment_config {

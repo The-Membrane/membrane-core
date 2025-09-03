@@ -3,14 +3,14 @@
 use std::collections::HashMap;
 
 use cosmwasm_std::{
-    entry_point, from_json, to_json_binary, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, Response, StdResult, Storage, Uint128, WasmMsg
+    entry_point, to_json_binary, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, Response, StdResult, Storage, Uint128, WasmMsg
 };
 use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
-use crate::state::{add_recent_race, get_config, get_q_values, get_recent_races, get_track_training_stats, set_config, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, Q_TABLE};
-use membrane::types::{ActionSelectionStrategy, GoingBackward, QTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TrainingStats};
-use membrane::race_engine::{CarState, Config, ConfigResponse, ExecuteMsg, GetQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
+use crate::state::{add_recent_race, get_config, get_integer_q_values, get_recent_races, get_track_training_stats, set_config, set_integer_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, INTEGER_Q_TABLE, LEGACY_Q_TABLE};
+use membrane::types::{ActionSelectionStrategy, GoingBackward, IntegerQTableEntry, RewardNumbers, Track, TrackTile};
+use membrane::race_engine::{CarState, Config, ExecuteMsg, GetIntegerQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, MigrationStatusResponse, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
 use membrane::byte_minter::{QueryMsg as ByteMinterQueryMsg, VerifyEventRaceResponse, ExecuteMsg as ByteMinterExecuteMsg, EventType as ByteEventType};
 // Race simulation constants
@@ -159,90 +159,7 @@ fn make_action_strategy(
 //     }
 // }
 
-/// Parse through Vec to update Q-values in storage
-fn batch_update_car_q_values(storage: &mut dyn Storage, car_id: u128, state_updates: &Vec<QTableEntry>, msgs: &mut Vec<CosmosMsg>, config: &Config) -> Result<(), ContractError> {
-   //For each QTableEntry, update the Q-values in storage
-   for update in state_updates {
-        set_q_values(storage, car_id, &update.state_hash, update.action_values)?;
-   }
-   
-    Ok(())
-}
 
-/// Apply batched Q-learning updates to car contract
-/// 
-/// This function applies multiple Q-learning updates in a single call to the car contract,
-/// which is more efficient than individual updates.
-fn apply_batched_q_updates(
-    storage: &mut dyn Storage,
-    car: &CarState,
-    updates: Vec<( [u8; 32], u8, i32, Option< [u8; 32]>)>, // (state_hash, action, reward, next_state_hash)
-    config: Config,
-    querier: QuerierWrapper,
-) -> Result<(), ContractError> {
-    // In a real implementation, this would:
-    // 1. Use pre-loaded Q-values from car state (no need to re-query)
-    // 2. Apply Q-learning updates for each (state, action, reward, next_state)
-    // 3. Send all updated Q-values back to the car contract in a single transaction
-    
-    let mut msgs = vec![];
-    
-    // Collect all unique state hashes that need to be updated
-    let mut state_updates: HashMap< [u8; 32], QTableEntry> = HashMap::new();
-    
-    // First pass: collect all current Q-values from pre-loaded Q-tables for states that need updates
-    for (state_hash, _, _, _) in &updates {
-        if !state_updates.contains_key(state_hash) {
-            if let Some(cached_values) = car.q_table.iter().find(|q| q.state_hash == *state_hash) {
-                state_updates.insert(state_hash.clone(), cached_values.clone());
-            } else {
-                // Initialize with default Q-values if not found in cache
-                state_updates.insert(state_hash.clone(), QTableEntry {
-                    state_hash: state_hash.clone(),
-                    action_values: [0, 0, 0, 0],
-                });
-            }
-        }
-    }
-    
-    // Second pass: apply Q-learning updates to collected Q-values
-    for (state_hash, action, reward, next_state_hash) in updates {
-        // Validate action index (4 possible actions: 0-3)
-        if action >= 4 {
-            return Err(ContractError::InvalidAction { action: action as usize });
-        }
-
-        // Get current Q-values for this state
-        let q_values = state_updates.get_mut(&state_hash).unwrap();
-        
-        // Get max Q-value for next state (for Q-learning update)
-        let max_next_q = if let Some(next_hash) = &next_state_hash {
-            let next_q_values = if let Some(cached_values) = car.q_table.iter().find(|q| q.state_hash == *next_hash) {
-                cached_values.action_values
-            } else {
-                // Fallback to query if not in pre-loaded Q-tables
-                 [0, 0, 0, 0]
-            };
-            next_q_values.iter().max().cloned().unwrap_or(0)
-        } else {
-            0 // No next state, so no future reward
-        };
-        
-        // Q-learning update formula: Q(s,a) = Q(s,a) + α[r + γ max Q(s',a') - Q(s,a)]
-        let old_value = q_values.action_values[action as usize];
-        let new_value = ((1.0 - ALPHA) * (old_value as f32) + 
-                        ALPHA * ((reward as f32) + (GAMMA * (max_next_q as f32)))).round() as i32;
-        
-        // Clamp the value to prevent explosion
-        q_values.action_values[action as usize] = new_value.clamp(MIN_Q_VALUE, MAX_Q_VALUE);
-    }
-    
-    // Third pass: send all updated Q-values to car contract in a single batch
-    let state_updates_vec: Vec<QTableEntry> = state_updates.into_values().collect();
-    batch_update_car_q_values(storage, car.car_id, &state_updates_vec, &mut msgs, &config)?;
-    
-    Ok(())
-}
 
 #[entry_point]
 pub fn instantiate(
@@ -301,35 +218,49 @@ pub fn execute(
             if let Some(addr) = byte_minter_contract { config.byte_minter_contract = Some(addr); }
             set_config(deps.storage, config)?;
             Ok(Response::new().add_attribute("action", "update_config"))
+        },
+        ExecuteMsg::MigrateQTableStates { car_id, batch_size } => {
+            execute_migrate_q_table_states(deps, _info, car_id, batch_size)
         }
+
     }
 }
 
 /// Reset the Q-table for a car
 fn execute_reset_q(storage: &mut dyn Storage, car_id: u128) -> Result<Response, ContractError> {
-    let prefix = Q_TABLE.prefix(car_id);
+    // Reset integer Q-table
+    let prefix = INTEGER_Q_TABLE.prefix(car_id);
     let range = prefix.range(storage, None, None, cosmwasm_std::Order::Ascending);
-    let keys: Vec<[u8; 32]> = range.map(|item| {
+    let keys: Vec<u32> = range.map(|item| {
         let (key, _) = item.unwrap();
         key
     }).collect();
     
     for key in keys {
-        Q_TABLE.remove(storage, (car_id, &key));
+        INTEGER_Q_TABLE.remove(storage, (car_id, key));
     }
     Ok(Response::new())
 }
 
 /// Purge all state for a car: Q-table, training stats, recent races
 fn execute_purge_car(storage: &mut dyn Storage, car_id: u128) -> Result<Response, ContractError> {
-    // Remove all Q-table entries for car
-    let prefix = Q_TABLE.prefix(car_id);
+    // Remove all integer Q-table entries for car
+    let prefix = INTEGER_Q_TABLE.prefix(car_id);
     let range = prefix.range(storage, None, None, cosmwasm_std::Order::Ascending);
-    let keys: Vec<[u8; 32]> = range.map(|item| {
+    let keys: Vec<u32> = range.map(|item| {
         let (key, _) = item.unwrap();
         key
     }).collect();
-    for key in keys { Q_TABLE.remove(storage, (car_id, &key)); }
+    for key in keys { INTEGER_Q_TABLE.remove(storage, (car_id, key)); }
+    
+    // Remove all legacy Q-table entries for car (if any)
+    let legacy_prefix = LEGACY_Q_TABLE.prefix(car_id);
+    let legacy_range = legacy_prefix.range(storage, None, None, cosmwasm_std::Order::Ascending);
+    let legacy_keys: Vec<[u8; 32]> = legacy_range.map(|item| {
+        let (key, _) = item.unwrap();
+        key
+    }).collect();
+    for key in legacy_keys { LEGACY_Q_TABLE.remove(storage, (car_id, &key)); }
 
     // Remove all training stats for car across tracks
     let stats_prefix = CAR_TRACK_TRAINING_STATS.prefix(car_id);
@@ -345,6 +276,74 @@ fn execute_purge_car(storage: &mut dyn Storage, car_id: u128) -> Result<Response
 
     Ok(Response::new())
 }
+
+/// Migrate existing Q-table states from legacy byte array hashes to integer hashes
+fn execute_migrate_q_table_states(
+    deps: DepsMut,
+    info: MessageInfo,
+    car_id: Uint128,
+    batch_size: Option<u32>,
+) -> Result<Response, ContractError> {
+    
+    // Anyone can migrate //
+    
+    let car_id = car_id.u128();
+    let batch_size = batch_size.unwrap_or(50); // Default batch size
+    
+    // Get all legacy Q-table entries for this car
+    let prefix = LEGACY_Q_TABLE.prefix(car_id);
+    let range = prefix.range(deps.storage, None, None, cosmwasm_std::Order::Ascending);
+    let entries: Vec<([u8; 32], [i8; 4])> = range
+        .take(batch_size as usize)
+        .map(|item| {
+            let (state_hash, action_values) = item.map_err(|e| ContractError::Std(e))?;
+            Ok((state_hash, action_values))
+        })
+        .collect::<Result<Vec<_>, ContractError>>()?;
+    
+    let mut migrated_count = 0;
+    let mut skipped_count = 0;
+    
+    for (legacy_hash, action_values) in entries {
+        // Convert legacy hash to integer hash using a deterministic method
+        let integer_hash = convert_legacy_hash_to_integer(&legacy_hash);
+        
+        // Check if already migrated
+        if get_integer_q_values(deps.storage, car_id, integer_hash).is_ok() {
+            skipped_count += 1;
+            continue;
+        }
+        
+        // Convert i32 legacy values to i8 (clamp to i8 range)
+        let compressed_action_values = [
+            action_values[0].clamp(-128, 127) as i8,
+            action_values[1].clamp(-128, 127) as i8,
+            action_values[2].clamp(-128, 127) as i8,
+            action_values[3].clamp(-128, 127) as i8,
+        ];
+        
+        // Store the Q-values with the new integer hash
+        set_integer_q_values(deps.storage, car_id, integer_hash, compressed_action_values)?;
+        
+        migrated_count += 1;
+    }
+    
+    Ok(Response::new()
+        .add_attribute("action", "migrate_q_table_states")
+        .add_attribute("car_id", car_id.to_string())
+        .add_attribute("migrated", migrated_count.to_string())
+        .add_attribute("skipped", skipped_count.to_string()))
+}
+
+/// Convert a legacy byte array hash to an integer hash
+/// This uses a deterministic conversion to ensure the same legacy hash always produces the same integer hash
+fn convert_legacy_hash_to_integer(legacy_hash: &[u8; 32]) -> u32 {
+    // Use a simple but deterministic conversion: take the first 4 bytes and convert to u32
+    // This ensures the same legacy hash always produces the same integer hash
+    u32::from_le_bytes([legacy_hash[0], legacy_hash[1], legacy_hash[2], legacy_hash[3]])
+}
+
+
 
 fn get_starting_tiles(track: Track) -> Vec<(usize, usize)> {
     let mut start_indices = vec![];
@@ -498,14 +497,14 @@ pub fn execute_simulate_race(
             finished: false,
             steps_taken: 0,
             last_action: ACTION_UP, // Default to UP
-            // **NEW**: Initialize action history
-            action_history: vec![],
             // **NEW**: Initialize hit_wall
             hit_wall: false,
             // **NEW**: Initialize speed modifiers
             current_speed: DEFAULT_SPEED as u32, // Default normal speed
-            // **NEW**: Initialize Q-tables with pre-queried values
-            q_table: vec![],
+            // **NEW**: Initialize integer-based action history
+            integer_action_history: vec![],
+            // **NEW**: Initialize integer Q-tables
+            integer_q_table: vec![],
         });
     }
 
@@ -828,20 +827,11 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
             .map(|(_, pos)| *pos)
             .collect();
         
-        let state_hash = generate_state_hash(&race_state.track_layout, car.x, car.y, car.current_speed, &other_cars_positions);
-        // let action = if car.x != new_x || car.y != new_y { 
-        //     // Determine action based on movement
-        //     if car.x < new_x { ACTION_RIGHT }
-        //     else if car.x > new_x { ACTION_LEFT }
-        //     else if car.y < new_y { ACTION_DOWN }
-        //     else if car.y > new_y { ACTION_UP }
-        //     else { ACTION_RIGHT } // Default to right if no movement
-        // } else { 
-        //     ACTION_RIGHT // Default to right if no movement
-        // };
+        // Generate integer state hash (new system only)
+        let integer_state_hash = generate_state_hash(&race_state.track_layout, car.x, car.y, car.current_speed);
         
-        // Record action in history
-        car.action_history.push((state_hash, car.last_action, car.tile.clone()));
+        // Record action in integer history only
+        car.integer_action_history.push((integer_state_hash, car.last_action, car.tile.clone()));
         
         // **NEW**: Track wall collision
         car.hit_wall = hit_wall;
@@ -874,7 +864,7 @@ fn simulate_tick_with_cache(
     tick_index: u32,
     max_ticks: u32,
     seed: u32,
-    q_caches: &mut HashMap<u128, QValueCache>,
+    _q_caches: &mut HashMap<u128, QValueCache>,
 ) -> Result<(), ContractError> {
     // **NEW**: Reset car states for this tick
     for car in &mut race_state.cars {
@@ -989,20 +979,11 @@ fn simulate_tick_with_cache(
             .map(|(_, pos)| *pos)
             .collect();
         
-        let state_hash = generate_state_hash(&race_state.track_layout, car.x, car.y, car.current_speed, &other_cars_positions);
-        // let action = if car.x != new_x || car.y != new_y { 
-        //     // Determine action based on movement
-        //     if car.x < new_x { ACTION_RIGHT }
-        //     else if car.x > new_x { ACTION_LEFT }
-        //     else if car.y < new_y { ACTION_DOWN }
-        //     else if car.y > new_y { ACTION_UP }
-        //     else { ACTION_RIGHT } // Default to right if no movement
-        // } else { 
-        //     ACTION_RIGHT // Default to right if no movement
-        // };
+        // Generate integer state hash (new system only)
+        let integer_state_hash = generate_state_hash(&race_state.track_layout, car.x, car.y, car.current_speed);
         
-        // Record action in history
-        car.action_history.push((state_hash, car.last_action, car.tile.clone()));
+        // Record action in integer history only
+        car.integer_action_history.push((integer_state_hash, car.last_action, car.tile.clone()));
         
         // **NEW**: Track wall collision
         car.hit_wall = hit_wall;
@@ -1030,7 +1011,7 @@ fn simulate_tick_with_cache(
 /// Calculate car action using cached Q-values for gas efficiency
 fn calculate_car_action(
     car: &mut CarState,
-    storage: &mut dyn Storage,
+    _storage: &mut dyn Storage,
     track_layout: &[Vec<membrane::types::TrackTile>],
     x: i32,
     y: i32,
@@ -1045,27 +1026,27 @@ fn calculate_car_action(
     // Use wrapping arithmetic to prevent overflow
     let car_id_u32 = (car.car_id % (u32::MAX as u128)) as u32;
     let seed = seed.wrapping_mul(car_id_u32.wrapping_add(tick_index));
-    // Generate state hash for current position
-    let state_hash = generate_state_hash(track_layout, x, y, car_speed, other_cars);
+    // Generate integer state hash for current position (new system)
+    let integer_state_hash = generate_state_hash(track_layout, x, y, car_speed);
     
-    // **GAS OPTIMIZATION**: Use cached Q-values instead of storage reads
-    let q_values = if let Some(cached_values) = car.q_table.iter().find(|q| q.state_hash == state_hash) {
+    // **GAS OPTIMIZATION**: Use cached integer Q-values instead of storage reads
+    let q_values = if let Some(cached_values) = car.integer_q_table.iter().find(|q| q.state_hash == integer_state_hash) {
         cached_values.action_values.clone()
     } else {
         // For new states, use small random initial Q-values instead of zeros
         // This provides better exploration and prevents all cars from learning the same way
         let random_q_values = [
-            pseudo_random(seed, 5) as i32,
-            pseudo_random(seed + 1, 5) as i32,
-            pseudo_random(seed + 2, 5) as i32,
-            pseudo_random(seed + 3, 5) as i32,
+            pseudo_random(seed, 5) as i8,
+            pseudo_random(seed + 1, 5) as i8,
+            pseudo_random(seed + 2, 5) as i8,
+            pseudo_random(seed + 3, 5) as i8,
         ];
         random_q_values
     };
     
-    //Store Q-values in car state for caching
-    car.q_table.push(QTableEntry {
-        state_hash: state_hash.clone(),
+    //Store Q-values in car state for caching (integer format)
+    car.integer_q_table.push(IntegerQTableEntry {
+        state_hash: integer_state_hash,
         action_values: q_values,
     });
     
@@ -1136,28 +1117,22 @@ fn calculate_car_action(
 }
 
 /// Generate state hash based on current position and surrounding tiles
-use blake2::{
-    digest::{Update, VariableOutput},
-    Blake2bVar,
-};
+/// NEW: Returns integer hash instead of byte array, excludes other cars
 
 #[repr(u8)]
 enum TileFlag { Wall=0, Sticky=1, Boost=2, Finish=3, Normal=4 }
 
-#[repr(u8)]
-enum Dir3 { None=0, Up=1, Down=2, Left=3, Right=4 }
-
 const DIRS: [(i32, i32); 4] = [(0,-1), (0,1), (-1,0), (1,0)]; // U D L R
 
+/// NEW: Generate integer state hash (excludes other cars, represents them as empty tiles)
 pub fn generate_state_hash(
     track: &[Vec<TrackTile>],
     x: i32, y: i32,
     speed: u32,
-    other_cars: &[(i32,i32)],
-) -> [u8; 32] {
-
-    // ---------- 1. build 22-bit key ----------
-    let mut key: u32 = 0;           // we'll only use lowest 22 bits
+) -> u32 {
+    // Build 16-bit key from directions (4 bits each: 3 bits tile type)
+    let mut key: u32 = 0;
+    
     for (i, &(dx,dy)) in DIRS.iter().enumerate() {
         let tx = x + dx.wrapping_mul(speed as i32);
         let ty = y + dy.wrapping_mul(speed as i32);
@@ -1183,46 +1158,15 @@ pub fn generate_state_hash(
             };
         }
 
-        // --- 1-bit "has car" flag ---
-        let has_car = other_cars
-            .iter()
-            .any(|&(cx,cy)| cx == tx && cy == ty) as u8;
-
         // pack into 4 bits and shift into position
-        let nibble = (flag & 0b111) | (has_car << 3);
-        key |= (nibble as u32) << (i * 4);
+        key |= (flag as u32) << (i * 4);
     }
 
-    // ---------- 2. closest-car direction ----------
-    let mut dir3 = Dir3::None as u8;
-    if !other_cars.is_empty() {
-        let (mut best_d2, mut best_dir) = (i32::MAX, Dir3::None as u8);
-        for &(cx,cy) in other_cars {
-            let dx = cx - x;
-            let dy = cy - y;
-            let d2 = dx*dx + dy*dy;
-            if d2 < best_d2 {
-                best_d2 = d2;
-                best_dir = if dx.abs() > dy.abs() {
-                    if dx > 0 { Dir3::Right } else { Dir3::Left }
-                } else {
-                    if dy > 0 { Dir3::Down }  else { Dir3::Up }
-                } as u8;
-            }
-        }
-        dir3 = best_dir;
-    }
-    key |= (dir3 as u32) << 16;   // bits 16-18
-
-    // ---------- 3. hash ----------
-    let mut hasher = Blake2bVar::new(32).unwrap(); // 256-bit
-    let key_bytes = key.to_le_bytes();            // 4 bytes, lowest 3 used
-    hasher.update(&key_bytes[..3]);               // feed 3 tight bytes
-    let mut out = [0u8; 32];
-    hasher.finalize_variable(&mut out);
-
-    out
+    // Return the 16-bit key directly as integer hash
+    key
 }
+
+
 
 /// Calculate new position based on action
 fn calculate_new_position(
@@ -1518,7 +1462,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetRaceResult { race_id, track_id } => to_json_binary(&query_race_result(deps, track_id, race_id).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::ListRecentRaces { car_id, track_id, start_after, limit } => to_json_binary(&query_recent_races(deps, car_id, track_id, start_after, limit).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetConfig {  } => to_json_binary(&CONFIG.load(deps.storage).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
-        QueryMsg::GetQ { car_id, state_hash } => to_json_binary(&query_q_values(deps, car_id, state_hash).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
+        QueryMsg::GetIntegerQ { car_id, state_hash } => to_json_binary(&query_integer_q_values(deps, car_id, state_hash).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
+        QueryMsg::GetMigrationStatus { car_id } => to_json_binary(&query_migration_status(deps, car_id).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetTrackTrainingStats { car_id, track_id, start_after, limit } => to_json_binary(&query_track_training_stats(deps, car_id, track_id, start_after, limit).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetTopTimes { track_id } => to_json_binary(&crate::state::get_track_top_times(deps.storage, track_id).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
     }
@@ -1527,19 +1472,19 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 
 
-pub fn query_q_values(
+
+
+/// NEW: Query integer-based Q-values
+pub fn query_integer_q_values(
     deps: Deps,
     car_id: u128,
-    state_hash: Option<[u8; 32]>,
-) -> Result<GetQResponse, ContractError> {
-    // Check if car exists
-    // get_car_info(deps.storage, &car_id)?;
-    
+    state_hash: Option<u32>,
+) -> Result<GetIntegerQResponse, ContractError> {
     let q_values = match state_hash {
         Some(hash) => {
             // Return single Q-table entry
-            let action_values = get_q_values(deps.storage, car_id, &hash).unwrap_or([0; 4]);
-            vec![QTableEntry {
+            let action_values = get_integer_q_values(deps.storage, car_id, hash).unwrap_or([0; 4]);
+            vec![IntegerQTableEntry {
                 state_hash: hash,
                 action_values,
             }]
@@ -1547,10 +1492,10 @@ pub fn query_q_values(
         None => {
             // Return all Q-table entries for this car
             let mut entries = vec![];
-            let range = Q_TABLE.prefix(car_id).range(deps.storage, None, None, cosmwasm_std::Order::Ascending);
+            let range = INTEGER_Q_TABLE.prefix(car_id).range(deps.storage, None, None, cosmwasm_std::Order::Ascending);
             for item in range {
                 let (state_hash, action_values) = item.map_err(|e| ContractError::Std(e))?;
-                entries.push(QTableEntry {
+                entries.push(IntegerQTableEntry {
                     state_hash,
                     action_values,
                 });
@@ -1559,11 +1504,39 @@ pub fn query_q_values(
         }
     };
     
-    Ok(GetQResponse {
+    Ok(GetIntegerQResponse {
         car_id,
         q_values,
     })
 }
+
+/// NEW: Query migration status for a car
+pub fn query_migration_status(
+    deps: Deps,
+    car_id: u128,
+) -> Result<MigrationStatusResponse, ContractError> {
+    // Count legacy Q-table entries
+    let legacy_count = LEGACY_Q_TABLE.prefix(car_id)
+        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+        .count() as u32;
+    
+    // Count integer Q-table entries
+    let integer_count = INTEGER_Q_TABLE.prefix(car_id)
+        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+        .count() as u32;
+    
+    // Migration is complete when there are no legacy entries left
+    let migration_complete = legacy_count == 0;
+    
+    Ok(MigrationStatusResponse {
+        car_id,
+        legacy_entries_count: legacy_count,
+        integer_entries_count: integer_count,
+        migration_complete,
+    })
+}
+
+
 
 
 pub fn query_race_result(
@@ -1686,17 +1659,17 @@ fn apply_q_learning_updates(
     race_state: &RaceState,
     race_result: &RaceResult,
     reward_config: RewardNumbers,
-    config: Config,
-    querier: QuerierWrapper,
+    _config: Config,
+    _querier: QuerierWrapper,
     fastest_track_tick_time: u64,
 ) -> Result<(), ContractError> {
     
-    // **GAS OPTIMIZATION**: Use cached Q-values from car state instead of storage reads
+    // **GAS OPTIMIZATION**: Use cached integer Q-values from car state instead of storage reads
     for car in &race_state.cars {
-        let mut q_updates: HashMap<[u8; 32], [i32; 4]> = HashMap::new();
+        let mut q_updates: HashMap<u32, [i8; 4]> = HashMap::new();
         
-        // Process each action in the car's history
-        for (i, (state_hash, action, tile)) in car.action_history.iter().enumerate() {
+        // Process each action in the car's integer history (new system)
+        for (i, (state_hash, action, tile)) in car.integer_action_history.iter().enumerate() {
             // Calculate reward for this specific action
             let action_reward = calculate_action_reward(
                 car,
@@ -1704,33 +1677,33 @@ fn apply_q_learning_updates(
                 *action,
                 match i {
                     0 => car.tile.clone(),
-                    _ => car.action_history[i - 1].2.clone(),
+                    _ => car.integer_action_history[i - 1].2.clone(),
                 },
                 tile.clone(),
                 i,
-                car.action_history.len(),
+                car.integer_action_history.len(),
                 reward_config.clone(),
                 fastest_track_tick_time,
             )?;
             
-            // Get current Q-values from cache
-            let mut current_q_values = if let Some(cached_values) = car.q_table.iter().find(|q| q.state_hash == *state_hash) {
+            // Get current Q-values from integer cache
+            let mut current_q_values = if let Some(cached_values) = car.integer_q_table.iter().find(|q| q.state_hash == *state_hash) {
                 cached_values.action_values
             } else {
                 [0, 0, 0, 0] // Default values for new states
             };
             
             // Get next state hash and its Q-values
-            let next_state_hash = if i < car.action_history.len() - 1 {
-                Some(car.action_history[i + 1].0.clone())
+            let next_state_hash = if i < car.integer_action_history.len() - 1 {
+                Some(car.integer_action_history[i + 1].0)
             } else {
                 None
             };
             
             // Get max Q-value for next state
             let max_next_q = if let Some(next_hash) = &next_state_hash {
-                if let Some(cached_values) = car.q_table.iter().find(|q| q.state_hash == *next_hash) {
-                    cached_values.action_values.iter().max().cloned().unwrap_or(0)
+                if let Some(cached_values) = car.integer_q_table.iter().find(|q| q.state_hash == *next_hash) {
+                    cached_values.action_values.iter().max().cloned().unwrap_or(0) as i32
                 } else {
                     0 // Default for new states
                 }
@@ -1739,20 +1712,20 @@ fn apply_q_learning_updates(
             };
             
             // **GAS OPTIMIZATION**: Apply Q-learning update in memory
-            let old_value = current_q_values[*action as usize];
+            let old_value = current_q_values[*action as usize] as i32;
             let new_value = ((1.0 - ALPHA) * (old_value as f32) + 
                             ALPHA * ((action_reward as f32) + (GAMMA * (max_next_q as f32)))).round() as i32;
             
-            // Clamp the value to prevent explosion
-            current_q_values[*action as usize] = new_value.clamp(MIN_Q_VALUE, MAX_Q_VALUE);
+            // Clamp the value to i8 range (-128 to 127) to prevent explosion
+            current_q_values[*action as usize] = new_value.clamp(-128, 127) as i8;
             
             // Store updated Q-values for batch write
             q_updates.insert(state_hash.clone(), current_q_values);
         }
         
-        // **GAS OPTIMIZATION**: Batch write all Q-value updates for this car
+        // **GAS OPTIMIZATION**: Batch write all integer Q-value updates for this car
         for (state_hash, q_values) in q_updates {
-            set_q_values(storage, car.car_id, &state_hash, q_values)?;
+            set_integer_q_values(storage, car.car_id, state_hash, q_values)?;
         }
     }
     
@@ -1763,30 +1736,29 @@ fn apply_q_learning_updates(
 fn calculate_action_reward(
     car: &CarState,
     race_result: &RaceResult,
-    action: usize,
+    _action: usize,
     last_tile: membrane::types::TrackTile,
     tile: membrane::types::TrackTile,
-    action_index: usize,
+    _action_index: usize,
     total_actions: usize,
     reward_config: RewardNumbers,
     fastest_track_tick_time: u64,
 ) -> Result<i32, ContractError> {
 
-    let mut rank = 0;
     let mut reward = 0i32;
     // Check if car finished
     if car.finished {
         // Check if car is a winner
-        if race_result.winner_ids.contains(&car.car_id) {
-            rank = 0;
+        let rank = if race_result.winner_ids.contains(&car.car_id) {
+            0
         } else {
             // Find car's ranking
             let ranking = race_result.rankings.iter()
-                .position(|rank| rank.car_id == car.car_id)
+                .position(|r| r.car_id == car.car_id)
                 .unwrap_or(race_result.rankings.len());
             
-            rank = ranking as u8;
-        }
+            ranking as u8
+        };
 
         //Add rank reward
         reward += match rank {
@@ -1834,7 +1806,7 @@ fn calculate_action_reward(
 }
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
 
     //Set the training stats of car 0 track 0 
     // CAR_TRACK_TRAINING_STATS.save(deps.storage, (0, 0), &TrackTrainingStats {
@@ -1875,8 +1847,8 @@ pub fn migrate(deps: DepsMut, env: Env, msg: MigrateMsg) -> Result<Response, Con
 /// Gas-optimized Q-value cache for batch operations
 #[derive(Clone, Debug)]
 struct QValueCache {
-    updates: HashMap<[u8; 32], [i32; 4]>,
-    reads: HashMap<[u8; 32], [i32; 4]>,
+    updates: HashMap<u32, [i8; 4]>,
+    reads: HashMap<u32, [i8; 4]>,
 }
 
 impl QValueCache {
@@ -1887,36 +1859,36 @@ impl QValueCache {
         }
     }
     
-    /// Get Q-values with caching to avoid repeated storage reads
-    fn get_q_values(&mut self, storage: &dyn Storage, car_id: u128, state_hash: &[u8; 32]) -> Result<[i32; 4], ContractError> {
+    /// Get integer Q-values with caching to avoid repeated storage reads
+    fn get_integer_q_values(&mut self, storage: &dyn Storage, car_id: u128, state_hash: u32) -> Result<[i8; 4], ContractError> {
         // Check cache first
-        if let Some(cached) = self.reads.get(state_hash) {
+        if let Some(cached) = self.reads.get(&state_hash) {
             return Ok(*cached);
         }
         
         // Check pending updates
-        if let Some(updated) = self.updates.get(state_hash) {
+        if let Some(updated) = self.updates.get(&state_hash) {
             return Ok(*updated);
         }
         
         // Read from storage
-        let values = get_q_values(storage, car_id, state_hash)
+        let values = get_integer_q_values(storage, car_id, state_hash)
             .unwrap_or([0, 0, 0, 0]);
         
         // Cache the read
-        self.reads.insert(*state_hash, values);
+        self.reads.insert(state_hash, values);
         Ok(values)
     }
     
-    /// Update Q-values in cache (deferred write)
-    fn update_q_values(&mut self, state_hash: [u8; 32], values: [i32; 4]) {
+    /// Update integer Q-values in cache (deferred write)
+    fn update_integer_q_values(&mut self, state_hash: u32, values: [i8; 4]) {
         self.updates.insert(state_hash, values);
     }
     
     /// Flush all cached updates to storage in a single batch
     fn flush_to_storage(&self, storage: &mut dyn Storage, car_id: u128) -> Result<(), ContractError> {
         for (state_hash, values) in &self.updates {
-            set_q_values(storage, car_id, state_hash, *values)?;
+            set_integer_q_values(storage, car_id, *state_hash, *values)?;
         }
         Ok(())
     }

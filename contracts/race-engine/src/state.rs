@@ -3,7 +3,7 @@ use cw_storage_plus::{Item, Map};
 use serde::{Deserialize, Serialize};
 
 use membrane::race_engine::{Config, RaceResult};
-use membrane::types::{TrackTrainingStats, TrainingStats, TopTimes, TopTimeEntry};
+use membrane::types::{TrackTrainingStats, TrainingStats, TopTimes, TopTimeEntry, IntegerQTableEntry, StateHashConversion};
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const CAR_RECENT_RACES: Map<u128, Vec<RaceResult>> = Map::new("car_recent_races");
@@ -15,8 +15,11 @@ pub const MAX_TRACK_RECENT_RACES: usize = 32;
 pub const MAX_TICKS: u32 = 100;
 
 
-// Q-table storage: (car_id, state_hash) -> [i32; 4] action values
-pub const Q_TABLE: Map<(u128, &[u8; 32]), [i32; 4]> = Map::new("q_table");
+// Legacy Q-table storage: (car_id, state_hash) -> [i8; 4] action values (for migration only)
+pub const LEGACY_Q_TABLE: Map<(u128, &[u8; 32]), [i8; 4]> = Map::new("legacy_q_table");
+
+// Integer Q-table storage: (car_id, state_hash) -> [i8; 4] action values (compressed)
+pub const INTEGER_Q_TABLE: Map<(u128, u32), [i8; 4]> = Map::new("integer_q_table");
 
 // Training stats storage: (car_id, track_id) -> TrackTrainingStats
 pub const CAR_TRACK_TRAINING_STATS: Map<(u128, u128), TrackTrainingStats> = Map::new("car_track_training_stats");
@@ -25,17 +28,32 @@ pub const CAR_TRACK_TRAINING_STATS: Map<(u128, u128), TrackTrainingStats> = Map:
 pub const MAX_TOP_TIMES: usize = 100;
 pub const TRACK_TOP_TIMES: Map<u128, TopTimes> = Map::new("track_top_times");
 
-pub fn get_q_values(storage: &dyn Storage, car_id: u128, state_hash: & [u8; 32]) -> StdResult<[i32; 4]> {
-    Q_TABLE.load(storage, (car_id, state_hash))
+// Legacy Q-table functions (for migration only)
+pub fn get_legacy_q_values(storage: &dyn Storage, car_id: u128, state_hash: &[u8; 32]) -> StdResult<[i8; 4]> {
+    LEGACY_Q_TABLE.load(storage, (car_id, state_hash))
 }
 
-pub fn set_q_values(
+pub fn set_legacy_q_values(
     storage: &mut dyn Storage,
     car_id: u128,
     state_hash: &[u8; 32],
-    q_values: [i32; 4],
+    q_values: [i8; 4],
 ) -> StdResult<()> {
-    Q_TABLE.save(storage, (car_id, state_hash), &q_values)
+    LEGACY_Q_TABLE.save(storage, (car_id, state_hash), &q_values)
+}
+
+// Integer Q-table functions
+pub fn get_integer_q_values(storage: &dyn Storage, car_id: u128, state_hash: u32) -> StdResult<[i8; 4]> {
+    INTEGER_Q_TABLE.load(storage, (car_id, state_hash))
+}
+
+pub fn set_integer_q_values(
+    storage: &mut dyn Storage,
+    car_id: u128,
+    state_hash: u32,
+    q_values: [i8; 4],
+) -> StdResult<()> {
+    INTEGER_Q_TABLE.save(storage, (car_id, state_hash), &q_values)
 }
 
 

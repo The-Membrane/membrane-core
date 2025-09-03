@@ -1299,6 +1299,24 @@ pub struct QTableEntry {
     pub action_values: [i32; 4],
 }
 
+/// NEW: Integer-based Q-table entry for compressed state representation
+#[cw_serde]
+pub struct IntegerQTableEntry {
+    /// Integer hash representing the state of the car (compressed from 32 bytes to 4 bytes)
+    pub state_hash: u32,
+    /// Q-values for all 4 actions [Up, Down, Left, Right] (compressed to i8)
+    pub action_values: [i8; 4],
+}
+
+/// Conversion mapping from legacy byte array hashes to new integer hashes
+#[cw_serde]
+pub struct StateHashConversion {
+    /// Legacy byte array hash
+    pub legacy_hash: [u8; 32],
+    /// New integer hash
+    pub integer_hash: u32,
+}
+
 #[cw_serde]
 pub enum RewardType {
     /// Distance-based reward with specific value

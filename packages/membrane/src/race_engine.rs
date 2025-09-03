@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Uint128, Decimal};
 
-use crate::types::{QTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TopTimes};
+use crate::types::{IntegerQTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TopTimes};
 
 pub const DEFAULT_SPEED: u8 = 1;
 pub const DEFAULT_BOOST_SPEED: u8 = 3;
@@ -39,6 +39,11 @@ pub enum ExecuteMsg {
         max_ticks: Option<u32>,
         byte_minter_contract: Option<String>,
     },
+    /// Migrate existing Q-table states from legacy byte array hashes to integer hashes
+    MigrateQTableStates {
+        car_id: Uint128,
+        batch_size: Option<u32>,
+    },
 }
 
 #[cw_serde]
@@ -64,8 +69,7 @@ pub enum QueryMsg {
     },
     #[returns(ConfigResponse)]
     GetConfig {},
-    #[returns(GetQResponse)]
-    GetQ { car_id: u128, state_hash: Option< [u8; 32]> },
+
     #[returns(Vec<GetTrackTrainingStatsResponse>)]
     GetTrackTrainingStats { 
         car_id: u128, 
@@ -75,16 +79,34 @@ pub enum QueryMsg {
     },
     #[returns(TopTimes)]
     GetTopTimes { track_id: u128 },
+    // NEW: Integer-based Q-table queries
+    #[returns(GetIntegerQResponse)]
+    GetIntegerQ { car_id: u128, state_hash: Option<u32> },
+    // NEW: Migration status queries
+    #[returns(MigrationStatusResponse)]
+    GetMigrationStatus { car_id: u128 },
 }
 
 #[cw_serde]
 pub struct RaceResultResponse {
     pub result: RaceResult,
 }
+
+
+/// NEW: Response for integer-based Q-table queries
 #[cw_serde]
-pub struct GetQResponse {
+pub struct GetIntegerQResponse {
     pub car_id: u128,
-    pub q_values: Vec<QTableEntry>,
+    pub q_values: Vec<IntegerQTableEntry>,
+}
+
+/// NEW: Response for migration status queries
+#[cw_serde]
+pub struct MigrationStatusResponse {
+    pub car_id: u128,
+    pub legacy_entries_count: u32,
+    pub integer_entries_count: u32,
+    pub migration_complete: bool,
 }
 
 #[cw_serde]
@@ -159,14 +181,14 @@ pub struct CarState {
     pub finished: bool,
     pub steps_taken: u32,
     pub last_action: usize,
-    // **NEW**: Track action history for Q-learning updates
-    pub action_history: Vec<( [u8; 32], usize, TrackTile)>, // (state_hash, action, tile)
     // **NEW**: Track wall collisions for reward calculation
     pub hit_wall: bool,
     // **NEW**: Track speed modifiers
     pub current_speed: u32,
-    // **NEW**: Store used Q-table for this car
-    pub q_table:  Vec<QTableEntry>, 
+    // **NEW**: Integer-based action history for compressed state representation
+    pub integer_action_history: Vec<(u32, usize, TrackTile)>, // (integer_state_hash, action, tile)
+    // **NEW**: Store used integer Q-table for this car
+    pub integer_q_table: Vec<IntegerQTableEntry>, 
 }
 
 #[cw_serde]

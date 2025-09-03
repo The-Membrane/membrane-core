@@ -3,7 +3,7 @@ use cw_storage_plus::{Item, Map};
 use serde::{Deserialize, Serialize};
 
 use membrane::race_engine::{Config, RaceResult};
-use membrane::types::{TrackTrainingStats, TrainingStats, TopTimes, TopTimeEntry, IntegerQTableEntry, StateHashConversion};
+use membrane::types::{TrackTrainingStats, TrainingStats, TopTimes, TopTimeEntry, IntegerQTableEntry, StateHashConversion, PendingQUpdate};
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const CAR_RECENT_RACES: Map<u128, Vec<RaceResult>> = Map::new("car_recent_races");
@@ -15,11 +15,17 @@ pub const MAX_TRACK_RECENT_RACES: usize = 32;
 pub const MAX_TICKS: u32 = 100;
 
 
-// Legacy Q-table storage: (car_id, state_hash) -> [i8; 4] action values (for migration only)
-pub const LEGACY_Q_TABLE: Map<(u128, &[u8; 32]), [i8; 4]> = Map::new("legacy_q_table");
+// Original Q-table storage: (car_id, state_hash) -> [i32; 4] action values (for migration)
+pub const Q_TABLE: Map<(u128, &[u8; 32]), [i32; 4]> = Map::new("q_table");
 
 // Integer Q-table storage: (car_id, state_hash) -> [i8; 4] action values (compressed)
 pub const INTEGER_Q_TABLE: Map<(u128, u32), [i8; 4]> = Map::new("integer_q_table");
+
+// **NEW**: Pending Q-table updates storage: (car_id, update_id) -> PendingQUpdate
+pub const PENDING_Q_UPDATES: Map<(u128, u64), PendingQUpdate> = Map::new("pending_q_updates");
+
+// **NEW**: Car update counter: car_id -> next_update_id
+pub const CAR_UPDATE_COUNTER: Map<u128, u64> = Map::new("car_update_counter");
 
 // Training stats storage: (car_id, track_id) -> TrackTrainingStats
 pub const CAR_TRACK_TRAINING_STATS: Map<(u128, u128), TrackTrainingStats> = Map::new("car_track_training_stats");
@@ -28,18 +34,18 @@ pub const CAR_TRACK_TRAINING_STATS: Map<(u128, u128), TrackTrainingStats> = Map:
 pub const MAX_TOP_TIMES: usize = 100;
 pub const TRACK_TOP_TIMES: Map<u128, TopTimes> = Map::new("track_top_times");
 
-// Legacy Q-table functions (for migration only)
-pub fn get_legacy_q_values(storage: &dyn Storage, car_id: u128, state_hash: &[u8; 32]) -> StdResult<[i8; 4]> {
-    LEGACY_Q_TABLE.load(storage, (car_id, state_hash))
+// Original Q-table functions (for migration)
+pub fn get_q_values(storage: &dyn Storage, car_id: u128, state_hash: &[u8; 32]) -> StdResult<[i32; 4]> {
+    Q_TABLE.load(storage, (car_id, state_hash))
 }
 
-pub fn set_legacy_q_values(
+pub fn set_q_values(
     storage: &mut dyn Storage,
     car_id: u128,
     state_hash: &[u8; 32],
-    q_values: [i8; 4],
+    q_values: [i32; 4],
 ) -> StdResult<()> {
-    LEGACY_Q_TABLE.save(storage, (car_id, state_hash), &q_values)
+    Q_TABLE.save(storage, (car_id, state_hash), &q_values)
 }
 
 // Integer Q-table functions
@@ -54,6 +60,127 @@ pub fn set_integer_q_values(
     q_values: [i8; 4],
 ) -> StdResult<()> {
     INTEGER_Q_TABLE.save(storage, (car_id, state_hash), &q_values)
+}
+
+// **NEW**: Pending Q-table update functions
+pub fn add_pending_q_update(
+    storage: &mut dyn Storage,
+    car_id: u128,
+    mut update: PendingQUpdate,
+) -> StdResult<u64> {
+    // Get next update ID for this car
+    let next_id = CAR_UPDATE_COUNTER.load(storage, car_id).unwrap_or(0) + 1;
+    CAR_UPDATE_COUNTER.save(storage, car_id, &next_id)?;
+    
+    // Set the creation timestamp if not already set
+    if update.created_at == 0 {
+        // Use a simple timestamp based on the update ID for now
+        // In a real implementation, this would use env.block.time.seconds()
+        update.created_at = next_id as u32;
+    }
+    
+    // Store the pending update
+    PENDING_Q_UPDATES.save(storage, (car_id, next_id), &update)?;
+    
+    Ok(next_id)
+}
+
+pub fn get_pending_updates(
+    storage: &dyn Storage,
+    car_id: u128,
+    limit: Option<u32>,
+) -> StdResult<Vec<(u64, PendingQUpdate)>> {
+    let limit = limit.unwrap_or(50); // Default batch size
+    
+    let updates: Vec<(u64, PendingQUpdate)> = PENDING_Q_UPDATES
+        .prefix(car_id)
+        .range(storage, None, None, cosmwasm_std::Order::Ascending)
+        .take(limit as usize)
+        .map(|item| {
+            let (update_id, update) = item.map_err(|e| StdError::generic_err(e.to_string()))?;
+            Ok((update_id, update))
+        })
+        .collect::<StdResult<Vec<_>>>()?;
+    
+    Ok(updates)
+}
+
+pub fn remove_pending_updates(
+    storage: &mut dyn Storage,
+    car_id: u128,
+    update_ids: Vec<u64>,
+) -> StdResult<()> {
+    for update_id in update_ids {
+        PENDING_Q_UPDATES.remove(storage, (car_id, update_id));
+    }
+    
+    // Check if car still has pending updates
+    let remaining_updates = PENDING_Q_UPDATES
+        .prefix(car_id)
+        .range(storage, None, None, cosmwasm_std::Order::Ascending)
+        .next();
+    
+    if remaining_updates.is_none() {
+        // CARS_WITH_PENDING_UPDATES.remove(storage, car_id); // This line is removed
+    }
+    
+    Ok(())
+}
+
+pub fn has_pending_updates(storage: &dyn Storage, car_id: u128) -> StdResult<bool> {
+    // Use range query to check if car has any pending updates
+    let has_updates = PENDING_Q_UPDATES
+        .prefix(car_id)
+        .range(storage, None, None, cosmwasm_std::Order::Ascending)
+        .next()
+        .is_some();
+    
+    Ok(has_updates)
+}
+
+/// **NEW**: Batch process pending updates for gas efficiency
+pub fn batch_process_pending_updates(
+    storage: &mut dyn Storage,
+    car_id: u128,
+    batch_size: Option<u32>,
+) -> StdResult<(u32, Vec<u64>)> {
+    let batch_size = batch_size.unwrap_or(50);
+    
+    // Get pending updates
+    let updates = get_pending_updates(storage, car_id, Some(batch_size))?;
+    let mut processed_ids = vec![];
+    
+    // Process updates in memory first
+    let mut q_updates: std::collections::HashMap<u32, [i8; 4]> = std::collections::HashMap::new();
+    
+    for (update_id, pending_update) in updates {
+        // Get current Q-values
+        let mut current_q_values = get_integer_q_values(storage, car_id, pending_update.state_hash)
+            .unwrap_or([0, 0, 0, 0]);
+        
+        // Apply Q-learning update (simplified for gas efficiency)
+        let action = pending_update.action as usize;
+        let old_value = current_q_values[action] as f32;
+        let reward = pending_update.reward as f32;
+        
+        // Simplified Q-learning update
+        let new_value = (old_value * 0.9 + reward * 0.1).round() as i32;
+        current_q_values[action] = new_value.clamp(-128, 127) as i8;
+        
+        // Store for batch write
+        q_updates.insert(pending_update.state_hash, current_q_values);
+        processed_ids.push(update_id);
+    }
+    
+    // Batch write all Q-value updates
+    for (state_hash, q_values) in q_updates {
+        set_integer_q_values(storage, car_id, state_hash, q_values)?;
+    }
+    
+    // Remove processed updates
+    remove_pending_updates(storage, car_id, processed_ids.clone())?;
+    
+    Ok((processed_ids.len() as u32, processed_ids))
 }
 
 

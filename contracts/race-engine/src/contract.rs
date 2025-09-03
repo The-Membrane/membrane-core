@@ -8,9 +8,9 @@ use cosmwasm_std::{
 use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
-use crate::state::{add_recent_race, get_config, get_integer_q_values, get_recent_races, get_track_training_stats, set_config, set_integer_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, INTEGER_Q_TABLE, LEGACY_Q_TABLE};
-use membrane::types::{ActionSelectionStrategy, GoingBackward, IntegerQTableEntry, RewardNumbers, Track, TrackTile};
-use membrane::race_engine::{CarState, Config, ExecuteMsg, GetIntegerQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, MigrationStatusResponse, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
+use crate::state::{add_recent_race, get_config, get_integer_q_values, get_recent_races, get_track_training_stats, set_config, set_integer_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, add_pending_q_update, get_pending_updates, remove_pending_updates, has_pending_updates, batch_process_pending_updates, get_q_values, set_q_values, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, INTEGER_Q_TABLE, Q_TABLE};
+use membrane::types::{ActionSelectionStrategy, GoingBackward, IntegerQTableEntry, RewardNumbers, Track, TrackTile, PendingQUpdate};
+use membrane::race_engine::{CarState, Config, ExecuteMsg, GetIntegerQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, MigrationStatusResponse, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED, PendingUpdatesResponse, HasPendingUpdatesResponse};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
 use membrane::byte_minter::{QueryMsg as ByteMinterQueryMsg, VerifyEventRaceResponse, ExecuteMsg as ByteMinterExecuteMsg, EventType as ByteEventType};
 // Race simulation constants
@@ -221,6 +221,12 @@ pub fn execute(
         },
         ExecuteMsg::MigrateQTableStates { car_id, batch_size } => {
             execute_migrate_q_table_states(deps, _info, car_id, batch_size)
+        },
+        ExecuteMsg::ProcessPendingUpdates { car_id, batch_size } => {
+            execute_process_pending_updates(deps, _env, _info, car_id, batch_size)
+        },
+        ExecuteMsg::CheckPendingUpdates { car_id } => {
+            execute_check_pending_updates(deps, _info, car_id)
         }
 
     }
@@ -253,14 +259,14 @@ fn execute_purge_car(storage: &mut dyn Storage, car_id: u128) -> Result<Response
     }).collect();
     for key in keys { INTEGER_Q_TABLE.remove(storage, (car_id, key)); }
     
-    // Remove all legacy Q-table entries for car (if any)
-    let legacy_prefix = LEGACY_Q_TABLE.prefix(car_id);
+    // Remove all original Q-table entries for car (if any)
+    let legacy_prefix = Q_TABLE.prefix(car_id);
     let legacy_range = legacy_prefix.range(storage, None, None, cosmwasm_std::Order::Ascending);
     let legacy_keys: Vec<[u8; 32]> = legacy_range.map(|item| {
         let (key, _) = item.unwrap();
         key
     }).collect();
-    for key in legacy_keys { LEGACY_Q_TABLE.remove(storage, (car_id, &key)); }
+    for key in legacy_keys { Q_TABLE.remove(storage, (car_id, &key)); }
 
     // Remove all training stats for car across tracks
     let stats_prefix = CAR_TRACK_TRAINING_STATS.prefix(car_id);
@@ -290,10 +296,10 @@ fn execute_migrate_q_table_states(
     let car_id = car_id.u128();
     let batch_size = batch_size.unwrap_or(50); // Default batch size
     
-    // Get all legacy Q-table entries for this car
-    let prefix = LEGACY_Q_TABLE.prefix(car_id);
+    // Get all original Q-table entries for this car
+    let prefix = Q_TABLE.prefix(car_id);
     let range = prefix.range(deps.storage, None, None, cosmwasm_std::Order::Ascending);
-    let entries: Vec<([u8; 32], [i8; 4])> = range
+    let entries: Vec<([u8; 32], [i32; 4])> = range
         .take(batch_size as usize)
         .map(|item| {
             let (state_hash, action_values) = item.map_err(|e| ContractError::Std(e))?;
@@ -314,7 +320,7 @@ fn execute_migrate_q_table_states(
             continue;
         }
         
-        // Convert i32 legacy values to i8 (clamp to i8 range)
+        // Convert i32 original values to i8 (clamp to i8 range)
         let compressed_action_values = [
             action_values[0].clamp(-128, 127) as i8,
             action_values[1].clamp(-128, 127) as i8,
@@ -324,6 +330,9 @@ fn execute_migrate_q_table_states(
         
         // Store the Q-values with the new integer hash
         set_integer_q_values(deps.storage, car_id, integer_hash, compressed_action_values)?;
+        
+        // Remove the original entry after successful migration
+        Q_TABLE.remove(deps.storage, (car_id, &legacy_hash));
         
         migrated_count += 1;
     }
@@ -343,7 +352,25 @@ fn convert_legacy_hash_to_integer(legacy_hash: &[u8; 32]) -> u32 {
     u32::from_le_bytes([legacy_hash[0], legacy_hash[1], legacy_hash[2], legacy_hash[3]])
 }
 
+/// **NEW**: Create a compressed hash from a string (for race_id compression)
+fn compress_string_to_hash(s: &str) -> u32 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    
+    let mut hasher = DefaultHasher::new();
+    s.hash(&mut hasher);
+    (hasher.finish() & 0xFFFFFFFF) as u32
+}
 
+/// **NEW**: Convert reward to i16 range for gas efficiency
+fn compress_reward(reward: i32) -> i16 {
+    reward.clamp(-32768, 32767) as i16
+}
+
+/// **NEW**: Convert next state hash to compressed format
+fn compress_next_state_hash(next_state_hash: Option<u32>) -> u32 {
+    next_state_hash.unwrap_or(0xFFFFFFFF)
+}
 
 fn get_starting_tiles(track: Track) -> Vec<(usize, usize)> {
     let mut start_indices = vec![];
@@ -412,6 +439,12 @@ pub fn execute_simulate_race(
             if owner_resp.owner != info.sender.to_string() {
                 return Err(ContractError::Unauthorized {});
             }
+            
+            // **NEW**: Check if car has pending updates and prevent new training if so
+            let has_pending = has_pending_updates(deps.storage, *car_id)?;
+            if has_pending {
+                return Err(ContractError::CarHasPendingUpdates { car_id: car_id.to_string() });
+            }
         }
     }
 
@@ -468,10 +501,10 @@ pub fn execute_simulate_race(
     // Deterministic shuffle of starting indices
     let mut cars = vec![];
     let mut perm: Vec<usize> = (0..start_indices.len()).collect();
-    let mut seed: u32 = (env.block.height as u32)
+    let seed: u32 = (env.block.height as u32)
         ^ (env.block.time.seconds() as u32)
         ^ (car_ids.len() as u32);
-    // Fisher-Yates
+    // Fisher-Yates to shuffle the starting indices
     if perm.len() > 1 {
         let mut i = perm.len() - 1;
         while i > 0 {
@@ -839,17 +872,28 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
         // **NEW**: Apply tile effects using properties directly
         apply_tile_effects_to_car(car, new_x, new_y, &race_state.track_layout)?;
         
-        
         // Record action in play_by_play for this car
         if let Some(play_by_play) = race_state.play_by_play.get_mut(&car.car_id) {
-            play_by_play.actions.push(membrane::race_engine::Action {
-                action: car.last_action.to_string(),
-                resulting_position: membrane::race_engine::Position {
-                    car_id: car.car_id.clone(),
-                    x: new_x as u32,
-                    y: new_y as u32,
-                },
-            });
+            // Only add action if car has moved from previous position
+            let has_moved = if let Some(last_action) = play_by_play.actions.last() {
+                last_action.resulting_position.x != new_x as u32 || 
+                last_action.resulting_position.y != new_y as u32
+            } else {
+                // First action - always add it
+                true
+            };
+
+            if has_moved {
+                play_by_play.actions.push(membrane::race_engine::Action {
+                    action: None, //left for migration purposes
+                    action_value: Some(car.last_action as i8),
+                    resulting_position: membrane::race_engine::Position {
+                        car_id: car.car_id.clone(),
+                        x: new_x as u32,
+                        y: new_y as u32,
+                    },
+                });
+            }
         }
     }
     
@@ -973,11 +1017,11 @@ fn simulate_tick_with_cache(
         
         // **NEW**: Record action before applying tile effect
         // Get other cars' current positions (excluding this car)
-        let other_cars_positions: Vec<(i32, i32)> = all_car_positions.iter()
-            .enumerate()
-            .filter(|(j, _)| *j != i && !car_finished_status[*j])
-            .map(|(_, pos)| *pos)
-            .collect();
+        // let other_cars_positions: Vec<(i32, i32)> = all_car_positions.iter()
+        //     .enumerate()
+        //     .filter(|(j, _)| *j != i && !car_finished_status[*j])
+        //     .map(|(_, pos)| *pos)
+        //     .collect();
         
         // Generate integer state hash (new system only)
         let integer_state_hash = generate_state_hash(&race_state.track_layout, car.x, car.y, car.current_speed);
@@ -995,7 +1039,8 @@ fn simulate_tick_with_cache(
         // Record action in play_by_play for this car
         if let Some(play_by_play) = race_state.play_by_play.get_mut(&car.car_id) {
             play_by_play.actions.push(membrane::race_engine::Action {
-                action: car.last_action.to_string(),
+                action: None, //left ofr migration purposes
+                action_value: Some(car.last_action as i8),
                 resulting_position: membrane::race_engine::Position {
                     car_id: car.car_id.clone(),
                     x: new_x as u32,
@@ -1008,7 +1053,7 @@ fn simulate_tick_with_cache(
     Ok(())
 }
 
-/// Calculate car action using cached Q-values for gas efficiency
+/// **OPTIMIZED**: Calculate car action with reduced computation for gas efficiency
 fn calculate_car_action(
     car: &mut CarState,
     _storage: &mut dyn Storage,
@@ -1016,48 +1061,55 @@ fn calculate_car_action(
     x: i32,
     y: i32,
     car_speed: u32,
-    other_cars: &[(i32, i32)],
+    _other_cars: &[(i32, i32)], // Unused for gas optimization
     strategy: ActionSelectionStrategy,
     tick_index: u32,
     seed: u32, // required for deterministic randomness
 ) -> Result<usize, ContractError> {
-    //Set seed.
-    // - Allows for deterministic randomness for each car to be different
-    // Use wrapping arithmetic to prevent overflow
+    // **GAS OPTIMIZATION**: Simplified seed calculation
     let car_id_u32 = (car.car_id % (u32::MAX as u128)) as u32;
     let seed = seed.wrapping_mul(car_id_u32.wrapping_add(tick_index));
-    // Generate integer state hash for current position (new system)
+    
+    // Generate integer state hash for current position (optimized)
     let integer_state_hash = generate_state_hash(track_layout, x, y, car_speed);
     
     // **GAS OPTIMIZATION**: Use cached integer Q-values instead of storage reads
     let q_values = if let Some(cached_values) = car.integer_q_table.iter().find(|q| q.state_hash == integer_state_hash) {
         cached_values.action_values.clone()
     } else {
-        // For new states, use small random initial Q-values instead of zeros
-        // This provides better exploration and prevents all cars from learning the same way
+        // **GAS OPTIMIZATION**: Use simpler random initialization
         let random_q_values = [
-            pseudo_random(seed, 5) as i8,
-            pseudo_random(seed + 1, 5) as i8,
-            pseudo_random(seed + 2, 5) as i8,
-            pseudo_random(seed + 3, 5) as i8,
+            (pseudo_random(seed, 3) - 1) as i8, // -1, 0, 1
+            (pseudo_random(seed + 1, 3) - 1) as i8,
+            (pseudo_random(seed + 2, 3) - 1) as i8,
+            (pseudo_random(seed + 3, 3) - 1) as i8,
         ];
         random_q_values
     };
     
-    //Store Q-values in car state for caching (integer format)
-    car.integer_q_table.push(IntegerQTableEntry {
-        state_hash: integer_state_hash,
-        action_values: q_values,
-    });
+    // **GAS OPTIMIZATION**: Only cache if not already present
+    if car.integer_q_table.iter().find(|q| q.state_hash == integer_state_hash).is_none() {
+        car.integer_q_table.push(IntegerQTableEntry {
+            state_hash: integer_state_hash,
+            action_values: q_values,
+        });
+    }
     
     let action_count = q_values.len() as u32;
 
+    // **GAS OPTIMIZATION**: Simplified strategy matching
     match strategy {
         ActionSelectionStrategy::Best => {
-            Ok(q_values.iter().enumerate()
-                .max_by_key(|(_, &val)| val)
-                .map(|(idx, _)| idx)
-                .unwrap_or(0))
+            // Find best action with minimal computation
+            let mut best_action = 0;
+            let mut best_value = q_values[0];
+            for (i, &value) in q_values.iter().enumerate().skip(1) {
+                if value > best_value {
+                    best_value = value;
+                    best_action = i;
+                }
+            }
+            Ok(best_action)
         }
 
         ActionSelectionStrategy::Random => {
@@ -1069,16 +1121,21 @@ fn calculate_car_action(
             if pseudo_random(seed, 100) < threshold {
                 Ok((pseudo_random(seed + 1, action_count)) as usize)
             } else {
-                Ok(q_values.iter().enumerate()
-                    .max_by_key(|(_, &val)| val)
-                    .map(|(idx, _)| idx)
-                    .unwrap_or(0))
+                // Find best action (same as Best strategy)
+                let mut best_action = 0;
+                let mut best_value = q_values[0];
+                for (i, &value) in q_values.iter().enumerate().skip(1) {
+                    if value > best_value {
+                        best_value = value;
+                        best_action = i;
+                    }
+                }
+                Ok(best_action)
             }
         }
 
         ActionSelectionStrategy::EpsilonDecay { initial_epsilon, final_epsilon, current_tick, total_ticks } => {
-            // Calculate current epsilon based on training progress
-            // Linear decay: epsilon = initial - (initial - final) * progress
+            // **GAS OPTIMIZATION**: Simplified epsilon calculation
             let progress = current_tick as f32 / total_ticks as f32;
             let current_epsilon = initial_epsilon - (initial_epsilon - final_epsilon) * progress;
             
@@ -1086,26 +1143,39 @@ fn calculate_car_action(
             if pseudo_random(seed, 100) < threshold {
                 Ok((pseudo_random(seed + 1, action_count)) as usize)
             } else {
-                Ok(q_values.iter().enumerate()
-                    .max_by_key(|(_, &val)| val)
-                    .map(|(idx, _)| idx)
-                    .unwrap_or(0))
+                // Find best action (same as Best strategy)
+                let mut best_action = 0;
+                let mut best_value = q_values[0];
+                for (i, &value) in q_values.iter().enumerate().skip(1) {
+                    if value > best_value {
+                        best_value = value;
+                        best_action = i;
+                    }
+                }
+                Ok(best_action)
             }
         }
 
         ActionSelectionStrategy::Softmax(temp) => {
+            // **GAS OPTIMIZATION**: Simplified softmax calculation
+            let mut max_q = q_values[0];
+            for &q in q_values.iter().skip(1) {
+                if q > max_q {
+                    max_q = q;
+                }
+            }
+            
+            // Use simplified softmax with max normalization
             let exp_vals: Vec<f32> = q_values.iter()
-                .map(|&q| ((q as f32) / temp).exp())
+                .map(|&q| ((q as f32 - max_q as f32) / temp).exp())
                 .collect();
 
             let sum: f32 = exp_vals.iter().sum();
-            let probs: Vec<f32> = exp_vals.iter().map(|&v| v / sum).collect();
-
-            let mut acc = 0.0;
             let sample = (pseudo_random(seed, 10000) as f32) / 10000.0;
+            let mut acc = 0.0;
 
-            for (i, &p) in probs.iter().enumerate() {
-                acc += p;
+            for (i, &exp_val) in exp_vals.iter().enumerate() {
+                acc += exp_val / sum;
                 if sample < acc {
                     return Ok(i);
                 }
@@ -1135,7 +1205,7 @@ pub fn generate_state_hash(
     
     for (i, &(dx,dy)) in DIRS.iter().enumerate() {
         let tx = x + dx.wrapping_mul(speed as i32);
-        let ty = y + dy.wrapping_mul(speed as i32);
+        let ty: i32 = y + dy.wrapping_mul(speed as i32);
 
         // --- 3-bit tile flag ---
         let mut flag = TileFlag::Normal as u8;
@@ -1466,6 +1536,8 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetMigrationStatus { car_id } => to_json_binary(&query_migration_status(deps, car_id).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetTrackTrainingStats { car_id, track_id, start_after, limit } => to_json_binary(&query_track_training_stats(deps, car_id, track_id, start_after, limit).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetTopTimes { track_id } => to_json_binary(&crate::state::get_track_top_times(deps.storage, track_id).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
+        QueryMsg::GetPendingUpdates { car_id, limit } => to_json_binary(&query_pending_updates(deps, car_id, limit).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
+        QueryMsg::HasPendingUpdates { car_id } => to_json_binary(&query_has_pending_updates(deps, car_id).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
     }
 }
 
@@ -1515,8 +1587,8 @@ pub fn query_migration_status(
     deps: Deps,
     car_id: u128,
 ) -> Result<MigrationStatusResponse, ContractError> {
-    // Count legacy Q-table entries
-    let legacy_count = LEGACY_Q_TABLE.prefix(car_id)
+    // Count original Q-table entries
+    let legacy_count = Q_TABLE.prefix(car_id)
         .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
         .count() as u32;
     
@@ -1533,6 +1605,39 @@ pub fn query_migration_status(
         legacy_entries_count: legacy_count,
         integer_entries_count: integer_count,
         migration_complete,
+    })
+}
+
+/// **NEW**: Query pending updates for a car
+pub fn query_pending_updates(
+    deps: Deps,
+    car_id: u128,
+    limit: Option<u32>,
+) -> Result<PendingUpdatesResponse, ContractError> {
+    let updates = get_pending_updates(deps.storage, car_id, limit)?;
+    let total_count = updates.len() as u32;
+    
+    Ok(PendingUpdatesResponse {
+        car_id,
+        updates,
+        total_count,
+    })
+}
+
+/// **NEW**: Query if a car has pending updates
+pub fn query_has_pending_updates(
+    deps: Deps,
+    car_id: u128,
+) -> Result<HasPendingUpdatesResponse, ContractError> {
+    let has_pending = has_pending_updates(deps.storage, car_id)?;
+    
+    // Count total pending updates
+    let pending_count = get_pending_updates(deps.storage, car_id, None)?.len() as u32;
+    
+    Ok(HasPendingUpdatesResponse {
+        car_id,
+        has_pending_updates: has_pending,
+        pending_count,
     })
 }
 
@@ -1652,8 +1757,8 @@ pub fn query_track_training_stats(
 // - save the q-table to the car contract post-training
 // - test that it doesn't get stuck 
 // 
-/// Apply Q-learning updates directly to car contracts based on race results and car actions
-/// **GAS OPTIMIZED**: Uses cached Q-values and batches all updates
+/// Apply Q-learning updates as pending updates for deferred processing
+/// **GAS OPTIMIZED**: Stores updates as pending instead of immediate writes
 fn apply_q_learning_updates(
     storage: &mut dyn Storage,
     race_state: &RaceState,
@@ -1664,10 +1769,8 @@ fn apply_q_learning_updates(
     fastest_track_tick_time: u64,
 ) -> Result<(), ContractError> {
     
-    // **GAS OPTIMIZATION**: Use cached integer Q-values from car state instead of storage reads
+    // **GAS OPTIMIZATION**: Store Q-learning updates as pending instead of immediate writes
     for car in &race_state.cars {
-        let mut q_updates: HashMap<u32, [i8; 4]> = HashMap::new();
-        
         // Process each action in the car's integer history (new system)
         for (i, (state_hash, action, tile)) in car.integer_action_history.iter().enumerate() {
             // Calculate reward for this specific action
@@ -1686,46 +1789,26 @@ fn apply_q_learning_updates(
                 fastest_track_tick_time,
             )?;
             
-            // Get current Q-values from integer cache
-            let mut current_q_values = if let Some(cached_values) = car.integer_q_table.iter().find(|q| q.state_hash == *state_hash) {
-                cached_values.action_values
-            } else {
-                [0, 0, 0, 0] // Default values for new states
-            };
-            
-            // Get next state hash and its Q-values
+            // Get next state hash for Q-learning
             let next_state_hash = if i < car.integer_action_history.len() - 1 {
                 Some(car.integer_action_history[i + 1].0)
             } else {
                 None
             };
             
-            // Get max Q-value for next state
-            let max_next_q = if let Some(next_hash) = &next_state_hash {
-                if let Some(cached_values) = car.integer_q_table.iter().find(|q| q.state_hash == *next_hash) {
-                    cached_values.action_values.iter().max().cloned().unwrap_or(0) as i32
-                } else {
-                    0 // Default for new states
-                }
-            } else {
-                0 // No next state, so no future reward
+            // Create compressed pending update for gas efficiency
+            let pending_update = PendingQUpdate {
+                state_hash: *state_hash,
+                action: *action as u8,
+                reward: compress_reward(action_reward),
+                next_state_hash: compress_next_state_hash(next_state_hash),
+                created_at: 0, // Will be set by the state function
+                race_id_hash: compress_string_to_hash(&race_result.race_id),
+                track_id: race_result.track_id.u128() as u16,
             };
             
-            // **GAS OPTIMIZATION**: Apply Q-learning update in memory
-            let old_value = current_q_values[*action as usize] as i32;
-            let new_value = ((1.0 - ALPHA) * (old_value as f32) + 
-                            ALPHA * ((action_reward as f32) + (GAMMA * (max_next_q as f32)))).round() as i32;
-            
-            // Clamp the value to i8 range (-128 to 127) to prevent explosion
-            current_q_values[*action as usize] = new_value.clamp(-128, 127) as i8;
-            
-            // Store updated Q-values for batch write
-            q_updates.insert(state_hash.clone(), current_q_values);
-        }
-        
-        // **GAS OPTIMIZATION**: Batch write all integer Q-value updates for this car
-        for (state_hash, q_values) in q_updates {
-            set_integer_q_values(storage, car.car_id, state_hash, q_values)?;
+            // Store as pending update instead of immediate write
+            add_pending_q_update(storage, car.car_id, pending_update)?;
         }
     }
     
@@ -1896,3 +1979,56 @@ impl QValueCache {
 
 // Removed optimized hash function and ActionRecord to preserve full information retention
 // Keeping only the effective caching and batching optimizations
+
+/// **OPTIMIZED**: Process pending Q-table updates for a car with batch processing
+/// This function applies all pending Q-learning updates in a single batch for maximum gas efficiency
+fn execute_process_pending_updates(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    car_id: Uint128,
+    batch_size: Option<u32>,
+) -> Result<Response, ContractError> {
+    let car_id = car_id.u128();
+    let config = get_config(deps.storage)?;
+    
+    // Check car ownership (same as training restrictions)
+    let owner_resp: OwnerOfResponse = deps.querier.query_wasm_smart::<OwnerOfResponse>(
+        config.car_contract.clone(),
+        &Car_QueryMsg::Base(Cw721QueryMsg::OwnerOf { 
+            token_id: car_id.to_string(), 
+            include_expired: None,
+        })
+    ).map_err(|_| ContractError::CarNotFound { car_id: car_id.to_string() })?;
+
+    if owner_resp.owner != info.sender.to_string() {
+        return Err(ContractError::Unauthorized {});
+    }
+    
+    // **GAS OPTIMIZATION**: Use batch processing for maximum efficiency
+    let (processed_count, _processed_ids) = batch_process_pending_updates(deps.storage, car_id, batch_size)?;
+    
+    Ok(Response::new()
+        .add_attribute("action", "process_pending_updates")
+        .add_attribute("car_id", car_id.to_string())
+        .add_attribute("processed", processed_count.to_string())
+        .add_attribute("optimized", "true"))
+}
+
+/// **NEW**: Check if a car has pending updates (for training restrictions)
+fn execute_check_pending_updates(
+    deps: DepsMut,
+    _info: MessageInfo,
+    car_id: Uint128,
+) -> Result<Response, ContractError> {
+    let car_id = car_id.u128();
+    
+    // This is a query-like function that returns a response
+    // In practice, this would be handled by the query function, but we include it here for completeness
+    let has_pending = has_pending_updates(deps.storage, car_id)?;
+    
+    Ok(Response::new()
+        .add_attribute("action", "check_pending_updates")
+        .add_attribute("car_id", car_id.to_string())
+        .add_attribute("has_pending", has_pending.to_string()))
+}

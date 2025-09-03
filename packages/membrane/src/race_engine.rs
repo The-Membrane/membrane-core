@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Uint128, Decimal};
 
-use crate::types::{IntegerQTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TopTimes};
+use crate::types::{IntegerQTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TopTimes, PendingQUpdate};
 
 pub const DEFAULT_SPEED: u8 = 1;
 pub const DEFAULT_BOOST_SPEED: u8 = 3;
@@ -43,6 +43,16 @@ pub enum ExecuteMsg {
     MigrateQTableStates {
         car_id: Uint128,
         batch_size: Option<u32>,
+    },
+    /// **NEW**: Process pending Q-table updates for a car
+    /// Must be called by the owner of the car
+    ProcessPendingUpdates {
+        car_id: Uint128,
+        batch_size: Option<u32>,
+    },
+    /// **NEW**: Check if a car has pending updates (for training restrictions)
+    CheckPendingUpdates {
+        car_id: Uint128,
     },
 }
 
@@ -85,6 +95,14 @@ pub enum QueryMsg {
     // NEW: Migration status queries
     #[returns(MigrationStatusResponse)]
     GetMigrationStatus { car_id: u128 },
+    // **NEW**: Pending updates queries
+    #[returns(PendingUpdatesResponse)]
+    GetPendingUpdates { 
+        car_id: u128,
+        limit: Option<u32>,
+    },
+    #[returns(HasPendingUpdatesResponse)]
+    HasPendingUpdates { car_id: u128 },
 }
 
 #[cw_serde]
@@ -107,6 +125,22 @@ pub struct MigrationStatusResponse {
     pub legacy_entries_count: u32,
     pub integer_entries_count: u32,
     pub migration_complete: bool,
+}
+
+/// **NEW**: Response for pending updates queries
+#[cw_serde]
+pub struct PendingUpdatesResponse {
+    pub car_id: u128,
+    pub updates: Vec<(u64, PendingQUpdate)>,
+    pub total_count: u32,
+}
+
+/// **NEW**: Response for checking if car has pending updates
+#[cw_serde]
+pub struct HasPendingUpdatesResponse {
+    pub car_id: u128,
+    pub has_pending_updates: bool,
+    pub pending_count: u32,
 }
 
 #[cw_serde]
@@ -142,7 +176,8 @@ pub struct Position {
 
 #[cw_serde]
 pub struct Action {
-    pub action: String,
+    pub action: Option<String>,
+    pub action_value: Option<i8>,
     pub resulting_position: Position,
 }
 

@@ -33,6 +33,9 @@ pub enum ContractError {
     #[error("Q-learning update error: {message}")]
     QLearningError { message: String },
 
+    #[error("Car has pending Q-table updates: {car_id}")]
+    CarHasPendingUpdates { car_id: String },
+
     #[error("{0}")]
     Std(#[from] StdError),
 } 

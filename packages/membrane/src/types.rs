@@ -1308,6 +1308,26 @@ pub struct IntegerQTableEntry {
     pub action_values: [i8; 4],
 }
 
+/// NEW: Pending Q-table update for deferred batch processing
+#[cw_serde]
+pub struct PendingQUpdate {
+    /// Integer hash representing the state of the car
+    pub state_hash: u32,
+    /// Action taken (0=Up, 1=Down, 2=Left, 3=Right)
+    pub action: u8,
+    /// Reward received for this action (compressed to i16 for gas efficiency)
+    pub reward: i16,
+    /// Next state hash (None if terminal state) - using u32 instead of Option<u32> for gas efficiency
+    /// 0xFFFFFFFF indicates no next state (terminal)
+    pub next_state_hash: u32,
+    /// Timestamp when this update was created (compressed to u32)
+    pub created_at: u32,
+    /// Race ID that generated this update (compressed hash)
+    pub race_id_hash: u32,
+    /// Track ID where this update occurred
+    pub track_id: u16,
+}
+
 /// Conversion mapping from legacy byte array hashes to new integer hashes
 #[cw_serde]
 pub struct StateHashConversion {

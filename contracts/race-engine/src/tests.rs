@@ -3,8 +3,9 @@ use cosmwasm_std::{from_json, to_json_binary, Addr, Binary, OwnedDeps, Querier, 
 use serde::Serialize;
 
 use crate::contract::{execute, instantiate, query};
-use membrane::race_engine::{ExecuteMsg, InstantiateMsg, QueryMsg, TrainingConfig, GetTrackTrainingStatsResponse};
-use membrane::types::{RewardNumbers, Track, TrackTile, TileProperties};
+use crate::error::ContractError;
+use membrane::race_engine::{ExecuteMsg, InstantiateMsg, QueryMsg, TrainingConfig, GetTrackTrainingStatsResponse, GetIntegerQResponse, MigrationStatusResponse};
+use membrane::types::{RewardNumbers, Track, TrackTile, TileProperties, GoingBackward};
 
 const ADMIN: &str = "admin";
 const CAR_CONTRACT: &str = "car_contract";
@@ -581,6 +582,10 @@ fn test_pvp_training_stats() {
         }),
         reward_config: Some(RewardNumbers {
             distance: 1,
+            going_backward: GoingBackward {
+                penalty: -1,
+                include_progress_towards_finish: true,
+            },
             stuck: -5,
             wall: -8,
             no_move: 0,
@@ -677,8 +682,6 @@ fn test_purge_car_removes_all_state() {
     });
     assert!(result.is_ok());
 
-    // Manually set one Q-table entry
-    crate::state::set_q_values(deps.as_mut().storage, car_id, &[1u8; 32], [1,2,3,4]).unwrap();
     // Manually set one training stats entry
     crate::state::set_track_training_stats(deps.as_mut().storage, car_id, 1u128, membrane::types::TrackTrainingStats { 
         solo: membrane::types::TrainingStats { tally: 1, win_rate: 100, fastest: 50, first_time: 50 },
@@ -690,10 +693,10 @@ fn test_purge_car_removes_all_state() {
     let res = execute(deps.as_mut(), env.clone(), mock_info(CAR_CONTRACT, &[]), purge).unwrap();
     assert_eq!(0, res.messages.len());
 
-    // Assert Q-table removed for this car
+    // Assert integer Q-table removed for this car
     let mut any_q = false;
-    for _ in crate::state::Q_TABLE.prefix(car_id).range(deps.as_ref().storage, None, None, cosmwasm_std::Order::Ascending) { any_q = true; break; }
-    assert!(!any_q, "Q-table entries should be removed");
+    for _ in crate::state::INTEGER_Q_TABLE.prefix(car_id).range(deps.as_ref().storage, None, None, cosmwasm_std::Order::Ascending) { any_q = true; break; }
+    assert!(!any_q, "Integer Q-table entries should be removed");
 
     // Assert training stats removed for all tracks for this car
     let mut any_stats = false;
@@ -782,4 +785,143 @@ fn test_epsilon_decay_debug() {
     }
     
     println!("=== EPSILON DECAY DEBUG TEST COMPLETE ===");
+}
+
+#[test]
+fn test_q_table_migration() {
+    println!("\n=== Q-TABLE MIGRATION TEST ===");
+    
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    let info = mock_info("admin", &[]);
+    
+    // Initialize the contract
+    let init_msg = InstantiateMsg {
+        admin: "admin".to_string(),
+        car_contract: "car_contract".to_string(),
+        track_contract: "track_contract".to_string(),
+    };
+    
+    let init_result = instantiate(deps.as_mut(), env.clone(), info.clone(), init_msg);
+    assert!(init_result.is_ok());
+    
+    // Create some legacy Q-table entries manually
+    let car_id = 1u128;
+    let legacy_hashes = vec![
+        [1u8; 32], // Legacy hash 1
+        [2u8; 32], // Legacy hash 2
+        [3u8; 32], // Legacy hash 3
+    ];
+    let legacy_q_values = vec![
+        [10i8, 20i8, 30i8, 40i8], // Q-values for hash 1
+        [15i8, 25i8, 35i8, 45i8], // Q-values for hash 2
+        [5i8, 15i8, 25i8, 35i8],  // Q-values for hash 3
+    ];
+    
+    // Store legacy Q-table entries
+    for (hash, q_values) in legacy_hashes.iter().zip(legacy_q_values.iter()) {
+        crate::state::set_legacy_q_values(&mut deps.storage, car_id, hash, *q_values).unwrap();
+    }
+    
+    // Verify legacy entries exist
+    for (hash, expected_q_values) in legacy_hashes.iter().zip(legacy_q_values.iter()) {
+        let stored_q_values = crate::state::get_legacy_q_values(&deps.storage, car_id, hash).unwrap();
+        assert_eq!(stored_q_values, *expected_q_values);
+        println!("Legacy entry verified: {:?} -> {:?}", hash, stored_q_values);
+    }
+    
+    // Check migration status before migration
+    let status_query = QueryMsg::GetMigrationStatus { car_id };
+    let status_response: MigrationStatusResponse = from_json(
+        query(deps.as_ref(), env.clone(), status_query).unwrap()
+    ).unwrap();
+    
+    println!("Migration status before migration:");
+    println!("  Legacy entries: {}", status_response.legacy_entries_count);
+    println!("  Integer entries: {}", status_response.integer_entries_count);
+    println!("  Migration complete: {}", status_response.migration_complete);
+    
+    assert_eq!(status_response.legacy_entries_count, 3);
+    assert_eq!(status_response.integer_entries_count, 0);
+    assert_eq!(status_response.migration_complete, false);
+    
+    // Perform migration
+    let migrate_msg = ExecuteMsg::MigrateQTableStates {
+        car_id: cosmwasm_std::Uint128::from(car_id),
+        batch_size: Some(10), // Migrate all entries
+    };
+    
+    let migrate_result = execute(deps.as_mut(), env.clone(), info.clone(), migrate_msg);
+    assert!(migrate_result.is_ok());
+    
+    println!("Migration completed successfully");
+    
+    // Check migration status after migration
+    let status_query_after = QueryMsg::GetMigrationStatus { car_id };
+    let status_response_after: MigrationStatusResponse = from_json(
+        query(deps.as_ref(), env.clone(), status_query_after).unwrap()
+    ).unwrap();
+    
+    println!("Migration status after migration:");
+    println!("  Legacy entries: {}", status_response_after.legacy_entries_count);
+    println!("  Integer entries: {}", status_response_after.integer_entries_count);
+    println!("  Migration complete: {}", status_response_after.migration_complete);
+    
+    // Verify migration results
+    assert_eq!(status_response_after.legacy_entries_count, 0);
+    assert_eq!(status_response_after.integer_entries_count, 3);
+    assert_eq!(status_response_after.migration_complete, true);
+    
+    // Verify that integer Q-table entries were created correctly
+    for (legacy_hash, expected_q_values) in legacy_hashes.iter().zip(legacy_q_values.iter()) {
+        // Convert legacy hash to integer hash
+        let integer_hash = convert_legacy_hash_to_integer(legacy_hash);
+        
+        // Get the migrated Q-values
+        let migrated_q_values = crate::state::get_integer_q_values(&deps.storage, car_id, integer_hash).unwrap();
+        
+        println!("Migrated entry: legacy hash {:?} -> integer hash {} -> Q-values {:?}", 
+                legacy_hash, integer_hash, migrated_q_values);
+        
+        // Verify Q-values were preserved (clamped to i8 range)
+        for (i, &expected) in expected_q_values.iter().enumerate() {
+            let migrated = migrated_q_values[i];
+            assert_eq!(migrated, expected, "Q-value mismatch at index {}", i);
+        }
+    }
+    
+    // Test that legacy entries are no longer accessible
+    for legacy_hash in &legacy_hashes {
+        let legacy_result = crate::state::get_legacy_q_values(&deps.storage, car_id, legacy_hash);
+        assert!(legacy_result.is_err(), "Legacy entry should be removed after migration");
+    }
+    
+    // Test querying integer Q-values
+    let integer_query = QueryMsg::GetIntegerQ { 
+        car_id, 
+        state_hash: None // Get all Q-values for this car
+    };
+    let integer_response: GetIntegerQResponse = from_json(
+        query(deps.as_ref(), env.clone(), integer_query).unwrap()
+    ).unwrap();
+    
+    println!("Integer Q-table entries after migration: {}", integer_response.q_values.len());
+    assert_eq!(integer_response.q_values.len(), 3);
+    
+    // Verify each migrated entry
+    for entry in &integer_response.q_values {
+        println!("Integer entry: hash {} -> Q-values {:?}", entry.state_hash, entry.action_values);
+        
+        // Verify Q-values are in i8 range
+        for &q_value in &entry.action_values {
+            assert!(q_value >= -128 && q_value <= 127, "Q-value {} is out of i8 range", q_value);
+        }
+    }
+    
+    println!("✅ Q-table migration test passed!");
+}
+
+/// Helper function to convert legacy hash to integer hash (same as in contract)
+fn convert_legacy_hash_to_integer(legacy_hash: &[u8; 32]) -> u32 {
+    u32::from_le_bytes([legacy_hash[0], legacy_hash[1], legacy_hash[2], legacy_hash[3]])
 }

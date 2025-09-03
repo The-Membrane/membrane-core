@@ -1315,11 +1315,18 @@ pub enum RewardType {
     Rank(u8),
 }
 
+#[cw_serde]
+pub struct GoingBackward {
+    pub penalty: i32,
+    pub include_progress_towards_finish: bool,
+}
 
 #[cw_serde]
 pub struct RewardNumbers {
     /// Distance-based reward with specific value
     pub distance: i32,
+    /// Penalty for going backward (negative reward)
+    pub going_backward: GoingBackward,
     /// Penalty for getting stuck (negative reward)
     pub stuck: i32,
     /// Penalty for hitting a wall (negative reward)

@@ -9,7 +9,7 @@ use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
 use crate::state::{add_recent_race, get_config, get_q_values, get_recent_races, get_track_training_stats, set_config, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, Q_TABLE};
-use membrane::types::{ActionSelectionStrategy, QTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TrainingStats};
+use membrane::types::{ActionSelectionStrategy, GoingBackward, QTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TrainingStats};
 use membrane::race_engine::{CarState, Config, ConfigResponse, ExecuteMsg, GetQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
 use membrane::byte_minter::{QueryMsg as ByteMinterQueryMsg, VerifyEventRaceResponse, ExecuteMsg as ByteMinterExecuteMsg, EventType as ByteEventType};
@@ -45,6 +45,8 @@ const MIN_Q_VALUE: i32 = -100;
 
 // Reward constants
 const STUCK_PENALTY: i32 = -5;
+const GOING_BACKWARD_PENALTY: i32 = -1;
+const DISTANCE_REWARD: i32 = 1;
 const WALL_PENALTY: i32 = -8;
 const NO_MOVE_PENALTY: i32 = -1;
 const EXPLORATION_BONUS: i32 = 6;
@@ -432,9 +434,13 @@ pub fn execute_simulate_race(
     let reward_config = match reward_config {
         Some(config) => config,
         None => RewardNumbers {
+            going_backward: GoingBackward {
+                penalty: GOING_BACKWARD_PENALTY,
+                include_progress_towards_finish: true,
+            },
             stuck: STUCK_PENALTY,
             wall: WALL_PENALTY,
-            distance: 1,
+            distance: DISTANCE_REWARD,
             no_move: NO_MOVE_PENALTY,
             explore: EXPLORATION_BONUS,
             rank: membrane::types::RankReward {
@@ -1811,10 +1817,16 @@ fn calculate_action_reward(
     // println!("Delta: {}", delta);
     if delta == 0 {
         reward += reward_config.no_move;
-    } else {
-        reward += reward_config.distance * delta;
     } 
-    if delta > 0 {
+    else if delta < 0 {
+        let progress_towards_finish = if reward_config.going_backward.include_progress_towards_finish {
+            tile.progress_towards_finish as i32
+        } else {
+            1
+        };
+        reward += reward_config.going_backward.penalty * progress_towards_finish;
+    } 
+    else if delta > 0 {
         reward += reward_config.distance * tile.progress_towards_finish as i32;
     }
     // println!("Reward: {}", reward);

@@ -442,14 +442,13 @@ pub fn query_get_track_layout_hash(deps: Deps, track_id: Uint128) -> Result<Stri
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, TrackManagerError> {
 
     //Set the track id counter to 0
-    TRACK_ID_COUNTER.save(deps.storage, &Uint128::zero())?;
+    // TRACK_ID_COUNTER.save(deps.storage, &Uint128::zero())?;
 
-    //Delete all tracks
-    TRACKS.remove(deps.storage, 0u128);
+    // //Delete all tracks
+    // TRACKS.remove(deps.storage, 0u128);
 
     Ok(Response::new()
-        .add_attribute("method", "migrate")
-        .add_attribute("track_id_counter", Uint128::zero()))
+        .add_attribute("method", "migrate"))
 }
 
 fn execute_recompute_progress(deps: DepsMut, track_id: Option<Uint128>) -> Result<Response, TrackManagerError> {

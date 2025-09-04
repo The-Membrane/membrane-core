@@ -1023,15 +1023,16 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
         // Record action in play_by_play for this car
         if let Some(play_by_play) = race_state.play_by_play.get_mut(&car.car_id) {
             // Only add action if car has moved from previous position
-            let has_moved = if let Some(last_action) = play_by_play.actions.last() {
-                last_action.resulting_position.x != new_x as u32 || 
-                last_action.resulting_position.y != new_y as u32
-            } else {
-                // First action - always add it
-                true
-            };
+            // let has_moved = if let Some(last_action) = play_by_play.actions.last() {
+            //     last_action.resulting_position.x != new_x as u32 || 
+            //     last_action.resulting_position.y != new_y as u32
+            // } else {
+            //     // First action - always add it
+            //     true
+            // };
 
-            if has_moved {
+            // if has_moved {
+            //always add actions 
                 play_by_play.actions.push(membrane::race_engine::Action {
                     action_value: Some(car.last_action as i8),
                     resulting_position: membrane::race_engine::Position {
@@ -1039,7 +1040,7 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
                         y: new_y as u32,
                     },
                 });
-            }
+            // }
         }
     }
     
@@ -1888,9 +1889,9 @@ fn calculate_action_reward(
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
 
-    //Clear RCENT RACES
-    CAR_RECENT_RACES.clear(deps.storage);
-    TRACK_RECENT_RACES.clear(deps.storage);
+    // //Clear RCENT RACES
+    // CAR_RECENT_RACES.clear(deps.storage);
+    // TRACK_RECENT_RACES.clear(deps.storage);
 
     Ok(Response::new()
         .add_attribute("method", "migrate"))

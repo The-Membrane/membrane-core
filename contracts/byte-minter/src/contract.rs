@@ -985,3 +985,8 @@ fn query_get_difficulty_adjustment_info(deps: Deps, env: Env, event: bm::EventTy
         windows_in_history: win_history.len() as u32,
     })
 } 
+
+#[entry_point]
+pub fn migrate(deps: DepsMut, _env: Env, _msg: bm::MigrateMsg) -> Result<Response, ContractError> {
+    Ok(Response::new().add_attribute("action", "migrate"))
+} 

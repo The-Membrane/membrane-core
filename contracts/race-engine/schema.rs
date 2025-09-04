@@ -3,7 +3,7 @@ use std::fs::create_dir_all;
 
 use cosmwasm_schema::{export_schema, remove_schemas, schema_for};
 
-use race_engine::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, SimulateRaceParams};
+use race_engine::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
 use race_engine::state::{Config, RaceResult};
 
 fn main() {
@@ -15,7 +15,7 @@ fn main() {
     export_schema(&schema_for!(InstantiateMsg), &out_dir);
     export_schema(&schema_for!(ExecuteMsg), &out_dir);
     export_schema(&schema_for!(QueryMsg), &out_dir);
-    export_schema(&schema_for!(SimulateRaceParams), &out_dir);
+
     export_schema(&schema_for!(Config), &out_dir);
     export_schema(&schema_for!(RaceResult), &out_dir);
 } 

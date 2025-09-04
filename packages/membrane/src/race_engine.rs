@@ -24,6 +24,7 @@ pub enum ExecuteMsg {
         train: bool,
         training_config: Option<TrainingConfig>,
         reward_config: Option<RewardNumbers>,
+        max_race_ticks: Option<u32>,
     },
     /// Reset the Q-table for a car
     /// Must be called by the owner of the car in the car contract

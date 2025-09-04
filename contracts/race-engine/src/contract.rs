@@ -233,8 +233,8 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::SimulateRace { track_id, car_ids, pvp, train, training_config, reward_config } => {
-            execute_simulate_race(deps, _env, _info, track_id, car_ids, pvp, train, training_config, reward_config)
+        ExecuteMsg::SimulateRace { track_id, car_ids, pvp, train, training_config, reward_config, max_race_ticks } => {
+            execute_simulate_race(deps, _env, _info, track_id, car_ids, pvp, train, training_config, reward_config, max_race_ticks)
         },
         ExecuteMsg::ResetQ { car_id } => {
             execute_reset_q(deps.storage, car_id.into())
@@ -563,6 +563,7 @@ pub fn execute_simulate_race(
     train: bool,
     training_config: Option<TrainingConfig>,
     reward_config: Option<RewardNumbers>,
+    max_race_ticks: Option<u32>,
 ) -> Result<Response, ContractError> {
     let config = get_config(deps.storage)?;
     let mut msgs = vec![];
@@ -735,8 +736,9 @@ pub fn execute_simulate_race(
         }
     }
 
-    // Simulate race using configured max_ticks
-    let race_result = simulate_race(deps.storage, &mut race_state, training_config, config.max_ticks, env.block.time.seconds() as u32)?;
+    // Simulate race using provided max_race_ticks or fallback to configured max_ticks
+    let max_ticks = max_race_ticks.unwrap_or(config.max_ticks);
+    let race_result = simulate_race(deps.storage, &mut race_state, training_config, max_ticks, env.block.time.seconds() as u32)?;
 
     // Generate race ID
     let race_id = format!("race_{}_{}", track_id, env.block.time.seconds());
@@ -780,7 +782,7 @@ pub fn execute_simulate_race(
         let is_solo = car_ids.len() == 1;
         for car in &race_state.cars {
             let won = race_result.winner_ids.contains(&car.car_id);
-            let completion_time = if car.finished { car.steps_taken } else { config.max_ticks };
+            let completion_time = if car.finished { car.steps_taken } else { max_ticks };
             
             // Update training stats
             if is_solo {

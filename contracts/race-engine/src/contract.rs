@@ -595,7 +595,7 @@ pub fn execute_simulate_race(
     }
 
     //If training_config is None, use default values
-    let training_config = match training_config {
+    let mut training_config = match training_config {
         Some(config) => config,
         None => TrainingConfig {
             training_mode: train,
@@ -604,6 +604,10 @@ pub fn execute_simulate_race(
             enable_epsilon_decay: true,
         },
     };
+    //If not training, set training_mode to false
+    if !train {
+        training_config.training_mode = false;
+    }
     let reward_config = match reward_config {
         Some(config) => config,
         None => RewardNumbers {
@@ -908,6 +912,11 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
         .map(|car| car.finished)
         .collect();
     
+    // **NEW**: Collect stuck status before the mutable loop to allow one-turn skip
+    let car_stuck_status: Vec<bool> = race_state.cars.iter()
+        .map(|car| car.stuck)
+        .collect();
+    
     // Calculate intended moves for all cars
     let mut car_actions = vec![];
     
@@ -986,11 +995,11 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
         
         // **NEW**: Record action before applying tile effect
         // Get other cars' current positions (excluding this car)
-        let other_cars_positions: Vec<(i32, i32)> = all_car_positions.iter()
-            .enumerate()
-            .filter(|(j, _)| *j != i && !car_finished_status[*j])
-            .map(|(_, pos)| *pos)
-            .collect();
+        // let other_cars_positions: Vec<(i32, i32)> = all_car_positions.iter()
+        //     .enumerate()
+        //     .filter(|(j, _)| *j != i && !car_finished_status[*j])
+        //     .map(|(_, pos)| *pos)
+        //     .collect();
         
         // Generate integer state hash (new system only)
         let integer_state_hash = generate_state_hash(&race_state.track_layout, car.x, car.y, car.current_speed);
@@ -1006,6 +1015,11 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
         // **NEW**: Apply tile effects using properties directly
         apply_tile_effects_to_car(car, new_x, new_y, &race_state.track_layout)?;
         
+        // If this car was stuck at the start of this tick, clear the stuck flag now (skip only one turn)
+        if car_stuck_status[i] {
+            car.stuck = false;
+        }
+
         // Record action in play_by_play for this car
         if let Some(play_by_play) = race_state.play_by_play.get_mut(&car.car_id) {
             // Only add action if car has moved from previous position
@@ -1085,16 +1099,24 @@ fn calculate_car_action(
     // **GAS OPTIMIZATION**: Simplified strategy matching
     match strategy {
         ActionSelectionStrategy::Best => {
-            // Find best action with minimal computation
-            let mut best_action = 0;
+            // Find best action with random tie-break to avoid always choosing UP on ties
+            let mut best_indices: Vec<usize> = vec![0];
             let mut best_value = q_values[0];
             for (i, &value) in q_values.iter().enumerate().skip(1) {
                 if value > best_value {
                     best_value = value;
-                    best_action = i;
+                    best_indices.clear();
+                    best_indices.push(i);
+                } else if value == best_value {
+                    best_indices.push(i);
                 }
             }
-            Ok(best_action)
+            if best_indices.len() == 1 {
+                Ok(best_indices[0])
+            } else {
+                let choice = pseudo_random(seed, best_indices.len() as u32) as usize;
+                Ok(best_indices[choice])
+            }
         }
 
         ActionSelectionStrategy::Random => {
@@ -1106,16 +1128,24 @@ fn calculate_car_action(
             if pseudo_random(seed, 100) < threshold {
                 Ok((pseudo_random(seed + 1, action_count)) as usize)
             } else {
-                // Find best action (same as Best strategy)
-                let mut best_action = 0;
+                // Best action with random tie-break
+                let mut best_indices: Vec<usize> = vec![0];
                 let mut best_value = q_values[0];
                 for (i, &value) in q_values.iter().enumerate().skip(1) {
                     if value > best_value {
                         best_value = value;
-                        best_action = i;
+                        best_indices.clear();
+                        best_indices.push(i);
+                    } else if value == best_value {
+                        best_indices.push(i);
                     }
                 }
-                Ok(best_action)
+                if best_indices.len() == 1 {
+                    Ok(best_indices[0])
+                } else {
+                    let choice = pseudo_random(seed + 2, best_indices.len() as u32) as usize;
+                    Ok(best_indices[choice])
+                }
             }
         }
 
@@ -1128,16 +1158,24 @@ fn calculate_car_action(
             if pseudo_random(seed, 100) < threshold {
                 Ok((pseudo_random(seed + 1, action_count)) as usize)
             } else {
-                // Find best action (same as Best strategy)
-                let mut best_action = 0;
+                // Best action with random tie-break
+                let mut best_indices: Vec<usize> = vec![0];
                 let mut best_value = q_values[0];
                 for (i, &value) in q_values.iter().enumerate().skip(1) {
                     if value > best_value {
                         best_value = value;
-                        best_action = i;
+                        best_indices.clear();
+                        best_indices.push(i);
+                    } else if value == best_value {
+                        best_indices.push(i);
                     }
                 }
-                Ok(best_action)
+                if best_indices.len() == 1 {
+                    Ok(best_indices[0])
+                } else {
+                    let choice = pseudo_random(seed + 3, best_indices.len() as u32) as usize;
+                    Ok(best_indices[choice])
+                }
             }
         }
 
@@ -1857,6 +1895,8 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
     Ok(Response::new()
         .add_attribute("method", "migrate"))
 }
+
+
 
 
 

@@ -4,7 +4,7 @@ use membrane::byte_minter as bm;
 use membrane::math::decimal_division;
 use membrane::tokenfactory::{mint_msg, create_denom_msg};
 use membrane::track_manager as tm;
-use membrane::types::{TileProperties, Track, TrackTile};
+use membrane::types::TileProperties;
 // use cw721_base::OwnerOfResponse; // This type doesn't exist in cw721_base 0.16.0
 
 // Define our own OwnerOfResponse type
@@ -215,10 +215,19 @@ fn exec_start_new_windows(deps: DepsMut, env: Env, info: MessageInfo) -> Result<
                     cfg.track_manager_contract.clone(),
                     &tm::QueryMsg::GetTrack { track_id: Uint128::from(candidate) },
                 )?;
-                let all_ok = t.starting_tiles.iter().all(|st| st.progress_towards_finish >= cfg.min_start_tile_progress_threshold);
+                // Use new field if present; fall back to legacy progress for older tracks
+                let all_ok = t.starting_tiles.iter().all(|st| {
+                    if let Some(steps) = st.min_steps_to_finish_from_start { 
+                        steps >= cfg.min_start_tile_progress_threshold
+                    } else { 
+                        st.progress_towards_finish >= cfg.min_start_tile_progress_threshold 
+                    }
+                });
                 let range_ok = if !t.starting_tiles.is_empty() {
-                    let min = t.starting_tiles.iter().map(|st| st.progress_towards_finish).min().unwrap();
-                    let max = t.starting_tiles.iter().map(|st| st.progress_towards_finish).max().unwrap();
+                    let (min, max) = t.starting_tiles.iter().fold((u16::MAX, 0u16), |acc, st| {
+                        let val = st.min_steps_to_finish_from_start.unwrap_or(st.progress_towards_finish);
+                        (acc.0.min(val), acc.1.max(val))
+                    });
                     (max - min) <= cfg.max_start_tile_progress_diff
                 } else { false };
                 if all_ok && range_ok { chosen_pvp = Some(candidate); break; }

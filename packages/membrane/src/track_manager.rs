@@ -1,7 +1,7 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::Uint128;
 
-use crate::types::{Track, TrackTile, TileProperties};
+use crate::types::{Track, TileProperties};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -16,6 +16,7 @@ pub enum ExecuteMsg {
         height: u8,
         layout: Vec<Vec<TileProperties>>,
     },
+    RecomputeProgress { track_id: Option<Uint128> },
 }
 
 #[cw_serde]

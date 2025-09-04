@@ -1535,6 +1535,9 @@ pub struct TrackTile {
     pub properties: TileProperties,
     /// Progress towards the finish line in positions
     pub progress_towards_finish: u16,
+    /// For starting tiles only: minimum steps from this start to any finish
+    /// Used for PvP fairness checks. None for non-start tiles.
+    pub min_steps_to_finish_from_start: Option<u16>,
     /// x position of the tile
     pub x: u8,
     /// y position of the tile
@@ -1620,6 +1623,7 @@ impl CompressedTrack {
                 track_row.push(TrackTile {
                     properties: properties.clone(),
                     progress_towards_finish: 0, // Will be calculated by race engine
+                    min_steps_to_finish_from_start: None,
                     x: x as u8,
                     y: y as u8,
                 });

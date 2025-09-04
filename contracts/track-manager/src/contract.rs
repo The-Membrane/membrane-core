@@ -11,8 +11,8 @@ use sha2::{Sha256, Digest};
 
 use crate::error::TrackManagerError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{get_track, set_track, save_compressed_track, get_compressed_track, ADMIN, TRACKS, TRACK_ID_COUNTER, PVP_TRACK_IDS, save_track_hash, has_track_hash, save_track_id_hash_mapping, get_track_layout_hash};
-use membrane::types::{Track, TrackTile, TileProperties, CompressedTrack};
+use crate::state::{get_track, set_track, ADMIN, TRACKS, TRACK_ID_COUNTER, PVP_TRACK_IDS, save_track_hash, has_track_hash, save_track_id_hash_mapping, get_track_layout_hash};
+use membrane::types::{Track, TrackTile, TileProperties};
 
 const MAX_LIMIT: u32 = 32;
 
@@ -48,6 +48,7 @@ pub fn execute(
             height,
             layout,
         } => execute_add_track(deps, _info, name, width, height, layout),
+        ExecuteMsg::RecomputeProgress { track_id } => execute_recompute_progress(deps, track_id),
     }
 }
 
@@ -96,17 +97,7 @@ pub fn execute_add_track(
     // Calculate track statistics
     let stats = calculate_track_statistics(&layout, width, height);
 
-    // Create compressed track for efficient storage
-    let compressed_track = CompressedTrack::from_track_data(
-        _info.sender.to_string(),
-        name.clone(),
-        &layout
-    );
-    
-    // Store compressed track for space efficiency
-    save_compressed_track(deps.storage, &track_id.into(), compressed_track)?;
-
-    // Create full track for race engine compatibility (this will be expanded from compressed storage on queries)
+    // Create full track for race engine compatibility (stored directly)
     let track = Track {
         creator: _info.sender.to_string(),
         id: track_id.into(),
@@ -310,20 +301,45 @@ fn calculate_progress_towards_finish(
 
     // Convert to TrackTile format
     let mut track_layout = vec![];
+    // Compute minimum steps to finish among all starting tiles (for normalization)
+    let mut min_start_steps: u16 = u16::MAX;
+    for y in 0..height {
+        for x in 0..width {
+            let properties = layout[y as usize][x as usize].clone();
+            if properties.is_start {
+                let d = distances[y as usize][x as usize];
+                if d < min_start_steps { min_start_steps = d; }
+            }
+        }
+    }
     for y in 0..height {
         let mut row = vec![];
         for x in 0..width {
             let properties = layout[y as usize][x as usize].clone();
             let distance = distances[y as usize][x as usize];
 
-            let tile = TrackTile {
+            // New semantics: progress increases as you get closer to finish.
+            // Normalize so the best (minimum) start tile has 0 and finish has max value.
+            let mut progress: u16 = 0;
+            if !properties.blocks_movement && distance != u16::MAX && min_start_steps != u16::MAX {
+                // Clamp to zero to avoid underflow when tile is farther than best start
+                if distance <= min_start_steps {
+                    progress = min_start_steps - distance;
+                } else {
+                    progress = 0;
+                }
+            }
+
+            let mut tile = TrackTile {
                 properties: properties.clone(),
-                progress_towards_finish: distance,
+                progress_towards_finish: progress,
+                min_steps_to_finish_from_start: None,
                 x,
                 y,
             };
 
             if properties.is_start {
+                tile.min_steps_to_finish_from_start = if distance != u16::MAX { Some(distance) } else { None };
                 starting_tiles.push(tile.clone());
             }
             
@@ -335,8 +351,8 @@ fn calculate_progress_towards_finish(
     let mut fastest = u64::MAX;
     //Find the fastest path from any starting tile
     for start_tile in &starting_tiles {
-        if (start_tile.progress_towards_finish as u64) < fastest {
-            fastest = start_tile.progress_towards_finish as u64;
+        if let Some(steps) = start_tile.min_steps_to_finish_from_start {
+            if (steps as u64) < fastest { fastest = steps as u64; }
         }
     }
     
@@ -380,27 +396,9 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 pub fn query_get_track(deps: Deps, track_id: Uint128) -> Result<Track, TrackManagerError> {
-    // Try to get from compressed storage first (new tracks)
-    if let Ok(compressed_track) = get_compressed_track(deps.storage, &track_id.into()) {
-        // Expand compressed layout to full layout
-        let full_layout = compressed_track.layout.to_full_layout();
-        
-        // Recalculate progress and starting tiles from expanded layout
-        let (_, fastest_tick_time, starting_tiles) = calculate_progress_towards_finish(
-            &full_layout, 
-            compressed_track.layout.width, 
-            compressed_track.layout.height
-        );
-        
-        // Create track with expanded layout using compressed track metadata
-        let track = compressed_track.to_track(track_id.into(), fastest_tick_time, starting_tiles);
-        
-        Ok(track)
-    } else {
-        // Fallback to old storage format for backward compatibility
-        let track = get_track(deps.storage, &track_id.into())?;
-        Ok(track)
-    }
+    // Always return the stored full track with precomputed progress
+    let track = get_track(deps.storage, &track_id.into())?;
+    Ok(track)
 }
 
 pub fn query_list_tracks(deps: Deps, start_after: Option<u128>, limit: Option<u32>) -> Result<crate::msg::ListTracksResponse, TrackManagerError> {
@@ -452,4 +450,42 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, T
     Ok(Response::new()
         .add_attribute("method", "migrate")
         .add_attribute("track_id_counter", Uint128::zero()))
+}
+
+fn execute_recompute_progress(deps: DepsMut, track_id: Option<Uint128>) -> Result<Response, TrackManagerError> {
+    // If a specific track_id is provided, recompute that one; otherwise recompute all
+    let mut updated_count: u32 = 0;
+    if let Some(id) = track_id {
+        if let Ok(old) = get_track(deps.storage, &id.u128()) {
+            let height = old.height as usize;
+            let width = old.width as usize;
+            let mut layout_props: Vec<Vec<TileProperties>> = vec![vec![TileProperties::default(); width]; height];
+            for y in 0..height { for x in 0..width { layout_props[y][x] = old.layout[y][x].properties.clone(); } }
+            let (track_layout, fastest_tick_time, starting_tiles) = calculate_progress_towards_finish(
+                &layout_props, old.width, old.height
+            );
+            let new_track = Track { creator: old.creator, id: old.id, name: old.name, width: old.width, height: old.height, layout: track_layout, fastest_tick_time, starting_tiles };
+            set_track(deps.storage, &id.u128(), new_track)?;
+            updated_count += 1;
+        }
+    } else {
+        // Recompute for all stored tracks (TRACKS map)
+        let mut ids: Vec<u128> = vec![];
+        for item in TRACKS.range(deps.storage, None, None, Order::Ascending) { ids.push(item?.0); }
+        for id in ids {
+            if let Ok(old) = get_track(deps.storage, &id) {
+                let height = old.height as usize;
+                let width = old.width as usize;
+                let mut layout_props: Vec<Vec<TileProperties>> = vec![vec![TileProperties::default(); width]; height];
+                for y in 0..height { for x in 0..width { layout_props[y][x] = old.layout[y][x].properties.clone(); } }
+                let (track_layout, fastest_tick_time, starting_tiles) = calculate_progress_towards_finish(
+                    &layout_props, old.width, old.height
+                );
+                let new_track = Track { creator: old.creator, id: old.id, name: old.name, width: old.width, height: old.height, layout: track_layout, fastest_tick_time, starting_tiles };
+                set_track(deps.storage, &id, new_track)?;
+                updated_count += 1;
+            }
+        }
+    }
+    Ok(Response::new().add_attribute("action", "recompute_progress").add_attribute("updated", updated_count.to_string()))
 }

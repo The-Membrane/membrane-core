@@ -104,6 +104,18 @@ fn pseudo_random(seed: u32, modulus: u32) -> u32 {
     (a.wrapping_mul(seed).wrapping_add(c)) % modulus
 }
 
+/// Mix two 32-bit seeds into a new pseudo-random seed (state-aware determinism)
+fn mix_seed(a: u32, b: u32) -> u32 {
+    // Lightweight mixer (inspired by splitmix/wyhash) to decorrelate low bits
+    let mut x = a ^ b;
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x7feb_352d);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x846c_a68b);
+    x ^= x >> 16;
+    x
+}
+
 /// Convert Decimal (fixed 18 fractional digits) to f32
 fn decimal_to_f32(d: Decimal) -> f32 {
     let num = d.atomics().u128() as f64;
@@ -1062,12 +1074,13 @@ fn calculate_car_action(
     tick_index: u32,
     seed: u32, // required for deterministic randomness
 ) -> Result<usize, ContractError> {
-    // **GAS OPTIMIZATION**: Simplified seed calculation
+    // **Deterministic RNG**: Mix global seed with car id, tick, and per-state hash
     let car_id_u32 = (car.car_id % (u32::MAX as u128)) as u32;
-    let seed = seed.wrapping_mul(car_id_u32.wrapping_add(tick_index));
-    
+    let base_seed = seed.wrapping_mul(car_id_u32.wrapping_add(tick_index));
+
     // Generate integer state hash for current position (optimized)
     let integer_state_hash = generate_state_hash(track_layout, x, y, car_speed);
+    let seed = mix_seed(base_seed, integer_state_hash);
     
     // **GAS OPTIMIZATION**: Check cache first, then storage
     let q_values = if let Some(cached_values) = car.integer_q_table.iter().find(|q| q.state_hash == integer_state_hash) {
@@ -1080,9 +1093,9 @@ fn calculate_car_action(
                 // This provides better exploration and prevents all cars from learning the same way
                 [
                     pseudo_random(seed, 5) as i8,
-                    pseudo_random(seed + 1, 5) as i8,
-                    pseudo_random(seed + 2, 5) as i8,
-                    pseudo_random(seed + 3, 5) as i8,
+                    pseudo_random(seed.wrapping_add(1), 5) as i8,
+                    pseudo_random(seed.wrapping_add(2), 5) as i8,
+                    pseudo_random(seed.wrapping_add(3), 5) as i8,
                 ]
             });
         
@@ -1127,7 +1140,7 @@ fn calculate_car_action(
         ActionSelectionStrategy::EpsilonGreedy(epsilon) => {
             let threshold = (epsilon * 100.0) as u32;
             if pseudo_random(seed, 100) < threshold {
-                Ok((pseudo_random(seed + 1, action_count)) as usize)
+                Ok((pseudo_random(seed.wrapping_add(1), action_count)) as usize)
             } else {
                 // Best action with random tie-break
                 let mut best_indices: Vec<usize> = vec![0];
@@ -1144,7 +1157,7 @@ fn calculate_car_action(
                 if best_indices.len() == 1 {
                     Ok(best_indices[0])
                 } else {
-                    let choice = pseudo_random(seed + 2, best_indices.len() as u32) as usize;
+                    let choice = pseudo_random(seed.wrapping_add(2), best_indices.len() as u32) as usize;
                     Ok(best_indices[choice])
                 }
             }
@@ -1157,7 +1170,7 @@ fn calculate_car_action(
             
             let threshold = (current_epsilon * 100.0) as u32;
             if pseudo_random(seed, 100) < threshold {
-                Ok((pseudo_random(seed + 1, action_count)) as usize)
+                Ok((pseudo_random(seed.wrapping_add(1), action_count)) as usize)
             } else {
                 // Best action with random tie-break
                 let mut best_indices: Vec<usize> = vec![0];
@@ -1174,7 +1187,7 @@ fn calculate_car_action(
                 if best_indices.len() == 1 {
                     Ok(best_indices[0])
                 } else {
-                    let choice = pseudo_random(seed + 3, best_indices.len() as u32) as usize;
+                    let choice = pseudo_random(seed.wrapping_add(3), best_indices.len() as u32) as usize;
                     Ok(best_indices[choice])
                 }
             }
@@ -1479,6 +1492,7 @@ fn create_test_track() -> Vec<Vec<membrane::types::TrackTile>> {
     let mut track = vec![vec![membrane::types::TrackTile {
         properties: membrane::types::TileProperties::normal(),
         progress_towards_finish: 0,
+        min_steps_to_finish_from_start: None,
         x: 0,
         y: 0,
     }; width]; height];
@@ -1488,6 +1502,7 @@ fn create_test_track() -> Vec<Vec<membrane::types::TrackTile>> {
         track[0][x] = membrane::types::TrackTile {
             properties: membrane::types::TileProperties::finish(),
             progress_towards_finish: 0,
+            min_steps_to_finish_from_start: None,
             x: x as u8,
             y: 0,
         };
@@ -1498,6 +1513,7 @@ fn create_test_track() -> Vec<Vec<membrane::types::TrackTile>> {
         track[height-1][x] = membrane::types::TrackTile {
             properties: membrane::types::TileProperties::start(),
             progress_towards_finish: height as u16 - 1,
+            min_steps_to_finish_from_start: None,
             x: x as u8,
             y: (height-1) as u8,
         };
@@ -1507,6 +1523,7 @@ fn create_test_track() -> Vec<Vec<membrane::types::TrackTile>> {
     track[5][5] = membrane::types::TrackTile {
         properties: membrane::types::TileProperties::wall(),
         progress_towards_finish: 5,
+        min_steps_to_finish_from_start: None,
         x: 5,
         y: 5,
     };
@@ -1514,6 +1531,7 @@ fn create_test_track() -> Vec<Vec<membrane::types::TrackTile>> {
     track[3][3] = membrane::types::TrackTile {
         properties: membrane::types::TileProperties::sticky(),
         progress_towards_finish: 3,
+        min_steps_to_finish_from_start: None,
         x: 3,
         y: 3,
     };
@@ -1521,6 +1539,7 @@ fn create_test_track() -> Vec<Vec<membrane::types::TrackTile>> {
     track[7][7] = membrane::types::TrackTile {
         properties: membrane::types::TileProperties::boost(DEFAULT_BOOST_SPEED as u32),
         progress_towards_finish: 7,
+        min_steps_to_finish_from_start: None,
         x: 7,
         y: 7,
     };
@@ -1529,6 +1548,7 @@ fn create_test_track() -> Vec<Vec<membrane::types::TrackTile>> {
     track[2][2] = membrane::types::TrackTile {
         properties: membrane::types::TileProperties::normal(),
         progress_towards_finish: 2,
+        min_steps_to_finish_from_start: None,
         x: 2,
         y: 2,
     };
@@ -1536,6 +1556,7 @@ fn create_test_track() -> Vec<Vec<membrane::types::TrackTile>> {
     track[4][4] = membrane::types::TrackTile {
         properties: membrane::types::TileProperties::normal(),
         progress_towards_finish: 4,
+        min_steps_to_finish_from_start: None,
         x: 4,
         y: 4,
     };
@@ -1543,6 +1564,7 @@ fn create_test_track() -> Vec<Vec<membrane::types::TrackTile>> {
     track[6][6] = membrane::types::TrackTile {
         properties: membrane::types::TileProperties::normal(),
         progress_towards_finish: 6,
+        min_steps_to_finish_from_start: None,
         x: 6,
         y: 6,
     };
@@ -1873,7 +1895,7 @@ fn calculate_action_reward(
     } 
     else if delta < 0 {
         let progress_towards_finish = if reward_config.going_backward.include_progress_towards_finish {
-            tile.progress_towards_finish as i32
+            std::cmp::max(tile.progress_towards_finish as i32, 1)
         } else {
             1
         };
@@ -1901,4 +1923,124 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
 
 
 
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cosmwasm_std::testing::mock_dependencies;
+    use cosmwasm_std::Decimal;
+
+    // Helper to pretty print the strategy used for a given tick
+    fn describe_strategy(tc: &TrainingConfig, tick: u32, total_ticks: u32) -> String {
+        if !tc.training_mode {
+            return "Best".to_string();
+        }
+        if decimal_to_f32(tc.temperature) > 0.0 {
+            return format!("Softmax({})", decimal_to_f32(tc.temperature));
+        }
+        if tc.enable_epsilon_decay {
+            return format!(
+                "EpsilonDecay(initial={}, final=0.01, tick={}, total={})",
+                decimal_to_f32(tc.epsilon), tick, total_ticks
+            );
+        }
+        if decimal_to_f32(tc.epsilon) > 0.0 {
+            return format!("EpsilonGreedy({})", decimal_to_f32(tc.epsilon));
+        }
+        "Random".to_string()
+    }
+
+    #[test]
+    fn race_sim_logs_strategy_and_q_values_per_hash() {
+        let mut deps = mock_dependencies();
+
+        // Build a simple track and starting car state
+        let track = create_test_track();
+        let start_x: i32 = 5;
+        let start_y: i32 = (track.len() - 1) as i32; // bottom row is start
+
+        let mut race_state = RaceState {
+            cars: vec![CarState {
+                car_id: 123,
+                tile: track[start_y as usize][start_x as usize].clone(),
+                x: start_x,
+                y: start_y,
+                stuck: false,
+                finished: false,
+                steps_taken: 0,
+                last_action: ACTION_UP,
+                hit_wall: false,
+                current_speed: DEFAULT_SPEED as u32,
+                integer_action_history: vec![],
+                integer_q_table: vec![],
+            }],
+            track_layout: track,
+            tick: 0,
+            play_by_play: std::collections::HashMap::new(),
+        };
+
+        // Pre-seed Q-values for the initial state to strongly prefer RIGHT
+        let initial_hash = generate_state_hash(
+            &race_state.track_layout,
+            start_x,
+            start_y,
+            DEFAULT_SPEED as u32,
+        );
+        // Prefer RIGHT (index 3)
+        let seeded_q: [i8; 4] = [0, 0, 1, 50];
+        set_integer_q_values(deps.as_mut().storage, 123, initial_hash, seeded_q).unwrap();
+
+        // Low exploration configuration
+        let training_config = TrainingConfig {
+            training_mode: true,
+            epsilon: Decimal::percent(1), // 1% exploration
+            temperature: Decimal::zero(),
+            enable_epsilon_decay: false,
+        };
+
+        let max_ticks: u32 = 5;
+        let seed: u32 = 4242;
+
+        for t in 0..max_ticks {
+            // Run one tick
+            simulate_tick(
+                deps.as_mut().storage,
+                &mut race_state,
+                training_config.clone(),
+                t,
+                max_ticks,
+                seed,
+            )
+            .unwrap();
+
+            // Inspect the last action/state used by the car
+            let car = &race_state.cars[0];
+            let (state_hash, action, _tile) = car
+                .integer_action_history
+                .last()
+                .expect("integer_action_history should have at least one entry");
+            let used_q = car
+                .integer_q_table
+                .iter()
+                .find(|e| e.state_hash == *state_hash)
+                .expect("Q-values for state_hash should be cached");
+
+            // Log: tick, strategy, state hash, Q-values, chosen action
+            println!(
+                "tick={} strategy={} hash={} q_values={:?} action={}",
+                t,
+                describe_strategy(&training_config, t, max_ticks),
+                state_hash,
+                used_q.action_values,
+                action
+            );
+
+            // On the first tick we expect exploitation to pick RIGHT (index 3)
+            if t == 0 {
+                assert_eq!(*action, super::ACTION_RIGHT);
+            }
+        }
+    }
+}
 

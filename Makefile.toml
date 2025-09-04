@@ -55,7 +55,7 @@ members = [
  #   "contracts/oracle",
   #  "contracts/osmosis-proxy",
  #   "contracts/points-system",
- #  "contracts/race-engine",
+   "contracts/race-engine",
 ]
 
 

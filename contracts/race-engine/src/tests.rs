@@ -110,6 +110,120 @@ const TRACK_CONTRACT: &str = "track_contract";
 const CAR_CONTRACT: &str = "car_contract";
 
 #[test]
+fn test_hash_function_analysis() {
+    println!("=== HASH FUNCTION ANALYSIS ===");
+    
+    // Test the hash function with various inputs to understand its behavior
+    let tile_combinations = generate_all_tile_combinations();
+    
+    // Test 1: Single car scenario (most common)
+    println!("\n--- Test 1: Single car scenario ---");
+    let x = 0;
+    let y = 0;
+    let speed = 1;
+    let other_cars = vec![];
+    
+    let mut hash_count = 0;
+    let mut unique_hashes = std::collections::HashSet::new();
+    
+    for tile_combo in &tile_combinations {
+        let hash = generate_legacy_state_hash_for_migration(x, y, speed, &other_cars, *tile_combo);
+        unique_hashes.insert(hash);
+        hash_count += 1;
+    }
+    
+    println!("Single car scenario:");
+    println!("  Total combinations tested: {}", hash_count);
+    println!("  Unique hashes generated: {}", unique_hashes.len());
+    println!("  Hash collision rate: {:.2}%", 
+             ((hash_count - unique_hashes.len()) as f64 / hash_count as f64) * 100.0);
+    
+    // Test 2: With one other car
+    println!("\n--- Test 2: One other car scenario ---");
+    let other_cars = vec![(1, 1)];
+    let mut hash_count_2 = 0;
+    let mut unique_hashes_2 = std::collections::HashSet::new();
+    
+    for tile_combo in &tile_combinations {
+        let hash = generate_legacy_state_hash_for_migration(x, y, speed, &other_cars, *tile_combo);
+        unique_hashes_2.insert(hash);
+        hash_count_2 += 1;
+    }
+    
+    println!("One other car scenario:");
+    println!("  Total combinations tested: {}", hash_count_2);
+    println!("  Unique hashes generated: {}", unique_hashes_2.len());
+    println!("  Hash collision rate: {:.2}%", 
+             ((hash_count_2 - unique_hashes_2.len()) as f64 / hash_count_2 as f64) * 100.0);
+    
+    // Test 3: Check for potential issues
+    println!("\n--- Test 3: Potential Issues Analysis ---");
+    
+    // Check if the hash function can generate the problematic hash
+    let target_hash = "65563059B4D6A262BA9EC5DDE6E9365ED2C58F46FF067BA372FE0C58171A1791";
+    let mut target_bytes = [0u8; 32];
+    for (i, chunk) in target_hash.as_bytes().chunks(2).enumerate() {
+        if i < 32 {
+            let hex_str = std::str::from_utf8(chunk).unwrap_or("00");
+            target_bytes[i] = u8::from_str_radix(hex_str, 16).unwrap_or(0);
+        }
+    }
+    
+    // Check if this hash appears in our generated hashes
+    if unique_hashes.contains(&target_bytes) {
+        println!("❌ PROBLEM: Target hash found in single car scenario!");
+    } else if unique_hashes_2.contains(&target_bytes) {
+        println!("❌ PROBLEM: Target hash found in one other car scenario!");
+    } else {
+        println!("✅ Target hash NOT found in any valid scenario");
+        println!("   This confirms it's an invalid/corrupted hash");
+    }
+    
+    // Analyze the key generation process
+    println!("\n--- Key Generation Analysis ---");
+    let mut key_values = std::collections::HashSet::new();
+    
+    for tile_combo in &tile_combinations {
+        // Recreate the key generation logic
+        let mut key: u32 = 0;
+        for (i, &(dx,dy)) in DIRS.iter().enumerate() {
+            let tx = x + dx.wrapping_mul(speed as i32);
+            let ty = y + dy.wrapping_mul(speed as i32);
+            
+            let mut flag = TileFlag::Normal as u8;
+            if tx < 0 || ty < 0 || ty as usize >= 50 || tx as usize >= 50 {
+                flag = TileFlag::Wall as u8;
+            } else {
+                flag = tile_combo[i] as u8;
+            }
+            
+            let has_car = 0u8; // No other cars
+            let nibble = (flag & 0b111) | (has_car << 3);
+            key |= (nibble as u32) << (i * 4);
+        }
+        
+        // No other cars, so dir3 = None (0)
+        key |= (Dir3::None as u32) << 16;
+        
+        key_values.insert(key);
+    }
+    
+    println!("Key generation analysis:");
+    println!("  Total possible keys: {}", key_values.len());
+    println!("  Key range: {} to {}", key_values.iter().min().unwrap(), key_values.iter().max().unwrap());
+    
+    // Check if there are any unexpected key values
+    let max_expected_key = 0b1111111111111111111111; // 22 bits max
+    let unexpected_keys: Vec<&u32> = key_values.iter().filter(|&&k| k > max_expected_key).collect();
+    
+    if !unexpected_keys.is_empty() {
+        println!("❌ PROBLEM: Found keys exceeding 22-bit limit: {:?}", unexpected_keys);
+    } else {
+        println!("✅ All keys within expected 22-bit range");
+    }
+}
+
+#[test]
 fn test_brute_force_hash_search_single_car() {
     let target_hash = "65563059B4D6A262BA9EC5DDE6E9365ED2C58F46FF067BA372FE0C58171A1791";
     

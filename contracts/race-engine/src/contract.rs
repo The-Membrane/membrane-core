@@ -43,7 +43,7 @@ use cosmwasm_std::{
 use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
-use crate::state::{add_recent_race, get_config, get_integer_q_values, get_recent_races, get_track_training_stats, set_config, set_integer_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, get_q_values, set_q_values, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, INTEGER_Q_TABLE, Q_TABLE};
+use crate::state::{add_recent_race, get_config, get_integer_q_values, get_q_values, get_recent_races, get_track_training_stats, set_config, set_integer_q_values, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, INTEGER_Q_TABLE, Q_TABLE, TRACK_RECENT_RACES};
 use membrane::types::{ActionSelectionStrategy, GoingBackward, IntegerQTableEntry, RewardNumbers, Track, TrackTile};
 use membrane::race_engine::{CarState, Config, ExecuteMsg, GetIntegerQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, MigrationStatusResponse, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
@@ -725,6 +725,7 @@ pub fn execute_simulate_race(
     };
 
     // Save race result
+    add_recent_race(deps.storage, race_result_struct.clone(), None, Some(track_id.into()))?;
     for car in &race_state.cars {
         add_recent_race(deps.storage, race_result_struct.clone(), Some(car.car_id), None)?;
         // Update per-track top times only for finished cars
@@ -1847,39 +1848,11 @@ fn calculate_action_reward(
 }
 
 #[entry_point]
-pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
 
-    //Set the training stats of car 0 track 0 
-    // CAR_TRACK_TRAINING_STATS.save(deps.storage, (0, 0), &TrackTrainingStats {
-    //     solo: TrainingStats {
-    //         tally: 4,
-    //         win_rate: 1000,
-    //         fastest: 59,
-    //         first_time: 59,
-    //     },
-    //     pvp: TrainingStats {
-    //         tally: 0,
-    //         win_rate: 0,
-    //         fastest: u32::MAX,
-    //         first_time: u32::MAX,
-    //     },
-    // })?;
-
-    // //Set the training stats of car 1 track 0 
-    // CAR_TRACK_TRAINING_STATS.save(deps.storage, (1, 0), &TrackTrainingStats {
-    //     solo: TrainingStats {
-    //         tally: 1,
-    //         win_rate: 1000,
-    //         fastest: 39,
-    //         first_time: 39,
-    //     },
-    //     pvp: TrainingStats {
-    //         tally: 0,
-    //         win_rate: 0,
-    //         fastest: u32::MAX,
-    //         first_time: u32::MAX,
-    //     },
-    // })?;
+    //Clear RCENT RACES
+    CAR_RECENT_RACES.clear(deps.storage);
+    TRACK_RECENT_RACES.clear(deps.storage);
 
     Ok(Response::new()
         .add_attribute("method", "migrate"))

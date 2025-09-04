@@ -11,8 +11,8 @@ pub const CAR_RECENT_RACES: Map<u128, Vec<RaceResult>> = Map::new("car_recent_ra
 pub const TRACK_RECENT_RACES: Map<u128, Vec<RaceResult>> = Map::new("track_recent_races");
 
 // Constants
-pub const MAX_CAR_RECENT_RACES: usize = 3;  // Reduced from 9
-pub const MAX_TRACK_RECENT_RACES: usize = 3; // Reduced from 32
+pub const MAX_CAR_RECENT_RACES: usize = 1;  // Reduced from 9
+pub const MAX_TRACK_RECENT_RACES: usize = 1; // Reduced from 32
 pub const MAX_TICKS: u32 = 100;
 
 

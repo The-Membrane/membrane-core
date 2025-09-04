@@ -14,7 +14,7 @@ use membrane::types::CarMetadata;
 use membrane::traits_engine::{default_rarity_table, generate_traits_with_rarity, traits_to_attributes};
 use crate::state::USED_TRAIT_COMBOS;
 use crate::state::NAME_REGISTRY;
-use crate::state::{PENDING_FREE_CARS, PendingFreeCar, CAR_INFO, set_car_info};
+use crate::state::{PENDING_FREE_CARS, PendingFreeCar, CAR_INFO, set_car_info, CarInfo};
 use cosmwasm_std::Addr;
 use membrane::traits_engine::{
     CarTraits,
@@ -857,6 +857,20 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 }
 
 #[entry_point]
-pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, CarError> {
-    Ok(Response::new())
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, CarError> {
+    //Set all car's energy to 400 
+    let cars: Vec<(u128, CarInfo)> = CAR_INFO
+        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+        .map(|item| item.map_err(|e| CarError::Std(e)))
+        .collect::<Result<Vec<_>, _>>()?;
+    
+    for (car_id, mut car) in cars.clone() {
+        car.current_energy = 400;
+        CAR_INFO.save(deps.storage, car_id, &car)?;
+    }
+    
+    Ok(Response::new()
+        .add_attribute("action", "migrate")
+        .add_attribute("cars_updated", cars.len().to_string())
+        .add_attribute("energy_set_to", "400"))
 }

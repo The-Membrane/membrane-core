@@ -1247,12 +1247,13 @@ fn calculate_car_action(
     let q_values = if let Some(cached_values) = car.integer_q_table.iter().find(|q| q.state_hash == integer_state_hash) {
         cached_values.action_values.clone()
     } else {
-        // **GAS OPTIMIZATION**: Use simpler random initialization
+        // For new states, use small random initial Q-values instead of zeros
+        // This provides better exploration and prevents all cars from learning the same way
         let random_q_values = [
-            (pseudo_random(seed, 3) - 1) as i8, // -1, 0, 1
-            (pseudo_random(seed + 1, 3) - 1) as i8,
-            (pseudo_random(seed + 2, 3) - 1) as i8,
-            (pseudo_random(seed + 3, 3) - 1) as i8,
+            pseudo_random(seed, 5) as i8,
+            pseudo_random(seed + 1, 5) as i8,
+            pseudo_random(seed + 2, 5) as i8,
+            pseudo_random(seed + 3, 5) as i8,
         ];
         random_q_values
     };
@@ -1360,7 +1361,7 @@ fn calculate_car_action(
 /// NEW: Returns integer hash instead of byte array, excludes other cars
 
 #[repr(u8)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 enum TileFlag { Wall=0, Sticky=1, Boost=2, Finish=3, Normal=4 }
 
 #[repr(u8)]
@@ -2170,7 +2171,7 @@ fn execute_process_pending_updates(
     info: MessageInfo,
     car_id: Uint128,
     batch_size: Option<u32>,
-) -> Result<Response, ContractError> {
+) -> Result<Response, ContractError> { 
     let car_id = car_id.u128();
     let config = get_config(deps.storage)?;
     

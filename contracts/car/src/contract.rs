@@ -859,18 +859,19 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, CarError> {
     //Set all car's energy to 400 
-    let cars: Vec<(u128, CarInfo)> = CAR_INFO
-        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
-        .map(|item| item.map_err(|e| CarError::Std(e)))
-        .collect::<Result<Vec<_>, _>>()?;
+    // let cars: Vec<(u128, CarInfo)> = CAR_INFO
+    //     .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+    //     .map(|item| item.map_err(|e| CarError::Std(e)))
+    //     .collect::<Result<Vec<_>, _>>()?;
     
-    for (car_id, mut car) in cars.clone() {
-        car.current_energy = 400;
-        CAR_INFO.save(deps.storage, car_id, &car)?;
-    }
+    // for (car_id, mut car) in cars.clone() {
+    //     car.current_energy = 400;
+    //     CAR_INFO.save(deps.storage, car_id, &car)?;
+    // }
     
     Ok(Response::new()
         .add_attribute("action", "migrate")
-        .add_attribute("cars_updated", cars.len().to_string())
-        .add_attribute("energy_set_to", "400"))
+        // .add_attribute("cars_updated", cars.len().to_string())
+        // .add_attribute("energy_set_to", "400")
+    )
 }

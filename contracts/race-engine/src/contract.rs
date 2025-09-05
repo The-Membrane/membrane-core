@@ -43,7 +43,7 @@ use cosmwasm_std::{
 use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
-use crate::state::{add_recent_race, get_config, get_integer_q_values, get_q_values, get_recent_races, get_track_training_stats, set_config, set_integer_q_values, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, INTEGER_Q_TABLE, Q_TABLE, TRACK_RECENT_RACES};
+use crate::state::{add_recent_race, get_config, get_integer_q_values, get_q_values, get_recent_races, get_track_training_stats, set_config, set_integer_q_values, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, update_brain_progress, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, INTEGER_Q_TABLE, Q_TABLE, TRACK_RECENT_RACES};
 use membrane::types::{ActionSelectionStrategy, GoingBackward, IntegerQTableEntry, RewardNumbers, Track, TrackTile};
 use membrane::race_engine::{CarState, Config, ExecuteMsg, GetIntegerQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, MigrationStatusResponse, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
@@ -77,6 +77,9 @@ const ALPHA: f32 = 0.1; // Learning rate
 const GAMMA: f32 = 0.9; // Discount factor
 const MAX_Q_VALUE: i32 = 100;
 const MIN_Q_VALUE: i32 = -100;
+
+// Brain progress constants
+const MAX_POSSIBLE_STATES: u16 = 625; // 5^4 tile combinations
 
 // Reward constants
 const STUCK_PENALTY: i32 = -5;
@@ -761,7 +764,8 @@ pub fn execute_simulate_race(
             reward_config.clone(), 
             config.clone(), 
             deps.querier,
-            fastest_track_tick_time
+            fastest_track_tick_time,
+            env.block.time,
         )?;
         
         // Update training stats for each car - only if there's meaningful progress
@@ -1433,6 +1437,68 @@ fn all_cars_finished(cars: &[CarState]) -> bool {
     cars.iter().all(|car| car.finished)
 }
 
+/// Calculate brain progress metrics for a car after training
+fn calculate_brain_progress(
+    storage: &dyn Storage,
+    car_id: u128,
+) -> Result<(u16, u8, u16), ContractError> {
+    // Get all Q-values for this car
+    let q_table_range = INTEGER_Q_TABLE.prefix(car_id).range(storage, None, None, cosmwasm_std::Order::Ascending);
+    
+    let mut states_seen = 0u16;
+    let mut total_confidence = 0u32;
+    let mut wall_collisions = 0u16;
+    
+    for item in q_table_range {
+        let (state_hash, q_values) = item.map_err(|e| ContractError::Std(e))?;
+        states_seen += 1;
+        
+        // Calculate confidence as max Q-value normalized to 0-100
+        let max_q = q_values.iter().max().unwrap_or(&0);
+        let confidence = ((*max_q as i32 * 100) / MAX_Q_VALUE) as u8;
+        total_confidence += confidence as u32;
+        
+        // Check if the preferred action (highest Q-value) leads to a wall
+        if let Some(preferred_action) = q_values.iter().position(|&x| x == *max_q) {
+            if does_action_lead_to_wall(state_hash, preferred_action) {
+                wall_collisions += 1;
+            }
+        }
+    }
+    
+    // Calculate average confidence
+    let avg_confidence = if states_seen > 0 {
+        (total_confidence / states_seen as u32) as u8
+    } else {
+        0
+    };
+    
+    Ok((states_seen, avg_confidence, wall_collisions))
+}
+
+/// Check if a preferred action leads to a wall by decoding the state hash
+fn does_action_lead_to_wall(state_hash: u32, action: usize) -> bool {
+    // Decode the state hash to get tile information
+    // The state hash represents tiles in 4 directions: up, down, left, right
+    // Each direction can have 5 tile types (0-4), so we need to extract 4 values
+    
+    // Extract tile types from the 16-bit state hash
+    let tile_up = (state_hash & 0xF) as u8;      // Bits 0-3
+    let tile_down = ((state_hash >> 4) & 0xF) as u8;  // Bits 4-7
+    let tile_left = ((state_hash >> 8) & 0xF) as u8;  // Bits 8-11
+    let tile_right = ((state_hash >> 12) & 0xF) as u8; // Bits 12-15
+    
+    // Check if the preferred action leads to a wall
+    match action {
+        0 => tile_up == 0,      // UP action leads to wall if tile_up is wall (0)
+        1 => tile_down == 0,    // DOWN action leads to wall if tile_down is wall (0)
+        2 => tile_left == 0,    // LEFT action leads to wall if tile_left is wall (0)
+        3 => tile_right == 0,   // RIGHT action leads to wall if tile_right is wall (0)
+        _ => false,
+    }
+}
+
+
 /// Calculate race results using progress_towards_finish from tile properties
 fn calculate_results(cars: &[CarState], track_layout: &[Vec<membrane::types::TrackTile>]) -> (Vec<u128>, Vec<membrane::race_engine::Rank>, Vec<membrane::race_engine::Step>) {
     let mut finished_cars: Vec<_> = cars.iter()
@@ -1592,6 +1658,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetConfig {  } => to_json_binary(&CONFIG.load(deps.storage).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetIntegerQ { car_id, state_hash } => to_json_binary(&query_integer_q_values(deps, car_id, state_hash).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetMigrationStatus { car_id } => to_json_binary(&query_migration_status(deps, car_id).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
+        QueryMsg::GetBrainProgress { car_id } => to_json_binary(&query_brain_progress(deps, car_id).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetTrackTrainingStats { car_id, track_id, start_after, limit } => to_json_binary(&query_track_training_stats(deps, car_id, track_id, start_after, limit).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
         QueryMsg::GetTopTimes { track_id } => to_json_binary(&crate::state::get_track_top_times(deps.storage, track_id).map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))?),
     }
@@ -1661,6 +1728,20 @@ pub fn query_migration_status(
         legacy_entries_count: legacy_count,
         integer_entries_count: integer_count,
         migration_complete,
+    })
+}
+
+/// Query brain progress for a specific car
+pub fn query_brain_progress(
+    deps: Deps,
+    car_id: u128,
+) -> Result<membrane::race_engine::BrainProgressResponse, ContractError> {
+    let brain_progress = crate::state::get_brain_progress(deps.storage, car_id)
+        .unwrap_or_default();
+    
+    Ok(membrane::race_engine::BrainProgressResponse {
+        car_id,
+        brain_progress,
     })
 }
 
@@ -1791,6 +1872,7 @@ fn apply_q_learning_updates(
     _config: Config,
     _querier: QuerierWrapper,
     fastest_track_tick_time: u64,
+    block_time: cosmwasm_std::Timestamp,
 ) -> Result<(), ContractError> {
     
     // Apply Q-learning updates immediately for each car
@@ -1829,6 +1911,28 @@ fn apply_q_learning_updates(
             
             // Store updated Q-values immediately
             set_integer_q_values(storage, car.car_id, *state_hash, current_q_values)?;
+        }
+    }
+    
+    // Update brain progress for each car after Q-learning updates
+    for car in &race_state.cars {
+        // Calculate brain progress metrics
+        match calculate_brain_progress(storage, car.car_id) {
+            Ok((states_seen, avg_confidence, wall_collisions)) => {
+                // Update brain progress with current block time
+                update_brain_progress(
+                    storage,
+                    car.car_id,
+                    states_seen,
+                    avg_confidence,
+                    wall_collisions,
+                    block_time,
+                )?;
+            }
+            Err(e) => {
+                // Log error but don't fail the entire operation
+                println!("Failed to calculate brain progress for car {}: {:?}", car.car_id, e);
+            }
         }
     }
     
@@ -2041,6 +2145,97 @@ mod tests {
                 assert_eq!(*action, super::ACTION_RIGHT);
             }
         }
+    }
+
+    #[test]
+    fn test_does_action_lead_to_wall() {
+        // Test case 1: All walls (0x0000)
+        assert!(does_action_lead_to_wall(0x0000, 0)); // UP -> wall
+        assert!(does_action_lead_to_wall(0x0000, 1)); // DOWN -> wall
+        assert!(does_action_lead_to_wall(0x0000, 2)); // LEFT -> wall
+        assert!(does_action_lead_to_wall(0x0000, 3)); // RIGHT -> wall
+
+        // Test case 2: Wall only in down direction (0x1110)
+        // 0x1110 = 0001 0001 0001 0000
+        // up=0 (wall), down=1 (normal), left=1 (normal), right=1 (normal)
+        assert!(does_action_lead_to_wall(0x1110, 0)); // UP -> wall
+        assert!(!does_action_lead_to_wall(0x1110, 1)); // DOWN -> not wall
+        assert!(!does_action_lead_to_wall(0x1110, 2)); // LEFT -> not wall
+        assert!(!does_action_lead_to_wall(0x1110, 3)); // RIGHT -> not wall
+
+        // Test case 3: Wall only in left direction (0x1011)
+        // 0x1011 = 0001 0000 0001 0001
+        // up=1 (normal), down=1 (normal), left=0 (wall), right=1 (normal)
+        assert!(!does_action_lead_to_wall(0x1011, 0)); // UP -> not wall
+        assert!(!does_action_lead_to_wall(0x1011, 1)); // DOWN -> not wall
+        assert!(does_action_lead_to_wall(0x1011, 2)); // LEFT -> wall
+        assert!(!does_action_lead_to_wall(0x1011, 3)); // RIGHT -> not wall
+
+        // Test case 4: Wall only in right direction (0x0111)
+        // 0x0111 = 0000 0001 0001 0001
+        // up=1 (normal), down=1 (normal), left=1 (normal), right=0 (wall)
+        assert!(!does_action_lead_to_wall(0x0111, 0)); // UP -> not wall
+        assert!(!does_action_lead_to_wall(0x0111, 1)); // DOWN -> not wall
+        assert!(!does_action_lead_to_wall(0x0111, 2)); // LEFT -> not wall
+        assert!(does_action_lead_to_wall(0x0111, 3)); // RIGHT -> wall
+
+        // Test case 5: No walls (0x1111)
+        assert!(!does_action_lead_to_wall(0x1111, 0)); // UP -> not wall
+        assert!(!does_action_lead_to_wall(0x1111, 1)); // DOWN -> not wall
+        assert!(!does_action_lead_to_wall(0x1111, 2)); // LEFT -> not wall
+        assert!(!does_action_lead_to_wall(0x1111, 3)); // RIGHT -> not wall
+
+        // Test case 6: Mixed walls and normal tiles (0x1001)
+        // 0x1001 = 0001 0000 0000 0001
+        // up=1 (normal), down=0 (wall), left=0 (wall), right=1 (normal)
+        assert!(!does_action_lead_to_wall(0x1001, 0)); // UP -> not wall
+        assert!(does_action_lead_to_wall(0x1001, 1)); // DOWN -> wall
+        assert!(does_action_lead_to_wall(0x1001, 2)); // LEFT -> wall
+        assert!(!does_action_lead_to_wall(0x1001, 3)); // RIGHT -> not wall
+
+        // Test case 7: Invalid action
+        assert!(!does_action_lead_to_wall(0x0000, 4)); // Invalid action -> false
+        assert!(!does_action_lead_to_wall(0x0000, 99)); // Invalid action -> false
+    }
+
+    #[test]
+    fn test_state_hash_decoding() {
+        // Test the bit extraction logic directly
+        let state_hash = 0x1234; // Binary: 0001 0010 0011 0100
+        
+        // Extract tile types
+        let tile_up = (state_hash & 0xF) as u8;      // Should be 4 (0100)
+        let tile_down = ((state_hash >> 4) & 0xF) as u8;  // Should be 3 (0011)
+        let tile_left = ((state_hash >> 8) & 0xF) as u8;  // Should be 2 (0010)
+        let tile_right = ((state_hash >> 12) & 0xF) as u8; // Should be 1 (0001)
+        
+        assert_eq!(tile_up, 4);
+        assert_eq!(tile_down, 3);
+        assert_eq!(tile_left, 2);
+        assert_eq!(tile_right, 1);
+    }
+
+    #[test]
+    fn test_wall_detection_edge_cases() {
+        // Test with maximum values (0xFFFF = all 15s, not walls)
+        let max_state_hash = 0xFFFF;
+        assert!(!does_action_lead_to_wall(max_state_hash, 0)); // All bits set, but 15 is not a wall
+        assert!(!does_action_lead_to_wall(max_state_hash, 1));
+        assert!(!does_action_lead_to_wall(max_state_hash, 2));
+        assert!(!does_action_lead_to_wall(max_state_hash, 3));
+
+        // Test with specific tile types (0 = wall, 1-4 = other types)
+        let wall_up = 0x0000; // wall up
+        let normal_up = 0x0001; // normal up
+        let boost_up = 0x0002; // boost up
+        let finish_up = 0x0003; // finish up
+        let sticky_up = 0x0004; // sticky up
+
+        assert!(does_action_lead_to_wall(wall_up, 0)); // wall up
+        assert!(!does_action_lead_to_wall(normal_up, 0)); // normal up
+        assert!(!does_action_lead_to_wall(boost_up, 0)); // boost up
+        assert!(!does_action_lead_to_wall(finish_up, 0)); // finish up
+        assert!(!does_action_lead_to_wall(sticky_up, 0)); // sticky up
     }
 }
 

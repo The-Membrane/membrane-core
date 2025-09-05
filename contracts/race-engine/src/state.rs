@@ -3,7 +3,7 @@ use cw_storage_plus::{Item, Map};
 use serde::{Deserialize, Serialize};
 
 use membrane::race_engine::{Config, RaceResult};
-use membrane::types::{TrackTrainingStats, TrainingStats, TopTimes, TopTimeEntry, IntegerQTableEntry, StateHashConversion};
+use membrane::types::{TrackTrainingStats, TrainingStats, TopTimes, TopTimeEntry, IntegerQTableEntry, StateHashConversion, BrainProgress};
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const CAR_RECENT_RACES: Map<u128, Vec<RaceResult>> = Map::new("car_recent_races");
@@ -14,6 +14,7 @@ pub const TRACK_RECENT_RACES: Map<u128, Vec<RaceResult>> = Map::new("track_recen
 pub const MAX_CAR_RECENT_RACES: usize = 1;  // Reduced from 9
 pub const MAX_TRACK_RECENT_RACES: usize = 1; // Reduced from 32
 pub const MAX_TICKS: u32 = 100;
+pub const BRAIN_PROGRESS_ENTRIES_LIMIT: usize = 100;
 
 
 // Original Q-table storage: (car_id, state_hash) -> [i32; 4] action values (for migration)
@@ -24,6 +25,9 @@ pub const INTEGER_Q_TABLE: Map<(u128, u32), [i8; 4]> = Map::new("integer_q_table
 
 // Training stats storage: (car_id, track_id) -> TrackTrainingStats
 pub const CAR_TRACK_TRAINING_STATS: Map<(u128, u128), TrackTrainingStats> = Map::new("car_track_training_stats");
+
+// Brain progress storage: car_id -> BrainProgress
+pub const CAR_BRAIN_PROGRESS: Map<u128, BrainProgress> = Map::new("car_brain_progress");
 
 
 pub const MAX_TOP_TIMES: usize = 100;
@@ -342,4 +346,51 @@ pub fn update_fastest_time(storage: &mut dyn Storage, car_id: u128, track_id: u1
 
     CAR_TRACK_TRAINING_STATS.save(storage, (car_id, track_id), &stats)?;
     Ok(())
+}
+
+// Brain progress functions
+pub fn get_brain_progress(storage: &dyn Storage, car_id: u128) -> StdResult<BrainProgress> {
+    CAR_BRAIN_PROGRESS.load(storage, car_id)
+}
+
+pub fn set_brain_progress(
+    storage: &mut dyn Storage,
+    car_id: u128,
+    brain_progress: BrainProgress,
+) -> StdResult<()> {
+    CAR_BRAIN_PROGRESS.save(storage, car_id, &brain_progress)
+}
+
+pub fn update_brain_progress(
+    storage: &mut dyn Storage,
+    car_id: u128,
+    states_seen: u16,
+    avg_confidence: u8,
+    wall_collisions: u16,
+    timestamp: cosmwasm_std::Timestamp,
+) -> StdResult<BrainProgress> {
+    let mut brain_progress = CAR_BRAIN_PROGRESS.load(storage, car_id)
+        .unwrap_or_default();
+    
+    // Create new entry
+    let new_entry = membrane::types::BrainProgressEntry {
+        timestamp,
+        states_seen,
+        avg_confidence,
+        wall_collisions,
+    };
+    
+    // Add to entries (limit to 50 entries to keep storage low)
+    brain_progress.entries.push(new_entry);
+    if brain_progress.entries.len() > 50 {
+        brain_progress.entries.remove(0);
+    }
+    
+    // Update totals
+    brain_progress.total_states_seen = states_seen;
+    brain_progress.current_avg_confidence = avg_confidence;
+    brain_progress.total_wall_collisions += wall_collisions as u32;
+    
+    CAR_BRAIN_PROGRESS.save(storage, car_id, &brain_progress)?;
+    Ok(brain_progress)
 }

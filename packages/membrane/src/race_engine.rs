@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::{Uint128, Decimal};
 
-use crate::types::{IntegerQTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TopTimes};
+use crate::types::{IntegerQTableEntry, RewardNumbers, Track, TrackTile, TrackTrainingStats, TopTimes, BrainProgress};
 
 pub const DEFAULT_SPEED: u8 = 1;
 pub const DEFAULT_BOOST_SPEED: u8 = 3;
@@ -87,6 +87,9 @@ pub enum QueryMsg {
     // NEW: Migration status queries
     #[returns(MigrationStatusResponse)]
     GetMigrationStatus { car_id: u128 },
+    // NEW: Brain progress queries
+    #[returns(BrainProgressResponse)]
+    GetBrainProgress { car_id: u128 },
 
 }
 
@@ -225,3 +228,10 @@ pub struct TrainingConfig {
 
 #[cw_serde]
 pub struct MigrateMsg {}
+
+/// Response for brain progress queries
+#[cw_serde]
+pub struct BrainProgressResponse {
+    pub car_id: u128,
+    pub brain_progress: BrainProgress,
+}

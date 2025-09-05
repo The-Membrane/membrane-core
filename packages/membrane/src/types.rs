@@ -5,7 +5,7 @@ use std::{str::FromStr, convert::TryFrom};
 use crate::{math::{Decimal256, Uint256}, liq_queue::QueueResponse, oracle::PriceResponse};
 
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Decimal, Uint128, StdError};
+use cosmwasm_std::{Addr, Decimal, Uint128, StdError, Timestamp};
 use cw_coins::Coins;
 
 use osmosis_std::types::osmosis::poolmanager::v1beta1::SwapAmountInRoute;
@@ -1755,4 +1755,40 @@ pub struct TopTimes {
     pub highest: Option<TopTimeEntry>,
     pub highest_index: Option<u16>,
     pub car_index: std::collections::BTreeMap<u128, u16>,
+}
+
+// Brain Progress Tracking Types
+#[cw_serde]
+pub struct BrainProgressEntry {
+    /// Block timestamp when this entry was recorded
+    pub timestamp: Timestamp,
+    /// Number of unique states seen (out of 625 possible)
+    pub states_seen: u16,
+    /// Average confidence across all seen states (0-100)
+    pub avg_confidence: u8,
+    /// Number of preferred actions that lead to walls during this training session
+    pub wall_collisions: u16,
+}
+
+#[cw_serde]
+pub struct BrainProgress {
+    /// Historical progress entries (limited to keep storage low)
+    pub entries: Vec<BrainProgressEntry>,
+    /// Total unique states ever seen across all training
+    pub total_states_seen: u16,
+    /// Current average confidence across all states
+    pub current_avg_confidence: u8,
+    /// Total preferred actions into walls across all training
+    pub total_wall_collisions: u32,
+}
+
+impl Default for BrainProgress {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            total_states_seen: 0,
+            current_avg_confidence: 0,
+            total_wall_collisions: 0,
+        }
+    }
 }

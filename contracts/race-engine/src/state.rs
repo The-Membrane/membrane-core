@@ -386,11 +386,6 @@ pub fn update_brain_progress(
         brain_progress.entries.remove(0);
     }
     
-    // Update totals
-    brain_progress.total_states_seen = states_seen;
-    brain_progress.current_avg_confidence = avg_confidence;
-    brain_progress.total_wall_collisions += wall_collisions as u32;
-    
     CAR_BRAIN_PROGRESS.save(storage, car_id, &brain_progress)?;
     Ok(brain_progress)
 }

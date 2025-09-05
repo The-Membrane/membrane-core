@@ -1770,8 +1770,9 @@ pub struct BrainProgressEntry {
     pub wall_collisions: u16,
 }
 
+// Legacy struct for migration
 #[cw_serde]
-pub struct BrainProgress {
+pub struct BrainProgressLegacy {
     /// Historical progress entries (limited to keep storage low)
     pub entries: Vec<BrainProgressEntry>,
     /// Total unique states ever seen across all training
@@ -1782,13 +1783,36 @@ pub struct BrainProgress {
     pub total_wall_collisions: u32,
 }
 
+#[cw_serde]
+pub struct BrainProgress {
+    /// Historical progress entries (limited to keep storage low)
+    pub entries: Vec<BrainProgressEntry>,
+    /// Total unique states ever seen across all training (deprecated - use latest entry)
+    pub total_states_seen: Option<u16>,
+    /// Current average confidence across all states (deprecated - use latest entry)
+    pub current_avg_confidence: Option<u8>,
+    /// Total preferred actions into walls across all training (deprecated - use latest entry)
+    pub total_wall_collisions: Option<u32>,
+}
+
 impl Default for BrainProgress {
     fn default() -> Self {
         Self {
             entries: Vec::new(),
-            total_states_seen: 0,
-            current_avg_confidence: 0,
-            total_wall_collisions: 0,
+            total_states_seen: None,
+            current_avg_confidence: None,
+            total_wall_collisions: None,
+        }
+    }
+}
+
+impl From<BrainProgressLegacy> for BrainProgress {
+    fn from(legacy: BrainProgressLegacy) -> Self {
+        Self {
+            entries: legacy.entries,
+            total_states_seen: None,
+            current_avg_confidence: None,
+            total_wall_collisions: None,
         }
     }
 }

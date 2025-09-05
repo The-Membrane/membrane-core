@@ -43,7 +43,7 @@ use cosmwasm_std::{
 use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
-use crate::state::{add_recent_race, get_config, get_integer_q_values, get_q_values, get_recent_races, get_track_training_stats, set_config, set_integer_q_values, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, update_brain_progress, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, INTEGER_Q_TABLE, Q_TABLE, TRACK_RECENT_RACES};
+use crate::state::{add_recent_race, get_config, get_integer_q_values, get_q_values, get_recent_races, get_track_training_stats, set_config, set_integer_q_values, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, update_brain_progress, CAR_BRAIN_PROGRESS, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, INTEGER_Q_TABLE, Q_TABLE, TRACK_RECENT_RACES};
 use membrane::types::{ActionSelectionStrategy, GoingBackward, IntegerQTableEntry, RewardNumbers, Track, TrackTile};
 use membrane::race_engine::{CarState, Config, ExecuteMsg, GetIntegerQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, MigrationStatusResponse, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
@@ -2014,13 +2014,39 @@ fn calculate_action_reward(
 
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-
-    // //Clear RCENT RACES
-    // CAR_RECENT_RACES.clear(deps.storage);
-    // TRACK_RECENT_RACES.clear(deps.storage);
+    // Migrate BrainProgress from legacy format to new format
+    migrate_brain_progress(deps.storage)?;
 
     Ok(Response::new()
-        .add_attribute("method", "migrate"))
+        .add_attribute("method", "migrate")
+        .add_attribute("migrated", "brain_progress"))
+}
+
+/// Migrate BrainProgress from legacy format (with totals) to new format (deprecated fields set to None)
+fn migrate_brain_progress(storage: &mut dyn Storage) -> Result<(), ContractError> {
+    // Get all car IDs that have brain progress data
+    let car_ids: Vec<u128> = CAR_BRAIN_PROGRESS
+        .keys(storage, None, None, cosmwasm_std::Order::Ascending)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| ContractError::Std(e))?;
+    
+    for car_id in car_ids {
+        // Load existing data
+        if let Ok(existing_progress) = CAR_BRAIN_PROGRESS.load(storage, car_id) {
+            // Create new format with deprecated fields set to None
+            let new_progress = membrane::types::BrainProgress {
+                entries: existing_progress.entries,
+                total_states_seen: None,
+                current_avg_confidence: None,
+                total_wall_collisions: None,
+            };
+            
+            // Save in new format
+            CAR_BRAIN_PROGRESS.save(storage, car_id, &new_progress)?;
+        }
+    }
+    
+    Ok(())
 }
 
 

@@ -75,8 +75,8 @@ const TEMPERATURE: f32 = 0.0;
 // Q-learning constants
 const ALPHA: f32 = 0.1; // Learning rate
 const GAMMA: f32 = 0.9; // Discount factor
-const MAX_Q_VALUE: i32 = 100;
-const MIN_Q_VALUE: i32 = -100;
+const MAX_Q_VALUE: i32 = 127;
+const MIN_Q_VALUE: i32 = -128;
 
 // Brain progress constants
 const MAX_POSSIBLE_STATES: u16 = 625; // 5^4 tile combinations
@@ -149,6 +149,9 @@ fn make_action_strategy(
         ActionSelectionStrategy::Best
     } else if temperature > 0.0 {
         ActionSelectionStrategy::Softmax(temperature)
+    } else if epsilon == 0.0 {
+        // When epsilon is explicitly 0%, choose the best action deterministically
+        ActionSelectionStrategy::Best
     } else if epsilon > 0.0 {
         // Use epsilon decay if explicitly enabled and we have valid tick information
         if enable_epsilon_decay && current_tick > 0 && total_ticks > 0 {
@@ -163,7 +166,8 @@ fn make_action_strategy(
             ActionSelectionStrategy::EpsilonGreedy(epsilon)
         }
     } else {
-        ActionSelectionStrategy::Random
+        // Fallback to Best if inputs are degenerate
+        ActionSelectionStrategy::Best
     }
 }
 
@@ -759,7 +763,7 @@ pub fn execute_simulate_race(
     if train {
         apply_q_learning_updates(
             deps.storage, 
-            &race_state, 
+            &mut race_state, 
             &race_result, 
             reward_config.clone(), 
             config.clone(), 
@@ -1453,7 +1457,7 @@ fn calculate_brain_progress(
         let (state_hash, q_values) = item.map_err(|e| ContractError::Std(e))?;
         states_seen += 1;
         
-        // Calculate confidence as max Q-value normalized to 0-100
+        // Calculate confidence as max Q-value normalized to 0-100 (Doesn't work)
         let max_q = q_values.iter().max().unwrap_or(&0);
         let confidence = ((*max_q as i32 * 100) / MAX_Q_VALUE) as u8;
         total_confidence += confidence as u32;
@@ -1866,7 +1870,7 @@ pub fn query_track_training_stats(
 /// Apply Q-learning updates immediately at the end of the race
 fn apply_q_learning_updates(
     storage: &mut dyn Storage,
-    race_state: &RaceState,
+    race_state: &mut RaceState,
     race_result: &RaceResult,
     reward_config: RewardNumbers,
     _config: Config,
@@ -1876,9 +1880,11 @@ fn apply_q_learning_updates(
 ) -> Result<(), ContractError> {
     
     // Apply Q-learning updates immediately for each car
-    for car in &race_state.cars {
-        // Process each action in the car's integer history (new system)
-        for (i, (state_hash, action, tile)) in car.integer_action_history.iter().enumerate() {
+    for car in &mut race_state.cars {
+        // Reverse pass: from last action to first for faster value backup
+        let history_len = car.integer_action_history.len();
+        for i in (0..history_len).rev() {
+            let (state_hash, action, tile) = &car.integer_action_history[i];
             // Calculate reward for this specific action
             let action_reward = calculate_action_reward(
                 car,
@@ -1890,7 +1896,7 @@ fn apply_q_learning_updates(
                 },
                 tile.clone(),
                 i,
-                car.integer_action_history.len(),
+                history_len,
                 reward_config.clone(),
                 fastest_track_tick_time,
             )?;
@@ -1899,18 +1905,47 @@ fn apply_q_learning_updates(
             let mut current_q_values = get_integer_q_values(storage, car.car_id, *state_hash)
                 .unwrap_or([0, 0, 0, 0]);
             
-            // Apply Q-learning update
+            // Apply Q-learning update with TD bootstrapping
             let action_idx = *action as usize;
             let old_value = current_q_values[action_idx] as f32;
             let reward = action_reward as f32;
-            
-            // Q-learning update: Q(s,a) = Q(s,a) + α[r + γ * max Q(s',a') - Q(s,a)]
-            // Simplified for gas efficiency: Q(s,a) = 0.9 * Q(s,a) + 0.1 * r
-            let new_value = (old_value * 0.9 + reward * 0.1).round() as i32;
+
+            // Bootstrap term: max_a' Q(s', a') if next state exists, else 0
+            let next_max: f32 = if i + 1 < history_len {
+                let next_state_hash = car.integer_action_history[i + 1].0;
+                // Read next state's latest Q-values from storage first (reverse pass relies on fresh values)
+                let next_q_values = get_integer_q_values(storage, car.car_id, next_state_hash)
+                    .unwrap_or_else(|_| {
+                        // fallback to cache if not in storage yet
+                        car.integer_q_table
+                            .iter()
+                            .find(|e| e.state_hash == next_state_hash)
+                            .map(|e| e.action_values)
+                            .unwrap_or([0, 0, 0, 0])
+                    });
+                let mut m = next_q_values[0] as f32;
+                for &v in next_q_values.iter().skip(1) {
+                    let fv = v as f32;
+                    if fv > m { m = fv; }
+                }
+                m
+            } else {
+                0.0
+            };
+
+            // Q-learning update: Q(s,a) ← Q + α [ r + γ · max Q(s',·) − Q ]
+            let target = reward + GAMMA * next_max;
+            let new_value = (old_value + ALPHA * (target - old_value)).round() as i32;
             current_q_values[action_idx] = new_value.clamp(-128, 127) as i8;
             
             // Store updated Q-values immediately
             set_integer_q_values(storage, car.car_id, *state_hash, current_q_values)?;
+            // Keep cache consistent for potential subsequent lookups
+            if let Some(entry) = car.integer_q_table.iter_mut().find(|e| e.state_hash == *state_hash) {
+                entry.action_values = current_q_values;
+            } else {
+                car.integer_q_table.push(IntegerQTableEntry { state_hash: *state_hash, action_values: current_q_values });
+            }
         }
     }
     
@@ -1953,8 +1988,8 @@ fn calculate_action_reward(
 ) -> Result<i32, ContractError> {
 
     let mut reward = 0i32;
-    // Check if car finished
-    if car.finished {
+    // Check if car finished; only reward on terminal action
+    if car.finished && (_action_index + 1 == total_actions) {
         // Check if car is a winner
         let rank = if race_result.winner_ids.contains(&car.car_id) {
             0
@@ -2015,39 +2050,39 @@ fn calculate_action_reward(
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     // Migrate BrainProgress from legacy format to new format
-    migrate_brain_progress(deps.storage)?;
+    // migrate_brain_progress(deps.storage)?;
 
     Ok(Response::new()
         .add_attribute("method", "migrate")
         .add_attribute("migrated", "brain_progress"))
 }
 
-/// Migrate BrainProgress from legacy format (with totals) to new format (deprecated fields set to None)
-fn migrate_brain_progress(storage: &mut dyn Storage) -> Result<(), ContractError> {
-    // Get all car IDs that have brain progress data
-    let car_ids: Vec<u128> = CAR_BRAIN_PROGRESS
-        .keys(storage, None, None, cosmwasm_std::Order::Ascending)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| ContractError::Std(e))?;
+// /// Migrate BrainProgress from legacy format (with totals) to new format (deprecated fields set to None)
+// fn migrate_brain_progress(storage: &mut dyn Storage) -> Result<(), ContractError> {
+//     // Get all car IDs that have brain progress data
+//     let car_ids: Vec<u128> = CAR_BRAIN_PROGRESS
+//         .keys(storage, None, None, cosmwasm_std::Order::Ascending)
+//         .collect::<Result<Vec<_>, _>>()
+//         .map_err(|e| ContractError::Std(e))?;
     
-    for car_id in car_ids {
-        // Load existing data
-        if let Ok(existing_progress) = CAR_BRAIN_PROGRESS.load(storage, car_id) {
-            // Create new format with deprecated fields set to None
-            let new_progress = membrane::types::BrainProgress {
-                entries: existing_progress.entries,
-                total_states_seen: None,
-                current_avg_confidence: None,
-                total_wall_collisions: None,
-            };
+//     for car_id in car_ids {
+//         // Load existing data
+//         if let Ok(existing_progress) = CAR_BRAIN_PROGRESS.load(storage, car_id) {
+//             // Create new format with deprecated fields set to None
+//             let new_progress = membrane::types::BrainProgress {
+//                 entries: existing_progress.entries,
+//                 total_states_seen: None,
+//                 current_avg_confidence: None,
+//                 total_wall_collisions: None,
+//             };
             
-            // Save in new format
-            CAR_BRAIN_PROGRESS.save(storage, car_id, &new_progress)?;
-        }
-    }
+//             // Save in new format
+//             CAR_BRAIN_PROGRESS.save(storage, car_id, &new_progress)?;
+//         }
+//     }
     
-    Ok(())
-}
+//     Ok(())
+// }
 
 
 

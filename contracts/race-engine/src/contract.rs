@@ -233,6 +233,7 @@ pub fn instantiate(
         max_ticks: 100,
         max_recent_races: 10,
         byte_minter_contract: None,
+        brain_progress_entry_limit: 100,
     };
     
     set_config(deps.storage, config)?;
@@ -265,11 +266,12 @@ pub fn execute(
             }
             execute_purge_car(deps.storage, car_id.u128())
         },
-        ExecuteMsg::UpdateConfig { max_ticks, byte_minter_contract } => {
+        ExecuteMsg::UpdateConfig { max_ticks, byte_minter_contract, brain_progress_entry_limit } => {
             let mut config = get_config(deps.storage)?;
             if _info.sender.as_str() != config.admin { return Err(ContractError::Unauthorized {}); }
             if let Some(v) = max_ticks { config.max_ticks = v; }
             if let Some(addr) = byte_minter_contract { config.byte_minter_contract = Some(addr); }
+            if let Some(limit) = brain_progress_entry_limit { config.brain_progress_entry_limit = limit; }
             set_config(deps.storage, config)?;
             Ok(Response::new().add_attribute("action", "update_config"))
         },
@@ -1858,16 +1860,48 @@ pub fn query_track_training_stats(
     }
 }
 
-// (Can we add actions later? Can we make the actions more abstract to keep the Q-Table simpler? 
-// Can we compress the current statehash without losing tile information?? )
-// CONTINUE BUILDING REWARD FUNCTION INTO THE membrane CONTRACT.
-// WE'RE MOVING THE REWARD FUNCTION INTO THIS CONTRACT & MAKING IT DO THE TRAINING (I.E. THE Q TABLE UPDATES)
-// - migrate the q-table updates from the trainer contract to here
-// = update table per tick or tick batch (see trainer contract) (it updates per tick but we can group them & batch update)
-// - save the q-table to the car contract post-training
-// - test that it doesn't get stuck 
-// 
-/// Apply Q-learning updates immediately at the end of the race
+/// Apply Q-learning updates immediately at the end of a race using Temporal-Difference (TD) learning.
+///
+/// This routine walks each car's recorded trajectory in reverse order (latest to earliest) and
+/// updates the Q-table entry for the executed action at each visited state. Iterating in reverse
+/// allows the update to bootstrap from the freshest next-state values already persisted in
+/// storage (or found in the in-memory cache), stabilizing targets and accelerating value backup.
+///
+/// For a transition (s, a) -> (s'), we compute a TD target and perform the standard off-policy
+/// Q-learning update:
+///
+/// - Target: r + γ * max_a' Q(s', a') if a next state exists, otherwise just r
+/// - Update: Q(s,a) <- Q(s,a) + α * [(Target) - Q(s,a)]
+///
+/// where α is the learning rate and γ is the discount factor. The per-step reward r is produced by
+/// `calculate_action_reward`, which shapes incentives based on finishing rank, speed, wall
+/// collisions, tile penalties, and progress toward the finish. Updated action-values are clamped to
+/// i8 bounds for compact on-chain storage, written back via `set_integer_q_values`, and mirrored in
+/// the car's in-memory `integer_q_table` to keep subsequent lookups consistent during the same pass.
+///
+/// Why TD helps learning:
+/// - TD bootstrapping propagates value information backward through the trajectory in a single pass,
+///   speeding convergence compared to waiting for full-episode returns.
+/// - Using max_a' Q(s', a') (off-policy Q-learning) learns the greedy policy even when data was
+///   gathered with exploratory behavior, improving stability and final performance.
+///
+/// By applying these updates right after each race, the agent continually improves online without
+/// requiring separate offline training phases.
+///
+/// ELI5:
+/// - Imagine teaching a toy car. After a race, we walk backward through what it did and say
+///   "that move was good/bad" based on what happened next. Good moves get their score nudged up,
+///   bad moves get nudged down.
+/// - We guess how good a move was by looking at two things: the immediate prize (reward now) and
+///   what we think the best prize could be from the next spot (our current best guess for later).
+///   This is the "bootstrap" part: use tomorrow's best guess to update today's grade.
+/// - The learning rate (α) is like how quickly we change our mind: small α = tiny nudges,
+///   big α = big swings. The discount (γ) is how much we care about future prizes: γ near 1 means
+///   future prizes matter a lot; γ near 0 means only the prize right now matters.
+/// - Rewards are like stickers: finish fast → more stickers; crash into walls → lose stickers;
+///   moving toward the finish → some stickers; getting stuck or going backward → lose stickers.
+/// - We go backward through the race because we can reuse the fresh grades we just set for the next
+///   step, helping earlier steps learn faster from later outcomes.
 fn apply_q_learning_updates(
     storage: &mut dyn Storage,
     race_state: &mut RaceState,

@@ -380,10 +380,13 @@ pub fn update_brain_progress(
         wall_collisions,
     };
     
-    // Add to entries (limit to 50 entries to keep storage low)
+    // Add to entries and enforce configured limit (efficient single-drain trim)
     brain_progress.entries.push(new_entry);
-    if brain_progress.entries.len() > 50 {
-        brain_progress.entries.remove(0);
+    let cfg = CONFIG.load(storage)?;
+    let limit = cfg.brain_progress_entry_limit as usize;
+    if brain_progress.entries.len() > limit {
+        let overflow = brain_progress.entries.len() - limit;
+        brain_progress.entries.drain(0..overflow);
     }
     
     CAR_BRAIN_PROGRESS.save(storage, car_id, &brain_progress)?;

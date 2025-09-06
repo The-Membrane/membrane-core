@@ -39,6 +39,7 @@ pub enum ExecuteMsg {
     UpdateConfig {
         max_ticks: Option<u32>,
         byte_minter_contract: Option<String>,
+        brain_progress_entry_limit: Option<u32>,
     },
     /// Migrate existing Q-table states from legacy byte array hashes to integer hashes
     MigrateQTableStates {
@@ -215,6 +216,8 @@ pub struct Config {
     pub max_ticks: u32,
     pub max_recent_races: u32,
     pub byte_minter_contract: Option<String>,
+    /// Maximum number of brain progress entries to keep per car
+    pub brain_progress_entry_limit: u32,
 } 
 
 #[cw_serde]

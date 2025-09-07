@@ -33,8 +33,17 @@ pub enum TrackManagerError {
     #[error("Duplicate track layout detected")]
     DuplicateTrackLayout {},
 
+    #[error("Duplicate track name detected")]
+    DuplicateTrackName {},
+
     #[error("Storage operation failed")]
     StorageError {},
+
+    #[error("Track deletion not allowed - track is in use")]
+    TrackInUse {},
+
+    #[error("Invalid edit operation - must specify either name or delete")]
+    InvalidEditOperation {},
 
     #[error("{0}")]
     Std(#[from] StdError),

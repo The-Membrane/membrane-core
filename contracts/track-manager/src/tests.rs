@@ -72,13 +72,25 @@ fn test_add_multiple_tracks() {
     };
     instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
-    // Add multiple tracks with minimum 3x3 size
+    // Add multiple tracks with different layouts
     for i in 1..=3 {
-        let layout = vec![
-            vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
-            vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
-            vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
-        ];
+        let layout = match i {
+            1 => vec![
+                vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
+                vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
+                vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+            ],
+            2 => vec![
+                vec![TileProperties::normal(), TileProperties::start(), TileProperties::normal()],
+                vec![TileProperties::normal(), TileProperties::wall(), TileProperties::finish()],
+                vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+            ],
+            _ => vec![
+                vec![TileProperties::finish(), TileProperties::normal(), TileProperties::start()],
+                vec![TileProperties::normal(), TileProperties::normal(), TileProperties::wall()],
+                vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+            ],
+        };
 
         let msg = ExecuteMsg::AddTrack {
             name: format!("Track {}", i),
@@ -156,13 +168,25 @@ fn test_list_tracks() {
     };
     instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
 
-    // Add multiple tracks with minimum 3x3 size
+    // Add multiple tracks with different layouts
     for i in 1..=3 {
-        let layout = vec![
-            vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
-            vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
-            vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
-        ];
+        let layout = match i {
+            1 => vec![
+                vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
+                vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
+                vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+            ],
+            2 => vec![
+                vec![TileProperties::normal(), TileProperties::start(), TileProperties::normal()],
+                vec![TileProperties::normal(), TileProperties::wall(), TileProperties::finish()],
+                vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+            ],
+            _ => vec![
+                vec![TileProperties::finish(), TileProperties::normal(), TileProperties::start()],
+                vec![TileProperties::normal(), TileProperties::normal(), TileProperties::wall()],
+                vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+            ],
+        };
 
         let msg = ExecuteMsg::AddTrack {
             name: format!("Track {}", i),
@@ -380,13 +404,35 @@ mod integration_tests {
             )
             .unwrap();
 
-        // Add multiple tracks
+        // Add multiple tracks with different layouts
         for i in 1..=5 {
-            let layout = vec![
-                vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
-                vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
-                vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
-            ];
+            let layout = match i {
+                1 => vec![
+                    vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
+                    vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
+                    vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+                ],
+                2 => vec![
+                    vec![TileProperties::normal(), TileProperties::start(), TileProperties::normal()],
+                    vec![TileProperties::normal(), TileProperties::wall(), TileProperties::finish()],
+                    vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+                ],
+                3 => vec![
+                    vec![TileProperties::finish(), TileProperties::normal(), TileProperties::start()],
+                    vec![TileProperties::normal(), TileProperties::normal(), TileProperties::wall()],
+                    vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+                ],
+                4 => vec![
+                    vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+                    vec![TileProperties::start(), TileProperties::wall(), TileProperties::finish()],
+                    vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+                ],
+                _ => vec![
+                    vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+                    vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+                    vec![TileProperties::start(), TileProperties::wall(), TileProperties::finish()],
+                ],
+            };
 
             let add_track_msg = ExecuteMsg::AddTrack {
                 name: format!("Track {}", i),
@@ -519,15 +565,15 @@ mod integration_tests {
             )
             .unwrap();
 
-        // Try to add track with mismatched dimensions
+        // Try to add track with no finish tile
         let layout = vec![
-            vec![TileProperties::start(), TileProperties::finish()],
+            vec![TileProperties::start(), TileProperties::normal()],
             vec![TileProperties::wall(), TileProperties::normal()],
         ];
 
         let add_track_msg = ExecuteMsg::AddTrack {
             name: "Invalid Track".to_string(),
-            width: 3, // Mismatched with layout width of 2
+            width: 2,
             height: 2,
             layout,
         };
@@ -539,7 +585,7 @@ mod integration_tests {
             &[],
         );
 
-        assert!(result.is_err()); // Should fail due to dimension mismatch
+        assert!(result.is_err()); // Should fail due to no finish tile
     }
 
     #[test]
@@ -572,13 +618,13 @@ mod integration_tests {
 
         assert!(result.is_err()); // Should fail because track doesn't exist
 
-        // Try to add track with empty name
+        // Try to add track with no start tile
         let layout = vec![
-            vec![TileProperties::start(), TileProperties::finish()],
+            vec![TileProperties::normal(), TileProperties::finish()],
         ];
 
         let add_track_msg = ExecuteMsg::AddTrack {
-            name: "".to_string(), // Empty name
+            name: "No Start Track".to_string(),
             width: 2,
             height: 1,
             layout,
@@ -591,7 +637,7 @@ mod integration_tests {
             &[],
         );
 
-        assert!(result.is_err()); // Should fail due to empty name
+        assert!(result.is_err()); // Should fail due to no start tile
     }
 }
 
@@ -704,4 +750,402 @@ fn test_compressed_track_storage_and_retrieval() {
     assert!(track.layout[0][1].properties.is_empty());
     assert!(track.layout[0][3].properties.is_finish);
     assert!(track.layout[1][1].properties.blocks_movement);
+}
+
+#[test]
+fn test_edit_track_name() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    let info = mock_info("creator", &coins(1000, "earth"));
+
+    // Instantiate
+    let msg = InstantiateMsg {
+        admin: "creator".to_string(),
+    };
+    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+    // Add track
+    let layout = vec![
+        vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
+        vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
+        vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+    ];
+
+    let msg = ExecuteMsg::AddTrack {
+        name: "Original Track".to_string(),
+        width: 3,
+        height: 3,
+        layout,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    assert_eq!(0, res.messages.len());
+
+    // Edit track name
+    let msg = ExecuteMsg::EditTrack {
+        track_id: Uint128::from(0u128),
+        name: Some("Updated Track Name".to_string()),
+        delete: None,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    assert_eq!(0, res.messages.len());
+    assert_eq!(res.attributes[1].value, "0"); // track_id
+    assert_eq!(res.attributes[2].value, "name_update"); // action
+    assert_eq!(res.attributes[3].value, "Updated Track Name"); // new_name
+
+    // Verify the track name was updated
+    let msg = QueryMsg::GetTrack { track_id: Uint128::from(0u128) };
+    let res = query(deps.as_ref(), env, msg).unwrap();
+    let track: Track = from_json(res).unwrap();
+    assert_eq!(track.name, "Updated Track Name");
+}
+
+#[test]
+fn test_edit_track_delete() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    let info = mock_info("creator", &coins(1000, "earth"));
+
+    // Instantiate
+    let msg = InstantiateMsg {
+        admin: "creator".to_string(),
+    };
+    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+    // Add track
+    let layout = vec![
+        vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
+        vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
+        vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+    ];
+
+    let msg = ExecuteMsg::AddTrack {
+        name: "Track To Delete".to_string(),
+        width: 3,
+        height: 3,
+        layout,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    assert_eq!(0, res.messages.len());
+
+    // Delete track
+    let msg = ExecuteMsg::EditTrack {
+        track_id: Uint128::from(0u128),
+        name: None,
+        delete: Some(true),
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    assert_eq!(0, res.messages.len());
+    assert_eq!(res.attributes[1].value, "0"); // track_id
+    assert_eq!(res.attributes[2].value, "delete"); // action
+    assert_eq!(res.attributes[3].value, "Track To Delete"); // track_name
+
+    // Verify the track was deleted
+    let msg = QueryMsg::GetTrack { track_id: Uint128::from(0u128) };
+    let res = query(deps.as_ref(), env, msg);
+    assert!(res.is_err()); // Track should not exist
+}
+
+#[test]
+fn test_edit_track_unauthorized() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    let creator_info = mock_info("creator", &coins(1000, "earth"));
+    let other_info = mock_info("other_user", &coins(1000, "earth"));
+
+    // Instantiate
+    let msg = InstantiateMsg {
+        admin: "creator".to_string(),
+    };
+    instantiate(deps.as_mut(), env.clone(), creator_info.clone(), msg).unwrap();
+
+    // Add track as creator
+    let layout = vec![
+        vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
+        vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
+        vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+    ];
+
+    let msg = ExecuteMsg::AddTrack {
+        name: "Creator's Track".to_string(),
+        width: 3,
+        height: 3,
+        layout,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), creator_info.clone(), msg).unwrap();
+    assert_eq!(0, res.messages.len());
+
+    // Try to edit track as different user
+    let msg = ExecuteMsg::EditTrack {
+        track_id: Uint128::from(0u128),
+        name: Some("Hacked Track Name".to_string()),
+        delete: None,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), other_info, msg);
+    assert!(res.is_err()); // Should fail due to unauthorized access
+}
+
+#[test]
+fn test_edit_track_invalid_operation() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    let info = mock_info("creator", &coins(1000, "earth"));
+
+    // Instantiate
+    let msg = InstantiateMsg {
+        admin: "creator".to_string(),
+    };
+    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+    // Try to edit track with no operation specified
+    let msg = ExecuteMsg::EditTrack {
+        track_id: Uint128::from(0u128),
+        name: None,
+        delete: None,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info, msg);
+    assert!(res.is_err()); // Should fail due to invalid operation
+}
+
+#[test]
+fn test_duplicate_track_name() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    let info = mock_info("creator", &coins(1000, "earth"));
+
+    // Instantiate
+    let msg = InstantiateMsg {
+        admin: "creator".to_string(),
+    };
+    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+    // Add first track
+    let layout1 = vec![
+        vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
+        vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
+        vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+    ];
+
+    let msg = ExecuteMsg::AddTrack {
+        name: "My Track".to_string(),
+        width: 3,
+        height: 3,
+        layout: layout1,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    assert_eq!(0, res.messages.len());
+
+    // Try to add second track with same name but different layout
+    let layout2 = vec![
+        vec![TileProperties::normal(), TileProperties::start(), TileProperties::normal()],
+        vec![TileProperties::normal(), TileProperties::wall(), TileProperties::finish()],
+        vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+    ];
+
+    let msg = ExecuteMsg::AddTrack {
+        name: "My Track".to_string(), // Same name
+        width: 3,
+        height: 3,
+        layout: layout2,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg);
+    assert!(res.is_err()); // Should fail due to duplicate name
+}
+
+#[test]
+fn test_edit_track_duplicate_name() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    let info = mock_info("creator", &coins(1000, "earth"));
+
+    // Instantiate
+    let msg = InstantiateMsg {
+        admin: "creator".to_string(),
+    };
+    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+    // Add first track
+    let layout1 = vec![
+        vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
+        vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
+        vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+    ];
+
+    let msg = ExecuteMsg::AddTrack {
+        name: "Track One".to_string(),
+        width: 3,
+        height: 3,
+        layout: layout1,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    assert_eq!(0, res.messages.len());
+
+    // Add second track with different name
+    let layout2 = vec![
+        vec![TileProperties::normal(), TileProperties::start(), TileProperties::normal()],
+        vec![TileProperties::normal(), TileProperties::wall(), TileProperties::finish()],
+        vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+    ];
+
+    let msg = ExecuteMsg::AddTrack {
+        name: "Track Two".to_string(),
+        width: 3,
+        height: 3,
+        layout: layout2,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    assert_eq!(0, res.messages.len());
+
+    // Try to edit second track to have same name as first track
+    let msg = ExecuteMsg::EditTrack {
+        track_id: Uint128::from(1u128),
+        name: Some("Track One".to_string()), // Same name as first track
+        delete: None,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg);
+    assert!(res.is_err()); // Should fail due to duplicate name
+}
+
+#[test]
+fn test_edit_track_name_success() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    let info = mock_info("creator", &coins(1000, "earth"));
+
+    // Instantiate
+    let msg = InstantiateMsg {
+        admin: "creator".to_string(),
+    };
+    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+    // Add track
+    let layout = vec![
+        vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
+        vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
+        vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+    ];
+
+    let msg = ExecuteMsg::AddTrack {
+        name: "Original Name".to_string(),
+        width: 3,
+        height: 3,
+        layout,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    assert_eq!(0, res.messages.len());
+
+    // Edit track name to a new unique name
+    let msg = ExecuteMsg::EditTrack {
+        track_id: Uint128::from(0u128),
+        name: Some("New Unique Name".to_string()),
+        delete: None,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+    assert_eq!(0, res.messages.len());
+    assert_eq!(res.attributes[2].value, "name_update");
+    assert_eq!(res.attributes[3].value, "New Unique Name");
+
+    // Verify the track name was updated
+    let msg = QueryMsg::GetTrack { track_id: Uint128::from(0u128) };
+    let res = query(deps.as_ref(), env, msg).unwrap();
+    let track: Track = from_json(res).unwrap();
+    assert_eq!(track.name, "New Unique Name");
+}
+
+#[test]
+fn test_migrate_populates_name_hashes() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    let info = mock_info("creator", &coins(1000, "earth"));
+
+    // Instantiate
+    let msg = InstantiateMsg {
+        admin: "creator".to_string(),
+    };
+    instantiate(deps.as_mut(), env.clone(), info.clone(), msg).unwrap();
+
+    // Add multiple tracks with different names
+    let layouts = vec![
+        vec![
+            vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
+            vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
+            vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+        ],
+        vec![
+            vec![TileProperties::normal(), TileProperties::start(), TileProperties::normal()],
+            vec![TileProperties::normal(), TileProperties::wall(), TileProperties::finish()],
+            vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+        ],
+        vec![
+            vec![TileProperties::finish(), TileProperties::normal(), TileProperties::start()],
+            vec![TileProperties::normal(), TileProperties::normal(), TileProperties::wall()],
+            vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+        ],
+    ];
+
+    let names = vec!["Track One", "Track Two", "Track Three"];
+
+    // Add tracks directly to storage without name hashes (simulating old tracks)
+    for (i, (layout, name)) in layouts.iter().zip(names.iter()).enumerate() {
+        let track_id = Uint128::from(i as u128);
+        
+        // Create track manually without name hash validation
+        let track = Track {
+            creator: info.sender.to_string(),
+            id: track_id.into(),
+            name: name.to_string(),
+            width: 3,
+            height: 3,
+            layout: vec![vec![membrane::types::TrackTile {
+                properties: TileProperties::default(),
+                progress_towards_finish: 0,
+                min_steps_to_finish_from_start: None,
+                x: 0,
+                y: 0,
+            }; 3]; 3],
+            fastest_tick_time: 0,
+            starting_tiles: vec![],
+        };
+        
+        crate::state::set_track(deps.as_mut().storage, &track_id.u128(), track).unwrap();
+    }
+
+    // Now run migrate to populate name hashes
+    let migrate_msg = membrane::track_manager::MigrateMsg {};
+    let res = crate::contract::migrate(deps.as_mut(), env.clone(), migrate_msg).unwrap();
+    
+    // Check that migration was successful
+    assert_eq!(res.attributes[0].value, "migrate");
+    assert_eq!(res.attributes[1].value, "3"); // migrated_tracks
+    assert_eq!(res.attributes[2].value, "0"); // error_count
+
+    // Verify that duplicate name detection now works
+    let duplicate_layout = vec![
+        vec![TileProperties::start(), TileProperties::normal(), TileProperties::finish()],
+        vec![TileProperties::wall(), TileProperties::normal(), TileProperties::normal()],
+        vec![TileProperties::normal(), TileProperties::normal(), TileProperties::normal()],
+    ];
+
+    let msg = ExecuteMsg::AddTrack {
+        name: "Track One".to_string(), // Duplicate name
+        width: 3,
+        height: 3,
+        layout: duplicate_layout,
+    };
+
+    let res = execute(deps.as_mut(), env.clone(), info.clone(), msg);
+    assert!(res.is_err()); // Should fail due to duplicate name
 } 

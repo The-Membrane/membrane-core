@@ -15,6 +15,12 @@ pub const TRACK_LAYOUT_HASHES: Map<String, u128> = Map::new("track_layout_hashes
 // New: Reverse mapping from track ID to layout hash
 pub const TRACK_ID_TO_HASH: Map<u128, String> = Map::new("track_id_to_hash");
 
+// New: Track name hashes for duplicate detection
+pub const TRACK_NAME_HASHES: Map<String, u128> = Map::new("track_name_hashes");
+
+// New: Reverse mapping from track ID to name hash
+pub const TRACK_ID_TO_NAME_HASH: Map<u128, String> = Map::new("track_id_to_name_hash");
+
 pub fn get_track(storage: &dyn Storage, track_id: &u128) -> Result<Track, crate::error::TrackManagerError> {
     TRACKS.load(storage, *track_id).map_err(|_| crate::error::TrackManagerError::TrackNotFound { track_id: (*track_id).to_string() })
 }
@@ -39,6 +45,23 @@ pub fn save_track_id_hash_mapping(storage: &mut dyn Storage, track_id: &u128, la
 
 pub fn get_track_layout_hash(storage: &dyn Storage, track_id: &u128) -> Result<String, crate::error::TrackManagerError> {
     TRACK_ID_TO_HASH.load(storage, *track_id).map_err(|_| crate::error::TrackManagerError::TrackNotFound { track_id: (*track_id).to_string() })
+}
+
+// New: Helper functions for name hash management
+pub fn save_track_name_hash(storage: &mut dyn Storage, name_hash: &str, track_id: &u128) -> Result<(), crate::error::TrackManagerError> {
+    TRACK_NAME_HASHES.save(storage, name_hash.to_string(), track_id).map_err(|_| crate::error::TrackManagerError::StorageError {})
+}
+
+pub fn has_track_name_hash(storage: &dyn Storage, name_hash: &str) -> Result<bool, crate::error::TrackManagerError> {
+    Ok(TRACK_NAME_HASHES.has(storage, name_hash.to_string()))
+}
+
+pub fn save_track_id_name_hash_mapping(storage: &mut dyn Storage, track_id: &u128, name_hash: &str) -> Result<(), crate::error::TrackManagerError> {
+    TRACK_ID_TO_NAME_HASH.save(storage, *track_id, &name_hash.to_string()).map_err(|_| crate::error::TrackManagerError::StorageError {})
+}
+
+pub fn get_track_name_hash(storage: &dyn Storage, track_id: &u128) -> Result<String, crate::error::TrackManagerError> {
+    TRACK_ID_TO_NAME_HASH.load(storage, *track_id).map_err(|_| crate::error::TrackManagerError::TrackNotFound { track_id: (*track_id).to_string() })
 }
 
 // Removed compressed track storage; we store full tracks directly

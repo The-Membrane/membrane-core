@@ -11,7 +11,7 @@ use sha2::{Sha256, Digest};
 
 use crate::error::TrackManagerError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
-use crate::state::{get_track, set_track, ADMIN, TRACKS, TRACK_ID_COUNTER, PVP_TRACK_IDS, save_track_hash, has_track_hash, save_track_id_hash_mapping, get_track_layout_hash};
+use crate::state::{get_track, set_track, ADMIN, TRACKS, TRACK_ID_COUNTER, PVP_TRACK_IDS, save_track_hash, has_track_hash, save_track_id_hash_mapping, get_track_layout_hash, TRACK_LAYOUT_HASHES, TRACK_ID_TO_HASH, save_track_name_hash, has_track_name_hash, save_track_id_name_hash_mapping, get_track_name_hash, TRACK_NAME_HASHES, TRACK_ID_TO_NAME_HASH};
 use membrane::types::{Track, TrackTile, TileProperties};
 
 const MAX_LIMIT: u32 = 32;
@@ -49,6 +49,11 @@ pub fn execute(
             layout,
         } => execute_add_track(deps, _info, name, width, height, layout),
         ExecuteMsg::RecomputeProgress { track_id } => execute_recompute_progress(deps, track_id),
+        ExecuteMsg::EditTrack {
+            track_id,
+            name,
+            delete,
+        } => execute_edit_track(deps, _info, track_id, name, delete),
     }
 }
 
@@ -69,6 +74,12 @@ pub fn execute_add_track(
     let layout_hash = calculate_layout_hash(&layout);
     if has_track_hash(deps.storage, &layout_hash)? {
         return Err(TrackManagerError::DuplicateTrackLayout {});
+    }
+
+    // Check for duplicate name using hash
+    let name_hash = calculate_name_hash(&name);
+    if has_track_name_hash(deps.storage, &name_hash)? {
+        return Err(TrackManagerError::DuplicateTrackName {});
     }
 
     //Generate a new track id
@@ -116,6 +127,12 @@ pub fn execute_add_track(
     
     // Save the reverse mapping for queries
     save_track_id_hash_mapping(deps.storage, &track_id.into(), &layout_hash)?;
+
+    // Save the name hash to prevent duplicates
+    save_track_name_hash(deps.storage, &name_hash, &track_id.into())?;
+    
+    // Save the reverse mapping for name queries
+    save_track_id_name_hash_mapping(deps.storage, &track_id.into(), &name_hash)?;
 
     // Mark PvP-eligible tracks (>=2 starting tiles)
     if stats.starting_tiles >= 2 { PVP_TRACK_IDS.save(deps.storage, track_id.u128(), &true)?; }
@@ -380,6 +397,13 @@ fn calculate_layout_hash(layout: &Vec<Vec<TileProperties>>) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// Calculate SHA-256 hash of track name for duplicate detection
+fn calculate_name_hash(name: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(name.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 #[entry_point]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -435,20 +459,135 @@ pub fn query_has_layout_hash(deps: Deps, layout_hash: String) -> Result<bool, Tr
 }
 
 pub fn query_get_track_layout_hash(deps: Deps, track_id: Uint128) -> Result<String, TrackManagerError> {
-    get_track_layout_hash(deps.storage, &track_id.into())
+    get_track_layout_hash(deps.storage, &track_id.u128())
+}
+
+pub fn execute_edit_track(
+    deps: DepsMut,
+    info: MessageInfo,
+    track_id: Uint128,
+    name: Option<String>,
+    delete: Option<bool>,
+) -> Result<Response, TrackManagerError> {
+    // Validate that at least one operation is specified
+    if name.is_none() && delete.is_none() {
+        return Err(TrackManagerError::InvalidEditOperation {});
+    }
+
+    // Get the existing track
+    let mut track = get_track(deps.storage, &track_id.u128())?;
+
+    // Check if the caller is the track creator (for now, we'll allow only the creator to edit)
+    // In the future, this could be expanded to allow admin or other authorized users
+    if info.sender.to_string() != track.creator {
+        return Err(TrackManagerError::Unauthorized {});
+    }
+
+    // Handle deletion
+    if let Some(should_delete) = delete {
+        if should_delete {
+            return execute_delete_track(deps, track_id, track);
+        }
+    }
+
+    // Handle name update
+    if let Some(new_name) = name {
+        // Check for duplicate name using hash
+        let new_name_hash = calculate_name_hash(&new_name);
+        if has_track_name_hash(deps.storage, &new_name_hash)? {
+            return Err(TrackManagerError::DuplicateTrackName {});
+        }
+
+        // Remove old name hash mapping
+        if let Ok(old_name_hash) = get_track_name_hash(deps.storage, &track_id.u128()) {
+            TRACK_NAME_HASHES.remove(deps.storage, old_name_hash);
+        }
+
+        // Update track name
+        track.name = new_name.clone();
+        set_track(deps.storage, &track_id.u128(), track)?;
+
+        // Save new name hash
+        save_track_name_hash(deps.storage, &new_name_hash, &track_id.u128())?;
+        save_track_id_name_hash_mapping(deps.storage, &track_id.u128(), &new_name_hash)?;
+
+        Ok(Response::new()
+            .add_attribute("method", "edit_track")
+            .add_attribute("track_id", track_id.to_string())
+            .add_attribute("action", "name_update")
+            .add_attribute("new_name", new_name))
+    } else {
+        // This shouldn't happen due to validation above, but just in case
+        Err(TrackManagerError::InvalidEditOperation {})
+    }
+}
+
+fn execute_delete_track(
+    deps: DepsMut,
+    track_id: Uint128,
+    track: Track,
+) -> Result<Response, TrackManagerError> {
+    // TODO: Add checks for track usage (e.g., active races, tournaments, etc.)
+    // For now, we'll allow deletion but this should be enhanced in the future
+    
+    // Remove the track from storage
+    TRACKS.remove(deps.storage, track_id.u128());
+    
+    // Clean up hash mappings
+    if let Ok(layout_hash) = get_track_layout_hash(deps.storage, &track_id.u128()) {
+        TRACK_LAYOUT_HASHES.remove(deps.storage, layout_hash);
+        TRACK_ID_TO_HASH.remove(deps.storage, track_id.u128());
+    }
+    
+    // Clean up name hash mappings
+    if let Ok(name_hash) = get_track_name_hash(deps.storage, &track_id.u128()) {
+        TRACK_NAME_HASHES.remove(deps.storage, name_hash);
+        TRACK_ID_TO_NAME_HASH.remove(deps.storage, track_id.u128());
+    }
+    
+    // Remove from PvP tracks if it was there
+    PVP_TRACK_IDS.remove(deps.storage, track_id.u128());
+
+    Ok(Response::new()
+        .add_attribute("method", "edit_track")
+        .add_attribute("track_id", track_id.to_string())
+        .add_attribute("action", "delete")
+        .add_attribute("track_name", track.name))
 }
 
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, TrackManagerError> {
+    let mut migrated_count = 0u32;
+    let mut error_count = 0u32;
 
-    //Set the track id counter to 0
-    // TRACK_ID_COUNTER.save(deps.storage, &Uint128::zero())?;
+    // Collect all existing tracks first to avoid borrow checker issues
+    let tracks: Vec<(u128, Track)> = TRACKS
+        .range(deps.storage, None, None, Order::Ascending)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| TrackManagerError::StorageError {})?;
 
-    // //Delete all tracks
-    // TRACKS.remove(deps.storage, 0u128);
+    // Iterate through all existing tracks and populate name hashes
+    for (track_id, track) in tracks {
+        // Calculate name hash for this track
+        let name_hash = calculate_name_hash(&track.name);
+        
+        // Check if name hash already exists (shouldn't happen for existing tracks, but be safe)
+        if !has_track_name_hash(deps.storage, &name_hash)? {
+            // Save the name hash mapping
+            save_track_name_hash(deps.storage, &name_hash, &track_id)?;
+            save_track_id_name_hash_mapping(deps.storage, &track_id, &name_hash)?;
+            migrated_count += 1;
+        } else {
+            // If name hash already exists, it means there's a duplicate name
+            // We'll log this but continue processing other tracks
+            error_count += 1;
+        }
+    }
 
     Ok(Response::new()
-        .add_attribute("method", "migrate"))
+        .add_attribute("method", "migrate")
+        .add_attribute("migrated_tracks", migrated_count.to_string())
+        .add_attribute("error_count", error_count.to_string()))
 }
 
 fn execute_recompute_progress(deps: DepsMut, track_id: Option<Uint128>) -> Result<Response, TrackManagerError> {

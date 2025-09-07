@@ -17,6 +17,11 @@ pub enum ExecuteMsg {
         layout: Vec<Vec<TileProperties>>,
     },
     RecomputeProgress { track_id: Option<Uint128> },
+    EditTrack {
+        track_id: Uint128,
+        name: Option<String>,
+        delete: Option<bool>,
+    },
 }
 
 #[cw_serde]

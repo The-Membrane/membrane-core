@@ -233,7 +233,7 @@ pub fn instantiate(
         max_ticks: 100,
         max_recent_races: 10,
         byte_minter_contract: None,
-        brain_progress_entry_limit: 100,
+        brain_progress_entry_limit: Some(100),
     };
     
     set_config(deps.storage, config)?;
@@ -271,7 +271,7 @@ pub fn execute(
             if _info.sender.as_str() != config.admin { return Err(ContractError::Unauthorized {}); }
             if let Some(v) = max_ticks { config.max_ticks = v; }
             if let Some(addr) = byte_minter_contract { config.byte_minter_contract = Some(addr); }
-            if let Some(limit) = brain_progress_entry_limit { config.brain_progress_entry_limit = limit; }
+            if let Some(limit) = brain_progress_entry_limit { config.brain_progress_entry_limit = Some(limit); }
             set_config(deps.storage, config)?;
             Ok(Response::new().add_attribute("action", "update_config"))
         },
@@ -2086,9 +2086,25 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
     // Migrate BrainProgress from legacy format to new format
     // migrate_brain_progress(deps.storage)?;
 
+    // Migrate Config to set brain_progress_entry_limit if it's not already set
+    migrate_config_brain_progress_limit(deps.storage)?;
+
     Ok(Response::new()
         .add_attribute("method", "migrate")
-        .add_attribute("migrated", "brain_progress"))
+        .add_attribute("migrated", "brain_progress_and_config"))
+}
+
+/// Migrate Config to set brain_progress_entry_limit if it's not already set
+fn migrate_config_brain_progress_limit(storage: &mut dyn Storage) -> Result<(), ContractError> {
+    let mut config = get_config(storage)?;
+    
+    // Only set the limit if it's not already set
+    if config.brain_progress_entry_limit.is_none() {
+        config.brain_progress_entry_limit = Some(100); // Default value
+        set_config(storage, config)?;
+    }
+    
+    Ok(())
 }
 
 // /// Migrate BrainProgress from legacy format (with totals) to new format (deprecated fields set to None)

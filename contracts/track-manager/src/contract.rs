@@ -557,37 +557,38 @@ fn execute_delete_track(
 
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, TrackManagerError> {
-    let mut migrated_count = 0u32;
-    let mut error_count = 0u32;
+    // let mut migrated_count = 0u32;
+    // let mut error_count = 0u32;
 
-    // Collect all existing tracks first to avoid borrow checker issues
-    let tracks: Vec<(u128, Track)> = TRACKS
-        .range(deps.storage, None, None, Order::Ascending)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| TrackManagerError::StorageError {})?;
+    // // Collect all existing tracks first to avoid borrow checker issues
+    // let tracks: Vec<(u128, Track)> = TRACKS
+    //     .range(deps.storage, None, None, Order::Ascending)
+    //     .collect::<Result<Vec<_>, _>>()
+    //     .map_err(|_| TrackManagerError::StorageError {})?;
 
-    // Iterate through all existing tracks and populate name hashes
-    for (track_id, track) in tracks {
-        // Calculate name hash for this track
-        let name_hash = calculate_name_hash(&track.name);
+    // // Iterate through all existing tracks and populate name hashes
+    // for (track_id, track) in tracks {
+    //     // Calculate name hash for this track
+    //     let name_hash = calculate_name_hash(&track.name);
         
-        // Check if name hash already exists (shouldn't happen for existing tracks, but be safe)
-        if !has_track_name_hash(deps.storage, &name_hash)? {
-            // Save the name hash mapping
-            save_track_name_hash(deps.storage, &name_hash, &track_id)?;
-            save_track_id_name_hash_mapping(deps.storage, &track_id, &name_hash)?;
-            migrated_count += 1;
-        } else {
-            // If name hash already exists, it means there's a duplicate name
-            // We'll log this but continue processing other tracks
-            error_count += 1;
-        }
-    }
+    //     // Check if name hash already exists (shouldn't happen for existing tracks, but be safe)
+    //     if !has_track_name_hash(deps.storage, &name_hash)? {
+    //         // Save the name hash mapping
+    //         save_track_name_hash(deps.storage, &name_hash, &track_id)?;
+    //         save_track_id_name_hash_mapping(deps.storage, &track_id, &name_hash)?;
+    //         migrated_count += 1;
+    //     } else {
+    //         // If name hash already exists, it means there's a duplicate name
+    //         // We'll log this but continue processing other tracks
+    //         error_count += 1;
+    //     }
+    // }
 
     Ok(Response::new()
         .add_attribute("method", "migrate")
-        .add_attribute("migrated_tracks", migrated_count.to_string())
-        .add_attribute("error_count", error_count.to_string()))
+        // .add_attribute("migrated_tracks", migrated_count.to_string())
+        // .add_attribute("error_count", error_count.to_string())
+    )
 }
 
 fn execute_recompute_progress(deps: DepsMut, track_id: Option<Uint128>) -> Result<Response, TrackManagerError> {

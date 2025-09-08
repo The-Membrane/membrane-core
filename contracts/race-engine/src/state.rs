@@ -383,10 +383,12 @@ pub fn update_brain_progress(
     // Add to entries and enforce configured limit (efficient single-drain trim)
     brain_progress.entries.push(new_entry);
     let cfg = CONFIG.load(storage)?;
-    let limit = cfg.brain_progress_entry_limit as usize;
-    if brain_progress.entries.len() > limit {
-        let overflow = brain_progress.entries.len() - limit;
-        brain_progress.entries.drain(0..overflow);
+    if let Some(limit) = cfg.brain_progress_entry_limit {
+        let limit = limit as usize;
+        if brain_progress.entries.len() > limit {
+            let overflow = brain_progress.entries.len() - limit;
+            brain_progress.entries.drain(0..overflow);
+        }
     }
     
     CAR_BRAIN_PROGRESS.save(storage, car_id, &brain_progress)?;

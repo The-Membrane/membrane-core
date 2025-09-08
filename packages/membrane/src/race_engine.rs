@@ -217,7 +217,7 @@ pub struct Config {
     pub max_recent_races: u32,
     pub byte_minter_contract: Option<String>,
     /// Maximum number of brain progress entries to keep per car
-    pub brain_progress_entry_limit: u32,
+    pub brain_progress_entry_limit: Option<u32>,
 } 
 
 #[cw_serde]

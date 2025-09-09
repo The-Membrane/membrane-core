@@ -5,6 +5,7 @@ use membrane::math::decimal_division;
 use membrane::tokenfactory::{mint_msg, create_denom_msg};
 use membrane::track_manager as tm;
 use membrane::types::TileProperties;
+
 // use cw721_base::OwnerOfResponse; // This type doesn't exist in cw721_base 0.16.0
 
 // Define our own OwnerOfResponse type
@@ -866,7 +867,7 @@ fn exec_record_win(deps: DepsMut, env: Env, info: MessageInfo, event: bm::EventT
     // Query car owner from cw721-like contract. If query fails (e.g., in tests), fall back to admin.
     let owner_address: String = match deps.querier.query_wasm_smart::<OwnerOfResponse>(
         cfg.car_contract.clone(),
-        &membrane::car::QueryMsg::Base(membrane::car::Cw721QueryMsg::OwnerOf{ token_id: car_id.to_string(), include_expired: None })
+        &membrane::car::QueryMsg::OwnerOf{ token_id: car_id.to_string(), include_expired: None }
     ) {
         Ok(resp) => resp.owner,
         Err(_) => return Err(ContractError::InvalidInput("car not found".to_string())),
@@ -1022,14 +1023,14 @@ fn query_get_difficulty_adjustment_info(deps: Deps, env: Env, event: bm::EventTy
     })
 }
 
-fn query_get_car_lifetime_stats(deps: Deps, car_id: u128) -> StdResult<bm::CarLifetimeTracker> {
-    let tracker = CAR_LIFETIME_TRACKERS.load(deps.storage, car_id).unwrap_or(bm::CarLifetimeTracker {
+fn query_get_car_lifetime_stats(deps: Deps, car_id: u128) -> StdResult<CarLifetimeTracker> {
+    let tracker = CAR_LIFETIME_TRACKERS.load(deps.storage, car_id).unwrap_or(CarLifetimeTracker {
         lifetime_rewards: Uint128::zero(),
         mazes_completed: 0,
         pvp_wins: 0,
     });
     Ok(tracker)
-} 
+}
 
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: bm::MigrateMsg) -> Result<Response, ContractError> {

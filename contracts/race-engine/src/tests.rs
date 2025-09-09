@@ -2,9 +2,10 @@ use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
 use cosmwasm_std::{from_json, to_json_binary, Addr, Binary, OwnedDeps, Querier, QuerierResult, QueryRequest, SystemResult, ContractResult};
 use serde::Serialize;
 
-use crate::contract::{execute, instantiate, query};
+use crate::contract::{execute, instantiate, query, migrate};
 use crate::error::ContractError;
-use membrane::race_engine::{ExecuteMsg, InstantiateMsg, QueryMsg, TrainingConfig, GetTrackTrainingStatsResponse, GetIntegerQResponse, MigrationStatusResponse};
+use membrane::race_engine::{ExecuteMsg, InstantiateMsg, QueryMsg, TrainingConfig, GetTrackTrainingStatsResponse, GetIntegerQResponse, MigrationStatusResponse, MigrateMsg, Config};
+use crate::state::{get_config, set_config};
 use membrane::types::{RewardNumbers, Track, TrackTile, TileProperties, GoingBackward};
 use blake2::digest::{Update, VariableOutput};
 use blake2::Blake2bVar;
@@ -221,6 +222,63 @@ fn test_hash_function_analysis() {
     } else {
         println!("✅ All keys within expected 22-bit range");
     }
+}
+
+#[test]
+fn test_migration_sets_brain_progress_entry_limit() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    
+    // Instantiate with new config (brain_progress_entry_limit as Option<u32>)
+    let msg = InstantiateMsg {
+        admin: "admin".to_string(),
+        track_contract: "track_contract".to_string(),
+        car_contract: "car_contract".to_string(),
+    };
+    
+    let res = instantiate(deps.as_mut(), env.clone(), mock_info("admin", &[]), msg);
+    assert!(res.is_ok());
+    
+    // Check that brain_progress_entry_limit is set to Some(100)
+    let config = get_config(deps.as_ref().storage).unwrap();
+    assert_eq!(config.brain_progress_entry_limit, Some(100));
+    
+    // Run migration
+    let migrate_msg = MigrateMsg {};
+    let res = migrate(deps.as_mut(), env, migrate_msg);
+    assert!(res.is_ok());
+    
+    // Check that brain_progress_entry_limit is still Some(100) (not changed)
+    let config = get_config(deps.as_ref().storage).unwrap();
+    assert_eq!(config.brain_progress_entry_limit, Some(100));
+}
+
+#[test]
+fn test_migration_sets_default_for_old_config() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    
+    // Manually create a config with brain_progress_entry_limit as None (simulating old config)
+    let old_config = Config {
+        admin: "admin".to_string(),
+        track_contract: "track_contract".to_string(),
+        car_contract: "car_contract".to_string(),
+        max_ticks: 100,
+        max_recent_races: 10,
+        byte_minter_contract: None,
+        brain_progress_entry_limit: None, // Old config without this field
+    };
+    
+    set_config(deps.as_mut().storage, old_config).unwrap();
+    
+    // Run migration
+    let migrate_msg = MigrateMsg {};
+    let res = migrate(deps.as_mut(), env, migrate_msg);
+    assert!(res.is_ok());
+    
+    // Check that brain_progress_entry_limit is now set to Some(100)
+    let config = get_config(deps.as_ref().storage).unwrap();
+    assert_eq!(config.brain_progress_entry_limit, Some(100));
 }
 
 #[test]

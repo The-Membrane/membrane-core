@@ -14,7 +14,7 @@ struct OwnerOfResponse {
 }
 
 use crate::error::ContractError;
-use crate::state::{get_config, set_config, MAZE_EVENT_INFO, MazeEventInfo, CONFIG, MAZE_WINDOW_START, PVP_WINDOW_START, MAZE_WINNERS, PVP_WINNERS, PVP_EVENT_TRACK_ID, DIFFICULTY_ADJUSTMENT_CONFIG, MAZE_WIN_COUNT, PVP_WIN_COUNT, MAZE_WIN_HISTORY, PVP_WIN_HISTORY};
+use crate::state::{get_config, set_config, MAZE_EVENT_INFO, MazeEventInfo, CONFIG, MAZE_WINDOW_START, PVP_WINDOW_START, MAZE_WINNERS, PVP_WINNERS, PVP_EVENT_TRACK_ID, DIFFICULTY_ADJUSTMENT_CONFIG, MAZE_WIN_COUNT, PVP_WIN_COUNT, MAZE_WIN_HISTORY, PVP_WIN_HISTORY, CAR_LIFETIME_TRACKERS, CarLifetimeTracker};
 
 /// Simple deterministic PRNG (LCG)
 fn prng(seed: u64, modulus: u32) -> u32 {
@@ -637,6 +637,7 @@ pub fn query(deps: Deps, env: Env, msg: bm::QueryMsg) -> StdResult<Binary> {
         bm::QueryMsg::GetRecordedWins { event, start_after, limit } => to_json_binary(&query_get_recorded_wins(deps, env, event, start_after, limit)?),
         bm::QueryMsg::GetWindowStatus { event } => to_json_binary(&query_get_window_status(deps, env, event)?),
         bm::QueryMsg::GetDifficultyAdjustmentInfo { event } => to_json_binary(&query_get_difficulty_adjustment_info(deps, env, event)?),
+        bm::QueryMsg::GetCarLifetimeStats { car_id } => to_json_binary(&query_get_car_lifetime_stats(deps, car_id)?),
     }
 }
 
@@ -879,6 +880,28 @@ fn exec_record_win(deps: DepsMut, env: Env, info: MessageInfo, event: bm::EventT
         &owner_address,
     )?;
 
+    // Update car lifetime tracker
+    let mut tracker = CAR_LIFETIME_TRACKERS.load(deps.storage, car_id).unwrap_or(CarLifetimeTracker {
+        lifetime_rewards: Uint128::zero(),
+        mazes_completed: 0,
+        pvp_wins: 0,
+    });
+    
+    // Add to lifetime rewards
+    tracker.lifetime_rewards = tracker.lifetime_rewards + cfg.mint_amount;
+    
+    // Increment event-specific counters
+    match event {
+        bm::EventType::Maze => {
+            tracker.mazes_completed += 1;
+        },
+        bm::EventType::Pvp => {
+            tracker.pvp_wins += 1;
+        },
+    }
+    
+    CAR_LIFETIME_TRACKERS.save(deps.storage, car_id, &tracker)?;
+
     // Optional runner bonus: configurable fraction of mint_amount if runner is not the owner
     let mut resp = Response::new().add_attribute("action", "record_win").add_attribute("event", match event { bm::EventType::Maze => "maze", bm::EventType::Pvp => "pvp" });
     if !cfg.mint_amount.is_zero() { resp = resp.add_message(mint); }
@@ -901,6 +924,10 @@ fn exec_record_win(deps: DepsMut, env: Env, info: MessageInfo, event: bm::EventT
                     &runner,
                 )?;
                 resp = resp.add_message(runner_mint).add_attribute("runner_bonus", bonus.to_string());
+                
+                // Update car lifetime tracker with runner bonus
+                tracker.lifetime_rewards = tracker.lifetime_rewards + bonus;
+                CAR_LIFETIME_TRACKERS.save(deps.storage, car_id, &tracker)?;
             }
         }
     }
@@ -993,6 +1020,15 @@ fn query_get_difficulty_adjustment_info(deps: Deps, env: Env, event: bm::EventTy
         config: difficulty_config,
         windows_in_history: win_history.len() as u32,
     })
+}
+
+fn query_get_car_lifetime_stats(deps: Deps, car_id: u128) -> StdResult<bm::CarLifetimeTracker> {
+    let tracker = CAR_LIFETIME_TRACKERS.load(deps.storage, car_id).unwrap_or(bm::CarLifetimeTracker {
+        lifetime_rewards: Uint128::zero(),
+        mazes_completed: 0,
+        pvp_wins: 0,
+    });
+    Ok(tracker)
 } 
 
 #[entry_point]

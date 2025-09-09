@@ -1742,6 +1742,22 @@ pub enum ActionSelectionStrategy {
     },
 }
 
+// ===== RPS TYPES =====
+#[cw_serde]
+pub struct RpsRewardConfig {
+    pub win_points: i64,
+    pub lose_penalty: i64,
+    pub draw_points: i64,
+    pub series_win_points: i64,
+}
+
+#[cw_serde]
+#[serde(rename_all = "snake_case")]
+pub enum SeriesMode {
+    FixedTicks { ticks: u32 },
+    BestOf { wins_target: u32 },
+}
+
 // Top times per track
 #[cw_serde]
 pub struct TopTimeEntry {

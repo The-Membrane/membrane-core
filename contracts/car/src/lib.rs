@@ -3,6 +3,7 @@ pub mod error;
 pub mod msg;
 pub mod state;
 pub mod base_nft_msgs;
+pub mod base_nft_queries;
 
 // Temporarily comment out broken old tests
 // #[cfg(test)]

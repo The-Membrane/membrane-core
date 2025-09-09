@@ -80,6 +80,8 @@ pub enum QueryMsg {
     GetWindowStatus { event: EventType },
     #[returns(DifficultyAdjustmentInfo)]
     GetDifficultyAdjustmentInfo { event: EventType },
+    #[returns(CarLifetimeTracker)]
+    GetCarLifetimeStats { car_id: u128 },
 }
 
 #[cw_serde]
@@ -179,4 +181,11 @@ pub struct WindowStatusResponse {
     pub window_end: u64,
     pub seconds_until_open: u64,
     pub seconds_until_close: u64,
+}
+
+#[cw_serde]
+pub struct CarLifetimeTracker {
+    pub lifetime_rewards: Uint128,
+    pub mazes_completed: u32,
+    pub pvp_wins: u32,
 } 

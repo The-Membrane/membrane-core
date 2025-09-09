@@ -14,6 +14,7 @@ members = [
     "contracts/oracle",
     "contracts/osmosis-proxy",
     "contracts/points-system",
+    "contracts/rps-engine",
     "contracts/race-engine",
     "contracts/range-bound-lp-vault",
     "contracts/stability-pool",

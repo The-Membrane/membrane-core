@@ -1,4 +1,4 @@
-use cosmwasm_std::{Storage, StdResult};
+use cosmwasm_std::{Storage, StdResult, Uint128};
 use cw_storage_plus::{Item, Map};
 use membrane::byte_minter::{Config, DifficultyAdjustmentConfig};
 use serde::{Deserialize, Serialize};
@@ -34,6 +34,16 @@ pub const PVP_WIN_HISTORY: Item<Vec<u32>> = Item::new("pvp_win_history");
 
 // Difficulty adjustment configuration
 pub const DIFFICULTY_ADJUSTMENT_CONFIG: Item<DifficultyAdjustmentConfig> = Item::new("difficulty_adjustment_config");
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CarLifetimeTracker {
+    pub lifetime_rewards: Uint128,
+    pub mazes_completed: u32,
+    pub pvp_wins: u32,
+}
+
+// Car lifetime tracking: car_id -> CarLifetimeTracker
+pub const CAR_LIFETIME_TRACKERS: Map<u128, CarLifetimeTracker> = Map::new("car_lifetime_trackers");
 
 pub fn get_config(storage: &dyn Storage) -> StdResult<Config> { CONFIG.load(storage) }
 pub fn set_config(storage: &mut dyn Storage, config: Config) -> StdResult<()> { CONFIG.save(storage, &config) } 

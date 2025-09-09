@@ -17,6 +17,10 @@ use crate::state::NAME_REGISTRY;
 use crate::state::{PENDING_FREE_CARS, PendingFreeCar, CAR_INFO, set_car_info, CarInfo};
 use cosmwasm_std::Addr;
 use crate::base_nft_msgs::{execute_transfer_nft, execute_send_nft, execute_approve, execute_revoke, execute_approve_all, execute_revoke_all, execute_mint, execute_burn, execute_extension};
+use crate::base_nft_queries::{
+    query_owner_of, query_approval, query_approvals, query_all_operators, query_num_tokens,
+    query_contract_info, query_nft_info, query_all_nft_info, query_tokens, query_all_tokens, query_minter
+};
 use membrane::traits_engine::{
     CarTraits,
     BaseColor, AccentPattern, PaintFinish, HeadlightColor, UnderglowColor, BrakeLightStyle,
@@ -832,10 +836,41 @@ fn execute_update_car_name(
 #[entry_point]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Base(q) => {
-            let contract: CarCw721 = Cw721Contract::default();
-            contract.query(deps, env, q)
+        // Base CW721 queries
+        QueryMsg::OwnerOf { token_id, include_expired } => {
+            query_owner_of(deps, env, token_id, include_expired)
         }
+        QueryMsg::Approval { token_id, spender, include_expired } => {
+            query_approval(deps, env, token_id, spender, include_expired)
+        }
+        QueryMsg::Approvals { token_id, include_expired } => {
+            query_approvals(deps, env, token_id, include_expired)
+        }
+        QueryMsg::AllOperators { owner, include_expired, start_after, limit } => {
+            query_all_operators(deps, env, owner, include_expired, start_after, limit)
+        }
+        QueryMsg::NumTokens {} => {
+            query_num_tokens(deps, env)
+        }
+        QueryMsg::ContractInfo {} => {
+            query_contract_info(deps, env)
+        }
+        QueryMsg::NftInfo { token_id } => {
+            query_nft_info(deps, env, token_id)
+        }
+        QueryMsg::AllNftInfo { token_id, include_expired } => {
+            query_all_nft_info(deps, env, token_id, include_expired)
+        }
+        QueryMsg::Tokens { owner, start_after, limit } => {
+            query_tokens(deps, env, owner, start_after, limit)
+        }
+        QueryMsg::AllTokens { start_after, limit } => {
+            query_all_tokens(deps, env, start_after, limit)
+        }
+        QueryMsg::Minter {} => {
+            query_minter(deps, env)
+        }
+        // Custom car queries
         QueryMsg::GetCarInfo { token_id } => {
             let id: u128 = token_id.parse().map_err(|_| cosmwasm_std::StdError::generic_err("invalid token id"))?;
             let mut car = CAR_INFO.load(deps.storage, id)

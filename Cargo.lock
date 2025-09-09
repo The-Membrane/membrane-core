@@ -204,7 +204,7 @@ dependencies = [
  "cw-storage-plus 1.2.0",
  "cw2 0.16.0",
  "cw20 0.16.0",
- "cw721 0.16.0",
+ "cw721",
  "cw721-base",
  "membrane",
  "schemars",
@@ -582,19 +582,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cw721"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3c4d286625ccadc957fe480dd3bdc54ada19e0e6b5b9325379db3130569e914"
-dependencies = [
- "cosmwasm-schema",
- "cosmwasm-std",
- "cw-utils 1.0.3",
- "schemars",
- "serde",
-]
-
-[[package]]
 name = "cw721-base"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -605,7 +592,7 @@ dependencies = [
  "cw-storage-plus 0.16.0",
  "cw-utils 0.16.0",
  "cw2 0.16.0",
- "cw721 0.16.0",
+ "cw721",
  "schemars",
  "serde",
  "thiserror",
@@ -967,7 +954,7 @@ dependencies = [
  "cosmwasm-std",
  "cw-coins",
  "cw-storage-plus 1.2.0",
- "cw721 0.18.0",
+ "cw721",
  "cw721-base",
  "osmosis-std 0.16.2",
  "prost 0.11.9",

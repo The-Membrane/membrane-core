@@ -16,6 +16,7 @@ use crate::state::USED_TRAIT_COMBOS;
 use crate::state::NAME_REGISTRY;
 use crate::state::{PENDING_FREE_CARS, PendingFreeCar, CAR_INFO, set_car_info, CarInfo};
 use cosmwasm_std::Addr;
+use crate::base_nft_msgs::{execute_transfer_nft, execute_send_nft, execute_approve, execute_revoke, execute_approve_all, execute_revoke_all, execute_mint, execute_burn, execute_extension};
 use membrane::traits_engine::{
     CarTraits,
     BaseColor, AccentPattern, PaintFinish, HeadlightColor, UnderglowColor, BrakeLightStyle,
@@ -96,12 +97,12 @@ pub fn instantiate(
         car_id: Some("0".to_string()),
     });
 
-    let self_mint = ExecuteMsg::Base(Cw721ExecuteMsg::Mint(MintMsg {
+    let self_mint = ExecuteMsg::<Option<CarMetadata>, cosmwasm_std::Empty>::Mint(MintMsg {
         token_id: "0".to_string(),
         owner: owner.to_string(),
         token_uri: None,
         extension: singularity_ext,
-    }));
+    });
     let msg = WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
         msg: to_json_binary(&self_mint)?,
@@ -118,16 +119,18 @@ pub fn execute(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    msg: ExecuteMsg,
+    msg: ExecuteMsg<Option<CarMetadata>, cosmwasm_std::Empty>,
 ) -> Result<Response, CarError> {
     match msg {
-        ExecuteMsg::Base(base) => {
-            let contract: CarCw721 = Cw721Contract::default();
-            contract
-                .execute(deps, env, info, base)
-                .map_err(|e| cosmwasm_std::StdError::generic_err(e.to_string()))
-                .map_err(CarError::from)
-        }
+        ExecuteMsg::TransferNft { recipient, token_id } => execute_transfer_nft(deps, env, info, recipient, token_id),
+        ExecuteMsg::SendNft { contract, token_id, msg } => execute_send_nft(deps, env, info, contract, token_id, msg),
+        ExecuteMsg::Approve { spender, token_id, expires } => execute_approve(deps, env, info, spender, token_id, expires),
+        ExecuteMsg::Revoke { spender, token_id } => execute_revoke(deps, env, info, spender, token_id),
+        ExecuteMsg::ApproveAll { operator, expires } => execute_approve_all(deps, env, info, operator, expires),
+        ExecuteMsg::RevokeAll { operator } => execute_revoke_all(deps, env, info, operator),
+        ExecuteMsg::Mint(mint) => execute_mint(deps, env, info, mint),
+        ExecuteMsg::Burn { token_id } => execute_burn(deps, env, info, token_id),
+        ExecuteMsg::Extension { msg } => execute_extension(deps, env, info, msg),
         ExecuteMsg::CreateCar { owner, token_uri, extension } => execute_mint_car(deps, env, info, owner, token_uri, extension),
         ExecuteMsg::UpdateConfig { payment_options, new_owner, race_engine_contract, revenue_contract } => execute_update_config(deps, info, payment_options, new_owner, race_engine_contract, revenue_contract),
         ExecuteMsg::UpdateEnergyParams { max_energy, energy_recovery_hours, energy_per_training } => execute_update_energy_params(deps, info, max_energy, energy_recovery_hours, energy_per_training),
@@ -495,12 +498,12 @@ fn execute_mint_car(
     }
 
     // Perform a self-call to cw721-base Mint
-    let self_mint = ExecuteMsg::Base(Cw721ExecuteMsg::Mint(MintMsg {
+    let self_mint = ExecuteMsg::<Option<CarMetadata>, cosmwasm_std::Empty>::Mint(MintMsg {
         token_id: token_id.clone(),
         owner,
         token_uri,
         extension: extension.clone(),
-    }));
+    });
 
     let msg = WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
@@ -635,12 +638,12 @@ fn execute_pay_to_finalize(
     let extension = car_info.metadata;
 
     // Perform cw721 mint now
-    let self_mint = ExecuteMsg::Base(Cw721ExecuteMsg::Mint(MintMsg {
+    let self_mint = ExecuteMsg::<Option<CarMetadata>, cosmwasm_std::Empty>::Mint(MintMsg {
         token_id: token_id.clone(),
         owner: pending.reserved_for.to_string(),
         token_uri: None,
         extension: extension.clone(),
-    }));
+    });
     let msg = WasmMsg::Execute { contract_addr: env.contract.address.to_string(), msg: to_json_binary(&self_mint)?, funds: vec![] };
 
     // Clear pending state

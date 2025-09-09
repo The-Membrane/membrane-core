@@ -44,7 +44,7 @@ use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
 use crate::state::{add_recent_race, get_config, get_integer_q_values, get_q_values, get_recent_races, get_track_training_stats, set_config, set_integer_q_values, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, update_brain_progress, CAR_BRAIN_PROGRESS, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, INTEGER_Q_TABLE, Q_TABLE, TRACK_RECENT_RACES};
-use membrane::types::{ActionSelectionStrategy, GoingBackward, IntegerQTableEntry, RewardNumbers, Track, TrackTile};
+use membrane::types::{ActionSelectionStrategy, CarMetadata, GoingBackward, IntegerQTableEntry, RewardNumbers, Track, TrackTile};
 use membrane::race_engine::{CarState, Config, ExecuteMsg, GetIntegerQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, MigrationStatusResponse, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
 use membrane::byte_minter::{QueryMsg as ByteMinterQueryMsg, VerifyEventRaceResponse, ExecuteMsg as ByteMinterExecuteMsg, EventType as ByteEventType};
@@ -842,7 +842,7 @@ pub fn execute_simulate_race(
             //Update car energy
             msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.car_contract.clone(),
-                msg: to_json_binary(&Car_ExecuteMsg::ConsumeTrainingEnergy {
+                msg: to_json_binary(&Car_ExecuteMsg::<Option<CarMetadata>, cosmwasm_std::Empty>::ConsumeTrainingEnergy {
                     token_id: car.car_id.to_string(),
                     sessions: 1,
                 })?,

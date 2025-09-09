@@ -1752,7 +1752,7 @@ pub struct RpsRewardConfig {
 }
 
 #[cw_serde]
-#[serde(rename_all = "snake_case")]
+// #[serde(rename_all = "snake_case")]
 pub enum SeriesMode {
     FixedTicks { ticks: u32 },
     BestOf { wins_target: u32 },

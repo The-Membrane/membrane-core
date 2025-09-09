@@ -598,10 +598,10 @@ pub fn execute_simulate_race(
             // Query cw721 owner_of via car contract; treat not found as CarNotFound
             let owner_resp: OwnerOfResponse = deps.querier.query_wasm_smart::<OwnerOfResponse>(
                 config.car_contract.clone(),
-                &Car_QueryMsg::Base(Cw721QueryMsg::OwnerOf { 
+                &Car_QueryMsg:: OwnerOf { 
                     token_id: car_id.to_string(), 
                     include_expired: None,
-                })
+                }
             ).map_err(|_| ContractError::CarNotFound { car_id: car_id.to_string() })?;
 
             if owner_resp.owner != info.sender.to_string() {

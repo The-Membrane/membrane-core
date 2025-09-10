@@ -884,32 +884,32 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, CarError> {
     //Load car ID 15
-    let mut car = CAR_INFO.load(deps.storage, 15)?;
+    // let mut car = CAR_INFO.load(deps.storage, 15)?;
 
-    //Remove the image_data 
-    let mut metadata = car.metadata.unwrap();
-    metadata.image_data = None;
-    //Remove the first attributes
-    let mut attributes = metadata.attributes.unwrap();
-    attributes.remove(0);
-    metadata.attributes = Some(attributes);
-    car.metadata = Some(metadata);
-    //Save the car
-    CAR_INFO.save(deps.storage, 15, &car)?;
+    // //Remove the image_data 
+    // let mut metadata = car.metadata.unwrap();
+    // metadata.image_data = None;
+    // //Remove the first attributes
+    // let mut attributes = metadata.attributes.unwrap();
+    // attributes.remove(0);
+    // metadata.attributes = Some(attributes);
+    // car.metadata = Some(metadata);
+    // //Save the car
+    // CAR_INFO.save(deps.storage, 15, &car)?;
 
-    //Load token 15
-    let mut contract: CarCw721 = Cw721Contract::default();
-    let mut token: TokenInfo<Option<CarMetadata>> = contract.tokens.load(deps.storage, "15")?;
-    //Remove the image_data
-    let mut metadata = token.extension.unwrap();
-    metadata.image_data = None;
-    //Remove the first 22 attributes
-    let mut attributes = metadata.attributes.unwrap();
-    attributes.drain(0..23);
-    metadata.attributes = Some(attributes);
-    token.extension = Some(metadata);
-    //Save the token
-    contract.tokens.save(deps.storage, "15", &token)?;
+    // //Load token 15
+    // let mut contract: CarCw721 = Cw721Contract::default();
+    // let mut token: TokenInfo<Option<CarMetadata>> = contract.tokens.load(deps.storage, "15")?;
+    // //Remove the image_data
+    // let mut metadata = token.extension.unwrap();
+    // metadata.image_data = None;
+    // //Remove the first 22 attributes
+    // let mut attributes = metadata.attributes.unwrap();
+    // attributes.drain(0..23);
+    // metadata.attributes = Some(attributes);
+    // token.extension = Some(metadata);
+    // //Save the token
+    // contract.tokens.save(deps.storage, "15", &token)?;
 
     Ok(Response::new()
         .add_attribute("action", "migrate")

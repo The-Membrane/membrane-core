@@ -1832,3 +1832,11 @@ impl From<BrainProgressLegacy> for BrainProgress {
         }
     }
 }
+
+
+// A single tick (round) record for a car within a series
+#[cw_serde]
+pub struct TickRecord {
+    pub my_action: u8,
+    pub opp_action: u8,
+}

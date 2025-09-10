@@ -1,59 +1,14 @@
-use cosmwasm_std::{entry_point, to_json_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Uint128};
+use cosmwasm_std::{entry_point, to_json_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
 use serde::Deserialize;
 use std::collections::HashMap;
 
 use membrane::race_engine::TrainingConfig;
-use membrane::types::{ActionSelectionStrategy, RpsRewardConfig, SeriesMode};
-// Note: rps_engine module is commented out in membrane package
-// Define messages locally for now
-use cosmwasm_schema::{cw_serde, QueryResponses};
-// use cosmwasm_std::Uint128; // already imported above
-
-#[cw_serde]
-pub struct InstantiateMsg {
-    pub admin: String,
-    pub car_contract: String,
-    pub max_ticks: Option<u32>,
-    pub match_history_limit: Option<u32>,
-}
-
-#[cw_serde]
-pub enum ExecuteMsg {
-    PlaySeries { car_id: u128, opponent_id: Option<u128>, train: bool, training_config: Option<TrainingConfig>, reward_config: Option<RpsRewardConfig>, mode: SeriesMode },
-    UpdateConfig { max_ticks: Option<u32>, match_history_limit: Option<u32> },
-    PurgeCar { car_id: u128 },
-}
-
-#[cw_serde]
-#[derive(QueryResponses)]
-pub enum QueryMsg {
-    #[returns(ConfigResponse)]
-    GetConfig {},
-    #[returns(GetQResponse)]
-    GetQ { car_id: u128, state_id: Option<u8> },
-    #[returns(GetHistoryResponse)]
-    GetHistory { car_id: u128 },
-}
-
-#[cw_serde]
-pub struct GetQResponseEntry { pub state_id: u8, pub action_values: [i8; 3] }
-
-#[cw_serde]
-pub struct GetQResponse { pub car_id: u128, pub q_values: Vec<GetQResponseEntry> }
-
-#[cw_serde]
-pub struct GetHistoryResponse { pub car_id: u128, pub history: Vec<u8> }
-
-#[cw_serde]
-pub struct ConfigResponse {
-    pub admin: String,
-    pub car_contract: String,
-    pub max_ticks: u32,
-    pub match_history_limit: u32,
-}
+use membrane::rps_engine::{InstantiateMsg, ExecuteMsg, QueryMsg, ConfigResponse, GetQResponseEntry, GetQResponse, GetHistoryResponse, GetTickHistoryResponse};
+use membrane::types::{ActionSelectionStrategy, RpsRewardConfig, SeriesMode, TickRecord};
 
 use crate::error::ContractError;
 use crate::state::{get_config, get_q_values, push_match_result, set_config, set_q_values, Config, MATCH_HISTORY, CONFIG};
+use crate::state::push_tick_records;
 
 // Actions
 pub const ACTION_ROCK: usize = 0;
@@ -112,6 +67,7 @@ pub fn instantiate(deps: DepsMut, _env: Env, _info: MessageInfo, msg: Instantiat
         car_contract,
         max_ticks: msg.max_ticks.unwrap_or(100),
         match_history_limit: msg.match_history_limit.unwrap_or(MATCH_HISTORY_LIMIT),
+        tick_history_limit: msg.tick_history_limit.unwrap_or(500),
     };
     set_config(deps.storage, cfg)?;
     Ok(Response::new().add_attribute("action", "instantiate"))
@@ -123,15 +79,16 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> R
         ExecuteMsg::PlaySeries { car_id, opponent_id, train, training_config, reward_config, mode } => {
             execute_play_series(deps, env, info, car_id, opponent_id.unwrap_or(0), train, training_config, reward_config, mode)
         }
-        ExecuteMsg::UpdateConfig { max_ticks, match_history_limit } => {
+        ExecuteMsg::UpdateConfig { max_ticks, match_history_limit, tick_history_limit } => {
             let mut cfg = get_config(deps.storage)?;
             if info.sender.as_str() != cfg.admin { return Err(ContractError::Unauthorized {}); }
             if let Some(v) = max_ticks { cfg.max_ticks = v; }
             if let Some(v) = match_history_limit { cfg.match_history_limit = v; }
+            if let Some(v) = tick_history_limit { cfg.tick_history_limit = v; }
             set_config(deps.storage, cfg)?;
             Ok(Response::new().add_attribute("action", "update_config"))
         }
-        ExecuteMsg::PurgeCar { car_id } => {
+        ExecuteMsg::PurgeCar { car_id: _ } => {
             // Anyone can purge; removes Q-table and history for the car
             // let id = car_id.u128();
             // // remove q-table entries
@@ -236,6 +193,7 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 car_contract: cfg.car_contract,
                 max_ticks: cfg.max_ticks,
                 match_history_limit: cfg.match_history_limit,
+                tick_history_limit: cfg.tick_history_limit,
             })
         }
         QueryMsg::GetQ { car_id, state_id } => {
@@ -249,6 +207,10 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetHistory { car_id } => {
             let history = MATCH_HISTORY.load(deps.storage, car_id).unwrap_or_default();
             to_json_binary(&GetHistoryResponse { car_id, history })
+        }
+        QueryMsg::GetTickHistory { car_id } => {
+            let ticks = crate::state::TICK_HISTORY.load(deps.storage, car_id).unwrap_or_default();
+            to_json_binary(&GetTickHistoryResponse { car_id, ticks })
         }
     }
 }
@@ -314,6 +276,9 @@ fn execute_play_series(
 
     let mut a_trace: Vec<(u8, usize, i32)> = vec![]; // (state, action, reward)
     let mut b_trace: Vec<(u8, usize, i32)> = vec![];
+    // per-player per-tick action history
+    let mut a_ticks: Vec<TickRecord> = vec![];
+    let mut b_ticks: Vec<TickRecord> = vec![];
 
     let mut a_wins: u32 = 0;
     let mut b_wins: u32 = 0;
@@ -347,6 +312,9 @@ fn execute_play_series(
 
         a_trace.push((a_state, a_action, a_reward));
         b_trace.push((b_state, b_action, b_reward));
+        // record actions for this tick
+        a_ticks.push(TickRecord { my_action: a_action as u8, opp_action: b_action as u8 });
+        b_ticks.push(TickRecord { my_action: b_action as u8, opp_action: a_action as u8 });
 
         // update last for next state
         a_opp_last = Some(b_action as u8);
@@ -388,6 +356,9 @@ fn execute_play_series(
             let b_reward = match b_out { OUTCOME_WIN => rewards.win_points, OUTCOME_LOSE => rewards.lose_penalty, _ => rewards.draw_points } as i32;
             a_trace.push((a_state, a_action, a_reward));
             b_trace.push((b_state, b_action, b_reward));
+            // record sudden-death tick
+            a_ticks.push(TickRecord { my_action: a_action as u8, opp_action: b_action as u8 });
+            b_ticks.push(TickRecord { my_action: b_action as u8, opp_action: a_action as u8 });
             a_opp_last = Some(b_action as u8);
             b_opp_last = Some(a_action as u8);
             a_last_outcome = Some(a_out);
@@ -414,6 +385,9 @@ fn execute_play_series(
     // Update histories
     push_match_result(deps.storage, car_id, a_won_series)?;
     push_match_result(deps.storage, opponent_id, b_won_series)?;
+    // Save per-tick action histories
+    push_tick_records(deps.storage, car_id, a_ticks)?;
+    push_tick_records(deps.storage, opponent_id, b_ticks)?;
 
     Ok(Response::new()
         .add_attribute("action", "play_series")
@@ -456,7 +430,7 @@ pub mod tests {
             deps.as_mut(),
             mock_env(),
             info,
-            InstantiateMsg { admin: "admin".into(), car_contract: "car_contract".into(), max_ticks: Some(10), match_history_limit: Some(5) },
+            InstantiateMsg { admin: "admin".into(), car_contract: "car_contract".into(), max_ticks: Some(10), match_history_limit: Some(5), tick_history_limit: Some(100) },
         ).unwrap();
 
         // Play a non-training series to avoid owner checks in test

@@ -5,6 +5,7 @@ use cosmwasm_std::{
     StdResult, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
+use cw721_base::state::TokenInfo;
 use cw721_base::{Cw721Contract, ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as Cw721InstantiateMsg, MintMsg};
 
 use crate::error::CarError;
@@ -888,13 +889,27 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
     //Remove the image_data 
     let mut metadata = car.metadata.unwrap();
     metadata.image_data = None;
-    //Remove the first 22 attributes
+    //Remove the first attributes
     let mut attributes = metadata.attributes.unwrap();
-    attributes.drain(0..22);
+    attributes.remove(0);
     metadata.attributes = Some(attributes);
     car.metadata = Some(metadata);
     //Save the car
     CAR_INFO.save(deps.storage, 15, &car)?;
+
+    //Load token 15
+    let mut contract: CarCw721 = Cw721Contract::default();
+    let mut token: TokenInfo<Option<CarMetadata>> = contract.tokens.load(deps.storage, "15")?;
+    //Remove the image_data
+    let mut metadata = token.extension.unwrap();
+    metadata.image_data = None;
+    //Remove the first 22 attributes
+    let mut attributes = metadata.attributes.unwrap();
+    attributes.drain(0..23);
+    metadata.attributes = Some(attributes);
+    token.extension = Some(metadata);
+    //Save the token
+    contract.tokens.save(deps.storage, "15", &token)?;
 
     Ok(Response::new()
         .add_attribute("action", "migrate")

@@ -67,9 +67,9 @@ pub enum ExecuteMsg<T, E> {
     /// Request the contract to mint a new NFT. The contract will mint by self-calling,
     /// so only the contract (minter) can actually perform the mint.
     CreateCar {
+        name: String,
         owner: Option<String>,
         token_uri: Option<String>,
-        extension: Option<CarMetadata>,
     },
     /// Update configuration and optionally begin/complete two-step owner transfer
     UpdateConfig {

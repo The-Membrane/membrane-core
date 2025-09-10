@@ -135,7 +135,7 @@ pub fn execute(
         ExecuteMsg::Mint(mint) => execute_mint(deps, env, info, mint),
         ExecuteMsg::Burn { token_id } => execute_burn(deps, env, info, token_id),
         ExecuteMsg::Extension { msg } => execute_extension(deps, env, info, msg),
-        ExecuteMsg::CreateCar { owner, token_uri, extension } => execute_mint_car(deps, env, info, owner, token_uri, extension),
+        ExecuteMsg::CreateCar { name, owner, token_uri } => execute_mint_car(deps, env, info, name, owner, token_uri),
         ExecuteMsg::UpdateConfig { payment_options, new_owner, race_engine_contract, revenue_contract } => execute_update_config(deps, info, payment_options, new_owner, race_engine_contract, revenue_contract),
         ExecuteMsg::UpdateEnergyParams { max_energy, energy_recovery_hours, energy_per_training } => execute_update_energy_params(deps, info, max_energy, energy_recovery_hours, energy_per_training),
         ExecuteMsg::UpdateTrainingPayments { training_payment_options } => execute_update_training_payments(deps, info, training_payment_options),
@@ -354,9 +354,9 @@ fn execute_mint_car(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    name: String,
     owner: Option<String>,
     token_uri: Option<String>,
-    mut extension: Option<CarMetadata>,
 ) -> Result<Response, CarError> {
     // Enforce payment or allow pending free option
     let config = CONFIG.load(deps.storage)?;
@@ -377,11 +377,7 @@ fn execute_mint_car(
     let owner_addr: Addr = deps.api.addr_validate(&owner)?;
 
     // Validate and ensure name existence + uniqueness
-    let car_name: String = match &extension {
-        Some(meta) => meta.name.clone(),
-        None => return Err(CarError::Std(cosmwasm_std::StdError::generic_err("car name required"))),
-    };
-    let trimmed = car_name.trim();
+    let trimmed = name.trim();
     if trimmed.is_empty() {
         return Err(CarError::Std(cosmwasm_std::StdError::generic_err("car name cannot be empty")));
     }
@@ -399,20 +395,12 @@ fn execute_mint_car(
     CAR_ID_COUNTER.save(deps.storage, &(next_id + Uint128::one()))?;
 
     // Populate car_id in metadata
-    if let Some(meta) = &mut extension {
-        meta.car_id = Some(token_id.clone());
-        // normalize stored name to trimmed
-        if meta.name != trimmed {
-            meta.name = trimmed.to_string();
-        }
-    } else {
-        extension = Some(CarMetadata {
+    let mut extension = CarMetadata {
             name: trimmed.to_string(),
             image_data: None,
             attributes: None,
             car_id: Some(token_id.clone()),
-        });
-    }
+        };
 
     // Reserve the name to prevent race conditions
     NAME_REGISTRY.save(deps.storage, key, &true)?;
@@ -467,11 +455,9 @@ fn execute_mint_car(
     // Generate and append metadata attributes
     let mut to_add = traits_to_attributes(&chosen_traits, &chosen_breakdown);
 
-    if let Some(meta) = &mut extension {
-        let mut attrs = meta.attributes.take().unwrap_or_default();
-        attrs.append(&mut to_add);
-        meta.attributes = Some(attrs);
-    }
+    let mut attrs = extension.attributes.take().unwrap_or_default();
+    attrs.append(&mut to_add);
+    extension.attributes = Some(attrs);
 
     // If not paid but free option exists: create pending free car state and return
     if !paid_ok {
@@ -483,7 +469,7 @@ fn execute_mint_car(
         let cfg_snapshot = CONFIG.load(deps.storage)?;
         set_car_info(deps.storage, car_id_u128, crate::state::CarInfo {
             owners: vec![owner_addr.clone()],
-            metadata: extension.clone(),
+            metadata: Some(extension.clone()),
             created_at: env.block.time.nanos(),
             current_energy: cfg_snapshot.max_energy,
             last_energy_update_nanos: env.block.time.nanos(),
@@ -506,7 +492,7 @@ fn execute_mint_car(
         token_id: token_id.clone(),
         owner,
         token_uri,
-        extension: extension.clone(),
+        extension: Some(extension.clone()),
     });
 
     let msg = WasmMsg::Execute {
@@ -520,7 +506,7 @@ fn execute_mint_car(
     let cfg_snapshot = CONFIG.load(deps.storage)?;
     set_car_info(deps.storage, car_id_u128, crate::state::CarInfo {
         owners: vec![owner_addr],
-        metadata: extension.clone(),
+        metadata: Some(extension.clone()),
         created_at: env.block.time.nanos(),
         current_energy: cfg_snapshot.max_energy * 3,
         last_energy_update_nanos: env.block.time.nanos(),
@@ -896,17 +882,20 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, CarError> {
-    //Set all car's energy to 400 
-    // let cars: Vec<(u128, CarInfo)> = CAR_INFO
-    //     .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
-    //     .map(|item| item.map_err(|e| CarError::Std(e)))
-    //     .collect::<Result<Vec<_>, _>>()?;
-    
-    // for (car_id, mut car) in cars.clone() {
-    //     car.current_energy = 400;
-    //     CAR_INFO.save(deps.storage, car_id, &car)?;
-    // }
-    
+    //Load car ID 15
+    let mut car = CAR_INFO.load(deps.storage, 15)?;
+
+    //Remove the image_data 
+    let mut metadata = car.metadata.unwrap();
+    metadata.image_data = None;
+    //Remove the first 22 attributes
+    let mut attributes = metadata.attributes.unwrap();
+    attributes.drain(0..22);
+    metadata.attributes = Some(attributes);
+    car.metadata = Some(metadata);
+    //Save the car
+    CAR_INFO.save(deps.storage, 15, &car)?;
+
     Ok(Response::new()
         .add_attribute("action", "migrate")
         // .add_attribute("cars_updated", cars.len().to_string())

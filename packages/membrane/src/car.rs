@@ -76,7 +76,8 @@ pub enum ExecuteMsg<T, E> {
         payment_options: Option<Vec<Coin>>,
         new_owner: Option<String>,
         race_engine_contract: Option<String>,
-        revenue_contract: Option<String>,   
+        revenue_contract: Option<String>,
+        energy_consumers: Option<crate::types::StringEntry>,
     },
     /// Owner-only: update energy parameters
     UpdateEnergyParams {
@@ -209,6 +210,8 @@ pub struct Config {
     pub energy_per_training: u32,
     /// Accepted payment options for refilling training energy
     pub training_payment_options: Vec<Coin>,
+    /// Valid contracts that can consume energy
+    pub valid_energy_consumers: Vec<String>,
 }
 
 #[cw_serde]

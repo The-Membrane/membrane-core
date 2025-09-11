@@ -11,7 +11,7 @@ use cw721_base::{Cw721Contract, ExecuteMsg as Cw721ExecuteMsg, InstantiateMsg as
 use crate::error::CarError;
 use membrane::car::{ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg, Config, MAX_NAME_SIZE};
 use crate::state::{CAR_ID_COUNTER, CONFIG, PENDING_OWNER};
-use membrane::types::CarMetadata;
+use membrane::types::{CarMetadata, StringEntry};
 use membrane::traits_engine::{default_rarity_table, generate_traits_with_rarity, traits_to_attributes};
 use crate::state::USED_TRAIT_COMBOS;
 use crate::state::NAME_REGISTRY;
@@ -75,6 +75,7 @@ pub fn instantiate(
             energy_recovery_hours: 24,
             energy_per_training: 5,
             training_payment_options: vec![],
+            valid_energy_consumers: vec![],
         }
     )?;
 
@@ -137,7 +138,7 @@ pub fn execute(
         ExecuteMsg::Burn { token_id } => execute_burn(deps, env, info, token_id),
         ExecuteMsg::Extension { msg } => execute_extension(deps, env, info, msg),
         ExecuteMsg::CreateCar { name, owner, token_uri } => execute_mint_car(deps, env, info, name, owner, token_uri),
-        ExecuteMsg::UpdateConfig { payment_options, new_owner, race_engine_contract, revenue_contract } => execute_update_config(deps, info, payment_options, new_owner, race_engine_contract, revenue_contract),
+        ExecuteMsg::UpdateConfig { payment_options, new_owner, race_engine_contract, revenue_contract, energy_consumers } => execute_update_config(deps, info, payment_options, new_owner, race_engine_contract, revenue_contract, energy_consumers),
         ExecuteMsg::UpdateEnergyParams { max_energy, energy_recovery_hours, energy_per_training } => execute_update_energy_params(deps, info, max_energy, energy_recovery_hours, energy_per_training),
         ExecuteMsg::UpdateTrainingPayments { training_payment_options } => execute_update_training_payments(deps, info, training_payment_options),
         ExecuteMsg::UpdateCustomDecal { token_id, svg } => execute_update_custom_decal(deps, info, token_id, svg),
@@ -156,6 +157,7 @@ fn execute_update_config(
     new_owner: Option<String>,
     race_engine_contract: Option<String>,
     revenue_contract: Option<String>,
+    energy_consumers: Option<StringEntry>,
 ) -> Result<Response, CarError> {
     let mut config = CONFIG.load(deps.storage)?;
     let current_owner = config.owner.clone();
@@ -201,6 +203,29 @@ fn execute_update_config(
             config.revenue_contract = None;
         }
     }
+    
+    // Handle energy_consumers update
+    if let Some(energy_consumers) = energy_consumers {
+        let entry = energy_consumers.entry;
+        let remove = energy_consumers.remove;
+        
+        // Validate the address if adding
+        if !remove {
+            let _ = deps.api.addr_validate(&entry)?;
+        }
+        
+        if remove {
+            // Remove the entry if it exists
+            config.valid_energy_consumers.retain(|e| e != &entry);
+        } else {
+            // Add the entry if it doesn't already exist
+            if config.valid_energy_consumers.contains(&entry) {
+                return Err(CarError::Std(cosmwasm_std::StdError::generic_err("energy consumer already exists")));
+            }
+            config.valid_energy_consumers.push(entry);
+        }
+    }
+    
     CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new().add_attribute("action", "update_config"))
@@ -553,12 +578,10 @@ fn execute_pay_for_training(
         .add_attribute("token_id", token_id))
 }
 
-fn ensure_race_engine_only(deps: &DepsMut, info: &MessageInfo) -> Result<(), CarError> {
-    let cfg = CONFIG.load(deps.storage)?;
-    if let Some(addr) = cfg.race_engine_contract {
-        if !addr.is_empty() && info.sender == Addr::unchecked(addr) {
-            return Ok(());
-        }
+fn ensure_energy_consumers_only(config: &Config, info: &MessageInfo) -> Result<(), CarError> {
+    let sender_addr = info.sender.to_string();
+    if config.valid_energy_consumers.contains(&sender_addr) {
+        return Ok(());
     }
     Err(CarError::Unauthorized {})
 }
@@ -570,12 +593,15 @@ fn execute_consume_training_energy(
     token_id: String,
     sessions: u32,
 ) -> Result<Response, CarError> {
-    // Only race engine may meter energy consumption during training
-    ensure_race_engine_only(&deps, &info)?;
+    // Load config first
+    let cfg = CONFIG.load(deps.storage)?;
+    
+    // Only valid energy consumers may meter energy consumption during training
+    ensure_energy_consumers_only(&cfg, &info)?;
+    
     let car_id: u128 = token_id.parse().map_err(|_| CarError::Std(cosmwasm_std::StdError::generic_err("invalid token id")))?;
     let mut car = CAR_INFO.load(deps.storage, car_id)
         .map_err(|_| CarError::CarNotFound { car_id })?;
-    let cfg = CONFIG.load(deps.storage)?;
 
     // Recover before consuming
     car.recover_energy(env.block.time.nanos(), &cfg);
@@ -883,33 +909,13 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, CarError> {
-    //Load car ID 15
-    // let mut car = CAR_INFO.load(deps.storage, 15)?;
-
-    // //Remove the image_data 
-    // let mut metadata = car.metadata.unwrap();
-    // metadata.image_data = None;
-    // //Remove the first attributes
-    // let mut attributes = metadata.attributes.unwrap();
-    // attributes.remove(0);
-    // metadata.attributes = Some(attributes);
-    // car.metadata = Some(metadata);
-    // //Save the car
-    // CAR_INFO.save(deps.storage, 15, &car)?;
-
-    // //Load token 15
-    // let mut contract: CarCw721 = Cw721Contract::default();
-    // let mut token: TokenInfo<Option<CarMetadata>> = contract.tokens.load(deps.storage, "15")?;
-    // //Remove the image_data
-    // let mut metadata = token.extension.unwrap();
-    // metadata.image_data = None;
-    // //Remove the first 22 attributes
-    // let mut attributes = metadata.attributes.unwrap();
-    // attributes.drain(0..23);
-    // metadata.attributes = Some(attributes);
-    // token.extension = Some(metadata);
-    // //Save the token
-    // contract.tokens.save(deps.storage, "15", &token)?;
+    //Load config
+    let mut config = CONFIG.load(deps.storage)?;
+    config.valid_energy_consumers = vec![
+        config.clone().race_engine_contract.unwrap(),
+        String::from("neutron1avcmg7e9urc7srxqd4ds8yfcnhdqk697mugqmhdc4q8njux6zazqgfguw4"),
+    ];
+    CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new()
         .add_attribute("action", "migrate")

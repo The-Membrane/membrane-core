@@ -1841,3 +1841,9 @@ pub struct TickRecord {
     pub opp_action: u8,
     pub outcome: u8, // 0 = lose, 1 = draw, 2 = win
 }
+
+#[cw_serde]
+pub struct StringEntry {
+    pub entry: String,
+    pub remove: bool,
+}

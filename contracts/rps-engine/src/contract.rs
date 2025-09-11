@@ -461,7 +461,7 @@ fn apply_q_learning_updates(storage: &mut dyn cosmwasm_std::Storage, car_id: u12
 }
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, _info: MessageInfo, msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
     
     Q_TABLE.clear(deps.storage);
 

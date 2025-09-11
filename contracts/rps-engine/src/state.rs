@@ -1,7 +1,6 @@
 use cosmwasm_std::{StdResult, Storage};
 use cw_storage_plus::{Item, Map};
 use serde::{Deserialize, Serialize};
-use cosmwasm_schema::cw_serde;
 use membrane::types::TickRecord;
 // Minimal config for RPS engine
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -59,20 +58,30 @@ pub fn push_match_result(storage: &mut dyn Storage, car_id: u128, won: bool) -> 
     MATCH_HISTORY.save(storage, car_id, &history)
 }
 
-pub fn push_tick_records(storage: &mut dyn Storage, car_id: u128, mut ticks: Vec<TickRecord>) -> StdResult<()> {
-    if ticks.is_empty() {
-        return Ok(());
+// New function to push per-tick results instead of per-match
+pub fn push_tick_results(storage: &mut dyn Storage, car_id: u128, ticks: &Vec<TickRecord>) -> StdResult<()> {
+    let mut history = MATCH_HISTORY.load(storage, car_id).unwrap_or_default();
+    
+    // Add each tick's outcome to history
+    for tick in ticks {
+        history.push(tick.outcome);
     }
-    let mut history = TICK_HISTORY.load(storage, car_id).unwrap_or_default();
-    history.append(&mut ticks);
 
-    let limit = CONFIG.load(storage)?.tick_history_limit as usize;
+    let limit = CONFIG.load(storage)?.match_history_limit as usize;
     if history.len() > limit {
         let overflow = history.len() - limit;
         history.drain(0..overflow);
     }
 
-    TICK_HISTORY.save(storage, car_id, &history)
+    MATCH_HISTORY.save(storage, car_id, &history)
+}
+
+pub fn push_tick_records(storage: &mut dyn Storage, car_id: u128, ticks: Vec<TickRecord>) -> StdResult<()> {
+    if ticks.is_empty() {
+        return Ok(());
+    }
+    // Overwrite with the most recent match instead of appending
+    TICK_HISTORY.save(storage, car_id, &ticks)
 }
 
 

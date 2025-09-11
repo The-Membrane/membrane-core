@@ -1839,4 +1839,5 @@ impl From<BrainProgressLegacy> for BrainProgress {
 pub struct TickRecord {
     pub my_action: u8,
     pub opp_action: u8,
+    pub outcome: u8, // 0 = lose, 1 = draw, 2 = win
 }

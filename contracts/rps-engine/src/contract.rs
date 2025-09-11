@@ -7,7 +7,7 @@ use membrane::rps_engine::{InstantiateMsg, ExecuteMsg, QueryMsg, ConfigResponse,
 use membrane::types::{ActionSelectionStrategy, RpsRewardConfig, SeriesMode, TickRecord};
 
 use crate::error::ContractError; 
-use crate::state::{get_config, get_q_values, push_match_result, set_config, set_q_values, Config, CONFIG, MATCH_HISTORY, Q_TABLE};
+use crate::state::{get_config, get_q_values, push_tick_results, set_config, set_q_values, Config, CONFIG, MATCH_HISTORY, TICK_HISTORY};
 use crate::state::push_tick_records;
 
 // Actions
@@ -271,7 +271,7 @@ fn owner_check_for_training(deps: Deps, car_contract: String, info: &MessageInfo
 }
 
 fn execute_play_series(
-    mut deps: DepsMut,
+    deps: DepsMut,
     env: Env,
     info: MessageInfo,
     car_id: u128,
@@ -335,9 +335,9 @@ fn execute_play_series(
 
         a_trace.push((a_state, a_action, a_reward));
         b_trace.push((b_state, b_action, b_reward));
-        // record actions for this tick
-        a_ticks.push(TickRecord { my_action: a_action as u8, opp_action: b_action as u8 });
-        b_ticks.push(TickRecord { my_action: b_action as u8, opp_action: a_action as u8 });
+        // record actions and outcome for this tick
+        a_ticks.push(TickRecord { my_action: a_action as u8, opp_action: b_action as u8, outcome: a_out });
+        b_ticks.push(TickRecord { my_action: b_action as u8, opp_action: a_action as u8, outcome: b_out });
 
         // update last for next state
         a_opp_last = Some(b_action as u8);
@@ -379,9 +379,9 @@ fn execute_play_series(
             let b_reward = match b_out { OUTCOME_WIN => rewards.win_points, OUTCOME_LOSE => rewards.lose_penalty, _ => rewards.draw_points } as i32;
             a_trace.push((a_state, a_action, a_reward));
             b_trace.push((b_state, b_action, b_reward));
-            // record sudden-death tick
-            a_ticks.push(TickRecord { my_action: a_action as u8, opp_action: b_action as u8 });
-            b_ticks.push(TickRecord { my_action: b_action as u8, opp_action: a_action as u8 });
+            // record sudden-death tick with outcome
+            a_ticks.push(TickRecord { my_action: a_action as u8, opp_action: b_action as u8, outcome: a_out });
+            b_ticks.push(TickRecord { my_action: b_action as u8, opp_action: a_action as u8, outcome: b_out });
             a_opp_last = Some(b_action as u8);
             b_opp_last = Some(a_action as u8);
             a_last_outcome = Some(a_out);
@@ -405,10 +405,10 @@ fn execute_play_series(
         apply_q_learning_updates(deps.storage, opponent_id, &b_trace)?; // train car 0 as well
     }
 
-    // Update histories
-    push_match_result(deps.storage, car_id, a_won_series)?;
-    push_match_result(deps.storage, opponent_id, b_won_series)?;
-    // Save per-tick action histories
+    // Update histories - now tracking per-tick results instead of per-match
+    push_tick_results(deps.storage, car_id, &a_ticks)?;
+    push_tick_results(deps.storage, opponent_id, &b_ticks)?;
+    // Save per-tick action histories (overwrites previous match)
     push_tick_records(deps.storage, car_id, a_ticks)?;
     push_tick_records(deps.storage, opponent_id, b_ticks)?;
 
@@ -461,9 +461,15 @@ fn apply_q_learning_updates(storage: &mut dyn cosmwasm_std::Storage, car_id: u12
 }
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     
-    Q_TABLE.clear(deps.storage);
+    MATCH_HISTORY.clear(deps.storage);
+    TICK_HISTORY.clear(deps.storage);
+
+    //change config match_history_limit to 100
+    let mut config = get_config(deps.storage)?;
+    config.match_history_limit = 1000;
+    set_config(deps.storage, config)?;
 
     Ok(Response::new().add_attribute("action", "migrate"))
 }

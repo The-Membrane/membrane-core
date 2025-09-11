@@ -1,10 +1,12 @@
-use cosmwasm_std::{entry_point, to_json_binary, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, Response, StdResult};
+use cosmwasm_std::{entry_point, to_json_binary, Binary, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Response, StdResult, WasmMsg};
 use serde::Deserialize;
 use std::collections::HashMap;
 
+
 use membrane::race_engine::{MigrateMsg, TrainingConfig};
 use membrane::rps_engine::{InstantiateMsg, ExecuteMsg, QueryMsg, ConfigResponse, GetQResponseEntry, GetQResponse, GetHistoryResponse, GetTickHistoryResponse};
-use membrane::types::{ActionSelectionStrategy, RpsRewardConfig, SeriesMode, TickRecord};
+use membrane::types::{ActionSelectionStrategy, CarMetadata, RpsRewardConfig, SeriesMode, TickRecord};
+use membrane::car::ExecuteMsg as Car_ExecuteMsg;
 
 use crate::error::ContractError; 
 use crate::state::{get_config, get_q_values, push_tick_results, set_config, set_q_values, Config, CONFIG, MATCH_HISTORY, TICK_HISTORY};
@@ -49,24 +51,6 @@ struct SeriesCaches {
     b: QValueCache,
 }
 
-// Cache management functions
-fn get_cached_q_values(cache: &mut QValueCache, storage: &dyn cosmwasm_std::Storage, car_id: u128, state_id: u8) -> [i8; 3] {
-    if let Some(&cached) = cache.get(&(car_id, state_id)) {
-        cached
-    } else {
-        let q_values = get_q_values(storage, car_id, state_id).unwrap_or_else(|_| {
-            // Initialize with small random values instead of zeros
-            let seed = (car_id as u32) ^ (state_id as u32) ^ 12345;
-            [
-                (pseudo_random(seed, 21) as i8) - 10, // -10 to 10
-                (pseudo_random(seed.wrapping_add(1), 21) as i8) - 10,
-                (pseudo_random(seed.wrapping_add(2), 21) as i8) - 10,
-            ]
-        });
-        cache.insert((car_id, state_id), q_values);
-        q_values
-    }
-}
 
 // cw721 owner_of query response
 #[derive(Deserialize)]
@@ -77,14 +61,14 @@ pub fn instantiate(deps: DepsMut, _env: Env, _info: MessageInfo, msg: Instantiat
     let admin = deps.api.addr_validate(&msg.admin)?.to_string();
     let car_contract = deps.api.addr_validate(&msg.car_contract)?.to_string();
 
-    let cfg = Config {
+    let config = Config {
         admin,
         car_contract,
         max_ticks: msg.max_ticks.unwrap_or(100),
         match_history_limit: msg.match_history_limit.unwrap_or(MATCH_HISTORY_LIMIT),
         tick_history_limit: msg.tick_history_limit.unwrap_or(500),
     };
-    set_config(deps.storage, cfg)?;
+    set_config(deps.storage, config)?;
     Ok(Response::new().add_attribute("action", "instantiate"))
 }
 
@@ -95,12 +79,12 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> R
             execute_play_series(deps, env, info, car_id, opponent_id.unwrap_or(0), train, training_config, reward_config, mode)
         }
         ExecuteMsg::UpdateConfig { max_ticks, match_history_limit, tick_history_limit } => {
-            let mut cfg = get_config(deps.storage)?;
-            if info.sender.as_str() != cfg.admin { return Err(ContractError::Unauthorized {}); }
-            if let Some(v) = max_ticks { cfg.max_ticks = v; }
-            if let Some(v) = match_history_limit { cfg.match_history_limit = v; }
-            if let Some(v) = tick_history_limit { cfg.tick_history_limit = v; }
-            set_config(deps.storage, cfg)?;
+            let mut config = get_config(deps.storage)?;
+            if info.sender.as_str() != config.admin { return Err(ContractError::Unauthorized {}); }
+            if let Some(v) = max_ticks { config.max_ticks = v; }
+            if let Some(v) = match_history_limit { config.match_history_limit = v; }
+            if let Some(v) = tick_history_limit { config.tick_history_limit = v; }
+            set_config(deps.storage, config)?;
             Ok(Response::new().add_attribute("action", "update_config"))
         }
         // ExecuteMsg::PurgeCar { car_id: _ } => {
@@ -210,13 +194,13 @@ fn make_strategy(tc: &TrainingConfig, tick: u32, total: u32) -> ActionSelectionS
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::GetConfig {} => {
-            let cfg = CONFIG.load(deps.storage)?;
+            let config = CONFIG.load(deps.storage)?;
             to_json_binary(&ConfigResponse {
-                admin: cfg.admin,
-                car_contract: cfg.car_contract,
-                max_ticks: cfg.max_ticks,
-                match_history_limit: cfg.match_history_limit,
-                tick_history_limit: cfg.tick_history_limit,
+                admin: config.admin,
+                car_contract: config.car_contract,
+                max_ticks: config.max_ticks,
+                match_history_limit: config.match_history_limit,
+                tick_history_limit: config.tick_history_limit,
             })
         }
         QueryMsg::GetQ { car_id, state_id } => {
@@ -281,8 +265,9 @@ fn execute_play_series(
     reward_config: Option<RpsRewardConfig>,
     mode: SeriesMode,
 ) -> Result<Response, ContractError> {
-    let cfg = get_config(deps.storage)?;
-    if train { owner_check_for_training(deps.as_ref(), cfg.car_contract.clone(), &info, car_id)?; }
+    let mut msgs = vec![];
+    let config = get_config(deps.storage)?;
+    if train { owner_check_for_training(deps.as_ref(), config.car_contract.clone(), &info, car_id)?; }
     if train { opponent_id = 0; }
 
     let tc = training_config.unwrap_or_else(|| default_training_config(train));
@@ -307,7 +292,7 @@ fn execute_play_series(
     let mut b_wins: u32 = 0;
     let mut rounds: u32 = 0;
 
-    let max_ticks = cfg.max_ticks;
+    let max_ticks = config.max_ticks;
 
     let mut target_wins: Option<u32> = None;
     let mut max_rounds: u32 = max_ticks;
@@ -412,7 +397,23 @@ fn execute_play_series(
     push_tick_records(deps.storage, car_id, a_ticks)?;
     push_tick_records(deps.storage, opponent_id, b_ticks)?;
 
+
+
+    //Update car energy
+    if train {
+        //Update car energy
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.car_contract.clone(),
+            msg: to_json_binary(&Car_ExecuteMsg::<Option<CarMetadata>, cosmwasm_std::Empty>::ConsumeTrainingEnergy {
+                token_id: car_id.to_string(),
+                sessions: 1,
+            })?,
+            funds: vec![],
+        }));
+    }
+
     Ok(Response::new()
+        .add_messages(msgs)
         .add_attribute("action", "play_series")
         .add_attribute("car_id", car_id.to_string())
         .add_attribute("opponent_id", opponent_id.to_string())
@@ -463,15 +464,35 @@ fn apply_q_learning_updates(storage: &mut dyn cosmwasm_std::Storage, car_id: u12
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     
-    MATCH_HISTORY.clear(deps.storage);
-    TICK_HISTORY.clear(deps.storage);
+    // MATCH_HISTORY.clear(deps.storage);
+    // TICK_HISTORY.clear(deps.storage);
 
-    //change config match_history_limit to 100
-    let mut config = get_config(deps.storage)?;
-    config.match_history_limit = 1000;
-    set_config(deps.storage, config)?;
+    // //change config match_history_limit to 100
+    // let mut config = get_config(deps.storage)?;
+    // config.match_history_limit = 1000;
+    // set_config(deps.storage, config)?;
 
     Ok(Response::new().add_attribute("action", "migrate"))
+}
+
+
+// Cache management functions
+fn get_cached_q_values(cache: &mut QValueCache, storage: &dyn cosmwasm_std::Storage, car_id: u128, state_id: u8) -> [i8; 3] {
+    if let Some(&cached) = cache.get(&(car_id, state_id)) {
+        cached
+    } else {
+        let q_values = get_q_values(storage, car_id, state_id).unwrap_or_else(|_| {
+            // Initialize with small random values instead of zeros
+            let seed = (car_id as u32) ^ (state_id as u32) ^ 12345;
+            [
+                (pseudo_random(seed, 21) as i8) - 10, // -10 to 10
+                (pseudo_random(seed.wrapping_add(1), 21) as i8) - 10,
+                (pseudo_random(seed.wrapping_add(2), 21) as i8) - 10,
+            ]
+        });
+        cache.insert((car_id, state_id), q_values);
+        q_values
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

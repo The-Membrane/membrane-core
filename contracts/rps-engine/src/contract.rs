@@ -2,12 +2,12 @@ use cosmwasm_std::{entry_point, to_json_binary, Binary, Decimal, Deps, DepsMut, 
 use serde::Deserialize;
 use std::collections::HashMap;
 
-use membrane::race_engine::TrainingConfig;
+use membrane::race_engine::{MigrateMsg, TrainingConfig};
 use membrane::rps_engine::{InstantiateMsg, ExecuteMsg, QueryMsg, ConfigResponse, GetQResponseEntry, GetQResponse, GetHistoryResponse, GetTickHistoryResponse};
 use membrane::types::{ActionSelectionStrategy, RpsRewardConfig, SeriesMode, TickRecord};
 
-use crate::error::ContractError;
-use crate::state::{get_config, get_q_values, push_match_result, set_config, set_q_values, Config, MATCH_HISTORY, CONFIG};
+use crate::error::ContractError; 
+use crate::state::{get_config, get_q_values, push_match_result, set_config, set_q_values, Config, CONFIG, MATCH_HISTORY, Q_TABLE};
 use crate::state::push_tick_records;
 
 // Actions
@@ -20,16 +20,23 @@ pub const OUTCOME_LOSE: u8 = 0;
 pub const OUTCOME_DRAW: u8 = 1;
 pub const OUTCOME_WIN: u8 = 2;
 
+const DEFAULT_REWARDS: RpsRewardConfig = RpsRewardConfig { 
+    win_points: 3, 
+    lose_penalty: -3, 
+    draw_points: 0, 
+    series_win_points: 10
+};
+
 // State encoding
 // state_id in 0..=8 => (opp_last_move in 0..=2, last_outcome in 0..=2)
 // 9 => initial (no prior move/outcome)
 pub const INITIAL_STATE_ID: u8 = 9;
 
 // Q-learning params and clamp
-const ALPHA: f32 = 0.1; // learning rate
-const GAMMA: f32 = 0.9; // discount factor
-const Q_MIN: i32 = -3;
-const Q_MAX: i32 = 3;
+const ALPHA: f32 = 0.3; // learning rate - increased for faster learning
+const GAMMA: f32 = 0.95; // discount factor - increased for better long-term planning
+const Q_MIN: i32 = -128; // expanded range for more nuanced Q-values
+const Q_MAX: i32 = 127;
 
 const MATCH_HISTORY_LIMIT: u32 = 100;
 
@@ -47,7 +54,15 @@ fn get_cached_q_values(cache: &mut QValueCache, storage: &dyn cosmwasm_std::Stor
     if let Some(&cached) = cache.get(&(car_id, state_id)) {
         cached
     } else {
-        let q_values = get_q_values(storage, car_id, state_id).unwrap_or([0; 3]);
+        let q_values = get_q_values(storage, car_id, state_id).unwrap_or_else(|_| {
+            // Initialize with small random values instead of zeros
+            let seed = (car_id as u32) ^ (state_id as u32) ^ 12345;
+            [
+                (pseudo_random(seed, 21) as i8) - 10, // -10 to 10
+                (pseudo_random(seed.wrapping_add(1), 21) as i8) - 10,
+                (pseudo_random(seed.wrapping_add(2), 21) as i8) - 10,
+            ]
+        });
         cache.insert((car_id, state_id), q_values);
         q_values
     }
@@ -88,20 +103,20 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> R
             set_config(deps.storage, cfg)?;
             Ok(Response::new().add_attribute("action", "update_config"))
         }
-        ExecuteMsg::PurgeCar { car_id: _ } => {
-            // Anyone can purge; removes Q-table and history for the car
-            // let id = car_id.u128();
-            // // remove q-table entries
-            // let prefix = Q_TABLE.prefix(id);
-            // let keys: Vec<u8> = prefix
-            //     .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
-            //     .map(|r| r.unwrap().0)
-            //     .collect();
-            // for key in keys { Q_TABLE.remove(deps.storage, (id, key)); }
-            // // remove history
-            // crate::state::MATCH_HISTORY.remove(deps.storage, id);
-            Ok(Response::new().add_attribute("action", "purge_car"))
-        }
+        // ExecuteMsg::PurgeCar { car_id: _ } => {
+        //     // Anyone can purge; removes Q-table and history for the car
+        //     // let id = car_id.u128();
+        //     // // remove q-table entries
+        //     // let prefix = Q_TABLE.prefix(id);
+        //     // let keys: Vec<u8> = prefix
+        //     //     .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+        //     //     .map(|r| r.unwrap().0)
+        //     //     .collect();
+        //     // for key in keys { Q_TABLE.remove(deps.storage, (id, key)); }
+        //     // // remove history
+        //     // crate::state::MATCH_HISTORY.remove(deps.storage, id);
+        //     Ok(Response::new().add_attribute("action", "purge_car"))
+        // }
     }
 }
 
@@ -126,7 +141,15 @@ fn choose_action(
     let q_values = if let Some(cache) = cache {
         get_cached_q_values(cache, storage, car_id, state_id)
     } else {
-        get_q_values(storage, car_id, state_id).unwrap_or([0, 0, 0])
+        get_q_values(storage, car_id, state_id).unwrap_or_else(|_| {
+            // Initialize with small random values instead of zeros
+            let seed = (car_id as u32) ^ (state_id as u32) ^ 12345;
+            [
+                (pseudo_random(seed, 21) as i8) - 10, // -10 to 10
+                (pseudo_random(seed.wrapping_add(1), 21) as i8) - 10,
+                (pseudo_random(seed.wrapping_add(2), 21) as i8) - 10,
+            ]
+        })
     };
     let action_count = 3u32;
 
@@ -142,16 +165,16 @@ fn choose_action(
 
     let action = match strategy {
         ActionSelectionStrategy::Best => pick_best(),
-        ActionSelectionStrategy::Random => (pseudo_random(seed, action_count) as usize),
+        ActionSelectionStrategy::Random => pseudo_random(seed, action_count) as usize,
         ActionSelectionStrategy::EpsilonGreedy(eps) => {
             let threshold = (eps * 100.0) as u32;
-            if pseudo_random(seed, 100) < threshold { (pseudo_random(seed.wrapping_add(1), action_count) as usize) } else { pick_best() }
+            if pseudo_random(seed, 100) < threshold { pseudo_random(seed.wrapping_add(1), action_count) as usize } else { pick_best() }
         }
         ActionSelectionStrategy::EpsilonDecay { initial_epsilon, final_epsilon, current_tick, total_ticks } => {
             let progress = if total_ticks == 0 { 1.0 } else { current_tick as f32 / total_ticks as f32 };
             let eps = initial_epsilon - (initial_epsilon - final_epsilon) * progress;
             let threshold = (eps * 100.0) as u32;
-            if pseudo_random(seed, 100) < threshold { (pseudo_random(seed.wrapping_add(1), action_count) as usize) } else { pick_best() }
+            if pseudo_random(seed, 100) < threshold { pseudo_random(seed.wrapping_add(1), action_count) as usize } else { pick_best() }
         },
         ActionSelectionStrategy::Softmax(temp) => {
             let t = if temp <= 0.0 { 1.0 } else { temp };
@@ -165,7 +188,7 @@ fn choose_action(
                 acc += exp_val / sum;
                 if sample < acc { return Ok((i, q_values)); }
             }
-            (action_count as usize - 1)
+            action_count as usize - 1
         }
     };
 
@@ -263,7 +286,7 @@ fn execute_play_series(
     if train { opponent_id = 0; }
 
     let tc = training_config.unwrap_or_else(|| default_training_config(train));
-    let rewards = reward_config.unwrap_or(RpsRewardConfig { win_points: 1, lose_penalty: -1, draw_points: 0, series_win_points: 3 });
+    let rewards = reward_config.unwrap_or(DEFAULT_REWARDS);
 
     // Initialize separate Q-value caches for each player
     let mut caches = SeriesCaches { a: HashMap::new(), b: HashMap::new() };
@@ -402,19 +425,47 @@ fn apply_q_learning_updates(storage: &mut dyn cosmwasm_std::Storage, car_id: u12
     let n = trace.len();
     for i in (0..n).rev() {
         let (s, a, r) = trace[i];
-        let mut q_values = get_q_values(storage, car_id, s).unwrap_or([0,0,0]);
+        let mut q_values = get_q_values(storage, car_id, s).unwrap_or_else(|_| {
+            // Initialize with small random values if not found
+            let seed = (car_id as u32) ^ (s as u32) ^ 12345;
+            [
+                (pseudo_random(seed, 21) as i8) - 10,
+                (pseudo_random(seed.wrapping_add(1), 21) as i8) - 10,
+                (pseudo_random(seed.wrapping_add(2), 21) as i8) - 10,
+            ]
+        });
         let old = q_values[a] as f32;
         let next_max = if i + 1 < n {
             let (s_next, _a_next, _r_next) = trace[i+1];
-            let next = get_q_values(storage, car_id, s_next).unwrap_or([0,0,0]);
+            let next = get_q_values(storage, car_id, s_next).unwrap_or_else(|_err| {
+                let seed = (car_id as u32) ^ (s_next as u32) ^ 12345;
+                [
+                    (pseudo_random(seed, 21) as i8) - 10,
+                    (pseudo_random(seed.wrapping_add(1), 21) as i8) - 10,
+                    (pseudo_random(seed.wrapping_add(2), 21) as i8) - 10,
+                ]
+            });
             let mut m = next[0] as f32; for &v in next.iter().skip(1) { if (v as f32) > m { m = v as f32; } } m
         } else { 0.0 };
         let target = r as f32 + GAMMA * next_max;
         let updated = (old + ALPHA * (target - old)).round() as i32;
-        q_values[a] = updated.clamp(Q_MIN, Q_MAX) as i8;
+        let clamped = updated.clamp(Q_MIN, Q_MAX) as i8;
+        q_values[a] = clamped;
+        
+        // println!("  State {}, Action {}, Reward {}, Old: {}, Target: {}, Updated: {}, Clamped: {}", 
+        //          s, a, r, old, target, updated, clamped);
+        
         set_q_values(storage, car_id, s, q_values)?;
     }
     Ok(())
+}
+
+#[entry_point]
+pub fn migrate(deps: DepsMut, _env: Env, _info: MessageInfo, msg: MigrateMsg) -> Result<Response, ContractError> {
+    
+    Q_TABLE.clear(deps.storage);
+
+    Ok(Response::new().add_attribute("action", "migrate"))
 }
 
 #[cfg(not(target_arch = "wasm32"))]

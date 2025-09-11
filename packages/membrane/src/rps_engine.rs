@@ -16,9 +16,20 @@ pub struct InstantiateMsg {
 
 #[cw_serde]
 pub enum ExecuteMsg {
-    PlaySeries { car_id: u128, opponent_id: Option<u128>, train: bool, training_config: Option<TrainingConfig>, reward_config: Option<RpsRewardConfig>, mode: SeriesMode },
-    UpdateConfig { max_ticks: Option<u32>, match_history_limit: Option<u32>, tick_history_limit: Option<u32> },
-    PurgeCar { car_id: u128 },
+    PlaySeries { 
+        car_id: u128, 
+        opponent_id: Option<u128>, 
+        train: bool, 
+        training_config: Option<TrainingConfig>, 
+        reward_config: Option<RpsRewardConfig>, 
+        mode: SeriesMode
+    },
+    UpdateConfig { 
+        max_ticks: Option<u32>, 
+        match_history_limit: Option<u32>, 
+        tick_history_limit: Option<u32> 
+    },
+    // PurgeCar { car_id: u128 },
 }
 
 #[cw_serde]

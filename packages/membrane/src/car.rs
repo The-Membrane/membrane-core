@@ -211,7 +211,7 @@ pub struct Config {
     /// Accepted payment options for refilling training energy
     pub training_payment_options: Vec<Coin>,
     /// Valid contracts that can consume energy
-    pub valid_energy_consumers: Vec<String>,
+    pub valid_energy_consumers: Option<Vec<String>>,
 }
 
 #[cw_serde]

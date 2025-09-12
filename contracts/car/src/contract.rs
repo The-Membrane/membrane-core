@@ -75,7 +75,7 @@ pub fn instantiate(
             energy_recovery_hours: 24,
             energy_per_training: 5,
             training_payment_options: vec![],
-            valid_energy_consumers: vec![],
+            valid_energy_consumers: Some(vec![]),
         }
     )?;
 
@@ -216,13 +216,22 @@ fn execute_update_config(
         
         if remove {
             // Remove the entry if it exists
-            config.valid_energy_consumers.retain(|e| e != &entry);
+            if let Some(ref mut consumers) = config.valid_energy_consumers {
+                consumers.retain(|e| e != &entry);
+            }
         } else {
             // Add the entry if it doesn't already exist
-            if config.valid_energy_consumers.contains(&entry) {
-                return Err(CarError::Std(cosmwasm_std::StdError::generic_err("energy consumer already exists")));
+            match &mut config.valid_energy_consumers {
+                Some(ref mut consumers) => {
+                    if consumers.contains(&entry) {
+                        return Err(CarError::Std(cosmwasm_std::StdError::generic_err("energy consumer already exists")));
+                    }
+                    consumers.push(entry);
+                }
+                None => {
+                    config.valid_energy_consumers = Some(vec![entry]);
+                }
             }
-            config.valid_energy_consumers.push(entry);
         }
     }
     
@@ -580,8 +589,10 @@ fn execute_pay_for_training(
 
 fn ensure_energy_consumers_only(config: &Config, info: &MessageInfo) -> Result<(), CarError> {
     let sender_addr = info.sender.to_string();
-    if config.valid_energy_consumers.contains(&sender_addr) {
-        return Ok(());
+    if let Some(ref consumers) = config.valid_energy_consumers {
+        if consumers.contains(&sender_addr) {
+            return Ok(());
+        }
     }
     Err(CarError::Unauthorized {})
 }
@@ -911,10 +922,14 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, CarError> {
     //Load config
     let mut config = CONFIG.load(deps.storage)?;
-    config.valid_energy_consumers = vec![
-        config.clone().race_engine_contract.unwrap(),
-        String::from("neutron1avcmg7e9urc7srxqd4ds8yfcnhdqk697mugqmhdc4q8njux6zazqgfguw4"),
-    ];
+    let mut consumers = vec![String::from("neutron1avcmg7e9urc7srxqd4ds8yfcnhdqk697mugqmhdc4q8njux6zazqgfguw4")];
+    
+    // Add race_engine_contract if it exists
+    if let Some(race_engine) = config.race_engine_contract.clone() {
+        consumers.push(race_engine);
+    }
+    
+    config.valid_energy_consumers = Some(consumers);
     CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new()

@@ -3,7 +3,7 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
 use cosmwasm_std::Uint128;
 use crate::race_engine::TrainingConfig;
-use crate::types::{RpsRewardConfig, SeriesMode, TickRecord};
+use crate::types::{RpsRewardConfig, SeriesMode, TickRecord, WinLossDraw};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -43,6 +43,12 @@ pub enum QueryMsg {
     GetHistory { car_id: u128 },
     #[returns(GetTickHistoryResponse)]
     GetTickHistory { car_id: u128 },
+    #[returns(GetRaceResultResponse)]
+    SimSeries {
+        car_id: u128,
+        opponent_id: Option<u128>,
+        mode: SeriesMode
+    }
 }
 
 #[cw_serde]
@@ -56,6 +62,14 @@ pub struct GetHistoryResponse { pub car_id: u128, pub history: Vec<u8> }
 
 #[cw_serde]
 pub struct GetTickHistoryResponse { pub car_id: u128, pub ticks: Vec<TickRecord> }
+
+#[cw_serde]
+pub struct GetRaceResultResponse { 
+    pub winner_id: u128, 
+    pub car_record: WinLossDraw,
+    pub opponent_record: WinLossDraw,
+}
+
 
 #[cw_serde]
 pub struct ConfigResponse {

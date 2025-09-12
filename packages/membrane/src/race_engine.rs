@@ -39,6 +39,7 @@ pub enum ExecuteMsg {
     UpdateConfig {
         max_ticks: Option<u32>,
         byte_minter_contract: Option<String>,
+        rps_engine_contract: Option<String>,
         brain_progress_entry_limit: Option<u32>,
     },
     /// Migrate existing Q-table states from legacy byte array hashes to integer hashes
@@ -205,6 +206,8 @@ pub struct RaceState {
     pub track_layout: Vec<Vec<TrackTile>>,
     pub tick: u32,
     pub play_by_play: std::collections::HashMap<u128, PlayByPlay>,
+    pub rps_winners: Vec<u128>,
+    pub rps_failures: u32,
 }
 
 
@@ -216,6 +219,7 @@ pub struct Config {
     pub max_ticks: u32,
     pub max_recent_races: u32,
     pub byte_minter_contract: Option<String>,
+    pub rps_engine_contract: Option<String>,
     /// Maximum number of brain progress entries to keep per car
     pub brain_progress_entry_limit: Option<u32>,
 } 

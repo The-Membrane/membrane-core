@@ -1758,6 +1758,13 @@ pub enum SeriesMode {
     BestOf { wins_target: u32 },
 }
 
+
+#[cw_serde]
+pub struct WinLossDraw {
+    pub win: u8,
+    pub loss: u8,
+    pub draw: u8,
+}
 // Top times per track
 #[cw_serde]
 pub struct TopTimeEntry {

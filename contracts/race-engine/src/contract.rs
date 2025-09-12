@@ -44,10 +44,11 @@ use cw_storage_plus::Bound;
 
 use crate::error::ContractError;
 use crate::state::{add_recent_race, get_config, get_integer_q_values, get_q_values, get_recent_races, get_track_training_stats, set_config, set_integer_q_values, set_q_values, update_fastest_time, update_pvp_training_stats, update_solo_training_stats, update_track_top_times, update_brain_progress, CAR_BRAIN_PROGRESS, CAR_RECENT_RACES, CAR_TRACK_TRAINING_STATS, CONFIG, INTEGER_Q_TABLE, Q_TABLE, TRACK_RECENT_RACES};
-use membrane::types::{ActionSelectionStrategy, CarMetadata, GoingBackward, IntegerQTableEntry, RewardNumbers, Track, TrackTile};
+use membrane::types::{ActionSelectionStrategy, CarMetadata, GoingBackward, IntegerQTableEntry, RewardNumbers, Track, TrackTile, SeriesMode};
 use membrane::race_engine::{CarState, Config, ExecuteMsg, GetIntegerQResponse, GetTrackTrainingStatsResponse, InstantiateMsg, MigrateMsg, MigrationStatusResponse, QueryMsg, RaceResult, RaceResultResponse, RaceState, RecentRacesResponse, TrainingConfig, DEFAULT_BOOST_SPEED, DEFAULT_SPEED};
 use membrane::car::{ExecuteMsg as Car_ExecuteMsg, QueryMsg as Car_QueryMsg};
 use membrane::byte_minter::{QueryMsg as ByteMinterQueryMsg, VerifyEventRaceResponse, ExecuteMsg as ByteMinterExecuteMsg, EventType as ByteEventType};
+use membrane::rps_engine::{QueryMsg as RpsQueryMsg, GetRaceResultResponse};
 // Race simulation constants
 // const MAX_CARS: usize = 8;
 // const MAX_TRACK_SIZE: usize = 50;
@@ -233,6 +234,7 @@ pub fn instantiate(
         max_ticks: 100,
         max_recent_races: 10,
         byte_minter_contract: None,
+        rps_engine_contract: None,
         brain_progress_entry_limit: Some(100),
     };
     
@@ -266,14 +268,8 @@ pub fn execute(
             }
             execute_purge_car(deps.storage, car_id.u128())
         },
-        ExecuteMsg::UpdateConfig { max_ticks, byte_minter_contract, brain_progress_entry_limit } => {
-            let mut config = get_config(deps.storage)?;
-            if _info.sender.as_str() != config.admin { return Err(ContractError::Unauthorized {}); }
-            if let Some(v) = max_ticks { config.max_ticks = v; }
-            if let Some(addr) = byte_minter_contract { config.byte_minter_contract = Some(addr); }
-            if let Some(limit) = brain_progress_entry_limit { config.brain_progress_entry_limit = Some(limit); }
-            set_config(deps.storage, config)?;
-            Ok(Response::new().add_attribute("action", "update_config"))
+        ExecuteMsg::UpdateConfig { max_ticks, byte_minter_contract, rps_engine_contract, brain_progress_entry_limit } => {
+            execute_update_config(deps, _info, max_ticks, byte_minter_contract, rps_engine_contract, brain_progress_entry_limit)
         },
         ExecuteMsg::MigrateQTableStates { car_id, batch_size } => {
             execute_migrate_q_table_states(deps, _info, car_id, batch_size)
@@ -296,6 +292,42 @@ fn execute_reset_q(storage: &mut dyn Storage, car_id: u128) -> Result<Response, 
         INTEGER_Q_TABLE.remove(storage, (car_id, key));
     }
     Ok(Response::new())
+}
+
+/// Update contract configuration (admin only)
+fn execute_update_config(
+    deps: DepsMut,
+    info: MessageInfo,
+    max_ticks: Option<u32>,
+    byte_minter_contract: Option<String>,
+    rps_engine_contract: Option<String>,
+    brain_progress_entry_limit: Option<u32>,
+) -> Result<Response, ContractError> {
+    let mut config = get_config(deps.storage)?;
+    
+    // Check authorization
+    if info.sender.as_str() != config.admin {
+        return Err(ContractError::Unauthorized {});
+    }
+    
+    // Update fields if provided
+    if let Some(v) = max_ticks {
+        config.max_ticks = v;
+    }
+    if let Some(addr) = byte_minter_contract {
+        config.byte_minter_contract = Some(addr);
+    }
+    if let Some(addr) = rps_engine_contract {
+        config.rps_engine_contract = Some(addr);
+    }
+    if let Some(limit) = brain_progress_entry_limit {
+        config.brain_progress_entry_limit = Some(limit);
+    }
+    
+    // Save updated config
+    set_config(deps.storage, config)?;
+    
+    Ok(Response::new().add_attribute("action", "update_config"))
 }
 
 /// Purge all state for a car: Q-table, training stats, recent races
@@ -713,6 +745,8 @@ pub fn execute_simulate_race(
         track_layout,
         tick: 0,
         play_by_play: std::collections::HashMap::new(),
+        rps_winners: Vec::new(),
+        rps_failures: 0,
     };
 
     // Response accumulator
@@ -733,7 +767,7 @@ pub fn execute_simulate_race(
 
     // Simulate race using provided max_race_ticks or fallback to configured max_ticks
     let max_ticks = max_race_ticks.unwrap_or(config.max_ticks);
-    let race_result = simulate_race(deps.storage, &mut race_state, training_config, max_ticks, env.block.time.seconds() as u32)?;
+    let race_result = simulate_race(deps.storage, &mut race_state, training_config, max_ticks, env.block.time.seconds() as u32, &config, deps.querier)?;
 
     // Generate race ID
     let race_id = format!("race_{}_{}", track_id, env.block.time.seconds());
@@ -857,7 +891,9 @@ pub fn execute_simulate_race(
         .add_attribute("race_id", race_id)
         .add_attribute("car_count", car_ids.len().to_string())
         .add_attribute("ticks", race_state.tick.to_string())
-        .add_attribute("winners", race_result.winner_ids.len().to_string());
+        .add_attribute("winners", race_result.winner_ids.len().to_string())
+        .add_attribute("rps_winners", format!("{:?}", race_state.rps_winners))
+        .add_attribute("rps_failures", race_state.rps_failures.to_string());
     
 
     Ok(response)
@@ -876,7 +912,7 @@ fn load_track_from_manager(deps: Deps, config: Config, track_id: Uint128) -> Res
 }
 
 /// Simulate the complete race
-fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training_config: TrainingConfig, max_ticks: u32, seed: u32) -> Result<RaceResult, ContractError> {
+fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training_config: TrainingConfig, max_ticks: u32, seed: u32, config: &Config, querier: QuerierWrapper) -> Result<RaceResult, ContractError> {
     let mut tick = 0;
     
     // Initialize play_by_play for each car
@@ -892,7 +928,7 @@ fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training
     
     while tick < max_ticks && !all_cars_finished(&race_state.cars) {
         // Simulate one tick
-        simulate_tick(storage, race_state, training_config.clone(), tick, max_ticks, seed)?;
+        simulate_tick(storage, race_state, training_config.clone(), tick, max_ticks, seed, &config, querier)?;
         
         tick += 1;
         race_state.tick = tick;
@@ -915,7 +951,7 @@ fn simulate_race(storage: &mut dyn Storage, race_state: &mut RaceState, training
 }
 
 /// Simulate one tick of the race
-fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training_config: TrainingConfig, tick_index: u32, max_ticks: u32, seed: u32) -> Result<(), ContractError> {
+fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training_config: TrainingConfig, tick_index: u32, max_ticks: u32, seed: u32, config: &Config, querier: QuerierWrapper) -> Result<(), ContractError> {
     // **NEW**: Reset car states for this tick
     for car in &mut race_state.cars {
         reset_car_state_for_tick(car);
@@ -995,12 +1031,28 @@ fn simulate_tick(storage: &mut dyn Storage, race_state: &mut RaceState, training
         wall_collisions.push(hit_wall);
     }
     
-    // Check for collisions
+    // Check for collisions and resolve with RPS if configured
     let mut final_positions = vec![];
     for (i, (new_x, new_y)) in new_positions.iter().enumerate() {
-        if check_collision(*new_x, *new_y, &new_positions, i) {
-            // Collision detected, stay in place
-            final_positions.push((race_state.cars[i].x, race_state.cars[i].y));
+        if let Some(collision_partner) = find_collision_partner(*new_x, *new_y, &new_positions, i) {
+            // Collision detected - try RPS resolution
+            match resolve_collision_with_rps(querier, config, race_state.cars[i].car_id, race_state.cars[collision_partner].car_id) {
+                Ok(winner_id) => {
+                    // RPS winner gets the position, loser stays in place
+                    if winner_id == race_state.cars[i].car_id {
+                        final_positions.push((*new_x, *new_y)); // Winner gets new position
+                        race_state.rps_winners.push(winner_id);
+                    } else {
+                        final_positions.push((race_state.cars[i].x, race_state.cars[i].y)); // Loser stays in place
+                        race_state.rps_winners.push(winner_id);
+                    }
+                }
+                Err(_) => {
+                    // RPS failed, fall back to current behavior
+                    final_positions.push((race_state.cars[i].x, race_state.cars[i].y));
+                    race_state.rps_failures += 1;
+                }
+            }
         } else {
             final_positions.push((*new_x, *new_y));
         }
@@ -1428,14 +1480,45 @@ fn reset_car_state_for_tick(car: &mut CarState) {
     car.hit_wall = false;
 }
 
-/// Check for collision between cars
-fn check_collision(x: i32, y: i32, positions: &[(i32, i32)], current_car: usize) -> bool {
+/// Find collision partner index if collision exists
+fn find_collision_partner(x: i32, y: i32, positions: &[(i32, i32)], current_car: usize) -> Option<usize> {
     for (i, (other_x, other_y)) in positions.iter().enumerate() {
         if i != current_car && *other_x == x && *other_y == y {
-            return true;
+            return Some(i);
         }
     }
-    false
+    None
+}
+
+/// Resolve collision using RPS engine
+fn resolve_collision_with_rps(
+    querier: QuerierWrapper,
+    config: &Config,
+    car_id: u128,
+    opponent_id: u128,
+) -> Result<u128, ContractError> {
+    // Check if RPS engine is configured
+    let rps_contract = match &config.rps_engine_contract {
+        Some(addr) => addr,
+        None => return Err(ContractError::Std(cosmwasm_std::StdError::generic_err("RPS engine not configured"))),
+    };
+
+    // Query RPS engine for Best of 2 series
+    let rps_result: GetRaceResultResponse = querier.query_wasm_smart(
+        rps_contract,
+        &RpsQueryMsg::SimSeries {
+            car_id,
+            opponent_id: Some(opponent_id),
+            mode: SeriesMode::BestOf { wins_target: 2 },
+        },
+    )?;
+
+    Ok(rps_result.winner_id)
+}
+
+/// Check for collision between cars (legacy function, kept for compatibility)
+fn check_collision(x: i32, y: i32, positions: &[(i32, i32)], current_car: usize) -> bool {
+    find_collision_partner(x, y, positions, current_car).is_some()
 }
 
 /// Check if all cars have finished
@@ -2083,29 +2166,21 @@ fn calculate_action_reward(
 
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
-    // Migrate BrainProgress from legacy format to new format
-    // migrate_brain_progress(deps.storage)?;
-
-    // Migrate Config to set brain_progress_entry_limit if it's not already set
-    migrate_config_brain_progress_limit(deps.storage)?;
+    let mut config = get_config(deps.storage)?;
+    
+    
+    // Only set rps_engine_contract if it's not already set
+    if config.rps_engine_contract.is_none() {
+        config.rps_engine_contract = Some(String::from("neutron1avcmg7e9urc7srxqd4ds8yfcnhdqk697mugqmhdc4q8njux6zazqgfguw4")); 
+    }
+    
+    set_config(deps.storage, config)?;
 
     Ok(Response::new()
         .add_attribute("method", "migrate")
-        .add_attribute("migrated", "brain_progress_and_config"))
+        .add_attribute("migrated", "config"))
 }
 
-/// Migrate Config to set brain_progress_entry_limit if it's not already set
-fn migrate_config_brain_progress_limit(storage: &mut dyn Storage) -> Result<(), ContractError> {
-    let mut config = get_config(storage)?;
-    
-    // Only set the limit if it's not already set
-    if config.brain_progress_entry_limit.is_none() {
-        config.brain_progress_entry_limit = Some(100); // Default value
-        set_config(storage, config)?;
-    }
-    
-    Ok(())
-}
 
 // /// Migrate BrainProgress from legacy format (with totals) to new format (deprecated fields set to None)
 // fn migrate_brain_progress(storage: &mut dyn Storage) -> Result<(), ContractError> {
@@ -2193,6 +2268,8 @@ mod tests {
             track_layout: track,
             tick: 0,
             play_by_play: std::collections::HashMap::new(),
+            rps_winners: Vec::new(),
+            rps_failures: 0,
         };
 
         // Pre-seed Q-values for the initial state to strongly prefer RIGHT
@@ -2216,6 +2293,18 @@ mod tests {
 
         let max_ticks: u32 = 5;
         let seed: u32 = 4242;
+        
+        // Create mock config for test
+        let config = membrane::race_engine::Config {
+            admin: "admin".to_string(),
+            track_contract: "track".to_string(),
+            car_contract: "car".to_string(),
+            max_ticks: 100,
+            max_recent_races: 10,
+            byte_minter_contract: None,
+            rps_engine_contract: None,
+            brain_progress_entry_limit: Some(100),
+        };
 
         for t in 0..max_ticks {
             // Run one tick
@@ -2226,6 +2315,8 @@ mod tests {
                 t,
                 max_ticks,
                 seed,
+                &config,
+                deps.querier,
             )
             .unwrap();
 

@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 
 use membrane::race_engine::{MigrateMsg, TrainingConfig};
-use membrane::rps_engine::{InstantiateMsg, ExecuteMsg, QueryMsg, ConfigResponse, GetQResponseEntry, GetQResponse, GetHistoryResponse, GetTickHistoryResponse};
-use membrane::types::{ActionSelectionStrategy, CarMetadata, RpsRewardConfig, SeriesMode, TickRecord};
+use membrane::rps_engine::{InstantiateMsg, ExecuteMsg, QueryMsg, ConfigResponse, GetQResponseEntry, GetQResponse, GetHistoryResponse, GetTickHistoryResponse, GetRaceResultResponse};
+use membrane::types::{ActionSelectionStrategy, CarMetadata, RpsRewardConfig, SeriesMode, TickRecord, WinLossDraw};
 use membrane::car::ExecuteMsg as Car_ExecuteMsg;
 
 use crate::error::ContractError; 
@@ -76,7 +76,7 @@ pub fn instantiate(deps: DepsMut, _env: Env, _info: MessageInfo, msg: Instantiat
 pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: ExecuteMsg) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::PlaySeries { car_id, opponent_id, train, training_config, reward_config, mode } => {
-            execute_play_series(deps, env, info, car_id, opponent_id.unwrap_or(0), train, training_config, reward_config, mode)
+            execute_play_series(deps.storage, &deps.querier, env, info, car_id, opponent_id.unwrap_or(0), train, training_config, reward_config, mode)
         }
         ExecuteMsg::UpdateConfig { max_ticks, match_history_limit, tick_history_limit } => {
             let mut config = get_config(deps.storage)?;
@@ -219,6 +219,21 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             let ticks = crate::state::TICK_HISTORY.load(deps.storage, car_id).unwrap_or_default();
             to_json_binary(&GetTickHistoryResponse { car_id, ticks })
         }
+        QueryMsg::SimSeries { car_id, opponent_id, mode } => {
+            let (winner_id, car_record, opponent_record) = simulate_play_series(
+                deps.storage,
+                &deps.querier,
+                _env,
+                car_id,
+                opponent_id.unwrap_or(0),
+                mode
+            ).map_err(|e| cosmwasm_std::StdError::generic_err(format!("Simulation error: {}", e)))?;
+            to_json_binary(&GetRaceResultResponse {
+                winner_id,
+                car_record,
+                opponent_record,
+            })
+        }
     }
 }
 
@@ -244,9 +259,9 @@ fn pseudo_random(seed: u32, modulus: u32) -> u32 { // simple LCG
     let a: u32 = 1103515245; let c: u32 = 12345; a.wrapping_mul(seed).wrapping_add(c) % modulus.max(1)
 }
 
-fn owner_check_for_training(deps: Deps, car_contract: String, info: &MessageInfo, car_id: u128) -> Result<(), ContractError> {
+fn owner_check_for_training(querier: &cosmwasm_std::QuerierWrapper, car_contract: String, info: &MessageInfo, car_id: u128) -> Result<(), ContractError> {
     if car_id == 0 { return Ok(()); }
-    let resp: OwnerOfResponse = deps.querier.query_wasm_smart(
+    let resp: OwnerOfResponse = querier.query_wasm_smart(
         car_contract,
         &membrane::car::QueryMsg::OwnerOf { token_id: car_id.to_string(), include_expired: None }
     ).map_err(|_| ContractError::Unauthorized {})?;
@@ -255,7 +270,8 @@ fn owner_check_for_training(deps: Deps, car_contract: String, info: &MessageInfo
 }
 
 fn execute_play_series(
-    deps: DepsMut,
+    storage: &mut dyn cosmwasm_std::Storage,
+    querier: &cosmwasm_std::QuerierWrapper,
     env: Env,
     info: MessageInfo,
     car_id: u128,
@@ -266,8 +282,8 @@ fn execute_play_series(
     mode: SeriesMode,
 ) -> Result<Response, ContractError> {
     let mut msgs = vec![];
-    let config = get_config(deps.storage)?;
-    if train { owner_check_for_training(deps.as_ref(), config.car_contract.clone(), &info, car_id)?; }
+    let config = get_config(storage)?;
+    if train { owner_check_for_training(querier, config.car_contract.clone(), &info, car_id)?; }
     if train { opponent_id = 0; }
 
     let tc = training_config.unwrap_or_else(|| default_training_config(train));
@@ -311,8 +327,8 @@ fn execute_play_series(
         let b_state = encode_state(b_opp_last, b_last_outcome);
 
         let seed = (env.block.height as u32) ^ (env.block.time.seconds() as u32) ^ (rounds as u32);
-        let (a_action, _a_q) = choose_action(deps.storage, car_id, a_state, strat_a, seed.wrapping_add(1), Some(&mut caches.a))?;
-        let (b_action, _b_q) = choose_action(deps.storage, opponent_id, b_state, strat_b, seed.wrapping_add(2), Some(&mut caches.b))?;
+        let (a_action, _a_q) = choose_action(storage, car_id, a_state, strat_a, seed.wrapping_add(1), Some(&mut caches.a))?;
+        let (b_action, _b_q) = choose_action(storage, opponent_id, b_state, strat_b, seed.wrapping_add(2), Some(&mut caches.b))?;
 
         let (a_out, b_out) = rps_outcome(a_action, b_action);
         let a_reward = match a_out { OUTCOME_WIN => rewards.win_points, OUTCOME_LOSE => rewards.lose_penalty, _ => rewards.draw_points } as i32;
@@ -357,8 +373,8 @@ fn execute_play_series(
             let a_state = encode_state(a_opp_last, a_last_outcome);
             let b_state = encode_state(b_opp_last, b_last_outcome);
             let seed = (env.block.height as u32) ^ (env.block.time.seconds() as u32) ^ (rounds as u32);
-            let (a_action, _a_q) = choose_action(deps.storage, car_id, a_state, strat_a, seed.wrapping_add(3), Some(&mut caches.a))?;
-            let (b_action, _b_q) = choose_action(deps.storage, opponent_id, b_state, strat_b, seed.wrapping_add(4), Some(&mut caches.b))?;
+            let (a_action, _a_q) = choose_action(storage, car_id, a_state, strat_a, seed.wrapping_add(3), Some(&mut caches.a))?;
+            let (b_action, _b_q) = choose_action(storage, opponent_id, b_state, strat_b, seed.wrapping_add(4), Some(&mut caches.b))?;
             let (a_out, b_out) = rps_outcome(a_action, b_action);
             let a_reward = match a_out { OUTCOME_WIN => rewards.win_points, OUTCOME_LOSE => rewards.lose_penalty, _ => rewards.draw_points } as i32;
             let b_reward = match b_out { OUTCOME_WIN => rewards.win_points, OUTCOME_LOSE => rewards.lose_penalty, _ => rewards.draw_points } as i32;
@@ -386,16 +402,16 @@ fn execute_play_series(
 
     // Apply Q-learning updates if training
     if train {
-        apply_q_learning_updates(deps.storage, car_id, &a_trace)?;
-        apply_q_learning_updates(deps.storage, opponent_id, &b_trace)?; // train car 0 as well
+        apply_q_learning_updates(storage, car_id, &a_trace)?;
+        apply_q_learning_updates(storage, opponent_id, &b_trace)?; // train car 0 as well
     }
 
     // Update histories - now tracking per-tick results instead of per-match
-    push_tick_results(deps.storage, car_id, &a_ticks)?;
-    push_tick_results(deps.storage, opponent_id, &b_ticks)?;
+    push_tick_results(storage, car_id, &a_ticks)?;
+    push_tick_results(storage, opponent_id, &b_ticks)?;
     // Save per-tick action histories (overwrites previous match)
-    push_tick_records(deps.storage, car_id, a_ticks)?;
-    push_tick_records(deps.storage, opponent_id, b_ticks)?;
+    push_tick_records(storage, car_id, a_ticks)?;
+    push_tick_records(storage, opponent_id, b_ticks)?;
 
 
 
@@ -419,6 +435,115 @@ fn execute_play_series(
         .add_attribute("opponent_id", opponent_id.to_string())
         .add_attribute("rounds", rounds.to_string())
         .add_attribute("winner", if a_won_series { car_id.to_string() } else { opponent_id.to_string() }))
+}
+
+fn simulate_play_series(
+    storage: &dyn cosmwasm_std::Storage,
+    _querier: &cosmwasm_std::QuerierWrapper,
+    env: Env,
+    car_id: u128,
+    _opponent_id: u128,
+    mode: SeriesMode,
+) -> Result<(u128, WinLossDraw, WinLossDraw), ContractError> {
+    let config = get_config(storage)?;
+    let opponent_id = 0; // Always use car 0 for simulation
+
+    let tc = default_training_config(false); // No training for simulation
+
+    // Initialize separate Q-value caches for each player
+    let mut caches = SeriesCaches { a: HashMap::new(), b: HashMap::new() };
+
+    // per-player traces
+    let mut a_opp_last: Option<u8> = None; // last opponent move for A
+    let mut b_opp_last: Option<u8> = None; // last opponent move for B
+    let mut a_last_outcome: Option<u8> = None;
+    let mut b_last_outcome: Option<u8> = None;
+
+    let mut a_wins: u32 = 0;
+    let mut b_wins: u32 = 0;
+    let mut a_draws: u32 = 0;
+    let mut b_draws: u32 = 0;
+    let mut rounds: u32 = 0;
+
+    let max_ticks = config.max_ticks;
+
+    let mut target_wins: Option<u32> = None;
+    let mut max_rounds: u32 = max_ticks;
+    match mode {
+        SeriesMode::FixedTicks { ticks } => { max_rounds = ticks; }
+        SeriesMode::BestOf { wins_target } => { target_wins = Some(wins_target); }
+    }
+
+    // Play rounds
+    loop {
+        let total = max_rounds.max(1);
+        let strat_a = make_strategy(&tc, rounds, total);
+        let strat_b = make_strategy(&tc, rounds, total);
+
+        let a_state = encode_state(a_opp_last, a_last_outcome);
+        let b_state = encode_state(b_opp_last, b_last_outcome);
+
+        let seed = (env.block.height as u32) ^ (env.block.time.seconds() as u32) ^ (rounds as u32);
+        let (a_action, _a_q) = choose_action(storage, car_id, a_state, strat_a, seed.wrapping_add(1), Some(&mut caches.a))?;
+        let (b_action, _b_q) = choose_action(storage, opponent_id, b_state, strat_b, seed.wrapping_add(2), Some(&mut caches.b))?;
+
+        let (a_out, b_out) = rps_outcome(a_action, b_action);
+
+        // Update last for next state
+        a_opp_last = Some(b_action as u8);
+        b_opp_last = Some(a_action as u8);
+        a_last_outcome = Some(a_out);
+        b_last_outcome = Some(b_out);
+
+        if a_out == OUTCOME_WIN { a_wins += 1; }
+        else if a_out == OUTCOME_DRAW { a_draws += 1; }
+        if b_out == OUTCOME_WIN { b_wins += 1; }
+        else if b_out == OUTCOME_DRAW { b_draws += 1; }
+        rounds += 1;
+
+        // Stop conditions
+        match target_wins {
+            Some(tw) => {
+                // Best of: draws don't count; keep going until someone reaches tw
+                if a_wins >= tw || b_wins >= tw { break; }
+                if rounds >= max_rounds { break; } // safety
+            }
+            None => {
+                if rounds >= max_rounds { break; }
+            }
+        }
+    }
+
+    // If fixed ticks and tie, add sudden-death until winner (with safety cap)
+    if target_wins.is_none() && a_wins == b_wins {
+        let safety_cap = max_rounds + 100; // extra cushion
+        while a_wins == b_wins && rounds < safety_cap {
+            let total = safety_cap;
+            let strat_a = make_strategy(&tc, rounds, total);
+            let strat_b = make_strategy(&tc, rounds, total);
+            let a_state = encode_state(a_opp_last, a_last_outcome);
+            let b_state = encode_state(b_opp_last, b_last_outcome);
+            let seed = (env.block.height as u32) ^ (env.block.time.seconds() as u32) ^ (rounds as u32);
+            let (a_action, _a_q) = choose_action(storage, car_id, a_state, strat_a, seed.wrapping_add(3), Some(&mut caches.a))?;
+            let (b_action, _b_q) = choose_action(storage, opponent_id, b_state, strat_b, seed.wrapping_add(4), Some(&mut caches.b))?;
+            let (a_out, b_out) = rps_outcome(a_action, b_action);
+            a_opp_last = Some(b_action as u8);
+            b_opp_last = Some(a_action as u8);
+            a_last_outcome = Some(a_out);
+            b_last_outcome = Some(b_out);
+            if a_out == OUTCOME_WIN { a_wins += 1; }
+            else if a_out == OUTCOME_DRAW { a_draws += 1; }
+            if b_out == OUTCOME_WIN { b_wins += 1; }
+            else if b_out == OUTCOME_DRAW { b_draws += 1; }
+            rounds += 1;
+        }
+    }
+
+    let winner_id = if a_wins > b_wins { car_id } else { opponent_id };
+    let car_record = WinLossDraw { win: a_wins as u8, loss: b_wins as u8, draw: a_draws as u8 };
+    let opponent_record = WinLossDraw { win: b_wins as u8, loss: a_wins as u8, draw: b_draws as u8 };
+
+    Ok((winner_id, car_record, opponent_record))
 }
 
 fn apply_q_learning_updates(storage: &mut dyn cosmwasm_std::Storage, car_id: u128, trace: &Vec<(u8, usize, i32)>) -> Result<(), ContractError> {
@@ -462,7 +587,7 @@ fn apply_q_learning_updates(storage: &mut dyn cosmwasm_std::Storage, car_id: u12
 }
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     
     // MATCH_HISTORY.clear(deps.storage);
     // TICK_HISTORY.clear(deps.storage);

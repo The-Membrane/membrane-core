@@ -921,16 +921,16 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
 #[entry_point]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, CarError> {
     //Load config
-    let mut config = CONFIG.load(deps.storage)?;
-    let mut consumers = vec![String::from("neutron1avcmg7e9urc7srxqd4ds8yfcnhdqk697mugqmhdc4q8njux6zazqgfguw4")];
+    // let mut config = CONFIG.load(deps.storage)?;
+    // let mut consumers = vec![String::from("neutron1avcmg7e9urc7srxqd4ds8yfcnhdqk697mugqmhdc4q8njux6zazqgfguw4")];
     
-    // Add race_engine_contract if it exists
-    if let Some(race_engine) = config.race_engine_contract.clone() {
-        consumers.push(race_engine);
-    }
+    // // Add race_engine_contract if it exists
+    // if let Some(race_engine) = config.race_engine_contract.clone() {
+    //     consumers.push(race_engine);
+    // }
     
-    config.valid_energy_consumers = Some(consumers);
-    CONFIG.save(deps.storage, &config)?;
+    // config.valid_energy_consumers = Some(consumers);
+    // CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new()
         .add_attribute("action", "migrate")

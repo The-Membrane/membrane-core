@@ -54,6 +54,9 @@ pub enum ExecuteMsg {
         maze_height: Option<u8>,
         // Difficulty adjustment configuration
         difficulty_adjustment_config: Option<DifficultyAdjustmentConfig>,
+        // Tournament reward configuration
+        mint_amount_per_round_win: Option<Uint128>,
+        reward_round_scalar: Option<Decimal>,
     },
     RecordWin { event: EventType, car_id: u128, runner: String },
     TokenfactoryPassthrough { msgs: Vec<CosmosMsg> },
@@ -115,6 +118,9 @@ pub struct Config {
     pub min_start_tile_progress_threshold: u16,
     pub max_start_tile_progress_diff: u16,
     pub revenue_contract: Option<String>,
+    /// Tournament reward configuration
+    pub mint_amount_per_round_win: Option<Uint128>,
+    pub reward_round_scalar: Option<Decimal>,
 }
 
 #[cw_serde]

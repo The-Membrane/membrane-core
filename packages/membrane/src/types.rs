@@ -1693,11 +1693,11 @@ pub struct TournamentMatch {
     /// Unique identifier for the match
     pub match_id: String,
     /// First car in the match
-    pub car1: String,
+    pub car1: u128,
     /// Second car in the match
-    pub car2: String,
+    pub car2: u128,
     /// Winner of the match (None if not completed)
-    pub winner: Option<String>,
+    pub winner: Option<u128>,
     /// Whether the match has been completed
     pub completed: bool,
 }
@@ -1705,7 +1705,7 @@ pub struct TournamentMatch {
 #[cw_serde]
 pub struct TournamentResult {
     /// Unique identifier for the car
-    pub car_id: String,
+    pub car_id: u128,
     /// Final rank in the tournament
     pub rank: u32,
     /// Number of wins in the tournament
@@ -1717,7 +1717,7 @@ pub struct TournamentResult {
 #[cw_serde]
 pub struct TournamentRanking {
     /// Unique identifier for the car
-    pub car_id: String,
+    pub car_id: u128,
     /// Final rank in the tournament
     pub rank: u32,
     /// Number of wins in the tournament

@@ -153,7 +153,7 @@ fn exec_update_config(
     maze_width: Option<u8>,
     maze_height: Option<u8>,
     difficulty_adjustment_config: Option<bm::DifficultyAdjustmentConfig>,
-    tournament_contract: Option<String,
+    tournament_contract: Option<String>,
     mint_amount_per_round_win: Option<Uint128>,
     reward_round_scalar: Option<Decimal>
 ) -> Result<Response, ContractError> {

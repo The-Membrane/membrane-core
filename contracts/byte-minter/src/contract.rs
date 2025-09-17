@@ -26,7 +26,7 @@ fn prng(seed: u64, modulus: u32) -> u32 {
 }
 
 #[entry_point]
-pub fn instantiate(deps: DepsMut, env: Env, info: MessageInfo, msg: bm::InstantiateMsg) -> Result<Response, ContractError> {
+pub fn instantiate(deps: DepsMut, env: Env, _info: MessageInfo, msg: bm::InstantiateMsg) -> Result<Response, ContractError> {
     let admin = deps.api.addr_validate(&msg.admin)?;
     let mut msgs: Vec<CosmosMsg> = vec![];
 
@@ -64,6 +64,10 @@ pub fn instantiate(deps: DepsMut, env: Env, info: MessageInfo, msg: bm::Instanti
         min_start_tile_progress_threshold: msg.min_start_tile_progress_threshold.unwrap_or(1),
         max_start_tile_progress_diff: msg.max_start_tile_progress_diff.unwrap_or(1000),
         revenue_contract: msg.revenue_contract,
+        // Tournament reward configuration
+        tournament_contract: None,
+        mint_amount_per_round_win: None, // Default to None for now
+        reward_round_scalar: None, // Default to None for now
     };
     set_config(deps.storage, cfg.clone())?;
 
@@ -105,8 +109,11 @@ pub fn execute(deps: DepsMut, env: Env, info: MessageInfo, msg: bm::ExecuteMsg) 
             maze_default_difficulty,
             maze_width,
             maze_height,
-            difficulty_adjustment_config
-        } => exec_update_config(deps, info, maze_cadence_seconds, maze_window_seconds, pvp_cadence_seconds, pvp_window_seconds, pvp_enabled, runner_reward_rate, maze_default_difficulty, maze_width, maze_height, difficulty_adjustment_config),
+            difficulty_adjustment_config,
+            tournament_contract,
+            mint_amount_per_round_win,
+            reward_round_scalar
+        } => exec_update_config(deps, info, maze_cadence_seconds, maze_window_seconds, pvp_cadence_seconds, pvp_window_seconds, pvp_enabled, runner_reward_rate, maze_default_difficulty, maze_width, maze_height, difficulty_adjustment_config, tournament_contract, mint_amount_per_round_win, reward_round_scalar),
         bm::ExecuteMsg::RecordWin { event, car_id, runner } => exec_record_win(deps, env, info, event, car_id, runner),
         bm::ExecuteMsg::TokenfactoryPassthrough { msgs } => exec_tokenfactory_passthrough(deps, info, msgs),
     }
@@ -121,7 +128,10 @@ fn assert_admin(deps: &DepsMut, info: &MessageInfo) -> Result<(), ContractError>
 fn assert_revenue_or_admin(deps: &DepsMut, info: &MessageInfo) -> Result<(), ContractError> {
     let cfg = get_config(deps.storage)?;
     if info.sender.as_str() == cfg.admin { return Ok(()); }
-    if let Some(rc) = cfg.revenue_contract { if info.sender.as_str() == rc { return Ok(()); } }
+    // Check if the sender is the revenue contract or the tournament contract
+    if let Some(rc) = cfg.revenue_contract { if info. sender.as_str() == rc { return Ok(()); } }
+    if let Some(tc) = cfg.tournament_contract { if info. sender.as_str() == tc { return Ok(()); } }
+
     Err(ContractError::Unauthorized {})
 }
 
@@ -142,7 +152,10 @@ fn exec_update_config(
     maze_default_difficulty: Option<u8>,
     maze_width: Option<u8>,
     maze_height: Option<u8>,
-    difficulty_adjustment_config: Option<bm::DifficultyAdjustmentConfig>
+    difficulty_adjustment_config: Option<bm::DifficultyAdjustmentConfig>,
+    tournament_contract: Option<String,
+    mint_amount_per_round_win: Option<Uint128>,
+    reward_round_scalar: Option<Decimal>
 ) -> Result<Response, ContractError> {
     assert_admin(&deps, &info)?;
     
@@ -157,6 +170,9 @@ fn exec_update_config(
     if let Some(v) = maze_default_difficulty { cfg.maze_default_difficulty = v; }
     if let Some(v) = maze_width { cfg.maze_width = v; }
     if let Some(v) = maze_height { cfg.maze_height = v; }
+    if let Some(v) = tournament_contract { cfg.tournament_contract = Some(v); }
+    if let Some(v) = mint_amount_per_round_win { cfg.mint_amount_per_round_win = Some(v); }
+    if let Some(v) = reward_round_scalar { cfg.reward_round_scalar = Some(v); }
     set_config(deps.storage, cfg.clone())?;
     
     // Update difficulty adjustment config if provided
@@ -170,7 +186,7 @@ fn exec_update_config(
 )
 }
 
-fn exec_start_new_windows(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
+fn exec_start_new_windows(deps: DepsMut, env: Env, _info: MessageInfo) -> Result<Response, ContractError> {
     // assert_admin(&deps, &info)?;
     let cfg = get_config(deps.storage)?;
     let now = env.block.time.seconds();
@@ -324,8 +340,8 @@ fn exec_start_new_windows(deps: DepsMut, env: Env, info: MessageInfo) -> Result<
     Ok(Response::new().add_attribute("action", "start_new_windows"))
 }
 
-fn exec_generate_maze(deps: DepsMut, env: Env, info: MessageInfo, name: String) -> Result<Response, ContractError> {
-    // assert_admin(&deps, &info)?;
+fn exec_generate_maze(deps: DepsMut, env: Env, _info: MessageInfo, name: String) -> Result<Response, ContractError> {
+    // assert_admin(&deps, &_info)?;
     //
     let cfg = get_config(deps.storage)?;
     //Allow generation only during active maze windows
@@ -738,7 +754,7 @@ fn seconds_until_open(deps: Deps, env: Env, event: bm::EventType) -> StdResult<u
     Ok(next_cadence_point - now)
 }
 
-fn query_get_recorded_wins(deps: Deps, env: Env, event: bm::EventType, start_after: Option<u64>, limit: Option<u32>) -> StdResult<Vec<u128>> {
+fn query_get_recorded_wins(deps: Deps, _env: Env, event: bm::EventType, start_after: Option<u64>, limit: Option<u32>) -> StdResult<Vec<u128>> {
     let cfg = get_config(deps.storage)?;
     
     // Get the current window start for the specified event
@@ -856,7 +872,7 @@ fn exec_record_win(deps: DepsMut, env: Env, info: MessageInfo, event: bm::EventT
     winners_map.save(deps.storage, (start, car_id), &true)?;
     
     // Increment win count for difficulty adjustment
-    let (win_count_key, win_history_key) = match event {
+    let (win_count_key, _win_history_key) = match event {
         bm::EventType::Maze => (MAZE_WIN_COUNT, MAZE_WIN_HISTORY),
         bm::EventType::Pvp => (PVP_WIN_COUNT, PVP_WIN_HISTORY),
     };
@@ -936,7 +952,7 @@ fn exec_record_win(deps: DepsMut, env: Env, info: MessageInfo, event: bm::EventT
     Ok(resp)
 } 
 
-fn query_get_difficulty_adjustment_info(deps: Deps, env: Env, event: bm::EventType) -> StdResult<bm::DifficultyAdjustmentInfo> {
+fn query_get_difficulty_adjustment_info(deps: Deps, _env: Env, event: bm::EventType) -> StdResult<bm::DifficultyAdjustmentInfo> {
     let cfg = get_config(deps.storage)?;
     let difficulty_config = DIFFICULTY_ADJUSTMENT_CONFIG.load(deps.storage)?;
     
@@ -1033,6 +1049,7 @@ fn query_get_car_lifetime_stats(deps: Deps, car_id: u128) -> StdResult<CarLifeti
 }
 
 #[entry_point]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: bm::MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: bm::MigrateMsg) -> Result<Response, ContractError> {
+
     Ok(Response::new().add_attribute("action", "migrate"))
 } 

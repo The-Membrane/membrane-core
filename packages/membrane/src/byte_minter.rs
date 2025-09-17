@@ -55,6 +55,7 @@ pub enum ExecuteMsg {
         // Difficulty adjustment configuration
         difficulty_adjustment_config: Option<DifficultyAdjustmentConfig>,
         // Tournament reward configuration
+        tournament_contract: Option<String>, 
         mint_amount_per_round_win: Option<Uint128>,
         reward_round_scalar: Option<Decimal>,
     },
@@ -119,6 +120,7 @@ pub struct Config {
     pub max_start_tile_progress_diff: u16,
     pub revenue_contract: Option<String>,
     /// Tournament reward configuration
+    pub tournament_contract: Option<String>,
     pub mint_amount_per_round_win: Option<Uint128>,
     pub reward_round_scalar: Option<Decimal>,
 }

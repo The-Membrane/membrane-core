@@ -3,6 +3,7 @@ pub use membrane::tournament::{
     InstantiateMsg,
     ExecuteMsg,
     QueryMsg,
+    MigrateMsg,
     GetCurrentBracketResponse,
     GetTournamentResultsResponse,
     IsParticipantResponse,

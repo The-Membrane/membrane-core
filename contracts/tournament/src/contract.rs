@@ -6,6 +6,7 @@ use std::str::FromStr;
 
 use crate::error::TournamentError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
+use membrane::tournament::MigrateMsg;
 use crate::state::{
     get_tournament_state, set_tournament_state, 
     get_participants, set_participants, get_tournament_results, set_tournament_results, 
@@ -54,6 +55,7 @@ pub fn instantiate(
             .unwrap_or(Uint128::from(1000u128)), // Default if not set
         reward_round_scalar: byte_minter_config.reward_round_scalar
             .unwrap_or(Decimal::from_str("1.5").unwrap()), // Default if not set
+        allow_free_registration: Some(true), // Default to true
     };
     set_config(deps.storage, config)?;
 
@@ -77,15 +79,14 @@ pub fn execute(
             criteria,
             track_id,
             max_participants,
-            allow_free_registration,
             registration_payment_options,
             max_ticks,
-        } => execute_start_tournament(deps, env, info, criteria, track_id, max_participants, allow_free_registration, registration_payment_options, max_ticks),
+        } => execute_start_tournament(deps, env, info, criteria, track_id, max_participants, registration_payment_options, max_ticks),
         ExecuteMsg::RegisterForTournament { car_id } => execute_register_for_tournament(deps, env, info, car_id),
         ExecuteMsg::RunNextMatch {} => execute_run_next_match(deps, env),
         ExecuteMsg::EndTournament {} => execute_end_tournament(deps, env),
-        ExecuteMsg::UpdateConfig { race_engine, byte_minter, car_contract, tokenfactory_denom, mint_amount_per_round_win, reward_round_scalar } => execute_update_config(deps, info, race_engine, byte_minter, car_contract, tokenfactory_denom, mint_amount_per_round_win, reward_round_scalar),
-        ExecuteMsg::EnableWeeklyTournaments { criteria, track_id, max_participants, allow_free_registration, registration_payment_options, max_ticks } => execute_enable_weekly_tournaments(deps, info, criteria, track_id, max_participants, allow_free_registration, registration_payment_options, max_ticks),
+        ExecuteMsg::UpdateConfig { race_engine, byte_minter, car_contract, tokenfactory_denom, mint_amount_per_round_win, reward_round_scalar, allow_free_registration } => execute_update_config(deps, info, race_engine, byte_minter, car_contract, tokenfactory_denom, mint_amount_per_round_win, reward_round_scalar, allow_free_registration),
+        ExecuteMsg::EnableWeeklyTournaments { criteria, track_id, max_participants, registration_payment_options, max_ticks } => execute_enable_weekly_tournaments(deps, info, criteria, track_id, max_participants, registration_payment_options, max_ticks),
         ExecuteMsg::DisableWeeklyTournaments {} => execute_disable_weekly_tournaments(deps, info),
         ExecuteMsg::CheckAndStartScheduledTournament {} => execute_check_and_start_scheduled_tournament(deps, env),
     }
@@ -98,7 +99,6 @@ pub fn execute_start_tournament(
     criteria: TournamentCriteria,
     track_id: String,
     max_participants: Option<u32>,
-    allow_free_registration: bool,
     registration_payment_options: Vec<cosmwasm_std::Coin>,
     max_ticks: u32,
 ) -> Result<Response, TournamentError> {
@@ -147,7 +147,6 @@ pub fn execute_start_tournament(
         criteria,
         max_participants: Some(max_participants),
         created_at: env.block.time.seconds(),
-        allow_free_registration,
         registration_payment_options,
         max_ticks,
     };
@@ -193,8 +192,9 @@ pub fn execute_register_for_tournament(
     }
 
     // Handle payment
+    let config = get_config(deps.storage)?;
     let payment_options = tournament_state.registration_payment_options.clone();
-    let payment_option = if tournament_state.allow_free_registration && payment_options.is_empty() {
+    let payment_option = if config.allow_free_registration.unwrap_or(false) && payment_options.is_empty() {
         None // Free registration
     } else {
         // Check payment
@@ -445,6 +445,7 @@ pub fn execute_update_config(
     tokenfactory_denom: Option<String>,
     mint_amount_per_round_win: Option<Uint128>,
     reward_round_scalar: Option<Decimal>,
+    allow_free_registration: Option<bool>,
 ) -> Result<Response, TournamentError> {
     // Check admin authorization
     let current_config = get_config(deps.storage)?;
@@ -463,6 +464,7 @@ pub fn execute_update_config(
     let tokenfactory_denom_updated = tokenfactory_denom.is_some();
     let mint_amount_updated = mint_amount_per_round_win.is_some();
     let reward_scalar_updated = reward_round_scalar.is_some();
+    let _allow_free_registration_updated = allow_free_registration.is_some();
 
     // Update config fields if provided
     if let Some(race_engine_addr) = race_engine {
@@ -492,13 +494,17 @@ pub fn execute_update_config(
         config.reward_round_scalar = scalar;
     }
 
+    if let Some(allow_free) = allow_free_registration {
+        config.allow_free_registration = Some(allow_free);
+    }
+
     // Save updated config
     set_config(deps.storage, config)?;
 
     Ok(Response::new()
         .add_attribute("method", "update_config")
-        .add_attribute("updated_fields", format!("race_engine:{}, byte_minter:{}, car_contract:{}, tokenfactory_denom:{}, mint_amount:{}, reward_scalar:{}", 
-            race_engine_updated, byte_minter_updated, car_contract_updated, tokenfactory_denom_updated, mint_amount_updated, reward_scalar_updated)))
+        .add_attribute("updated_fields", format!("race_engine:{}, byte_minter:{}, car_contract:{}, tokenfactory_denom:{}, mint_amount:{}, reward_scalar:{}, allow_free_registration:{}", 
+            race_engine_updated, byte_minter_updated, car_contract_updated, tokenfactory_denom_updated, mint_amount_updated, reward_scalar_updated, _allow_free_registration_updated)))
 }
 
 pub fn execute_enable_weekly_tournaments(
@@ -507,7 +513,6 @@ pub fn execute_enable_weekly_tournaments(
     criteria: TournamentCriteria,
     track_id: String,
     max_participants: Option<u32>,
-    allow_free_registration: bool,
     registration_payment_options: Vec<cosmwasm_std::Coin>,
     max_ticks: u32,
 ) -> Result<Response, TournamentError> {
@@ -530,7 +535,6 @@ pub fn execute_enable_weekly_tournaments(
         criteria,
         track_id: track_id.clone(),
         max_participants: Some(max_participants),
-        allow_free_registration,
         registration_payment_options,
         max_ticks,
         last_sunday_start: None,
@@ -625,7 +629,6 @@ pub fn execute_check_and_start_scheduled_tournament(
         criteria: scheduled_tournament.criteria.clone(),
         max_participants: scheduled_tournament.max_participants,
         created_at: current_time,
-        allow_free_registration: scheduled_tournament.allow_free_registration,
         registration_payment_options: scheduled_tournament.registration_payment_options.clone(),
         max_ticks: scheduled_tournament.max_ticks,
     };
@@ -687,7 +690,7 @@ fn calculate_total_rounds(participant_count: u32) -> u32 {
 /// Generate initial bracket
 fn generate_bracket(participants: &[u128]) -> Result<Vec<TournamentMatch>, TournamentError> {
     let mut matches = vec![];
-    let mut shuffled = participants.to_vec();
+    let shuffled = participants.to_vec();
     
     // Simple shuffle (in real implementation, use proper randomization)
     for i in 0..shuffled.len() / 2 {
@@ -809,6 +812,22 @@ fn simulate_match_with_race_engine(
     } else {
         Err(TournamentError::RaceSimulationFailed {})
     }
+}
+
+#[entry_point]
+pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, TournamentError> {
+    // Get current config
+    let mut config = get_config(deps.storage)?;
+    
+    // Set allow_free_registration to Some(true) if it's not already set
+    if config.allow_free_registration.is_none() {
+        config.allow_free_registration = Some(true);
+        set_config(deps.storage, config)?;
+    }
+    
+    Ok(Response::new()
+        .add_attribute("method", "migrate")
+        .add_attribute("allow_free_registration", "set_to_true"))
 }
 
 #[entry_point]

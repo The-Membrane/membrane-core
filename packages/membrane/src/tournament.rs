@@ -17,7 +17,6 @@ pub enum ExecuteMsg {
         criteria: TournamentCriteria,
         track_id: String,
         max_participants: Option<u32>,
-        allow_free_registration: bool,
         registration_payment_options: Vec<cosmwasm_std::Coin>,
         max_ticks: u32,
     },
@@ -33,12 +32,12 @@ pub enum ExecuteMsg {
         tokenfactory_denom: Option<String>,
         mint_amount_per_round_win: Option<Uint128>,
         reward_round_scalar: Option<Decimal>,
+        allow_free_registration: Option<bool>,
     },
     EnableWeeklyTournaments {
         criteria: TournamentCriteria,
         track_id: String,
         max_participants: Option<u32>,
-        allow_free_registration: bool,
         registration_payment_options: Vec<cosmwasm_std::Coin>,
         max_ticks: u32,
     },
@@ -132,6 +131,7 @@ pub struct Config {
     pub tokenfactory_denom: String,
     pub mint_amount_per_round_win: Uint128,
     pub reward_round_scalar: Decimal,
+    pub allow_free_registration: Option<bool>,
 }
 
 #[cw_serde]
@@ -145,7 +145,6 @@ pub struct ScheduledTournament {
     pub criteria: TournamentCriteria,
     pub track_id: String,
     pub max_participants: Option<u32>,
-    pub allow_free_registration: bool,
     pub registration_payment_options: Vec<cosmwasm_std::Coin>,
     pub max_ticks: u32,
     pub last_sunday_start: Option<u64>,
@@ -154,4 +153,7 @@ pub struct ScheduledTournament {
 #[cw_serde]
 pub struct GetScheduledTournamentResponse {
     pub scheduled_tournament: ScheduledTournament,
-} 
+}
+
+#[cw_serde]
+pub struct MigrateMsg {} 

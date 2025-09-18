@@ -42,7 +42,6 @@ pub struct TournamentState {
     pub criteria: TournamentCriteria,
     pub max_participants: Option<u32>,
     pub created_at: u64,
-    pub allow_free_registration: bool,
     pub registration_payment_options: Vec<Coin>,
     pub max_ticks: u32,
 }
@@ -58,7 +57,6 @@ impl Default for TournamentState {
             criteria: TournamentCriteria::Random,
             max_participants: None,
             created_at: 0,
-            allow_free_registration: false,
             registration_payment_options: vec![],
             max_ticks: 1000,
         }
@@ -150,7 +148,6 @@ pub fn get_scheduled_tournament(storage: &dyn Storage) -> StdResult<ScheduledTou
         criteria: TournamentCriteria::Random,
         track_id: String::new(),
         max_participants: None,
-        allow_free_registration: false,
         registration_payment_options: vec![],
         max_ticks: 1000,
         last_sunday_start: None,

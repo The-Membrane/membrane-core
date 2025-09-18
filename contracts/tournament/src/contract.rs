@@ -171,8 +171,8 @@ pub fn execute_register_for_tournament(
 ) -> Result<Response, TournamentError> {
     // Check if tournament is already in progress
     if let Ok(tournament_state) = get_tournament_state(deps.storage) {
-        if tournament_state.status == TournamentStatus::InProgress {
-            return Err(TournamentError::TournamentNotInProgress { 
+    if tournament_state.status == TournamentStatus::InProgress {
+        return Err(TournamentError::TournamentNotInProgress { 
                 status: tournament_state.status 
             });
         }
@@ -186,15 +186,23 @@ pub fn execute_register_for_tournament(
         return Err(TournamentError::Std(cosmwasm_std::StdError::generic_err("Car already registered")));
     }
 
+
     // Check max participants limit
-    let max_participants = tournament_state.max_participants.unwrap_or(MAX_PARTICIPANTS);
+    let mut max_participants = MAX_PARTICIPANTS;
+    let mut payment_options = vec![];
+
+    //Load scheudled tournament
+    if let Ok(scheduled_tournament) = get_scheduled_tournament(deps.storage) {
+        max_participants = scheduled_tournament.max_participants.unwrap_or(MAX_PARTICIPANTS);
+        payment_options = scheduled_tournament.registration_payment_options.clone();
+    }
+
     if registrations.len() >= max_participants as usize {
         return Err(TournamentError::InvalidParticipantCount { count: registrations.len() as u32 + 1 });
     }
 
     // Handle payment
     let config = get_config(deps.storage)?;
-    let payment_options = tournament_state.registration_payment_options.clone();
     let payment_option = if config.allow_free_registration.unwrap_or(false) && payment_options.is_empty() {
         None // Free registration
     } else {

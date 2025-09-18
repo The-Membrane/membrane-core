@@ -170,11 +170,12 @@ pub fn execute_register_for_tournament(
     car_id: u128,
 ) -> Result<Response, TournamentError> {
     // Check if tournament is already in progress
-    let tournament_state = get_tournament_state(deps.storage)?;
-    if tournament_state.status == TournamentStatus::InProgress {
-        return Err(TournamentError::TournamentNotInProgress { 
-            status: tournament_state.status 
-        });
+    if let Ok(tournament_state) = get_tournament_state(deps.storage) {
+        if tournament_state.status == TournamentStatus::InProgress {
+            return Err(TournamentError::TournamentNotInProgress { 
+                status: tournament_state.status 
+            });
+        }
     }
 
     // Get current registrations

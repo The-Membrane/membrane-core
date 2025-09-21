@@ -487,6 +487,18 @@ pub struct Position {
     pub credit_amount: Uint128,
 }
 
+
+#[cw_serde]
+pub struct AffiliateData {
+    /// Affiliate Address
+    pub affiliate_address: String,
+    /// Affiliate fee %
+    pub affiliate_fee: Decimal,
+    /// Time affiliation started in block time.
+    /// Resets on position repayment.
+    pub time_affiliated: u64,
+}
+
 #[cw_serde]
 pub struct RedemptionInfo {
     /// Position owner 
@@ -557,17 +569,12 @@ pub struct Basket {
     pub frozen: bool, 
     /// Toggle to allow revenue to be distributed to the revenue_destinations.
     /// If false, revenue is left in pending_revenue.
-    pub rev_to_stakers: bool,
+    pub distribute_revenue: bool,
     /// % difference btwn credit TWAP and redemption price before the controller is effected.
     /// Set to 100 if you want to turn off the controller.
     pub cpc_margin_of_error: Decimal,
     /// Liquidation queue contract address
     pub liq_queue: Option<Addr>,
-    /// Revenue destinations distribution
-    /// All destinations must have a DepositFee execute msg entrypoint.
-    /// The remaining ratio space is left in pending revenue a la the 'Insurance Fund'.
-    /// Only an Option for backwards compatibility, don't set to None.
-    pub revenue_destinations: Option<Vec<RevenueDestination>>,
 }
 
 #[cw_serde]

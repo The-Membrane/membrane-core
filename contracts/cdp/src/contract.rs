@@ -13,7 +13,7 @@ use membrane::helpers::{assert_sent_native_token_balance};
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg};
 use membrane::types::{
-    cAsset, Asset, AssetInfo, Basket, UserInfo, Position
+    cAsset, AffiliateData, Asset, AssetInfo, Basket, Position, UserInfo
 };
 
 use crate::error::ContractError;
@@ -27,13 +27,15 @@ use crate::query::{
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_close_position_reply, handle_liq_queue_reply, handle_revenue_reply, handle_withdraw_reply};
-use crate::state::{ get_target_position, update_position, ContractVersion, BASKET, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS};
+use crate::state::{ get_target_position, update_position, ContractVersion, BASKET, AFFILIATES, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS};
 
 use membrane::range_bound_lp_vault::{QueryMsg as RBLP_QueryMsg, UserIntentResponse};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+const AFFILIATE_LIMIT: usize = 3;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -50,10 +52,11 @@ pub fn instantiate(
         dex_router: None,
         staking_contract: None,
         oracle_contract: None,
-        osmosis_proxy: None,
+        chain_proxy: None,
         debt_auction: None,
         liquidity_contract: None,
         discounts_contract: None,
+        revenue_distributor: None,
         oracle_time_limit: msg.oracle_time_limit,
         cpc_multiplier: Decimal::one(), 
         rate_slope_multiplier: msg.rate_slope_multiplier,
@@ -62,7 +65,8 @@ pub fn instantiate(
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
         credit_twap_timeframe: msg.credit_twap_timeframe,
         rate_hike_rate: Some(Decimal::percent(30)),
-        redemption_fee: Some(Decimal::from_str("0.005").unwrap()), //0.5%
+        redemption_fee: Decimal::from_str("0.005").unwrap(), //0.5%
+        affiliate_fee_max: Decimal::percent(10), //10%
     };
 
     //Set optional config parameters
@@ -81,8 +85,8 @@ pub fn instantiate(
     if let Some(address) = msg.oracle_contract {
         config.oracle_contract = Some(deps.api.addr_validate(&address)?)
     };
-    if let Some(address) = msg.osmosis_proxy {
-        config.osmosis_proxy = Some(deps.api.addr_validate(&address)?)
+    if let Some(address) = msg.chain_proxy {
+        config.chain_proxy = Some(deps.api.addr_validate(&address)?)
     };
     if let Some(address) = msg.debt_auction {
         config.debt_auction = Some(deps.api.addr_validate(&address)?)
@@ -262,6 +266,9 @@ pub fn execute(
             send_to),
         ExecuteMsg::SetUserIntents { mint_intent } => set_intents(deps, env, info, mint_intent),
         ExecuteMsg::FulfillIntents { users } => fulfill_intents(deps, env, info, users),
+        ExecuteMsg::SetAffiliate { position_id, affiliate_address, affiliate_fee } => {
+            set_affiliate(deps, env, info, position_id, affiliate_address, affiliate_fee)
+        },
         ExecuteMsg::Callback(msg) => {
             if info.sender == env.contract.address {
                 callback_handler(deps, env, msg)
@@ -426,6 +433,74 @@ pub fn callback_handler(
             position_id,
         } => check_and_fulfill_bad_debt(deps, env, position_id, position_owner),
     }
+}
+
+/// Set affiliate for a Position.
+/// Adds to current list of affiliations.
+/// Affiliate fee is capped at the contract's affiliate fee max.
+/// Fee can't be 0.
+/// Only affiliate can change the fee.
+fn set_affiliate(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    position_id: Uint128,
+    affiliate_address: String,
+    affiliate_fee: Decimal,
+) -> Result<Response, ContractError> {
+    let mut attrs = vec![
+        attr("method", "set_affiliate"),
+        attr("position_id", position_id.to_string()),
+        attr("affiliate_address", affiliate_address.clone()),
+    ];
+    let config: Config = CONFIG.load(deps.storage)?;
+
+    //Validate address
+    let valid_addr = deps.api.addr_validate(&affiliate_address)?;
+
+    //Validate fee
+    if affiliate_fee > config.affiliate_fee_max {
+        return Err(ContractError::CustomError { val: String::from("Affiliate fee exceeds max") });
+    }
+
+    //Validate fee
+    if affiliate_fee == Decimal::zero() {
+        return Err(ContractError::CustomError { val: String::from("Affiliate fee can't be 0") });
+    }
+
+    //Get target Position's affiliations
+    let mut affiliations = AFFILIATES.load(deps.storage, position_id.to_string()).unwrap_or_else(|_| vec![]);
+
+    //Add new affiliation
+    if let Some(mut affiliation) = affiliations.iter_mut().find(|a| a.affiliate_address == affiliate_address) {
+        //Can only change fee if affiliate is the called
+        if info.sender != affiliation.affiliate_address {
+            return Err(ContractError::Unauthorized { owner: affiliation.affiliate_address.to_string() });
+        }
+        //Update fee
+        affiliation.affiliate_fee = affiliate_fee;
+        attrs.push(attr("affiliate_fee_updated", affiliate_fee.to_string()));
+    } else {
+        //Can't add more than 3 affiliations
+        if affiliations.len() >= AFFILIATE_LIMIT {
+            return Err(ContractError::CustomError { val: String::from("Can't add more than 3 affiliations") });
+        }
+        //Add new affiliation
+        affiliations.push(AffiliateData {
+            affiliate_address,
+            affiliate_fee,
+            time_affiliated: env.block.time.seconds(),
+        });
+        attrs.push(attr("affiliate_fee", affiliate_fee.to_string()));
+    }
+
+    //Save affiliations
+    AFFILIATES.save(deps.storage, position_id.to_string(), &affiliations)?;
+
+        Ok(Response::new()
+        .add_attributes(attrs)
+    )
+    
 }
 
 /// Check and recapitilize Bad Debt w/ revenue or MBRN auctions
@@ -615,6 +690,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         },
         QueryMsg::GetUserIntent { start_after, limit, users } => {
             to_json_binary(&query_user_intent_state(deps, env,  start_after, limit, users)?)
+        }
+        QueryMsg::GetAffiliates { position_id } => {
+            to_json_binary(&AFFILIATES.load(deps.storage, position_id.to_string()).unwrap_or_else(|_| vec![]))
         }
     }
 }

@@ -98,7 +98,7 @@
       "format": "uint64",
       "minimum": 0.0
     },
-    "osmosis_proxy": {
+    "chain_proxy": {
       "description": "Osmosis Proxy contract",
       "type": [
         "string",

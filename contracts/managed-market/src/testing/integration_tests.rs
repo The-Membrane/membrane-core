@@ -1939,7 +1939,7 @@ mod tests {
             negative_rates: None,
             cpc_margin_of_error: None,
             frozen: None,
-            rev_to_stakers: None,
+            distribute_revenue: None,
             multi_asset_supply_caps: None,
             revenue_destinations: None,
             credit_pool_infos: None,
@@ -1992,7 +1992,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: Some(true),
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -2029,7 +2029,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: Some(false),
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -2067,7 +2067,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: Some(true),
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -2102,7 +2102,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: Some(false),
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -2136,7 +2136,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: Some(true),
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -2167,7 +2167,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: Some(false),
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -2206,7 +2206,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: Some(true),
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -2236,7 +2236,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: Some(false),
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -2266,7 +2266,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: Some(true),
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -2293,7 +2293,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: Some(false),
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -2360,7 +2360,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -2667,7 +2667,7 @@ mod tests {
         //         negative_rates: None,
         //         cpc_margin_of_error: None,
         //         frozen: None,
-        //         rev_to_stakers: None,
+        //         distribute_revenue: None,
         //         multi_asset_supply_caps: None,
         //         revenue_destinations: None,
         //     });
@@ -2811,7 +2811,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
                 take_revenue: None,
@@ -3056,7 +3056,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -3313,7 +3313,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -3344,7 +3344,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -3436,7 +3436,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -3760,7 +3760,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -3791,7 +3791,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -3883,7 +3883,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -4116,7 +4116,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -4147,7 +4147,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -4239,7 +4239,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -4360,7 +4360,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: Some( Decimal::percent(1) ),
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -4514,7 +4514,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: Some( Decimal::percent(1) ),
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -4667,7 +4667,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: Some( Decimal::percent(1) ),
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -4774,7 +4774,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -4805,7 +4805,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -4897,7 +4897,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -5057,7 +5057,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -5108,7 +5108,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -5171,7 +5171,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: Some(vec![
                     RevenueDestination {
@@ -5327,7 +5327,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -5483,7 +5483,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -5636,7 +5636,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -5755,7 +5755,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -5883,7 +5883,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6020,7 +6020,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6051,7 +6051,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6144,7 +6144,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6272,7 +6272,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6303,7 +6303,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6396,7 +6396,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6471,7 +6471,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6502,7 +6502,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6595,7 +6595,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6723,7 +6723,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6754,7 +6754,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6847,7 +6847,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -6978,7 +6978,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -7124,7 +7124,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -7284,7 +7284,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -7429,7 +7429,7 @@ mod tests {
         //         negative_rates: None,
         //         cpc_margin_of_error: None,
         //         frozen: None,
-        //         rev_to_stakers: None,
+        //         distribute_revenue: None,
         //         multi_asset_supply_caps: None,
         //         revenue_destinations: None,
         //     });
@@ -7460,7 +7460,7 @@ mod tests {
         //         negative_rates: None,
         //         cpc_margin_of_error: None,
         //         frozen: None,
-        //         rev_to_stakers: None,
+        //         distribute_revenue: None,
         //         multi_asset_supply_caps: None,
         //         revenue_destinations: None,
         //     });
@@ -7550,7 +7550,7 @@ mod tests {
         //         negative_rates: None,
         //         cpc_margin_of_error: None,
         //         frozen: None,
-        //         rev_to_stakers: None,
+        //         distribute_revenue: None,
         //         multi_asset_supply_caps: None,
         //         revenue_destinations: None,
         //     });
@@ -7712,7 +7712,7 @@ mod tests {
         //         negative_rates: None,
         //         cpc_margin_of_error: None,
         //         frozen: None,
-        //         rev_to_stakers: None,
+        //         distribute_revenue: None,
         //         multi_asset_supply_caps: None,
         //         revenue_destinations: None,
         //     });
@@ -7801,7 +7801,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -7899,7 +7899,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -8035,7 +8035,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -8157,7 +8157,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -8258,7 +8258,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -8289,7 +8289,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -8379,7 +8379,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -8533,7 +8533,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -8564,7 +8564,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -8654,7 +8654,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -8808,7 +8808,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -8839,7 +8839,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -8929,7 +8929,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: Some(vec![
                     MultiAssetSupplyCap {
                         assets: vec![
@@ -9091,7 +9091,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -9122,7 +9122,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -9212,7 +9212,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -9292,7 +9292,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -9529,7 +9529,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -9635,7 +9635,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -9750,7 +9750,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -9828,7 +9828,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -9954,7 +9954,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -10080,7 +10080,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -10116,7 +10116,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -10253,7 +10253,7 @@ mod tests {
         //         negative_rates: None,
         //         cpc_margin_of_error: None,
         //         frozen: None,
-        //         rev_to_stakers: None,
+        //         distribute_revenue: None,
         //         multi_asset_supply_caps: None,
                 // revenue_destinations: None,
         //         take_revenue: None,
@@ -10283,7 +10283,7 @@ mod tests {
         //         negative_rates: None,
         //         cpc_margin_of_error: None,
         //         frozen: None,
-        //         rev_to_stakers: None,
+        //         distribute_revenue: None,
         //         multi_asset_supply_caps: None,
                 // revenue_destinations: None,
         //         take_revenue: None,
@@ -10374,7 +10374,7 @@ mod tests {
         //         negative_rates: None,
         //         cpc_margin_of_error: None,
         //         frozen: None,
-        //         rev_to_stakers: None,
+        //         distribute_revenue: None,
         //         multi_asset_supply_caps: None,
                 // revenue_destinations: None,
         //         take_revenue: None,
@@ -10556,7 +10556,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -10920,7 +10920,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -11097,7 +11097,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -11128,7 +11128,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -11159,7 +11159,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });
@@ -11259,7 +11259,7 @@ mod tests {
                 negative_rates: None,
                 cpc_margin_of_error: None,
                 frozen: None,
-                rev_to_stakers: None,
+                distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 revenue_destinations: None,
             });

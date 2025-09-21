@@ -2,7 +2,7 @@ use cosmwasm_std::{Addr, Decimal, Uint128, StdResult, Api, StdError};
 use cosmwasm_schema::cw_serde;
 
 use crate::types::{ EnterLPIntent, CDPUserIntents,
-    cAsset, Asset, AssetInfo, InsolventPosition, RevenueDestination,
+    cAsset, Asset, AssetInfo, InsolventPosition,
     SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal, PremiumInfo,
 };
 
@@ -32,8 +32,8 @@ pub struct InstantiateMsg {
     pub staking_contract: Option<String>,
     /// Oracle contract
     pub oracle_contract: Option<String>,
-    /// Osmosis Proxy contract
-    pub osmosis_proxy: Option<String>,
+    /// Chain Proxy contract
+    pub chain_proxy: Option<String>,
     /// Debt Auction contract
     pub debt_auction: Option<String>,
     /// Liquidity Check contract
@@ -156,6 +156,21 @@ pub enum ExecuteMsg {
         /// Hike rates
         hike_rates: Option<bool>,
     },
+    /// Set affiliate for a Position.
+    /// Adds to current list of affiliations.
+    /// Affiliate fee is capped at the contract's affiliate fee max.
+    /// Fee can't be 0.
+    /// Only affiliate can change the fee.
+    /// Affiliates are not handled during redemption. If this becomes a large sum of loss revenue, we will find a solution.
+    /// Can't have more than 3 affiliations per position per repay window.
+    SetAffiliate {
+        /// Position ID to set affiliate for
+        position_id: Uint128,
+        /// Affiliate address
+        affiliate_address: String,
+        /// Affiliate fee %
+        affiliate_fee: Decimal,
+    },
     //Callbacks; Only callable by the contract
     Callback(CallbackMsg),
 }
@@ -217,6 +232,10 @@ pub enum QueryMsg {
         limit: Option<u32>,
         users: Vec<String> 
     },
+    GetAffiliates {
+        /// Position ID to query
+        position_id: Uint128,
+    },
     // Returns insolvency status of a Position
     // GetPositionInsolvency {
     //     /// Position ID to query
@@ -243,8 +262,8 @@ pub struct Config {
     pub dex_router: Option<Addr>,
     /// Staking contract address
     pub staking_contract: Option<Addr>,
-    /// Osmosis Proxy contract address
-    pub osmosis_proxy: Option<Addr>,
+    /// Chain Proxy contract address
+    pub chain_proxy: Option<Addr>,
     /// Debt auction contract address
     pub debt_auction: Option<Addr>,
     /// Oracle contract address
@@ -276,7 +295,11 @@ pub struct Config {
     pub rate_hike_rate: Option<Decimal>,
     /// Redemption Fee
     //This is only optional for backwards compatibility & should never be None as we do a bare unwrap() call in redeem_for_collateral()
-    pub redemption_fee: Option<Decimal>, 
+    pub redemption_fee: Decimal,
+    /// Affiliate FeeMax
+    pub affiliate_fee_max: Decimal,
+    /// Revenue Distributor contract address
+    pub revenue_distributor: Option<Addr>
 }
 
 
@@ -311,8 +334,8 @@ pub struct UpdateConfig {
     pub dex_router: Option<String>,
     /// Staking contract address
     pub staking_contract: Option<String>,
-    /// Osmosis Proxy contract address
-    pub osmosis_proxy: Option<String>,
+    /// Chain Proxy contract address
+    pub chain_proxy: Option<String>,
     /// Debt auction contract address
     pub debt_auction: Option<String>,
     /// Oracle contract address
@@ -342,6 +365,8 @@ pub struct UpdateConfig {
     pub rate_hike_rate: Option<Decimal>,
     /// Redemption Fee
     pub redemption_fee: Option<Decimal>,
+    /// Affiliate Fee Max
+    pub affiliate_fee_max: Option<Decimal>,
 }
 
 impl UpdateConfig {
@@ -357,8 +382,8 @@ impl UpdateConfig {
         if let Some(dex_router) = self.dex_router {
             config.dex_router = Some(api.addr_validate(&dex_router)?);
         }
-        if let Some(osmosis_proxy) = self.osmosis_proxy {
-            config.osmosis_proxy = Some(api.addr_validate(&osmosis_proxy)?);
+        if let Some(chain_proxy) = self.chain_proxy {
+            config.chain_proxy = Some(api.addr_validate(&chain_proxy)?);
         }
         if let Some(debt_auction) = self.debt_auction {
             config.debt_auction = Some(api.addr_validate(&debt_auction)?);
@@ -423,7 +448,14 @@ impl UpdateConfig {
             if redemption_fee >= Decimal::percent(100) || redemption_fee < Decimal::zero() {
                 return Err(StdError::GenericErr{ msg: String::from("Redemption fee must be between 0-99%") });
             }
-            config.redemption_fee = Some(redemption_fee);
+            config.redemption_fee = redemption_fee;
+        }
+        if let Some(affiliate_fee_max) = self.affiliate_fee_max {
+            //Enforce 0-100% range
+            if affiliate_fee_max > Decimal::percent(100) || affiliate_fee_max < Decimal::zero() {
+                return Err(StdError::GenericErr{ msg: String::from("Affiliate fee max must be between 0-100%") });
+            }
+            config.affiliate_fee_max = affiliate_fee_max;
         }
         Ok(())
     }
@@ -453,11 +485,9 @@ pub struct EditBasket {
     /// Toggle basket freezing
     pub frozen: Option<bool>,
     /// Toggle Basket revenue to stakers
-    pub rev_to_stakers: Option<bool>,
+    pub distribute_revenue: Option<bool>,
     /// Take revenue, used as a way to distribute revenue
     pub take_revenue: Option<Uint128>,
-    /// Set destination ratios for revenue distribution
-    pub revenue_destinations: Option<Vec<RevenueDestination>>,
 }
 
 impl EditBasket {    
@@ -514,8 +544,8 @@ impl EditBasket {
         if let Some(toggle) = self.frozen {
             basket.frozen = toggle;
         }
-        if let Some(toggle) = self.rev_to_stakers {
-            basket.rev_to_stakers = toggle;
+        if let Some(toggle) = self.distribute_revenue {
+            basket.distribute_revenue = toggle;
         }
         if let Some(error_margin) = self.cpc_margin_of_error {
             basket.cpc_margin_of_error = error_margin;
@@ -525,24 +555,6 @@ impl EditBasket {
                 Ok(val) => val,
                 Err(_) => Uint128::zero(),
             };
-        }
-        if let Some(revenue_destinations) = self.revenue_destinations {
-            let mut current_destinations =  basket.clone().revenue_destinations.unwrap();
-            for new_dest in revenue_destinations {
-                if let Some((index, _dest)) = current_destinations.clone()
-                    .into_iter()
-                    .enumerate()
-                    .find(|(_x, current_dest)| current_dest.destination == new_dest.destination)
-                {
-                    //Set new ratio
-                    current_destinations[index].distribution_ratio = new_dest.distribution_ratio;
-                } else {
-                    //Add new destination
-                    current_destinations.push(new_dest);
-                }
-            }
-            //Set new destinations
-            basket.revenue_destinations = Some(current_destinations);
         }
         basket.oracle_set = oracle_set;
 

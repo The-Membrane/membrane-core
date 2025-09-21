@@ -20,13 +20,13 @@ use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
 use membrane::range_bound_lp_vault::{ExecuteMsg as RBLP_ExecuteMsg, LeaveTokens};
 use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_subtraction};
 use membrane::types::{
-    cAsset, Asset, AssetInfo, AssetOracleInfo, Basket, CDPUserIntents, EnterLPIntent, LPAssetInfo, LiquidityInfo, PoolInfo, PoolStateResponse, PoolType, Position, PositionRedemption, PurchaseIntent, RangeBoundUserIntents, RedemptionInfo, RevenueDestination, SupplyCap, UserInfo
+    cAsset, AffiliateData, Asset, AssetInfo, AssetOracleInfo, Basket, CDPUserIntents, EnterLPIntent, LPAssetInfo, LiquidityInfo, PoolInfo, PoolStateResponse, PoolType, Position, PositionRedemption, PurchaseIntent, RangeBoundUserIntents, RedemptionInfo, SupplyCap, UserInfo
 };
 
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
 use crate::rates::accrue;
 use crate::risk_engine::update_basket_tally;
-use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, CollateralVolatility, Timer, BASKET, CLOSE_POSITION, FREEZE_TIMER, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
+use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, CollateralVolatility, Timer, AFFILIATES, BASKET, CLOSE_POSITION, FREEZE_TIMER, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
 use crate::{
     state::{
         WithdrawPropagation, CONFIG, POSITIONS, LIQUIDATION, WITHDRAW, USER_INTENTS
@@ -679,7 +679,10 @@ pub fn repay(
         Ok(updating_positions)
     })?;
 
-    //Burn repayment & send revenue to stakers
+    //Get affiliates
+    let affiliations = AFFILIATES.load(storage, position_id.to_string())?;
+
+    //Burn repayment & send revenue to stakers & affiliates
     let burn_and_rev_msgs = credit_burn_rev_msg(
         config.clone(),
         env.clone(),
@@ -688,8 +691,13 @@ pub fn repay(
             ..credit_asset.clone()
         },
         &mut basket,
+        affiliations.clone(),
     )?;
     messages.extend(burn_and_rev_msgs);
+
+    //Update affiliates
+    update_affiliates(storage, affiliations, position_id, env.block.time.seconds())?;
+
 
     //Send back excess repayment, defaults to the repaying address
     if !excess_repayment.is_zero() {
@@ -819,14 +827,21 @@ pub fn liq_repay(
         },
     };
     
+    //Get affiliates
+    let affiliations = AFFILIATES.load(deps.storage, target_position.position_id.to_string())?;
+
     //Burn repayment & send revenue to stakers
     let burn_and_rev_msgs = credit_burn_rev_msg(
         config.clone(),
         env.clone(),
         credit_asset.clone(),
         &mut basket,
+        affiliations.clone(),
     )?;
     messages.extend(burn_and_rev_msgs);
+
+    //Update affiliates
+    update_affiliates(deps.storage, affiliations, target_position.position_id, env.block.time.seconds())?;
 
     //Subtract paid debt from Basket
     basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(credit_asset.amount){
@@ -1376,7 +1391,7 @@ pub fn close_position(
 
         //Create router subMsg to sell, repay in reply on success
         let router_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.clone().osmosis_proxy.unwrap().to_string(),
+            contract_addr: config.clone().chain_proxy.unwrap().to_string(),
             msg: to_json_binary(&OsmoExecuteMsg::ExecuteSwaps { 
                 token_out: basket.clone().credit_asset.info.to_string(),
                 max_slippage: max_spread,
@@ -1710,6 +1725,8 @@ fn create_redemption_info(
 
 /// Redeem the debt token for collateral for Positions that have opted in 
 /// The premium is set by the Position owner, ex: 1% premium = vault is buying CDT at 99% of the peg price
+/// 
+/// Affiliates are not handled during redemption. If this becomes a large sum of loss revenue, we will find a solution.
 pub fn redeem_for_collateral(    
     deps: DepsMut, 
     env: Env,
@@ -1845,7 +1862,7 @@ pub fn redeem_for_collateral(
                     //This is done after the credit_amount subtraction to ensure excess being sent back doesn't forego the fee
                     let redemption_fee = decimal_multiplication(
                         redeemable_credit, 
-                        config.redemption_fee.unwrap()
+                        config.redemption_fee
                     )?;
                     //Add redemption fee to revenue
                     basket.pending_revenue += redemption_fee.to_uint_floor();
@@ -2031,7 +2048,7 @@ pub fn redeem_for_collateral(
     messages.push(SubMsg::new(collateral_msg));
 
     //Burn redeemed credit
-    if config.osmosis_proxy.is_some() {
+    if config.chain_proxy.is_some() {
         //Act if a redemption was made
         if !redeemable_credit.to_uint_floor().is_zero() {            
             //Create rev/burn msgs
@@ -2043,6 +2060,8 @@ pub fn redeem_for_collateral(
                     ..basket.credit_asset.clone()
                 },
                 &mut basket,
+                vec![],
+                
             )?;
             messages.extend(burn_and_rev_msgs);
         }
@@ -2225,13 +2244,7 @@ pub fn redeem_for_collateral(
         cpc_margin_of_error: Decimal::one(),
         oracle_set: false,
         frozen: false,
-        rev_to_stakers: true,
-        revenue_destinations: Some(vec![
-            RevenueDestination {
-                destination: config.clone().staking_contract.unwrap(),
-                distribution_ratio: Decimal::one(),
-            }
-        ]),
+        distribute_revenue: true,
     };
 
     //Denom check
@@ -2362,7 +2375,7 @@ pub fn edit_basket(
             //Query share asset amount
             let pool_state = match deps.querier.query::<PoolStateResponse>(&QueryRequest::Wasm(
                 WasmQuery::Smart {
-                    contract_addr: config.clone().osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+                    contract_addr: config.clone().chain_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                     msg: match to_json_binary(&OsmoQueryMsg::PoolState {
                         id: pool_info.pool_id,
                     }) {
@@ -2662,14 +2675,6 @@ pub fn edit_basket(
         }
     }
 
-    //If updating revenue destinations, validate all addresses
-    if let Some(destinations) = editable_parameters.clone().revenue_destinations {
-        for dest in destinations {
-            if let Err(_) = deps.api.addr_validate(&dest.destination.to_string()){
-                return Err(ContractError::CustomError { val: format!("Attempting to add invalid address as a revenue destination: {} ", dest.destination) });
-            }
-        }
-    }
 
     //Update Basket
     BASKET.update(deps.storage, |mut basket| -> Result<Basket, ContractError> {
@@ -2853,9 +2858,9 @@ pub fn credit_mint_msg(
             })
         }
         AssetInfo::NativeToken { denom } => {
-            if config.osmosis_proxy.is_some() {
+            if config.chain_proxy.is_some() {
                 let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: config.osmosis_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+                    contract_addr: config.chain_proxy.unwrap_or_else(|| Addr::unchecked("")).to_string(),
                     msg: to_json_binary(&OsmoExecuteMsg::MintTokens {
                         denom,
                         amount: credit_asset.amount,
@@ -2873,18 +2878,35 @@ pub fn credit_mint_msg(
     }
 }
 
-/// Creates a CosmosMsg to distribute debt tokens
+fn update_affiliates(
+    storage: &mut dyn Storage,
+    affiliates: Vec<AffiliateData>,
+    position_id: Uint128,
+    current_time: u64,
+) -> StdResult<()> {
+    //Only save the last affiliate
+    let mut affiliates = vec![affiliates[affiliates.len() - 1].clone()];
+    //Set this affiliate's time affiliated to the current block time
+    affiliates[0].time_affiliated = current_time;
+    //Update affiliates
+    AFFILIATES.save(storage, position_id.to_string(), &affiliates)?;
+
+    Ok(())
+}
+
+/// Creates a CosmosMsg to distribute debt tokens using the revenue distributor
 pub fn credit_burn_rev_msg(
     config: Config, 
     env: Env, 
     credit_asset: Asset,
     basket: &mut Basket,
+    position_affiliates: Vec<AffiliateData>,
 ) -> StdResult<Vec<SubMsg>> {
 
     //Calculate the amount to burn
-    let (mut burn_amount, revenue_amount) = {
+    let (mut burn_amount, mut revenue_amount) = {
         //If not sent to stakers, burn all
-        if !basket.rev_to_stakers {
+        if !basket.distribute_revenue {
             (credit_asset.amount, Uint128::zero())
 
             //if pending rev is != 0
@@ -2912,59 +2934,48 @@ pub fn credit_burn_rev_msg(
     //Initialize messages
     let mut messages: Vec<SubMsg> = vec![];
     if let AssetInfo::NativeToken { denom } = credit_asset.clone().info {
-        if let Some(osmosis_proxy_addr) = config.osmosis_proxy {
+        if let Some(chain_proxy_addr) = config.chain_proxy {
 
-            //Intialize total distributed revenue amount.
-            //The difference between revenue_amount & total_distributed will be burned. This is how we allow pending revenue to get a distribution.
-            let mut total_distributed = Uint128::zero();
-            //Create DepositFee Msgs
-            if !revenue_amount.is_zero() && !basket.clone().revenue_destinations.unwrap().is_empty(){
+            //If we have revenue to distribute and a revenue distributor is configured
+            if !revenue_amount.is_zero() && config.revenue_distributor.is_some() {
+                //Calculate affiliate fees
+                let affiliate_fees = split_affiliate_fee(position_affiliates.clone(), config.affiliate_fee_max, env.block.time.seconds())?;
+                let affiliate_fees_amount = decimal_multiplication(
+                    Decimal::from_ratio(revenue_amount, Uint128::from(1u128)), 
+                    affiliate_fees.iter().sum::<Decimal>())?.to_uint_floor();
 
-                //Iterate over destinations
-                for destination in basket.revenue_destinations.clone().unwrap() {
-                    //If the distribution ratio is 0, skip
-                    if destination.distribution_ratio.is_zero() {
-                        continue;
-                    }
-                    //Calculate the amount that will be sent to the destination
-                    let destination_revenue = revenue_amount * destination.distribution_ratio;
-
-                    //Add to total_distributed
-                    total_distributed += destination_revenue;
-
-                    //Create Msg
-                    let rev_message = CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: destination.destination.to_string(),
-                        msg: to_json_binary(&Staking_ExecuteMsg::DepositFee { })?,
-                        funds: vec![ asset_to_coin(Asset {
-                            amount: destination_revenue,
-                            info: credit_asset.info.clone(),
-                        })? ],
+                //Create affiliate promises
+                let mut promises = vec![];
+                for (i, affiliate_fee) in affiliate_fees.into_iter().enumerate() {
+                    promises.push(membrane::revenue_distributor::RevenuePromise {
+                        address: position_affiliates[i].affiliate_address.to_string(),
+                        amount: affiliate_fee * affiliate_fees_amount,
                     });
-                    
-                    //Distribution msgs will be submsgs that reply on error & signify an issue so that incorrect structs don't error the whole flow
-                    messages.push(SubMsg::reply_on_error(rev_message, REVENUE_REPLY_ID));
                 }
-            }
-            
-            //Update pending_revenue
-            basket.pending_revenue -= total_distributed;
 
-            //Add any leftover revenue to the burn amount.
-            //Non-distributed revenue stays in pending.
-            let undistributed_revenue = match revenue_amount.checked_sub(total_distributed){
-                Ok( revenue ) => revenue,
-                Err( _err ) => return Err(StdError::GenericErr { msg: format!("Error calculating undistributed revenue, total_distributed {} > revenue_amount {}", total_distributed, revenue_amount) }),
-            };
-            //Add to burn amount
-            burn_amount += undistributed_revenue;
+                //Send revenue to distributor
+                let revenue_distributor_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: config.revenue_distributor.unwrap().to_string(),
+                    msg: to_json_binary(&membrane::revenue_distributor::ExecuteMsg::SetPromises {
+                        promises,
+                    })?,
+                    funds: vec![asset_to_coin(Asset {
+                        amount: revenue_amount,
+                        info: credit_asset.info.clone(),
+                    })?],
+                });
+                messages.push(SubMsg::new(revenue_distributor_msg));
+
+                //Update pending_revenue
+                basket.pending_revenue -= revenue_amount;
+            }
 
             if !burn_amount.is_zero() {    
                 //Create burn msg
                 let burn_message = CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: osmosis_proxy_addr.to_string(),
+                    contract_addr: chain_proxy_addr.to_string(),
                     msg: to_json_binary(&OsmoExecuteMsg::BurnTokens {
-                        denom,
+                        denom: denom.clone(),
                         amount: burn_amount,
                         burn_from_address: env.contract.address.to_string(),
                     })?,
@@ -2978,6 +2989,38 @@ pub fn credit_burn_rev_msg(
             Err(StdError::GenericErr { msg: String::from("No proxy contract setup")})
         }
     } else { Err(StdError::GenericErr { msg: String::from("Cw20 assets aren't allowed") }) }
+}
+
+
+//Split affiliate fee % between affiliates based on time affiliated
+fn split_affiliate_fee(affiliates: Vec<AffiliateData>, affiliate_fee: Decimal, current_time: u64) -> StdResult<Vec<Decimal>> {
+    //Calculate total time affiliated since last repayment 
+    let time_since_last_repayment = current_time - affiliates[0].time_affiliated;
+
+    let mut affiliate_fees = vec![];
+
+    //Calc time affiliated for each affiliate by subtracting their block time from the block time of the affiliate in the index +1
+    for i in 0..affiliates.len() - 1 {
+        let time_affiliated =  affiliates[i + 1].time_affiliated - affiliates[i].time_affiliated;
+        let ratio_affiliated = Decimal::from_ratio(time_affiliated, time_since_last_repayment);
+        let per_affiliate_fee = decimal_multiplication(affiliate_fee, ratio_affiliated)?;
+        affiliate_fees.push(per_affiliate_fee);
+    }
+
+    //Add the last affiliate fee
+    let last_affiliates_time =  current_time - affiliates.last().unwrap().time_affiliated;
+    let ratio_affiliated = Decimal::from_ratio(last_affiliates_time, time_since_last_repayment);
+    let per_affiliate_fee = decimal_multiplication(affiliate_fee, ratio_affiliated)?;
+    affiliate_fees.push(per_affiliate_fee);
+
+    //Assert that the sum of the affiliate fees is equal or less than the affiliate fee
+    let sum_of_affiliate_fees = affiliate_fees.iter().sum::<Decimal>();
+    if sum_of_affiliate_fees > affiliate_fee {
+        return Err(StdError::GenericErr { msg: format!("Sum of affiliate fees is greater than the affiliate fee: {}", sum_of_affiliate_fees) })
+    }
+
+    Ok(affiliate_fees)
+    
 }
 
 /// Checks if any cAsset amount is zero or if asset list is empty

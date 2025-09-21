@@ -4,7 +4,7 @@ use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResu
 use cosmwasm_schema::cw_serde;
 use cw_storage_plus::{Item, Map};
 
-use membrane::types::{cAsset, Asset, AssetInfo, Basket, CDPUserIntents, Position, RedemptionInfo, StoredPrice, UserInfo};
+use membrane::types::{AffiliateData, cAsset, Asset, AssetInfo, Basket, CDPUserIntents, Position, RedemptionInfo, StoredPrice, UserInfo};
 use membrane::cdp::Config;
 
 use crate::ContractError;
@@ -72,6 +72,8 @@ pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const BASKET: Item<Basket> = Item::new("basket"); 
 pub const POSITIONS: Map<Addr, Vec<Position>> = Map::new("positions"); //owner, list of positions
+/// Affiliates are not handled during redemption. If this becomes a large sum of loss revenue, we will find a solution.
+pub const AFFILIATES: Map<String, Vec<AffiliateData>> = Map::new("affiliations"); //position ID, list of affiliations
 //Volatility Tracker
 pub const VOLATILITY: Map<String, CollateralVolatility> = Map::new("volatility");
 pub const STORED_PRICES: Map<String, StoredPrice> = Map::new("stored_prices");

@@ -183,7 +183,7 @@ mod tests {
                             cpc_margin_of_error: Decimal::zero(),
                             multi_asset_supply_caps: vec![],
                             frozen: false,
-                            rev_to_stakers: true,
+                            distribute_revenue: true,
                             credit_last_accrued: 0,
                             rates_last_accrued: 0,
                             oracle_set: true,

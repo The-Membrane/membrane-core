@@ -171,6 +171,11 @@ pub enum ExecuteMsg {
         /// Affiliate fee %
         affiliate_fee: Decimal,
     },
+    /// Collateral rate assurance check
+    CollateralRateAssurance {
+        /// Collateral denoms to check (empty means check all)
+        collateral_denoms: Option<Vec<String>>,
+    },
     //Callbacks; Only callable by the contract
     Callback(CallbackMsg),
 }

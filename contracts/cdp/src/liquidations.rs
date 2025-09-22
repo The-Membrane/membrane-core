@@ -20,7 +20,7 @@ use crate::error::ContractError;
 use crate::positions::{BAD_DEBT_REPLY_ID, LIQ_QUEUE_REPLY_ID};
 use crate::query::{insolvency_check, get_cAsset_ratios};
 use crate::risk_engine::update_basket_tally;
-use crate::state::{get_target_position, update_position, LiquidationPropagation, Timer, BASKET, CONFIG, FREEZE_TIMER, LIQUIDATION};
+use crate::state::{get_target_position, update_position, LiquidationPropagation, Timer, BASKET, CONFIG, FREEZE_TIMER, LIQUIDATION, create_collateral_rate_assurance};
 
 pub const SECONDS_PER_DAY: u64 = 86400;
 pub const BAD_DEBT_CALLER_FEE: Decimal = Decimal::percent(1);
@@ -195,6 +195,21 @@ pub fn liquidate(
         config.liq_fee = Decimal::zero();
     }
 
+    // Create collateral rate assurance for liquidated assets
+    let collateral_denoms: Vec<String> = liquidated_assets.iter()
+        .map(|c_asset| c_asset.asset.info.to_string())
+        .collect();
+    let mut rate_assurance_msgs = vec![];
+    if !collateral_denoms.is_empty() {
+        rate_assurance_msgs = create_collateral_rate_assurance(
+            storage,
+            querier,
+            env.clone(),
+            collateral_denoms,
+            &basket,
+        )?;
+    }
+
     //Calculate caller & protocol fees 
     //and amount to send to the Liquidation Queue.
     let (protocol_fee_msg, leftover_repayment) = match per_asset_fulfillments(
@@ -320,6 +335,7 @@ pub fn liquidate(
         .add_submessage(call_back)
         .add_messages(caller_fee_messages)
         .add_message(protocol_fee_msg)
+        .add_messages(rate_assurance_msgs)
         .add_attributes(vec![
             attr("method", "liquidate"),
             attr(

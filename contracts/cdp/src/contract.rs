@@ -1,6 +1,5 @@
 use std::env;
 use std::str::FromStr;
-use std::collections::HashMap;
 
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
@@ -9,12 +8,13 @@ use cosmwasm_std::{
 };
 
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
-use membrane::helpers::{assert_sent_native_token_balance};
+use membrane::helpers::{assert_sent_native_token_balance, get_contract_balances};
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg};
 use membrane::types::{
     cAsset, AffiliateData, Asset, AssetInfo, Basket, Position, UserInfo
 };
+use membrane::stability_pool_vault::calculate_base_tokens;
 
 use crate::error::ContractError;
 use crate::rates::{external_accrue_call};
@@ -27,7 +27,7 @@ use crate::query::{
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_close_position_reply, handle_liq_queue_reply, handle_revenue_reply, handle_withdraw_reply};
-use crate::state::{ get_target_position, update_position, ContractVersion, BASKET, AFFILIATES, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS};
+use crate::state::{ get_target_position, update_position, ContractVersion, BASKET, AFFILIATES, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS, CollateralRateAssurance, COLLATERAL_RATE_ASSURANCE};
 
 use membrane::range_bound_lp_vault::{QueryMsg as RBLP_QueryMsg, UserIntentResponse};
 
@@ -269,6 +269,9 @@ pub fn execute(
         ExecuteMsg::FulfillIntents { users } => fulfill_intents(deps, env, info, users),
         ExecuteMsg::SetAffiliate { position_id, affiliate_address, affiliate_fee } => {
             set_affiliate(deps, env, info, position_id, affiliate_address, affiliate_fee)
+        },
+        ExecuteMsg::CollateralRateAssurance { collateral_denoms } => {
+            collateral_rate_assurance(deps, env, info, collateral_denoms)
         },
         ExecuteMsg::Callback(msg) => {
             if info.sender == env.contract.address {
@@ -781,3 +784,86 @@ fn reset_basket_from_positions(storage: &mut dyn cosmwasm_std::Storage, basket: 
         }
     }
 }
+
+/// Collateral rate assurance function to check rate consistency
+pub fn collateral_rate_assurance(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    collateral_denoms: Option<Vec<String>>,
+) -> Result<Response, ContractError> {
+    // Error if not the contract calling
+    if info.sender != env.contract.address {
+        return Err(ContractError::Unauthorized { owner: env.contract.address.to_string() });
+    }
+
+    let config = CONFIG.load(deps.storage)?;
+    let basket = BASKET.load(deps.storage)?;
+    
+    let mut attrs = vec![attr("method", "collateral_rate_assurance")];
+    let mut errors = Vec::new();
+
+    // Determine which collateral denoms to check
+    let denoms_to_check = if let Some(denoms) = collateral_denoms {
+        denoms
+    } else {
+        // Check all collateral types in the basket
+        basket.collateral_types.iter()
+            .map(|c_asset| c_asset.asset.info.to_string())
+            .collect()
+    };
+
+    for denom in denoms_to_check {
+        // Load the rate assurance state for this denom
+        if let Ok(collateral_rate_assurance) = COLLATERAL_RATE_ASSURANCE.load(deps.storage, denom.clone()) {
+            // Get current collateral balance
+            let current_collateral = get_contract_balances(
+                deps.querier,
+                env.clone(),
+                vec![AssetInfo::NativeToken { denom: denom.clone() }]
+            )?[0];
+
+            // Get current collateral state total from basket
+            let collateral_state_total = basket.collateral_supply_caps.iter()
+                .find(|cap| cap.asset_info.to_string() == denom)
+                .map(|cap| cap.current_supply)
+                .unwrap_or(Uint128::zero());
+
+            // Calculate current rate (collateral_per_state)
+            let current_collateral_per_one = if collateral_state_total.is_zero() {
+                Uint128::zero()
+            } else {
+                calculate_base_tokens(
+                    Uint128::new(1_000_000),
+                    current_collateral,
+                    collateral_state_total
+                )?
+            };
+
+            // Check rate difference 
+            let difference = if current_collateral_per_one > collateral_rate_assurance.pre_collateral_per_one {
+                current_collateral_per_one.checked_sub(collateral_rate_assurance.pre_collateral_per_one).unwrap_or(Uint128::zero())
+            } else {
+                collateral_rate_assurance.pre_collateral_per_one.checked_sub(current_collateral_per_one).unwrap_or(Uint128::zero())
+            };
+
+            if difference > Uint128::from_str("1").unwrap_or(Uint128::zero()) {
+                errors.push(format!(
+                    "Collateral rate assurance failed for {}: pre: {} --- post: {}",
+                    denom, collateral_rate_assurance.pre_collateral_per_one, current_collateral_per_one
+                ));
+            }
+
+            attrs.push(attr(format!("{}_pre_rate", denom), collateral_rate_assurance.pre_collateral_per_one));
+            attrs.push(attr(format!("{}_post_rate", denom), current_collateral_per_one));
+        }
+    }
+
+    // Return error if any rate checks failed
+    if !errors.is_empty() {
+        return Err(ContractError::CustomError { val: errors.join("; ") });
+    }
+
+    Ok(Response::new().add_attributes(attrs))
+}
+

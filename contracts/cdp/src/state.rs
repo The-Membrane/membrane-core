@@ -1,11 +1,13 @@
 use membrane::oracle::PriceResponse;
 
-use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResult, StdError};
+use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResult, StdError, CosmosMsg, WasmMsg, to_json_binary};
 use cosmwasm_schema::cw_serde;
 use cw_storage_plus::{Item, Map};
+use membrane::helpers::get_contract_balances;
+use membrane::stability_pool_vault::calculate_base_tokens;
 
 use membrane::types::{AffiliateData, cAsset, Asset, AssetInfo, Basket, CDPUserIntents, Position, RedemptionInfo, StoredPrice, UserInfo};
-use membrane::cdp::Config;
+use membrane::cdp::{Config, ExecuteMsg};
 
 use crate::ContractError;
 use crate::risk_engine::update_basket_tally;
@@ -67,6 +69,12 @@ pub struct CollateralVolatility {
     pub volatility_list: Vec<Decimal>,
 }
 
+#[cw_serde]
+pub struct CollateralRateAssurance {
+    pub collateral_denom: String,
+    pub pre_collateral_per_one: Uint128,
+}
+
 pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
 pub const CONFIG: Item<Config> = Item::new("config");
@@ -93,6 +101,9 @@ pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_posi
 pub const FREEZE_TIMER: Item<Timer> = Item::new("freeze_timer");
 //Intents
 pub const USER_INTENTS: Map<String, CDPUserIntents> = Map::new("user_intents");
+
+//Collateral Rate Assurance
+pub const COLLATERAL_RATE_ASSURANCE: Map<String, CollateralRateAssurance> = Map::new("collateral_rate_assurance");
 
 //Helper functions
 /// Update asset claims a Position has
@@ -244,4 +255,69 @@ pub fn update_position(
     )?;
 
     Ok(())
+}
+
+/// Helper function to create collateral rate assurance for operations that modify collateral
+pub fn create_collateral_rate_assurance(
+    storage: &mut dyn Storage,
+    querier: QuerierWrapper,
+    env: Env,
+    collateral_denoms: Vec<String>,
+    basket: &Basket,
+) -> StdResult<Vec<CosmosMsg>> {
+    let mut valid_denoms = Vec::new();
+    
+    for denom in collateral_denoms {
+        // Get current collateral balance
+        let current_collateral = get_contract_balances(
+            querier,
+            env.clone(),
+            vec![AssetInfo::NativeToken { denom: denom.clone() }]
+        )?[0];
+        
+        // Get current collateral state total from basket
+        let collateral_state_total = basket.collateral_supply_caps.iter()
+            .find(|cap| cap.asset_info.to_string() == denom)
+            .map(|cap| cap.current_supply)
+            .unwrap_or(Uint128::zero());
+        
+        // Calculate current rate (collateral_per_state)
+        let collateral_per_one = calculate_base_tokens(
+            Uint128::new(1_000_000),
+            current_collateral,
+            collateral_state_total
+        )?;
+        
+        // Check if rate assurance already exists for this denom
+        if COLLATERAL_RATE_ASSURANCE.load(storage, denom.clone()).is_err() {
+            // Create new rate assurance state
+            COLLATERAL_RATE_ASSURANCE.save(storage, denom.clone(), &CollateralRateAssurance {
+                collateral_denom: denom.clone(),
+                pre_collateral_per_one: collateral_per_one,
+            })?;
+        } else {
+            // Update existing rate assurance state
+            COLLATERAL_RATE_ASSURANCE.save(storage, denom.clone(), &CollateralRateAssurance {
+                collateral_denom: denom.clone(),
+                pre_collateral_per_one: collateral_per_one,
+            })?;
+        }
+        
+        // Always add to valid denoms list for rate checking
+        valid_denoms.push(denom);
+    }
+    
+    // Create a single rate assurance callback message for all denoms
+    let mut msgs = Vec::new();
+    if !valid_denoms.is_empty() {
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::CollateralRateAssurance {
+                collateral_denoms: Some(valid_denoms),
+            })?,
+            funds: vec![],
+        }));
+    }
+    
+    Ok(msgs)
 }

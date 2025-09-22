@@ -26,7 +26,7 @@ use membrane::types::{
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
 use crate::rates::accrue;
 use crate::risk_engine::update_basket_tally;
-use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, CollateralVolatility, Timer, AFFILIATES, BASKET, CLOSE_POSITION, FREEZE_TIMER, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
+use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, CollateralVolatility, Timer, AFFILIATES, BASKET, CLOSE_POSITION, FREEZE_TIMER, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY, create_collateral_rate_assurance};
 use crate::{
     state::{
         WithdrawPropagation, CONFIG, POSITIONS, LIQUIDATION, WITHDRAW, USER_INTENTS
@@ -187,7 +187,7 @@ pub fn deposit(
             let (new_position_info, new_position) = create_position_in_deposit(
                 deps.storage,
                 deps.querier,
-                env,
+                env.clone(),
                 config.clone(),
                 valid_owner_addr.clone(),
                 cAssets.clone(),
@@ -227,7 +227,7 @@ pub fn deposit(
         let (new_position_info, new_position) = create_position_in_deposit(
             deps.storage,
             deps.querier,
-            env,
+            env.clone(),
             config.clone(),
             valid_owner_addr.clone(),
             cAssets.clone(),
@@ -262,7 +262,20 @@ pub fn deposit(
     //Double check State storage
     check_deposit_state(deps.storage, deps.api, positions_prev_collateral, deposit_amounts, position_info.clone())?;    
 
+    // Create collateral rate assurance for deposited assets
+    let collateral_denoms: Vec<String> = cAssets.iter()
+        .map(|c_asset| c_asset.asset.info.to_string())
+        .collect();
+    let rate_assurance_msgs = create_collateral_rate_assurance(
+        deps.storage,
+        deps.querier,
+        env.clone(),
+        collateral_denoms,
+        &basket,
+    )?;
+
     Ok(Response::new()
+    .add_messages(rate_assurance_msgs)
     .add_attributes(vec![
         attr("method", "deposit"),
         attr("position_owner", position_info.position_owner),
@@ -543,7 +556,7 @@ pub fn withdraw(
         withdraw_amounts,
         contracts_prev_collateral_amount: get_contract_balances(
             deps.querier,
-            env,
+            env.clone(),
             prop_assets_info,
         )?,
         position_info: UserInfo {
@@ -553,13 +566,26 @@ pub fn withdraw(
     };
     WITHDRAW.save(deps.storage, &withdrawal_prop)?;
 
+    // Create collateral rate assurance for withdrawn assets
+    let collateral_denoms: Vec<String> = cAssets.iter()
+        .map(|c_asset| c_asset.asset.info.to_string())
+        .collect();
+    let rate_assurance_msgs = create_collateral_rate_assurance(
+        deps.storage,
+        deps.querier,
+        env.clone(),
+        collateral_denoms,
+        &basket,
+    )?;
+
     Ok(Response::new()
         .add_attributes(vec![
             attr("method", "withdraw"),
             attr("position_id", position_id),
             attr("assets", format!("{:?}", cAssets)),
         ])
-        .add_submessages(msgs))
+        .add_submessages(msgs)
+        .add_messages(rate_assurance_msgs))
 }
 
 /// Use credit to repay outstanding debt in a Position.
@@ -1413,7 +1439,7 @@ pub fn close_position(
 
     //Save CLOSE_POSITION_PROPAGATION
     CLOSE_POSITION.save(deps.storage, &ClosePositionPropagation {
-        withdrawn_assets,
+        withdrawn_assets: withdrawn_assets.clone(),
         position_info: UserInfo { 
             position_id, 
             position_owner: info.sender.to_string(),
@@ -1426,9 +1452,22 @@ pub fn close_position(
     //Transform Router Msgs into SubMsgs so they run after LP Withdrawals
     let router_messages = router_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
 
+    // Create collateral rate assurance for closed position assets
+    let collateral_denoms: Vec<String> = withdrawn_assets.clone().iter()
+        .map(|asset| asset.info.to_string())
+        .collect();
+    let rate_assurance_msgs = create_collateral_rate_assurance(
+        deps.storage,
+        deps.querier,
+        env.clone(),
+        collateral_denoms,
+        &basket,
+    )?;
+
     Ok(Response::new()
         .add_submessages(router_messages)
         .add_submessage(sub_msg)
+        .add_messages(rate_assurance_msgs)
         .add_attributes(vec![
         attr("position_id", position_id),
         attr("user", info.sender),
@@ -2070,6 +2109,18 @@ pub fn redeem_for_collateral(
     //Save updated Basket
     BASKET.save(deps.storage, &basket)?;
 
+    // Create collateral rate assurance for redeemed assets
+    let collateral_denoms: Vec<String> = coins.iter()
+        .map(|coin| coin.denom.clone())
+        .collect();
+    let rate_assurance_msgs = create_collateral_rate_assurance(
+        deps.storage,
+        deps.querier,
+        env.clone(),
+        collateral_denoms,
+        &basket,
+    )?;
+
     //If there is excess credit, send it back to sender
     if !credit_amount.is_zero() {
         let credit_msg: CosmosMsg = BankMsg::Send {
@@ -2081,8 +2132,10 @@ pub fn redeem_for_collateral(
         }.into();
         messages.push(SubMsg::new(credit_msg));
 
+
         return Ok(Response::new()
             .add_submessages(messages)
+            .add_messages(rate_assurance_msgs)
             .add_attributes(vec![
                 attr("action", "redeem_for_collateral"),
                 attr("sender", info.clone().sender),
@@ -2095,6 +2148,7 @@ pub fn redeem_for_collateral(
     //Response
     Ok(Response::new()
         .add_submessages(messages)
+        .add_messages(rate_assurance_msgs)
         .add_attributes(vec![
         attr("action", "redeem_for_collateral"),
         attr("sender", info.clone().sender),

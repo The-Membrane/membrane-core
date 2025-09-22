@@ -48,8 +48,8 @@ pub fn instantiate(
     let mut config = Config {
         liq_fee: msg.liq_fee,
         owner: info.clone().sender,
-        stability_pool: None,
-        dex_router: None,
+        // stability_pool: None,
+        // dex_router: None,
         staking_contract: None,
         oracle_contract: None,
         chain_proxy: None,

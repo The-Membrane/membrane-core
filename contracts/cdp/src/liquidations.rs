@@ -1,7 +1,7 @@
 use std::cmp::min;
 use std::str::FromStr;
 
-use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Response, Decimal, CosmosMsg, attr, SubMsg, Addr, StdResult, StdError, to_binary, WasmMsg, QueryRequest, WasmQuery, BankMsg, Coin, ReplyOn};
+use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Response, Decimal, CosmosMsg, attr, SubMsg, Addr, StdResult, StdError, to_json_binary, WasmMsg, QueryRequest, WasmQuery, BankMsg, Coin, ReplyOn};
 use osmosis_std::shim::Duration;
 use osmosis_std::types::osmosis::downtimedetector::v1beta1::DowntimedetectorQuerier;
 
@@ -288,35 +288,57 @@ pub fn liquidate(
         update_position(storage, valid_position_owner.clone(), target_position.clone())?;      
     }
 
+    //In case SP isn't used, we need to set LiquidationPropagation
+    // Set repay values for reply msg
+    let liquidation_propagation = LiquidationPropagation {
+        per_asset_repayment,
+        liq_queue_repayment: Decimal::from_ratio(leftover_repayment, Uint128::one()),
+        stability_pool: Decimal::zero(),
+        user_repay_amount,
+        target_position,
+        liquidated_assets,
+        caller_fee_value_paid,
+        total_repaid: user_repay_amount,
+        position_owner: valid_position_owner.clone(),
+        positions_contract: env.contract.address.clone(),
+        sp_liq_fee: Decimal::zero(),
+        cAsset_ratios,
+        cAsset_prices: cAsset_prices_res,
+        basket,
+        config,
+    };
+
+    LIQUIDATION.save(storage, &liquidation_propagation)?;
+
 
     //Build SP msgs
-    let ( leftover_repayment ) = match build_sp_submsgs(
-        storage, 
-        querier,
-        env.clone(), 
-        config, 
-        basket.clone(), 
-        valid_position_owner.clone(), 
-        Decimal::from_ratio(leftover_repayment, Uint128::one()), 
-        credit_repay_amount, 
-        leftover_position_value, 
-        &mut submessages, 
-        per_asset_repayment.clone(), 
-        user_repay_amount,
-        target_position.clone(),
-        liquidated_assets,
-        cAsset_ratios,
-        cAsset_prices_res,
-        caller_fee_value_paid,
-    ){
-        Ok(res) => res,
-        Err(err) => return Err(ContractError::CustomError { val: String::from(format!("SP submsgs failed: {:?}", err)) }),
-    };
+    // let ( leftover_repayment ) = match build_sp_submsgs(
+    //     storage, 
+    //     querier,
+    //     env.clone(), 
+    //     config, 
+    //     basket.clone(), 
+    //     valid_position_owner.clone(), 
+    //     Decimal::from_ratio(leftover_repayment, Uint128::one()), 
+    //     credit_repay_amount, 
+    //     leftover_position_value, 
+    //     &mut submessages, 
+    //     per_asset_repayment.clone(), 
+    //     user_repay_amount,
+    //     target_position.clone(),
+    //     liquidated_assets,
+    //     cAsset_ratios,
+    //     cAsset_prices_res,
+    //     caller_fee_value_paid,
+    // ){
+    //     Ok(res) => res,
+    //     Err(err) => return Err(ContractError::CustomError { val: String::from(format!("SP submsgs failed: {:?}", err)) }),
+    // };
 
     //Create the Bad debt callback message to be added as the last SubMsg
     let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: env.contract.address.to_string(),
-        msg: to_binary(&ExecuteMsg::Callback(CallbackMsg::BadDebtCheck {
+        msg: to_json_binary(&ExecuteMsg::Callback(CallbackMsg::BadDebtCheck {
             position_id,
             position_owner: valid_position_owner.clone(),
         }))?,
@@ -407,84 +429,84 @@ fn get_repay_quantities(
 }
 
 /// Calculate amount of debt the User can repay from the Stability Pool
-fn get_user_repay_amount(
-    querier: QuerierWrapper,
-    config: Config,
-    basket: Basket,
-    position_id: Uint128,
-    position_owner: String,
-    credit_repay_amount: &mut Decimal,
-    submessages: &mut Vec<SubMsg>,
-) -> StdResult<Decimal>{
+// fn get_user_repay_amount(
+//     querier: QuerierWrapper,
+//     config: Config,
+//     basket: Basket,
+//     position_id: Uint128,
+//     position_owner: String,
+//     credit_repay_amount: &mut Decimal,
+//     submessages: &mut Vec<SubMsg>,
+// ) -> StdResult<Decimal>{
 
-    let mut user_repay_amount = Decimal::zero();
-    //Let the user repay their position if they are in the SP
-    if config.stability_pool.is_some() {
-        //Query Stability Pool to see if the user has funds
-        let user_deposits = match querier
-            .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                msg: to_binary(&SP_QueryMsg::AssetPool { 
-                    user: Some(position_owner.clone()),
-                    deposit_limit: None, 
-                    start_after: None,
-                })?,
-            })){
-                Ok(res) => res.deposits,
-                Err(_) => vec![],
-            };
+//     let mut user_repay_amount = Decimal::zero();
+//     //Let the user repay their position if they are in the SP
+//     if config.stability_pool.is_some() {
+//         //Query Stability Pool to see if the user has funds
+//         let user_deposits = match querier
+//             .query::<AssetPool>(&QueryRequest::Wasm(WasmQuery::Smart {
+//                 contract_addr: config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+//                 msg: to_json_binary(&SP_QueryMsg::AssetPool { 
+//                     user: Some(position_owner.clone()),
+//                     deposit_limit: None, 
+//                     start_after: None,
+//                 })?,
+//             })){
+//                 Ok(res) => res.deposits,
+//                 Err(_) => vec![],
+//             };
 
-        let total_user_deposit: Decimal = user_deposits
-            .iter()
-            .map(|user_deposit| user_deposit.amount)
-            .collect::<Vec<Decimal>>()
-            .into_iter()
-            .sum();
+//         let total_user_deposit: Decimal = user_deposits
+//             .iter()
+//             .map(|user_deposit| user_deposit.amount)
+//             .collect::<Vec<Decimal>>()
+//             .into_iter()
+//             .sum();
             
-        //If the user has funds, tell the SP to repay and subtract from credit_repay_amount
-        if !total_user_deposit.is_zero() {
-            //Set Repayment amount to what needs to get liquidated or total_deposits
-            user_repay_amount = {
-                //Repay the full debt
-                if total_user_deposit > *credit_repay_amount {
-                    *credit_repay_amount
-                } else {
-                    total_user_deposit
-                }
-            };
+//         //If the user has funds, tell the SP to repay and subtract from credit_repay_amount
+//         if !total_user_deposit.is_zero() {
+//             //Set Repayment amount to what needs to get liquidated or total_deposits
+//             user_repay_amount = {
+//                 //Repay the full debt
+//                 if total_user_deposit > *credit_repay_amount {
+//                     *credit_repay_amount
+//                 } else {
+//                     total_user_deposit
+//                 }
+//             };
 
-            //Add Repay SubMsg
-            let repay_msg = SP_ExecuteMsg::Repay {
-                user_info: UserInfo {
-                    position_id,
-                    position_owner,
-                },
-                repayment: Asset {
-                    amount: user_repay_amount.to_uint_floor(),
-                    info: basket.credit_asset.info,
-                },
-            };
+//             //Add Repay SubMsg
+//             let repay_msg = SP_ExecuteMsg::Repay {
+//                 user_info: UserInfo {
+//                     position_id,
+//                     position_owner,
+//                 },
+//                 repayment: Asset {
+//                     amount: user_repay_amount.to_uint_floor(),
+//                     info: basket.credit_asset.info,
+//                 },
+//             };
 
-            let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                msg: to_binary(&repay_msg)?,
-                funds: vec![],
-            });
+//             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+//                 contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+//                 msg: to_json_binary(&repay_msg)?,
+//                 funds: vec![],
+//             });
 
-            //Convert to submsg
-            let sub_msg: SubMsg = SubMsg::new(msg);
-            submessages.push(sub_msg);
+//             //Convert to submsg
+//             let sub_msg: SubMsg = SubMsg::new(msg);
+//             submessages.push(sub_msg);
 
-            //Subtract Repay amount from credit_repay_amount for the liquidation
-            *credit_repay_amount = match decimal_subtraction(*credit_repay_amount, user_repay_amount){
-                Ok(res) => res,
-                Err(_) => return Err(StdError::GenericErr { msg: "SP credit repay amount calculation failed".to_string() }),
-            };
-        }
-    }
+//             //Subtract Repay amount from credit_repay_amount for the liquidation
+//             *credit_repay_amount = match decimal_subtraction(*credit_repay_amount, user_repay_amount){
+//                 Ok(res) => res,
+//                 Err(_) => return Err(StdError::GenericErr { msg: "SP credit repay amount calculation failed".to_string() }),
+//             };
+//         }
+//     }
 
-    Ok( user_repay_amount )
-}
+//     Ok( user_repay_amount )
+// }
 
 /// Calculate amount of debt the User can repay from the Range Bound LP Vault
 fn get_rblp_user_repay_amount(
@@ -502,7 +524,7 @@ fn get_rblp_user_repay_amount(
     let user_intents: Vec<UserIntentResponse> = match querier
         .query::<Vec<UserIntentResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: "osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx".to_string(),
-            msg: to_binary(&RBLP_QueryMsg::GetUserIntent { 
+            msg: to_json_binary(&RBLP_QueryMsg::GetUserIntent { 
                 start_after: None, 
                 limit: None, 
                 users: vec![position_owner.clone()],
@@ -523,7 +545,7 @@ fn get_rblp_user_repay_amount(
     let underlying_cdt: Uint128 = match querier
         .query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: "osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx".to_string(),
-            msg: to_binary(&RBLP_QueryMsg::VaultTokenUnderlying { vault_token_amount: user_vault_token_holdings })?,
+            msg: to_json_binary(&RBLP_QueryMsg::VaultTokenUnderlying { vault_token_amount: user_vault_token_holdings })?,
         })){
             Ok(res) => res,
             Err(_) => Uint128::zero(),
@@ -552,7 +574,7 @@ fn get_rblp_user_repay_amount(
         };
         let msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: "osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx".to_string(),
-            msg: to_binary(&repay_msg)?,
+            msg: to_json_binary(&repay_msg)?,
             funds: vec![],
         });
 
@@ -724,10 +746,12 @@ fn per_asset_fulfillments(
                 collateral_repay_amount = collateral_assets[num].asset.amount;
             }
             
+            //We're asking: "For this collateral amount, how can debt can you (the LQ) liquidate?"
+            // This is ineffiecient bc the LQ will never pay 100% of the debt required, leaving the premium as leftover.
             let res: LQ_LiquidatibleResponse =
                 match querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
                     contract_addr: basket.clone().liq_queue.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                    msg: to_binary(&LQ_QueryMsg::CheckLiquidatible {
+                    msg: to_json_binary(&LQ_QueryMsg::CheckLiquidatible {
                         bid_for: cAsset.clone().asset.info,
                         collateral_price: collateral_price.clone(),
                         collateral_amount: Uint256::from(
@@ -786,7 +810,7 @@ fn per_asset_fulfillments(
             //Create CosmosMsg
             let msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: basket.clone().liq_queue.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                msg: to_binary(&liq_msg)?,
+                msg: to_json_binary(&liq_msg)?,
                 funds: vec![],
             });
 
@@ -814,164 +838,164 @@ fn per_asset_fulfillments(
     //Create Msg to send all native token liq fees for MBRN to the staking contract
     let protocol_fee_msg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.clone().staking_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-        msg: to_binary(&StakingExecuteMsg::DepositFee {})?,
+        msg: to_json_binary(&StakingExecuteMsg::DepositFee {})?,
         funds: protocol_coins,
     }); 
 
     Ok((protocol_fee_msg, leftover_repayment))
 }
 
-/// This function is used to build (sub)messages for the Stability Pool.
-/// Also returns leftover debt repayment amount.
-pub fn build_sp_submsgs(
-    storage: &mut dyn Storage,
-    querier: QuerierWrapper,
-    env: Env,
-    config: Config,
-    basket: Basket,
-    valid_position_owner: Addr,
-    mut leftover_repayment: Decimal,
-    credit_repay_amount: Decimal,
-    mut leftover_position_value: Decimal,
-    submessages: &mut Vec<SubMsg>,
-    per_asset_repayment: Vec<Decimal>,
-    user_repay_amount: Decimal,
-    target_position: Position,
-    liquidated_assets: Vec<cAsset>,
-    cAsset_ratios: Vec<Decimal>,
-    cAsset_prices: Vec<PriceResponse>,
-    caller_fee_value_paid: Decimal,
-) -> Result<(Decimal), ContractError>{
+// This function is used to build (sub)messages for the Stability Pool.
+// Also returns leftover debt repayment amount.
+// pub fn build_sp_submsgs(
+//     storage: &mut dyn Storage,
+//     querier: QuerierWrapper,
+//     env: Env,
+//     config: Config,
+//     basket: Basket,
+//     valid_position_owner: Addr,
+//     mut leftover_repayment: Decimal,
+//     credit_repay_amount: Decimal,
+//     mut leftover_position_value: Decimal,
+//     submessages: &mut Vec<SubMsg>,
+//     per_asset_repayment: Vec<Decimal>,
+//     user_repay_amount: Decimal,
+//     target_position: Position,
+//     liquidated_assets: Vec<cAsset>,
+//     cAsset_ratios: Vec<Decimal>,
+//     cAsset_prices: Vec<PriceResponse>,
+//     caller_fee_value_paid: Decimal,
+// ) -> Result<(Decimal), ContractError>{
 
-    //Starts at what LQ is supposed to pay
-    let liq_queue_repayment = match credit_repay_amount.checked_sub(leftover_repayment){
-        Ok(res) => res,
-        Err(_) => return Err(ContractError::CustomError { val: "Leftover repayment calculation (for build_sp_submsgs) failed".to_string() }),
-    };
+//     //Starts at what LQ is supposed to pay
+//     let liq_queue_repayment = match credit_repay_amount.checked_sub(leftover_repayment){
+//         Ok(res) => res,
+//         Err(_) => return Err(ContractError::CustomError { val: "Leftover repayment calculation (for build_sp_submsgs) failed".to_string() }),
+//     };
     
-    if config.stability_pool.is_some() && !leftover_repayment.is_zero() {        
-        let sp_pool: AssetPool = querier.query_wasm_smart::<AssetPool>(
-            config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(), 
-            &SP_QueryMsg::AssetPool {
-                user: None,
-                deposit_limit: Some(1),
-                start_after: None,
-            }
-        )?;
+//     if config.stability_pool.is_some() && !leftover_repayment.is_zero() {        
+//         let sp_pool: AssetPool = querier.query_wasm_smart::<AssetPool>(
+//             config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(), 
+//             &SP_QueryMsg::AssetPool {
+//                 user: None,
+//                 deposit_limit: Some(1),
+//                 start_after: None,
+//             }
+//         )?;
 
-        let sp_liq_fee = sp_pool.liq_premium;
+//         let sp_liq_fee = sp_pool.liq_premium;
             
         
-        //If LTV is 90% and the fees are 10%, the position would pay everything to pay the liquidators.
-        //So above that, the liquidators are losing the premium guarantee.
-        // !( leftover_position_value >= leftover_repay_value * sp_fee)
+//         //If LTV is 90% and the fees are 10%, the position would pay everything to pay the liquidators.
+//         //So above that, the liquidators are losing the premium guarantee.
+//         // !( leftover_position_value >= leftover_repay_value * sp_fee)
 
-        //Working on the LQ's leftovers
-        let leftover_repayment_value = basket.credit_price.get_value(leftover_repayment.to_uint_floor())?;
+//         //Working on the LQ's leftovers
+//         let leftover_repayment_value = basket.credit_price.get_value(leftover_repayment.to_uint_floor())?;
 
-        //SP liq_fee Guarantee check
-        //if leftover_position_value is less than leftover_repay value + the SP fee, we liquidate what we can
-        if leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))?{
-            //Set Position value to the discounted value the SP will be distributed
-            leftover_position_value = match decimal_division(leftover_position_value, (Decimal::one() + sp_liq_fee)){
-                Ok(res) => res,
-                Err(_) => return Err(ContractError::CustomError { val: "Leftover position value calculation (for SP) failed".to_string() }),
-            };
-            //Set leftover_repayment to the amount of credit the Position value can pay
-            leftover_repayment = Decimal::from_ratio(basket.credit_price.get_amount(leftover_position_value)?, Uint128::one());            
-        }        
+//         //SP liq_fee Guarantee check
+//         //if leftover_position_value is less than leftover_repay value + the SP fee, we liquidate what we can
+//         if leftover_position_value < decimal_multiplication(leftover_repayment_value, (Decimal::one() + sp_liq_fee))?{
+//             //Set Position value to the discounted value the SP will be distributed
+//             leftover_position_value = match decimal_division(leftover_position_value, (Decimal::one() + sp_liq_fee)){
+//                 Ok(res) => res,
+//                 Err(_) => return Err(ContractError::CustomError { val: "Leftover position value calculation (for SP) failed".to_string() }),
+//             };
+//             //Set leftover_repayment to the amount of credit the Position value can pay
+//             leftover_repayment = Decimal::from_ratio(basket.credit_price.get_amount(leftover_position_value)?, Uint128::one());            
+//         }        
 
-        //If SP AssetPool is 0, repay nothing
-        if sp_pool.credit_asset.amount.is_zero(){
-            leftover_repayment = Decimal::zero();
-        }
+//         //If SP AssetPool is 0, repay nothing
+//         if sp_pool.credit_asset.amount.is_zero(){
+//             leftover_repayment = Decimal::zero();
+//         }
         
-        // Set repay values for reply msg
-        let liquidation_propagation = LiquidationPropagation {
-            per_asset_repayment,
-            liq_queue_repayment,
-            stability_pool: leftover_repayment, 
-            user_repay_amount,
-            target_position,
-            liquidated_assets,
-            caller_fee_value_paid,
-            total_repaid: user_repay_amount,
-            position_owner: valid_position_owner,
-            positions_contract: env.contract.address,
-            sp_liq_fee,
-            cAsset_ratios, 
-            cAsset_prices,
-            basket,
-            config: config.clone(),
-        };
+//         // Set repay values for reply msg
+//         let liquidation_propagation = LiquidationPropagation {
+//             per_asset_repayment,
+//             liq_queue_repayment,
+//             stability_pool: leftover_repayment, 
+//             user_repay_amount,
+//             target_position,
+//             liquidated_assets,
+//             caller_fee_value_paid,
+//             total_repaid: user_repay_amount,
+//             position_owner: valid_position_owner,
+//             positions_contract: env.contract.address,
+//             sp_liq_fee,
+//             cAsset_ratios, 
+//             cAsset_prices,
+//             basket,
+//             config: config.clone(),
+//         };
 
-        LIQUIDATION.save(storage, &liquidation_propagation)?;
+//         LIQUIDATION.save(storage, &liquidation_propagation)?;
 
-        //We use 1 as our 0 to account for LQ rounding errors
-        if leftover_repayment > Decimal::one() {
+//         //We use 1 as our 0 to account for LQ rounding errors
+//         if leftover_repayment > Decimal::one() {
 
-            //Stability Pool message builder
-            let liq_msg = SP_ExecuteMsg::Liquidate {
-                liq_amount: leftover_repayment
-            };
+//             //Stability Pool message builder
+//             let liq_msg = SP_ExecuteMsg::Liquidate {
+//                 liq_amount: leftover_repayment
+//             };
 
-            let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                msg: to_binary(&liq_msg)?,
-                funds: vec![],
-            });
+//             let msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+//                 contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+//                 msg: to_json_binary(&liq_msg)?,
+//                 funds: vec![],
+//             });
 
-            //Can't use SubMsg replies bc there are too many msgs in the SP liquidation flow which means loss of funds if we error too deep
-            let sub_msg: SubMsg = SubMsg::new(msg);
+//             //Can't use SubMsg replies bc there are too many msgs in the SP liquidation flow which means loss of funds if we error too deep
+//             let sub_msg: SubMsg = SubMsg::new(msg);
 
-            submessages.push(sub_msg);
+//             submessages.push(sub_msg);
 
-            //Replying on errors means we can NOT make state changes that we wouldn't allow no matter the tx result, as our altereed state will NOT revert.
-            //Errors also won't revert the whole transaction
-            //( https://github.com/CosmWasm/cosmwasm/blob/main/SEMANTICS.md#submessages )
-        }
+//             //Replying on errors means we can NOT make state changes that we wouldn't allow no matter the tx result, as our altereed state will NOT revert.
+//             //Errors also won't revert the whole transaction
+//             //( https://github.com/CosmWasm/cosmwasm/blob/main/SEMANTICS.md#submessages )
+//         }
 
-        //Collateral distributions get handled in the reply        
-    } else {
-        //In case SP isn't used, we need to set LiquidationPropagation
-        // Set repay values for reply msg
-        let liquidation_propagation = LiquidationPropagation {
-            per_asset_repayment,
-            liq_queue_repayment,
-            stability_pool: Decimal::zero(),
-            user_repay_amount,
-            target_position,
-            liquidated_assets,
-            caller_fee_value_paid,
-            total_repaid: user_repay_amount,
-            position_owner: valid_position_owner,
-            positions_contract: env.contract.address,
-            sp_liq_fee: Decimal::zero(),
-            cAsset_ratios,
-            cAsset_prices,
-            basket,
-            config,
-        };
+//         //Collateral distributions get handled in the reply        
+//     } else {
+//         //In case SP isn't used, we need to set LiquidationPropagation
+//         // Set repay values for reply msg
+//         let liquidation_propagation = LiquidationPropagation {
+//             per_asset_repayment,
+//             liq_queue_repayment,
+//             stability_pool: Decimal::zero(),
+//             user_repay_amount,
+//             target_position,
+//             liquidated_assets,
+//             caller_fee_value_paid,
+//             total_repaid: user_repay_amount,
+//             position_owner: valid_position_owner,
+//             positions_contract: env.contract.address,
+//             sp_liq_fee: Decimal::zero(),
+//             cAsset_ratios,
+//             cAsset_prices,
+//             basket,
+//             config,
+//         };
 
-        LIQUIDATION.save(storage, &liquidation_propagation)?;
-    }
+//         LIQUIDATION.save(storage, &liquidation_propagation)?;
+//     }
 
-    Ok((leftover_repayment))
-}
+//     Ok((leftover_repayment))
+// }
 
-/// Returns leftover liquidatible amount from the stability pool
-pub fn query_stability_pool_liquidatible(
-    querier: QuerierWrapper,
-    config: Config,
-    amount: Decimal,
-) -> StdResult<Decimal> {
-    let query_res: SP_LiquidatibleResponse =
-        querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-            msg: to_binary(&SP_QueryMsg::CheckLiquidatible {
-                amount
-            })?,
-        }))?;
+// Returns leftover liquidatible amount from the stability pool
+// pub fn query_stability_pool_liquidatible(
+//     querier: QuerierWrapper,
+//     config: Config,
+//     amount: Decimal,
+// ) -> StdResult<Decimal> {
+//     let query_res: SP_LiquidatibleResponse =
+//         querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+//             contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+//             msg: to_json_binary(&SP_QueryMsg::CheckLiquidatible {
+//                 amount
+//             })?,
+//         }))?;
 
-    Ok(query_res.leftover)
-}
+//     Ok(query_res.leftover)
+// }

@@ -615,19 +615,17 @@ pub fn repay(
     let (position_index, mut target_position) = get_target_position(storage, valid_owner_addr.clone(), position_id)?;
 
     //SP accrues externally before calling repay, so we only accrue if the sender isn't the SP
-    if info.sender != config.clone().stability_pool.unwrap_or(Addr::unchecked("")){   
-        //Accrue interest
-        accrue(
-            storage,
-            querier,
-            env.clone(),
-            config.clone(),
-            &mut target_position,
-            &mut basket,
-            valid_owner_addr.to_string(),
-            false,
-        )?;
-    }
+    //Accrue interest
+    accrue(
+        storage,
+        querier,
+        env.clone(),
+        config.clone(),
+        &mut target_position,
+        &mut basket,
+        valid_owner_addr.to_string(),
+        false,
+    )?;
 
     //Set prev_credit_amount for state checks
     let prev_credit_amount = target_position.credit_amount;
@@ -668,17 +666,17 @@ pub fn repay(
         //Router: We rather $1 of bad debt than $2000 and bad debt comes from swap slippage
         //SP & LQ: If the resulting debt is below the minimum, the whole loan is liquidated so it won't be under the minimum by the end of the liquidation process
         let mut let_pass = false;
-        if let Some(router) = config.clone().dex_router {
-            if info.sender == router { let_pass = true; }
-        }
-        if let Some(stability_pool) = config.clone().stability_pool {
-            if info.sender == stability_pool { let_pass = true; }
-        }
+        // if let Some(router) = config.clone().dex_router {
+        //     if info.sender == router { let_pass = true; }
+        // }
+        // if let Some(stability_pool) = config.clone().stability_pool {
+        //     if info.sender == stability_pool { let_pass = true; }
+        // }
         if let Some(liq_queue) = basket.clone().liq_queue {
             if info.sender == liq_queue { let_pass = true; }
         }
-        //Range Bound Vault bc liquidations will tell it to repay 
-        if info.sender.to_string() == String::from("osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx") { let_pass = true; }
+        // Any valid deployment venue
+        if config.clone().valid_deployment_venues.contains(&info.sender) { let_pass = true; }
         //Contract itself
         if info.sender == env.contract.address { let_pass = true; }
         if !let_pass {
@@ -801,194 +799,194 @@ fn check_repay_state(
 }
 
 /// This is what the stability pool contract calls to repay for a liquidation and get its collateral distribution
-pub fn liq_repay(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    mut credit_asset: Asset,
-) -> Result<Response, ContractError> {
-    //Fetch liquidation info and state propagation
-    let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;    
-    let config = liquidation_propagation.clone().config;
-    let mut basket = liquidation_propagation.clone().basket;
+// pub fn liq_repay(
+//     deps: DepsMut,
+//     env: Env,
+//     info: MessageInfo,
+//     mut credit_asset: Asset,
+// ) -> Result<Response, ContractError> {
+//     //Fetch liquidation info and state propagation
+//     let mut liquidation_propagation = LIQUIDATION.load(deps.storage)?;    
+//     let config = liquidation_propagation.clone().config;
+//     let mut basket = liquidation_propagation.clone().basket;
 
-    //Can only be called by the SP contract
-    if config.stability_pool.is_none() || info.sender != config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")){
-        return Err(ContractError::Unauthorized { owner: config.owner.to_string() });
-    }
-    //This position has collateral & credit_amount updated in the liquidation process...
-    // from LQ replies && fee handling
-    let mut target_position = liquidation_propagation.clone().target_position;
+//     //Can only be called by the SP contract
+//     if config.stability_pool.is_none() || info.sender != config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")){
+//         return Err(ContractError::Unauthorized { owner: config.owner.to_string() });
+//     }
+//     //This position has collateral & credit_amount updated in the liquidation process...
+//     // from LQ replies && fee handling
+//     let mut target_position = liquidation_propagation.clone().target_position;
     
-    let mut messages: Vec<SubMsg> = vec![];
-    let mut excess_repayment = Uint128::zero();
-    //Update credit amount in target_position to account for SP's repayment
-    target_position.credit_amount = match target_position.credit_amount.checked_sub(credit_asset.amount){
-        Ok(difference) => {
-            //LQ rounding errors can cause the repay_amount to be 1e-6 off
-            if difference == Uint128::one(){
-                Uint128::zero()
-            } else {
-                difference
-            }
-        },
-        Err(_err) => {
-            //Send the excess repayment back to the SP
-            excess_repayment = credit_asset.amount - target_position.credit_amount;
+//     let mut messages: Vec<SubMsg> = vec![];
+//     let mut excess_repayment = Uint128::zero();
+//     //Update credit amount in target_position to account for SP's repayment
+//     target_position.credit_amount = match target_position.credit_amount.checked_sub(credit_asset.amount){
+//         Ok(difference) => {
+//             //LQ rounding errors can cause the repay_amount to be 1e-6 off
+//             if difference == Uint128::one(){
+//                 Uint128::zero()
+//             } else {
+//                 difference
+//             }
+//         },
+//         Err(_err) => {
+//             //Send the excess repayment back to the SP
+//             excess_repayment = credit_asset.amount - target_position.credit_amount;
 
-            let excess_repayment_msg = withdrawal_msg(
-                Asset {
-                    amount: excess_repayment,
-                    ..basket.clone().credit_asset
-                },
-                config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")),
-            )?;
-            //Update credit_asset amount so its correct for the burn
-            credit_asset.amount = target_position.credit_amount;
+//             let excess_repayment_msg = withdrawal_msg(
+//                 Asset {
+//                     amount: excess_repayment,
+//                     ..basket.clone().credit_asset
+//                 },
+//                 config.clone().stability_pool.unwrap_or_else(|| Addr::unchecked("")),
+//             )?;
+//             //Update credit_asset amount so its correct for the burn
+//             credit_asset.amount = target_position.credit_amount;
 
-            //Add msg
-            messages.push(SubMsg::new(excess_repayment_msg));
+//             //Add msg
+//             messages.push(SubMsg::new(excess_repayment_msg));
 
-            Uint128::zero()
-        },
-    };
+//             Uint128::zero()
+//         },
+//     };
     
-    //Get affiliates
-    let affiliations = AFFILIATES.load(deps.storage, target_position.position_id.to_string())?;
+//     //Get affiliates
+//     let affiliations = AFFILIATES.load(deps.storage, target_position.position_id.to_string())?;
 
-    //Burn repayment & send revenue to stakers
-    let burn_and_rev_msgs = credit_burn_rev_msg(
-        config.clone(),
-        env.clone(),
-        credit_asset.clone(),
-        &mut basket,
-        affiliations.clone(),
-    )?;
-    messages.extend(burn_and_rev_msgs);
+//     //Burn repayment & send revenue to stakers
+//     let burn_and_rev_msgs = credit_burn_rev_msg(
+//         config.clone(),
+//         env.clone(),
+//         credit_asset.clone(),
+//         &mut basket,
+//         affiliations.clone(),
+//     )?;
+//     messages.extend(burn_and_rev_msgs);
 
-    //Update affiliates
-    update_affiliates(deps.storage, affiliations, target_position.position_id, env.block.time.seconds())?;
+//     //Update affiliates
+//     update_affiliates(deps.storage, affiliations, target_position.position_id, env.block.time.seconds())?;
 
-    //Subtract paid debt from Basket
-    basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(credit_asset.amount){
-        Ok(difference) => difference,
-        Err(_err) => return Err(ContractError::CustomError { val: String::from("Repay amount is greater than Basket credit amount in liq_repay") }),
-    };
+//     //Subtract paid debt from Basket
+//     basket.credit_asset.amount = match basket.credit_asset.amount.checked_sub(credit_asset.amount){
+//         Ok(difference) => difference,
+//         Err(_err) => return Err(ContractError::CustomError { val: String::from("Repay amount is greater than Basket credit amount in liq_repay") }),
+//     };
    
-    //Set collateral_assets
-    let collateral_assets = target_position.clone().collateral_assets;
+//     //Set collateral_assets
+//     let collateral_assets = target_position.clone().collateral_assets;
 
-    //Get position's cAsset ratios
-    let (cAsset_ratios, cAsset_prices) = (liquidation_propagation.clone().cAsset_ratios, liquidation_propagation.clone().cAsset_prices);
+//     //Get position's cAsset ratios
+//     let (cAsset_ratios, cAsset_prices) = (liquidation_propagation.clone().cAsset_ratios, liquidation_propagation.clone().cAsset_prices);
 
-    let repay_value = basket.clone().credit_price.get_value(credit_asset.amount)?;
+//     let repay_value = basket.clone().credit_price.get_value(credit_asset.amount)?;
 
-    //Add repay amount && user_repay_amount to total repaid
-    //This makes the assumption that if the SP liquidation is successful, the user_repay_amount was too
-    liquidation_propagation.total_repaid += Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128));
+//     //Add repay amount && user_repay_amount to total repaid
+//     //This makes the assumption that if the SP liquidation is successful, the user_repay_amount was too
+//     liquidation_propagation.total_repaid += Decimal::from_ratio(credit_asset.amount, Uint128::new(1u128));
 
-    //Error if the caller fee is more than the total repaid value
-    let repaid_value = basket.clone().credit_price.get_value(liquidation_propagation.clone().total_repaid.to_uint_floor())?;
-    if liquidation_propagation.clone().caller_fee_value_paid > repaid_value {
-        return Err(ContractError::CustomError { val: String::from("Caller fee is greater than total repaid value") });
-    }
+//     //Error if the caller fee is more than the total repaid value
+//     let repaid_value = basket.clone().credit_price.get_value(liquidation_propagation.clone().total_repaid.to_uint_floor())?;
+//     if liquidation_propagation.clone().caller_fee_value_paid > repaid_value {
+//         return Err(ContractError::CustomError { val: String::from("Caller fee is greater than total repaid value") });
+//     }
 
-    //Stability Pool receives pro rata assets
-    //Add distribute messages to the message builder, so the contract knows what to do with the received funds
-    let mut distribution_assets = vec![];
+//     //Stability Pool receives pro rata assets
+//     //Add distribute messages to the message builder, so the contract knows what to do with the received funds
+//     let mut distribution_assets = vec![];
 
-    let mut coins: Vec<Coin> = vec![];    
+//     let mut coins: Vec<Coin> = vec![];    
 
-    //Get SP liq fee
-    let sp_liq_fee = liquidation_propagation.sp_liq_fee;
+//     //Get SP liq fee
+//     let sp_liq_fee = liquidation_propagation.sp_liq_fee;
 
-    //Calculate distribution of assets to send from the repaid position
-    for (num, cAsset) in collateral_assets.into_iter().enumerate() {
+//     //Calculate distribution of assets to send from the repaid position
+//     for (num, cAsset) in collateral_assets.into_iter().enumerate() {
 
-        let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num])?;
-        let collateral_repay_amount = cAsset_prices[num].get_amount(collateral_repay_value)?;
+//         let collateral_repay_value = decimal_multiplication(repay_value, cAsset_ratios[num])?;
+//         let collateral_repay_amount = cAsset_prices[num].get_amount(collateral_repay_value)?;
 
-        //Add fee %
-        let collateral_w_fee = min(
-            collateral_repay_amount * (sp_liq_fee+Decimal::one()),
-            target_position.collateral_assets[num].asset.amount
-        );
-        //This min accounts for rounding errors.
+//         //Add fee %
+//         let collateral_w_fee = min(
+//             collateral_repay_amount * (sp_liq_fee+Decimal::one()),
+//             target_position.collateral_assets[num].asset.amount
+//         );
+//         //This min accounts for rounding errors.
 
-        //Set distribution asset
-        let distribution_asset: Asset = Asset {
-            amount: collateral_w_fee,
-            ..cAsset.clone().asset
-        };
+//         //Set distribution asset
+//         let distribution_asset: Asset = Asset {
+//             amount: collateral_w_fee,
+//             ..cAsset.clone().asset
+//         };
         
-        //Remove collateral from user's position claims
-        target_position.collateral_assets[num].asset.amount -= collateral_w_fee;
-        liquidation_propagation.liquidated_assets.push(
-            cAsset {
-                asset: distribution_asset.clone(),
-                ..cAsset.clone()
-            }
-        );
+//         //Remove collateral from user's position claims
+//         target_position.collateral_assets[num].asset.amount -= collateral_w_fee;
+//         liquidation_propagation.liquidated_assets.push(
+//             cAsset {
+//                 asset: distribution_asset.clone(),
+//                 ..cAsset.clone()
+//             }
+//         );
 
-        //SP Distribution needs list of cAsset's and is pulling the amount from the Asset object
-        distribution_assets.push(distribution_asset.clone());
-        coins.push(asset_to_coin(distribution_asset)?);
-    }
+//         //SP Distribution needs list of cAsset's and is pulling the amount from the Asset object
+//         distribution_assets.push(distribution_asset.clone());
+//         coins.push(asset_to_coin(distribution_asset)?);
+//     }
 
-    if target_position.credit_amount.is_zero(){                
-        //Remove position's assets from Supply caps 
-        update_basket_tally(
-            deps.storage, 
-            deps.querier, 
-            env.clone(), 
-            &mut basket,
-            [target_position.clone().collateral_assets, liquidation_propagation.clone().liquidated_assets].concat(),
-            target_position.clone().collateral_assets,
-            false, 
-            config.clone(),
-            true,
-        )?;
-    } else {
-        //Remove liquidated assets from Supply caps
-        update_basket_tally(
-            deps.storage, 
-            deps.querier, 
-            env.clone(), 
-            &mut basket,
-            liquidation_propagation.liquidated_assets,
-            target_position.clone().collateral_assets,
-            false,
-            config.clone(),
-            true,
-        )?;
-    }
+//     if target_position.credit_amount.is_zero(){                
+//         //Remove position's assets from Supply caps 
+//         update_basket_tally(
+//             deps.storage, 
+//             deps.querier, 
+//             env.clone(), 
+//             &mut basket,
+//             [target_position.clone().collateral_assets, liquidation_propagation.clone().liquidated_assets].concat(),
+//             target_position.clone().collateral_assets,
+//             false, 
+//             config.clone(),
+//             true,
+//         )?;
+//     } else {
+//         //Remove liquidated assets from Supply caps
+//         update_basket_tally(
+//             deps.storage, 
+//             deps.querier, 
+//             env.clone(), 
+//             &mut basket,
+//             liquidation_propagation.liquidated_assets,
+//             target_position.clone().collateral_assets,
+//             false,
+//             config.clone(),
+//             true,
+//         )?;
+//     }
 
-    //Update position
-    update_position(deps.storage, liquidation_propagation.position_owner, target_position)?;
-    //Update Basket
-    BASKET.save(deps.storage, &basket)?;
+//     //Update position
+//     update_position(deps.storage, liquidation_propagation.position_owner, target_position)?;
+//     //Update Basket
+//     BASKET.save(deps.storage, &basket)?;
 
-    //Adds Native token distribution msg to messages
-    let distribution_msg = SP_ExecuteMsg::Distribute {
-        distribution_assets: distribution_assets.clone(),
-        distribution_asset_ratios: cAsset_ratios, //The distributions are based off cAsset_ratios so they shouldn't change
-        distribute_for: credit_asset.amount,
-    };
-    //Build the Execute msg w/ the full list of native tokens
-    let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-        msg: to_json_binary(&distribution_msg)?,
-        funds: coins,
-    });
-    messages.push(SubMsg::new(msg));
+//     //Adds Native token distribution msg to messages
+//     let distribution_msg = SP_ExecuteMsg::Distribute {
+//         distribution_assets: distribution_assets.clone(),
+//         distribution_asset_ratios: cAsset_ratios, //The distributions are based off cAsset_ratios so they shouldn't change
+//         distribute_for: credit_asset.amount,
+//     };
+//     //Build the Execute msg w/ the full list of native tokens
+//     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+//         contract_addr: config.stability_pool.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+//         msg: to_json_binary(&distribution_msg)?,
+//         funds: coins,
+//     });
+//     messages.push(SubMsg::new(msg));
     
-    Ok(Response::new()
-        .add_submessages(messages)
-        .add_attribute("method", "liq_repay")
-        .add_attribute("distribution_assets", format!("{:?}", distribution_assets))
-        .add_attribute("distribute_for", credit_asset.amount)
-        .add_attribute("excess", excess_repayment))
-}
+//     Ok(Response::new()
+//         .add_submessages(messages)
+//         .add_attribute("method", "liq_repay")
+//         .add_attribute("distribution_assets", format!("{:?}", distribution_assets))
+//         .add_attribute("distribute_for", credit_asset.amount)
+//         .add_attribute("excess", excess_repayment))
+// }
 
 //Set mint to RBLP Intent
 pub fn set_intents(

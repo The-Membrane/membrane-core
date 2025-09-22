@@ -260,11 +260,11 @@ pub struct Config {
     /// Contract owner
     pub owner: Addr,
     /// Stability Pool contract address
-    pub stability_pool: Option<Addr>,
+    // pub stability_pool: Option<Addr>,
     /// Apollo DEX router contract address.
     /// Note: Will need to change msg types if the router provider changes.
-    /// Unused. The contract uses the Osmosis Proxy for swaps.
-    pub dex_router: Option<Addr>,
+    /// Unused. The contract uses the Chain Proxy for swaps.
+    // pub dex_router: Option<Addr>,
     /// Staking contract address
     pub staking_contract: Option<Addr>,
     /// Chain Proxy contract address
@@ -277,6 +277,8 @@ pub struct Config {
     pub liquidity_contract: Option<Addr>,
     /// System Discounts contract address
     pub discounts_contract: Option<Addr>,
+    /// List of valid deployment venues
+    pub valid_deployment_venues: Vec<Addr>,
     /// Liquidation fee as percent
     pub liq_fee: Decimal,
     /// Collateral TWAP time frame in minutes
@@ -336,9 +338,9 @@ pub struct UpdateConfig {
     /// Contract owner
     pub owner: Option<String>,
     /// Stability Pool contract address
-    pub stability_pool: Option<String>,
-    /// Apollo DEX router contract address.
-    pub dex_router: Option<String>,
+    // pub stability_pool: Option<String>,
+    // /// Apollo DEX router contract address.
+    // pub dex_router: Option<String>,
     /// Staking contract address
     pub staking_contract: Option<String>,
     /// Chain Proxy contract address
@@ -385,12 +387,12 @@ impl UpdateConfig {
         config: &mut Config,
     ) -> StdResult<()>{
         //Set Optionals
-        if let Some(stability_pool) = self.stability_pool {
-            config.stability_pool = Some(api.addr_validate(&stability_pool)?);
-        }
-        if let Some(dex_router) = self.dex_router {
-            config.dex_router = Some(api.addr_validate(&dex_router)?);
-        }
+        // if let Some(stability_pool) = self.stability_pool {
+        //     config.stability_pool = Some(api.addr_validate(&stability_pool)?);
+        // }
+        // if let Some(dex_router) = self.dex_router {
+        //     config.dex_router = Some(api.addr_validate(&dex_router)?);
+        // }
         if let Some(chain_proxy) = self.chain_proxy {
             config.chain_proxy = Some(api.addr_validate(&chain_proxy)?);
         }

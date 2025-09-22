@@ -96,12 +96,12 @@ pub fn update_rate_indices(
     env: Env, 
     basket: &mut Basket,
     supply_caps: &mut Vec<SupplyCap>,
-    negative_rate: bool,
-    credit_price_rate: Decimal,
-    rate_slope_multiplier: Decimal,
+    // negative_rate: bool,
+    // credit_price_rate: Decimal,
+    // rate_slope_multiplier: Decimal,
 ) -> StdResult<()>{
     //Get basket rates
-    let mut interest_rates = match get_interest_rates(storage, querier, env.clone(), basket, supply_caps){
+    let interest_rates = match get_interest_rates(storage, querier, env.clone(), basket, supply_caps){
         Ok(rates) => rates,
         Err(err) => {
             return Err(StdError::GenericErr {
@@ -110,40 +110,41 @@ pub fn update_rate_indices(
         }
     };
     
-    let mut error: Option<StdError> = None;
+    // let mut error: Option<StdError> = None;
 
     //Add/Subtract the repayment rate to the rates
     //These aren't saved so it won't compound
-    interest_rates = interest_rates.clone().into_iter().map(|mut rate| {
+    // NOTE: REMOVED BC IT PUSHES LOW RISK USERS OUT DUE TO HIGH RATES CREATED BY HIGH RISK USERS
+    // interest_rates = interest_rates.clone().into_iter().map(|mut rate| {
 
-        if negative_rate {
-            //If the collateral interest rate is less than the redemption rate, set to 0. 
-            //Avoids negative interest rates but not redemption rates.
-            if rate < credit_price_rate {
-                rate = Decimal::zero();
-            } else {
-                rate = match decimal_subtraction(rate, credit_price_rate){
-                    Ok(rate) => rate,
-                    Err(err) => {
-                        error = Some(err);
-                        Decimal::zero()
-                    },
-                };
-            }            
-        } else {
-            rate += decimal_multiplication(credit_price_rate, rate_slope_multiplier)?;
-        }
+    //     if negative_rate {
+    //         //If the collateral interest rate is less than the redemption rate, set to 0. 
+    //         //Avoids negative interest rates but not redemption rates.
+    //         if rate < credit_price_rate {
+    //             rate = Decimal::zero();
+    //         } else {
+    //             rate = match decimal_subtraction(rate, credit_price_rate){
+    //                 Ok(rate) => rate,
+    //                 Err(err) => {
+    //                     error = Some(err);
+    //                     Decimal::zero()
+    //                 },
+    //             };
+    //         }            
+    //     } else {
+    //         rate += decimal_multiplication(credit_price_rate, rate_slope_multiplier)?;
+    //     }
 
-        Ok(rate)
-    })
-    .collect::<StdResult<Vec<Decimal>>>()?;
+    //     Ok(rate)
+    // })
+    // .collect::<StdResult<Vec<Decimal>>>()?;
     //This allows us to prioritize credit stability over profit/state of the basket
     //This means base_interest_rate + margin_of_error is the range above peg before rates go to 0
     
     // Assert that there are no errors
-    if let Some(err) = error {
-        return Err(err);
-    }
+    // if let Some(err) = error {
+    //     return Err(err);
+    // }
     
     //Update latest rates in the Basket
     let latest_rates = interest_rates.clone()
@@ -388,7 +389,14 @@ fn get_credit_rate_of_change(
         Err(_err) => basket.clone().collateral_supply_caps
     };
     
-    match update_rate_indices(storage, querier, env, basket, &mut supply_caps, negative_rate, credit_price_rate, config.rate_slope_multiplier){
+    match update_rate_indices(
+        storage, 
+        querier,
+         env, 
+         basket, 
+         &mut supply_caps, 
+         // negative_rate, credit_price_rate, config.rate_slope_multiplier
+        ){
         Ok(_ok) => {},
         Err(err) => {
             return Err(StdError::GenericErr {
@@ -446,37 +454,9 @@ pub fn accrue(
     let mut negative_rate: bool = false;
     let price_difference: Decimal;
     let mut credit_price_rate: Decimal = Decimal::zero();
-
-    ////Credit Price Controller barriers to reduce risk of manipulation
-    //Liquidity above 2M
-    //At least 3% of total supply as liquidity
-    let liquidity: Uint128 = get_asset_liquidity(
-        querier,
-        config.clone().liquidity_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-        basket.clone().credit_asset.info
-    )?;
-    
-    //Now get % of supply
-    let current_supply = basket.credit_asset.amount;
-    let liquidity_ratio = { 
-        if !current_supply.is_zero() {
-            decimal_division(
-                Decimal::from_ratio(liquidity, Uint128::new(1u128)),
-                Decimal::from_ratio(current_supply, Uint128::new(1u128)),
-            )?
-        } else {
-            Decimal::one()        
-        }
-    };
-    //If liquidity is low or basket oracle is not set, skip accrual
-    let mut skip_credit_price_accrual: bool = false;
-    if liquidity_ratio < Decimal::percent(3) || liquidity < MINIMUM_LIQUIDITY || !basket.oracle_set{
-        //Skip repayment accrual
-        skip_credit_price_accrual = true;
-    }
+    let mut skip_credit_price_accrual: bool = config.clone().skip_credit_price_accrual;
     
     ////If the credit oracle errors we only skip the repayment price accrual and not error the whole function
-    //Calculate new interest rate
     let credit_asset = cAsset {
         asset: basket.clone().credit_asset,
         max_borrow_LTV: Decimal::zero(),
@@ -512,6 +492,37 @@ pub fn accrue(
             Decimal::zero()
         }
     };
+
+
+    if !skip_credit_price_accrual {
+        ////Credit Price Controller barriers to reduce risk of manipulation
+        //Liquidity above 2M
+        //At least 3% of total supply as liquidity
+        let liquidity: Uint128 = get_asset_liquidity(
+            querier,
+            config.clone().liquidity_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+            basket.clone().credit_asset.info
+        )?;
+        
+        //Now get % of supply
+        let current_supply = basket.credit_asset.amount;
+        let liquidity_ratio = { 
+            if !current_supply.is_zero() {
+                decimal_division(
+                    Decimal::from_ratio(liquidity, Uint128::new(1u128)),
+                    Decimal::from_ratio(current_supply, Uint128::new(1u128)),
+                )?
+            } else {
+                Decimal::one()        
+            }
+        };
+        //If liquidity is low or basket oracle is not set, skip accrual
+        if liquidity_ratio < Decimal::percent(3) || liquidity < MINIMUM_LIQUIDITY || !basket.oracle_set{
+            //Skip repayment accrual
+            skip_credit_price_accrual = true;
+        }
+    
+    }
 
     /////Calculate the potential credit price rate & accrue if not skipped///////
     //Repayment accrual

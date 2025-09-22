@@ -299,7 +299,9 @@ pub struct Config {
     /// Affiliate FeeMax
     pub affiliate_fee_max: Decimal,
     /// Revenue Distributor contract address
-    pub revenue_distributor: Option<Addr>
+    pub revenue_distributor: Option<Addr>,
+    /// Skip credit price accrual
+    pub skip_credit_price_accrual: bool,
 }
 
 
@@ -367,6 +369,8 @@ pub struct UpdateConfig {
     pub redemption_fee: Option<Decimal>,
     /// Affiliate Fee Max
     pub affiliate_fee_max: Option<Decimal>,
+    /// Skip credit price accrual
+    pub skip_credit_price_accrual: Option<bool>,
 }
 
 impl UpdateConfig {
@@ -456,6 +460,9 @@ impl UpdateConfig {
                 return Err(StdError::GenericErr{ msg: String::from("Affiliate fee max must be between 0-100%") });
             }
             config.affiliate_fee_max = affiliate_fee_max;
+        }
+        if let Some(skip_credit_price_accrual) = self.skip_credit_price_accrual {
+            config.skip_credit_price_accrual = skip_credit_price_accrual;
         }
         Ok(())
     }

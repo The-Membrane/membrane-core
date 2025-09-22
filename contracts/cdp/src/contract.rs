@@ -67,6 +67,7 @@ pub fn instantiate(
         rate_hike_rate: Some(Decimal::percent(30)),
         redemption_fee: Decimal::from_str("0.005").unwrap(), //0.5%
         affiliate_fee_max: Decimal::percent(10), //10%
+        skip_credit_price_accrual: true,
     };
 
     //Set optional config parameters

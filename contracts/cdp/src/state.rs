@@ -1,6 +1,6 @@
 use membrane::oracle::PriceResponse;
 
-use cosmwasm_std::{Addr, Decimal, Uint128, Storage, QuerierWrapper, Env, StdResult, StdError, CosmosMsg, WasmMsg, to_json_binary};
+use cosmwasm_std::{to_json_binary, Addr, Coin, CosmosMsg, Decimal, Env, QuerierWrapper, StdError, StdResult, Storage, Uint128, WasmMsg};
 use cosmwasm_schema::cw_serde;
 use cw_storage_plus::{Item, Map};
 use membrane::helpers::get_contract_balances;
@@ -58,6 +58,12 @@ pub struct ClosePositionPropagation {
     pub position_info: UserInfo,
     pub send_to: Option<String>,
 }
+
+#[cw_serde]
+pub struct SellCollateralPropagation {
+    pub collateral_sold: Vec<Coin>,
+    pub position_info: UserInfo,
+}
 #[cw_serde]
 pub struct Timer {
     pub start_time: u64,
@@ -97,6 +103,7 @@ pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
 pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation");
 pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("repay_propagation");
 pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");
+pub const SELL_COLLATERAL: Item<SellCollateralPropagation> = Item::new("sell_collateral_propagation");
 //Freeze Timer
 pub const FREEZE_TIMER: Item<Timer> = Item::new("freeze_timer");
 //Intents

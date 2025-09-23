@@ -4,6 +4,7 @@ use cosmwasm_schema::cw_serde;
 use crate::types::{ EnterLPIntent, CDPUserIntents,
     cAsset, Asset, AssetInfo, InsolventPosition,
     SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal, PremiumInfo,
+    DeploymentVenue,
 };
 
 #[cw_serde]
@@ -24,10 +25,10 @@ pub struct InstantiateMsg {
     pub rate_slope_multiplier: Decimal, 
     /// Base debt cap multiplier
     pub base_debt_cap_multiplier: Uint128,
-    /// Stability Pool contract
-    pub stability_pool: Option<String>,
-    /// Apollo DEX Router contract
-    pub dex_router: Option<String>,
+    // /// Stability Pool contract
+    // pub stability_pool: Option<String>,
+    // /// Apollo DEX Router contract
+    // pub dex_router: Option<String>,
     /// MBRN Staking contract
     pub staking_contract: Option<String>,
     /// Oracle contract
@@ -278,7 +279,7 @@ pub struct Config {
     /// System Discounts contract address
     pub discounts_contract: Option<Addr>,
     /// List of valid deployment venues
-    pub valid_deployment_venues: Vec<Addr>,
+    pub valid_deployment_venues: Vec<DeploymentVenue>,
     /// Liquidation fee as percent
     pub liq_fee: Decimal,
     /// Collateral TWAP time frame in minutes
@@ -378,6 +379,16 @@ pub struct UpdateConfig {
     pub affiliate_fee_max: Option<Decimal>,
     /// Skip credit price accrual
     pub skip_credit_price_accrual: Option<bool>,
+    /// List of valid deployment venues
+    pub valid_deployment_venues: Option<Vec<AddressEntry>>,
+}
+
+#[cw_serde]
+pub struct AddressEntry {
+    /// Address
+    pub address: String,
+    /// Remove
+    pub remove: bool,
 }
 
 impl UpdateConfig {
@@ -470,6 +481,17 @@ impl UpdateConfig {
         }
         if let Some(skip_credit_price_accrual) = self.skip_credit_price_accrual {
             config.skip_credit_price_accrual = skip_credit_price_accrual;
+        }
+        if let Some(valid_deployment_venues) = self.valid_deployment_venues {
+            for entry in valid_deployment_venues {
+                if entry.remove {
+                    let addr = api.addr_validate(&entry.address)?;
+                    config.valid_deployment_venues.retain(|venue| venue.address != addr);
+                } else {
+                    let addr = api.addr_validate(&entry.address)?;
+                    config.valid_deployment_venues.push(crate::types::DeploymentVenue { address: addr });
+                }
+            }
         }
         Ok(())
     }

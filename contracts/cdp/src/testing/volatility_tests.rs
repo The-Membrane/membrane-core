@@ -1351,19 +1351,7 @@ mod tests {
     pub fn proper_instantiate( ) -> (App, CDPContract, LQContract, OracleContract, OracleContract, OracleContract, OracleContract, OracleContract, OracleContract) {
         let mut app = mock_app();
 
-        //Instanitate SP
-        let sp_id: u64 = app.store_code(stability_pool_contract());        
-
-        let sp_contract_addr = app
-            .instantiate_contract(
-                sp_id,
-                Addr::unchecked(ADMIN),
-                &SP_MockInstantiateMsg {},
-                &[],
-                "test",
-                None,
-            )
-            .unwrap();
+        //Skip Stability Pool instantiation (removed)
 
         //Instanitate Router
         let router_id = app.store_code(router_contract());
@@ -1583,7 +1571,7 @@ mod tests {
         let msg = InstantiateMsg {
             owner: Some(ADMIN.to_string()),
             liq_fee: Decimal::percent(1),
-            stability_pool: Some(sp_contract_addr.to_string()),
+            stability_pool: None,
             dex_router: Some(router_contract_addr.to_string()),
             staking_contract: Some(staking_contract_addr.to_string()),
             oracle_contract: Some(oracle_contract_fivetwo.0.to_string()),

@@ -41,6 +41,7 @@ pub const LIQ_QUEUE_REPLY_ID: u64 = 1u64;
 pub const WITHDRAW_REPLY_ID: u64 = 4u64;
 pub const REVENUE_REPLY_ID: u64 = 5u64;
 pub const CLOSE_POSITION_REPLY_ID: u64 = 6u64;
+pub const SELL_COLLATERAL_REPLY_ID: u64 = 7u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 
@@ -676,7 +677,7 @@ pub fn repay(
             if info.sender == liq_queue { let_pass = true; }
         }
         // Any valid deployment venue
-        if config.clone().valid_deployment_venues.contains(&info.sender) { let_pass = true; }
+        if config.clone().valid_deployment_venues.iter().any(|venue| venue.address == info.sender) { let_pass = true; }
         //Contract itself
         if info.sender == env.contract.address { let_pass = true; }
         if !let_pass {
@@ -2889,6 +2890,7 @@ pub fn create_position(
         position_id: basket.current_position_id,
         collateral_assets: cAssets,
         credit_amount: Uint128::zero(),
+        deployed_to: vec![],
     };
 
     //increment position id

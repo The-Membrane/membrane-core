@@ -38,3 +38,5 @@ pub mod track_manager;
 pub mod tournament;
 pub mod byte_minter;
 pub mod revenue_distributor;
+pub mod deployable_venue;
+pub mod chain_proxy;

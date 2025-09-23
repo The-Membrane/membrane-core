@@ -478,6 +478,12 @@ pub struct LPAssetInfo {
 }
 
 #[cw_serde]
+pub struct DeploymentVenue {
+    /// Address
+    pub address: Addr,
+}
+
+#[cw_serde]
 pub struct Position {
     /// Position ID
     pub position_id: Uint128,
@@ -485,6 +491,8 @@ pub struct Position {
     pub collateral_assets: Vec<cAsset>,
     /// Loan size
     pub credit_amount: Uint128,
+    /// Deployed to
+    pub deployed_to: Vec<DeploymentVenue>,
 }
 
 

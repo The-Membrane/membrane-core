@@ -1,7 +1,7 @@
 use std::cmp::min;
 use std::str::FromStr;
 
-use cosmwasm_std::{Storage, Api, QuerierWrapper, Env, MessageInfo, Uint128, Response, Decimal, CosmosMsg, attr, SubMsg, Addr, StdResult, StdError, to_json_binary, WasmMsg, QueryRequest, WasmQuery, BankMsg, Coin, ReplyOn};
+use cosmwasm_std::{attr, to_json_binary, Addr, Api, Attribute, BankMsg, Coin, CosmosMsg, Decimal, Env, MessageInfo, QuerierWrapper, QueryRequest, ReplyOn, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg, WasmQuery};
 use osmosis_std::shim::Duration;
 use osmosis_std::types::osmosis::downtimedetector::v1beta1::DowntimedetectorQuerier;
 
@@ -14,13 +14,15 @@ use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::stability_pool::{LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
-use membrane::types::{Basket, Position, AssetInfo, UserInfo, Asset, cAsset, PoolStateResponse, AssetPool};
+use membrane::deployable_venue::{ExecuteMsg as DeployableVenue_ExecuteMsg, QueryMsg as DeployableVenue_QueryMsg};
+use membrane::chain_proxy::ExecuteMsg as ChainProxyExecuteMsg;
+use membrane::types::{cAsset, Asset, AssetInfo, AssetPool, Basket, DeploymentVenue, PoolStateResponse, Position, UserInfo};
 
 use crate::error::ContractError; 
-use crate::positions::{BAD_DEBT_REPLY_ID, LIQ_QUEUE_REPLY_ID};
+use crate::positions::{BAD_DEBT_REPLY_ID, LIQ_QUEUE_REPLY_ID, SELL_COLLATERAL_REPLY_ID};
 use crate::query::{insolvency_check, get_cAsset_ratios};
 use crate::risk_engine::update_basket_tally;
-use crate::state::{get_target_position, update_position, LiquidationPropagation, Timer, BASKET, CONFIG, FREEZE_TIMER, LIQUIDATION, create_collateral_rate_assurance};
+use crate::state::{create_collateral_rate_assurance, get_target_position, update_position, LiquidationPropagation, SellCollateralPropagation, Timer, BASKET, CONFIG, FREEZE_TIMER, LIQUIDATION, SELL_COLLATERAL};
 
 pub const SECONDS_PER_DAY: u64 = 86400;
 pub const BAD_DEBT_CALLER_FEE: Decimal = Decimal::percent(1);
@@ -39,21 +41,21 @@ pub fn liquidate(
     position_owner: String,
 ) -> Result<Response, ContractError> {
     //Check for Osmosis downtime 
-    match DowntimedetectorQuerier::new(&querier)
-        .recovered_since_downtime_of_length(
-            10 * 60 * 8, //8 hours from 6 second blocks
-            Some(Duration {
-                seconds: 60 * 60 * 1, //1 hour
-                nanos: 0,
-            })
-    ){
-        Ok(resp) => {            
-            if !resp.succesfully_recovered {
-                return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
-            }
-        },
-        Err(_) => (),
-    };
+    // match DowntimedetectorQuerier::new(&querier)
+    //     .recovered_since_downtime_of_length(
+    //         10 * 60 * 8, //8 hours from 6 second blocks
+    //         Some(Duration {
+    //             seconds: 60 * 60 * 1, //1 hour
+    //             nanos: 0,
+    //         })
+    // ){
+    //     Ok(resp) => {            
+    //         if !resp.succesfully_recovered {
+    //             return Err(ContractError::CustomError { val: String::from("Downtime recovery window hasn't elapsed yet ") })
+    //         }
+    //     },
+    //     Err(_) => (),
+    // };
 
     let mut basket: Basket = BASKET.load(storage)?;
     //Check if frozen
@@ -102,6 +104,10 @@ pub fn liquidate(
         Ok(res) => res,
         Err(err) => return Err(ContractError::CustomError { val: String::from(format!("Insolvency check failed: {:?}", err)) }),
     };
+
+    //REMOVE, FOR TESTING
+    let insolvent = true;
+    let current_LTV = Decimal::percent(90);
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -130,7 +136,7 @@ pub fn liquidate(
     let res = Response::new();
     let mut submessages = vec![];
     let mut caller_fee_messages: Vec<CosmosMsg> = vec![];
-    let mut attrs = vec![];
+    let mut attrs: Vec<Attribute> = vec![];
 
     //Set collateral_assets
     let mut collateral_assets = target_position.clone().collateral_assets;
@@ -145,20 +151,24 @@ pub fn liquidate(
     let pre_user_repay_repay_amount = credit_repay_amount;
 
     //Get amount of repayment user can repay from the Stability Pool
-    let user_sp_repay_amount = get_user_repay_amount(querier, config.clone(), basket.clone(), position_id, position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;
-    attrs.push(
-        attr("user_sp_repay_amount", user_sp_repay_amount.to_string())
-    );
+    // let user_sp_repay_amount = get_user_repay_amount(querier, config.clone(), basket.clone(), position_id, position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;
+    // attrs.push(
+    //     attr("user_sp_repay_amount", user_sp_repay_amount.to_string())
+    // );
 
-    //Get amount of repayment user can repay from the Range Bound LP Vault
-    let user_rblp_repay_amount = get_rblp_user_repay_amount(querier, config.clone(), basket.clone(), position_id, position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;
-    attrs.push(
-        attr("user_rblp_repay_amount", user_rblp_repay_amount.to_string())
-    );
-
-    //Set user_repay_amount
-    let user_repay_amount: Decimal =  user_rblp_repay_amount + user_sp_repay_amount;
-
+    //Get amount of repayment user can repay from its deployed Venues
+    let user_repay_amount = get_deployable_venues_user_repay_amount(
+        querier, 
+        config.clone(), 
+        basket.clone(), 
+        position_id, 
+        position_owner.clone(), 
+        target_position.clone().deployed_to,
+        &mut credit_repay_amount, 
+        &mut submessages,
+        &mut attrs,
+    )?;
+    
     //Account for rounding leaving leftovers
     if credit_repay_amount == Decimal::one(){
         credit_repay_amount = Decimal::zero();
@@ -213,6 +223,7 @@ pub fn liquidate(
     //Calculate caller & protocol fees 
     //and amount to send to the Liquidation Queue.
     let (protocol_fee_msg, leftover_repayment) = match per_asset_fulfillments(
+        storage,
         querier, 
         config.clone(), 
         basket.clone(), 
@@ -230,6 +241,10 @@ pub fn liquidate(
         &mut per_asset_repayment,
         &mut liquidated_assets,
         &mut caller_fee_value_paid,
+        UserInfo {
+            position_id,
+            position_owner: position_owner.clone(),
+        }
     ){
         Ok(res) => res,
         Err(err) => return Err(ContractError::CustomError { val: String::from(format!("Per asset fulfillments failed: {:?}", err)) }),
@@ -238,8 +253,9 @@ pub fn liquidate(
     //Update collateral_assets to reflect the fees
     target_position.collateral_assets = collateral_assets;
 
-    //If the user repaid the whole liquidation from user funds, we need to update the position here
-    if leftover_repayment.is_zero() && user_repay_amount >= pre_user_repay_repay_amount {
+    //If the user repaid the whole liquidation from user funds or the LQ isn't used, we need to update the position here
+    if leftover_repayment.is_zero() && user_repay_amount >= pre_user_repay_repay_amount 
+    || per_asset_repayment.is_empty() {
         //Update the credit
         target_position.credit_amount = match target_position.credit_amount.checked_sub(pre_user_repay_repay_amount.to_uint_floor()){
             Ok(diff) => diff,
@@ -352,11 +368,17 @@ pub fn liquidate(
     let mut liquidation_propagation: Option<String> = None;
     if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
 
+    //Convert protocol_fee_msg to vec if it's Some, otherwise empty vec
+    let protocol_fee_msgs = match protocol_fee_msg {
+        Some(msg) => vec![msg],
+        None => vec![],
+    };
+
     Ok(res
         .add_submessages(submessages) //LQ & SP msgs
         .add_submessage(call_back)
         .add_messages(caller_fee_messages)
-        .add_message(protocol_fee_msg)
+        .add_messages(protocol_fee_msgs)
         .add_messages(rate_assurance_msgs)
         .add_attributes(vec![
             attr("method", "liquidate"),
@@ -508,85 +530,71 @@ fn get_repay_quantities(
 //     Ok( user_repay_amount )
 // }
 
-/// Calculate amount of debt the User can repay from the Range Bound LP Vault
-fn get_rblp_user_repay_amount(
+/// Calculate amount of debt the User can repay from its list of Deployable Venues
+fn get_deployable_venues_user_repay_amount(
     querier: QuerierWrapper,    
     _config: Config,
     _basket: Basket,
     position_id: Uint128,
     position_owner: String,
+    deployable_venues: Vec<DeploymentVenue>,
     credit_repay_amount: &mut Decimal,
     submessages: &mut Vec<SubMsg>,
+    attrs: &mut Vec<Attribute>,
 ) -> StdResult<Decimal>{
 
     let mut user_repay_amount = Decimal::zero();
-    //Query RBLP's UserIntentState to see if the user has funds sitting in the vault
-    let user_intents: Vec<UserIntentResponse> = match querier
-        .query::<Vec<UserIntentResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: "osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx".to_string(),
-            msg: to_json_binary(&RBLP_QueryMsg::GetUserIntent { 
-                start_after: None, 
-                limit: None, 
-                users: vec![position_owner.clone()],
-            })?,
-        })){
-            Ok(res) => res,
-            Err(_) => vec![],
-        };
-    //Return early if the user has no funds in the vault
-    if user_intents.is_empty() {
-        return Ok(Decimal::zero());
-    }
-    let user_intent: UserIntentResponse = user_intents[0].clone();
+    for deployable_venue in deployable_venues {
 
-    let user_vault_token_holdings = user_intent.intent.vault_tokens;
+        //Query Venue's Retrievable CDT
+        let retrievable_cdt: Uint128 = match querier
+            .query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: deployable_venue.address.to_string(),
+                msg: to_json_binary(&DeployableVenue_QueryMsg::RetrievableCDT { user: position_owner.clone() })?,
+            })){
+                Ok(res) => res,
+                Err(_) => Uint128::zero(),
+            };
+        let retrievable_cdt = Decimal::from_ratio(retrievable_cdt, Uint128::one());
+            
+        //If the user has funds, tell the RBLP to repay and subtract from credit_repay_amount
+        if !retrievable_cdt.is_zero() {
+            //Set Repayment amount to what needs to get liquidated or total_deposits
+            user_repay_amount = {
+                //Repay the full debt
+                if retrievable_cdt > *credit_repay_amount {
+                    *credit_repay_amount
+                } else {
+                    retrievable_cdt
+                }
+            };
 
-    //Query for the underlying CDT in the user's VTs
-    let underlying_cdt: Uint128 = match querier
-        .query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: "osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx".to_string(),
-            msg: to_json_binary(&RBLP_QueryMsg::VaultTokenUnderlying { vault_token_amount: user_vault_token_holdings })?,
-        })){
-            Ok(res) => res,
-            Err(_) => Uint128::zero(),
-        };
-    let underlying_cdt = Decimal::from_ratio(underlying_cdt, Uint128::one());
-        
-    //If the user has funds, tell the RBLP to repay and subtract from credit_repay_amount
-    if !underlying_cdt.is_zero() {
-        //Set Repayment amount to what needs to get liquidated or total_deposits
-        user_repay_amount = {
-            //Repay the full debt
-            if underlying_cdt > *credit_repay_amount {
-                *credit_repay_amount
-            } else {
-                underlying_cdt
-            }
-        };
+            //Add Repay SubMsg
+            let repay_msg = DeployableVenue_ExecuteMsg::RepayUserDebt {
+                user_info: UserInfo {
+                    position_id,
+                    position_owner: position_owner.clone(),
+                },
+                repayment: user_repay_amount.to_uint_floor()
+            };
+            let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: deployable_venue.address.to_string(),
+                msg: to_json_binary(&repay_msg)?,
+                funds: vec![],
+            });
 
-        //Add Repay SubMsg
-        let repay_msg = RBLP_ExecuteMsg::RepayUserDebt {
-            user_info: UserInfo {
-                position_id,
-                position_owner,
-            },
-            repayment: user_repay_amount.to_uint_floor()
-        };
-        let msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: "osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx".to_string(),
-            msg: to_json_binary(&repay_msg)?,
-            funds: vec![],
-        });
+            //Convert to submsg
+            let sub_msg: SubMsg = SubMsg::reply_on_error(msg, BAD_DEBT_REPLY_ID); //This just means no error on errors in the RBLP's msg
+            submessages.push(sub_msg);
 
-        //Convert to submsg
-        let sub_msg: SubMsg = SubMsg::reply_on_error(msg, BAD_DEBT_REPLY_ID); //This just means no error on errors in the RBLP's msg
-        submessages.push(sub_msg);
+            attrs.push(attr(    format!("repay_deployable_venue_from_{}", deployable_venue.address.to_string()), user_repay_amount.to_string()));
 
-        //Subtract Repay amount from credit_repay_amount for the liquidation
-        *credit_repay_amount = match decimal_subtraction(*credit_repay_amount, user_repay_amount){
-            Ok(res) => res,
-            Err(_) => return Err(StdError::GenericErr { msg: "RBLP credit repay amount calculation failed".to_string() }),
-        };
+            //Subtract Repay amount from credit_repay_amount for the liquidation
+            *credit_repay_amount = match decimal_subtraction(*credit_repay_amount, user_repay_amount){
+                Ok(res) => res,
+                Err(_) => return Err(StdError::GenericErr { msg: format!("Deployable Venue {:?} credit repay amount calculation failed", deployable_venue.address.to_string()).to_string() }),
+            };
+        }
     }
 
     Ok( user_repay_amount )
@@ -595,6 +603,7 @@ fn get_rblp_user_repay_amount(
 /// Calculate & send fees.
 /// Send liquidatible amount to Liquidation Queue.
 fn per_asset_fulfillments(
+    storage: &mut dyn Storage,
     querier: QuerierWrapper,
     config: Config,
     basket: Basket,
@@ -612,7 +621,8 @@ fn per_asset_fulfillments(
     per_asset_repayment: &mut Vec<Decimal>,
     liquidated_assets: &mut Vec<cAsset>,
     caller_fee_value_paid: &mut Decimal,
-) -> StdResult<(CosmosMsg, Uint128)>{
+    position_info: UserInfo,
+) -> StdResult<(Option<CosmosMsg>, Uint128)>{
 
     let mut caller_coins: Vec<Coin> = vec![];
     let mut protocol_coins: Vec<Coin> = vec![];
@@ -620,6 +630,7 @@ fn per_asset_fulfillments(
     //Other wise multiple collateral assets will save the wrong repay_amount_per_asset each time
     let fn_repayment = leftover_repayment;
 
+    ////CALLER AND PROTOCOL FEE COLLECTIONS////
     for (num, cAsset) in collateral_assets.clone().iter().enumerate() {
 
         let repay_amount_per_asset = fn_repayment * cAsset_ratios[num];
@@ -727,7 +738,7 @@ fn per_asset_fulfillments(
             }
         } 
 
-        /////////////LiqQueue calls//////
+        /////////////LiqQueue calls///////////
         if basket.clone().liq_queue.is_some() && leftover_repayment > Uint128::zero(){
             //Repay amount using repay_value after the user's SP repayment            
             let collateral_price = cAsset_prices[num].clone();
@@ -826,6 +837,62 @@ fn per_asset_fulfillments(
         }
     }
 
+    ///Whatever is left over, sell using the chain proxy's execute swaps function
+    let mut collateral_to_sell: Vec<Coin> = vec![];
+    if leftover_repayment > Uint128::zero() {
+        println!("leftover_repayment: {:?}", leftover_repayment);
+        for (num, cAsset) in collateral_assets.clone().iter().enumerate() {
+            //Calculate how much of each collateral asset we need to sell
+
+            //Sell amount using leftover_repayment after LQ repayments         
+            let collateral_price = cAsset_prices[num].clone();
+            let collateral_sell_value = match decimal_multiplication(Decimal::from_ratio(leftover_repayment, Uint128::one()), cAsset_ratios[num]){
+                Ok(res) => res,
+                Err(_) => return Err(StdError::GenericErr { msg: "Collateral sell value calculation (for liq) failed in sell block".to_string() }),
+            };
+            let mut collateral_sell_amount: Uint128 = match collateral_price.get_amount(collateral_sell_value){
+                Ok(res) => res,
+                Err(_) => return Err(StdError::GenericErr { msg: "Collateral sell amount calculation (for liq) failed in sell block".to_string() }),
+            };
+
+            println!("leftover_position_value: {:?}, collateral_sell_value: {:?}", leftover_position_value, collateral_sell_value);
+            //Update leftover position value 
+            *leftover_position_value = match decimal_subtraction(*leftover_position_value, collateral_sell_value){
+                Ok(res) => res,
+                Err(_) => {
+                    collateral_sell_amount = collateral_assets[num].asset.amount;
+                    Decimal::zero()
+                },
+            };
+            println!("leftover_position_value: {:?}", leftover_position_value);
+            println!("collateral_sell_amount: {:?}", collateral_sell_amount);
+
+            collateral_to_sell.push(Coin {
+                denom: cAsset.clone().asset.info.to_string(),
+                amount: collateral_sell_amount,
+            });
+        }
+
+        //Create Msg to sell collateral
+        let sell_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.clone().chain_proxy.unwrap().to_string(),
+            msg: to_json_binary(&ChainProxyExecuteMsg::ExecuteSwaps { 
+                token_out: basket.clone().credit_asset.info.to_string(),
+                max_slippage: Decimal::percent(90), //We are prioritizing offloading the collateral
+            })?,
+            funds: collateral_to_sell.clone(),
+        });
+        // Add to submessages 
+        //TODO, MUST UPDATE POSITION CLAIMS IN THE REPLY
+        submessages.push(SubMsg::reply_on_success(sell_msg, SELL_COLLATERAL_REPLY_ID));
+
+        //Save SellCollateralPropagation
+        SELL_COLLATERAL.save(storage, &SellCollateralPropagation {
+            collateral_sold: collateral_to_sell,
+            position_info: position_info.clone(),
+        })?;
+    }
+
     //Create Msg to send all native token liq fees for fn caller
     let msg = CosmosMsg::Bank(BankMsg::Send {
         to_address: fee_recipient.clone(),
@@ -834,15 +901,23 @@ fn per_asset_fulfillments(
     if !caller_coins.is_empty(){
         caller_fee_messages.push(msg);
     }
-    
-    //Create Msg to send all native token liq fees for MBRN to the staking contract
-    let protocol_fee_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.clone().staking_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-        msg: to_json_binary(&StakingExecuteMsg::DepositFee {})?,
-        funds: protocol_coins,
-    }); 
 
-    Ok((protocol_fee_msg, leftover_repayment))
+    println!("caller_coins: {:?}", caller_coins);
+    println!("protocol_coins: {:?}", protocol_coins);
+
+    if !protocol_coins.is_empty(){
+        //Create Msg to send all native token liq fees for MBRN to the staking contract
+        let protocol_fee_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.clone().staking_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+            msg: to_json_binary(&StakingExecuteMsg::DepositFee {})?,
+            funds: protocol_coins,
+        }); 
+
+        Ok((Some(protocol_fee_msg), leftover_repayment))
+    } else {
+        Ok((None, leftover_repayment))
+    }
+
 }
 
 // This function is used to build (sub)messages for the Stability Pool.

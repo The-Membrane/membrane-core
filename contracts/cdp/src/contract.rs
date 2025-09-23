@@ -20,13 +20,13 @@ use crate::error::ContractError;
 use crate::rates::{external_accrue_call};
 use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
-    close_position, create_basket, deposit, edit_basket, edit_redemption_info, fulfill_intents, increase_debt, liq_repay, redeem_for_collateral, repay, set_intents, withdraw, BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQ_QUEUE_REPLY_ID, REVENUE_REPLY_ID, WITHDRAW_REPLY_ID
+    close_position, create_basket, deposit, edit_basket, edit_redemption_info, fulfill_intents, increase_debt, redeem_for_collateral, repay, set_intents, withdraw, BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQ_QUEUE_REPLY_ID, REVENUE_REPLY_ID, WITHDRAW_REPLY_ID, SELL_COLLATERAL_REPLY_ID
 };
 use crate::query::{
     query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint, query_user_intent_state
 };
 use crate::liquidations::liquidate;
-use crate::reply::{handle_close_position_reply, handle_liq_queue_reply, handle_revenue_reply, handle_withdraw_reply};
+use crate::reply::{handle_close_position_reply, handle_liq_queue_reply, handle_revenue_reply, handle_sell_collateral_reply, handle_withdraw_reply};
 use crate::state::{ get_target_position, update_position, ContractVersion, BASKET, AFFILIATES, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS, CollateralRateAssurance, COLLATERAL_RATE_ASSURANCE};
 
 use membrane::range_bound_lp_vault::{QueryMsg as RBLP_QueryMsg, UserIntentResponse};
@@ -48,8 +48,6 @@ pub fn instantiate(
     let mut config = Config {
         liq_fee: msg.liq_fee,
         owner: info.clone().sender,
-        // stability_pool: None,
-        // dex_router: None,
         staking_contract: None,
         oracle_contract: None,
         chain_proxy: None,
@@ -57,6 +55,7 @@ pub fn instantiate(
         liquidity_contract: None,
         discounts_contract: None,
         revenue_distributor: None,
+        valid_deployment_venues: vec![],
         oracle_time_limit: msg.oracle_time_limit,
         cpc_multiplier: Decimal::one(), 
         rate_slope_multiplier: msg.rate_slope_multiplier,
@@ -74,12 +73,8 @@ pub fn instantiate(
     if let Some(address) = msg.owner {
         config.owner = deps.api.addr_validate(&address)?;
     };
-    if let Some(address) = msg.stability_pool {
-        config.stability_pool = Some(deps.api.addr_validate(&address)?)
-    };
-    if let Some(address) = msg.dex_router {
-        config.dex_router = Some(deps.api.addr_validate(&address)?)
-    };
+    // stability_pool removed
+    // dex_router removed
     if let Some(address) = msg.staking_contract {
         config.staking_contract = Some(deps.api.addr_validate(&address)?)
     };
@@ -223,19 +218,7 @@ pub fn execute(
                 false
             )
         },
-        ExecuteMsg::LiqRepay {} => {
-            if !info.funds.is_empty() {
-                let credit_asset = Asset {
-                    info: AssetInfo::NativeToken {
-                        denom: info.funds[0].clone().denom,
-                    },
-                    amount: info.funds[0].amount,
-                };
-                liq_repay(deps, env, info, credit_asset)
-            } else { //This is checked more specifically in repay(). This is solely to guarantee only one asset is checked.
-                 Err(ContractError::InvalidCredit {})
-            }
-        },
+        ExecuteMsg::LiqRepay {} => Err(ContractError::CustomError { val: String::from("LiqRepay removed") }),
         ExecuteMsg::EditcAsset {
             asset,
             max_borrow_LTV,
@@ -623,6 +606,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         WITHDRAW_REPLY_ID => handle_withdraw_reply(deps, env, msg),
         REVENUE_REPLY_ID => handle_revenue_reply(deps, env, msg),
         CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
+        SELL_COLLATERAL_REPLY_ID => handle_sell_collateral_reply(deps, env, msg),
         // 99u64 => handle_rblp_query(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),

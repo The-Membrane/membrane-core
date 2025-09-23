@@ -7,7 +7,7 @@ use membrane::types::{cAsset, Asset, AssetInfo, Basket};
 use membrane::helpers::{asset_to_coin, get_contract_balances, withdrawal_msg};
 
 use crate::risk_engine::update_basket_tally;
-use crate::state::{get_target_position, update_position, update_position_claims, LiquidationPropagation, BASKET, LIQUIDATION, WITHDRAW, ClosePositionPropagation, CLOSE_POSITION, CONFIG};
+use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, LiquidationPropagation, SellCollateralPropagation, BASKET, CLOSE_POSITION, CONFIG, LIQUIDATION, SELL_COLLATERAL, WITHDRAW};
 
 //Signify the revenue destination that errored without halting the msg flow
 #[allow(unused_variables)]
@@ -220,9 +220,9 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 prop.total_repaid += Decimal::from_ratio(repay_amount, Uint128::new(1u128));
             }
         
-            //If this is the last asset left to send and nothing was sent to the SP, update the position here instead of in liq_repay
+            //If this is the last asset left to send, update the position here
             //We use 1 as our 0 to account for LQ rounding errors
-            if prop.per_asset_repayment.len() == 1 && prop.stability_pool <= Decimal::one() {
+            if prop.per_asset_repayment.len() == 1  {
 
                 //Update supply caps
                 if prop.clone().target_position.credit_amount.is_zero(){                
@@ -388,6 +388,86 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                     .add_attribute("sold_assets", format!("{:?}", state_propagation.withdrawn_assets))            
                 )
             }
+        },
+
+        Err(err) => {
+            //Its reply on success only
+            Ok(Response::new().add_attribute("error", err))
+        }
+    }
+}
+
+
+/// On success, update position claims & repay the debt of the position owner
+pub fn handle_sell_collateral_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+            //Load Sell Collateral Prop
+            let state_propagation: SellCollateralPropagation = SELL_COLLATERAL.load(deps.storage)?;
+
+            let mut msgs = vec![];
+
+            //Create user info variables
+            let valid_position_owner = deps.api.addr_validate(&state_propagation.position_info.position_owner)?;
+            let position_id = state_propagation.position_info.position_id;             
+
+            //Load State
+            let basket: Basket = BASKET.load(deps.storage)?;
+            let config: Config = CONFIG.load(deps.storage)?;
+
+            //Query contract balance of the basket credit_asset
+            let credit_asset_balance = get_contract_balances(
+                deps.querier, 
+                env.clone(), 
+                vec![basket.credit_asset.info.clone()]
+            )?[0];
+
+            //Create repay_msg
+            let repay_msg = ExecuteMsg::Repay { 
+                position_id, 
+                position_owner: Some(valid_position_owner.clone().to_string()),
+                send_excess_to: Some(valid_position_owner.clone().to_string()),
+            };
+
+            //Create repay_msg with queried funds
+            //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
+            if credit_asset_balance > Uint128::zero() {
+                let repay_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+                    contract_addr: env.contract.address.to_string(), 
+                    msg: to_binary(&repay_msg)?, 
+                    funds: vec![asset_to_coin(
+                        Asset { 
+                            info: basket.credit_asset.info.clone(),
+                            amount: credit_asset_balance.clone(),
+                        })?]
+                });
+                //Add to msgs
+                msgs.push(repay_msg);
+            }
+
+
+            //Update position claims for each asset withdrawn + sold
+            for sold_collateral in state_propagation.clone().collateral_sold {
+                println!("sold_collateral: {:?}", sold_collateral);
+
+                update_position_claims(
+                    deps.storage, 
+                    deps.querier, 
+                    env.clone(), 
+                    config.clone(),
+                    position_id,
+                    valid_position_owner.clone(), 
+                    AssetInfo::NativeToken { denom: sold_collateral.denom }, 
+                    sold_collateral.amount
+                )?;
+            }
+        
+            //Response 
+            Ok(Response::new()
+                .add_messages(msgs)
+                .add_attribute("amount_repaid", credit_asset_balance)
+                .add_attribute("sold_assets", format!("{:?}", state_propagation.collateral_sold))            
+            )
         },
 
         Err(err) => {

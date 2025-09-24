@@ -840,7 +840,7 @@ fn per_asset_fulfillments(
     ///Whatever is left over, sell using the chain proxy's execute swaps function
     let mut collateral_to_sell: Vec<Coin> = vec![];
     if leftover_repayment > Uint128::zero() {
-        println!("leftover_repayment: {:?}", leftover_repayment);
+        // println!("leftover_repayment: {:?}", leftover_repayment);
         for (num, cAsset) in collateral_assets.clone().iter().enumerate() {
             //Calculate how much of each collateral asset we need to sell
 
@@ -855,7 +855,7 @@ fn per_asset_fulfillments(
                 Err(_) => return Err(StdError::GenericErr { msg: "Collateral sell amount calculation (for liq) failed in sell block".to_string() }),
             };
 
-            println!("leftover_position_value: {:?}, collateral_sell_value: {:?}", leftover_position_value, collateral_sell_value);
+            // println!("leftover_position_value: {:?}, collateral_sell_value: {:?}", leftover_position_value, collateral_sell_value);
             //Update leftover position value 
             *leftover_position_value = match decimal_subtraction(*leftover_position_value, collateral_sell_value){
                 Ok(res) => res,
@@ -864,8 +864,8 @@ fn per_asset_fulfillments(
                     Decimal::zero()
                 },
             };
-            println!("leftover_position_value: {:?}", leftover_position_value);
-            println!("collateral_sell_amount: {:?}", collateral_sell_amount);
+            // println!("leftover_position_value: {:?}", leftover_position_value);
+            // println!("collateral_sell_amount: {:?}", collateral_sell_amount);
 
             collateral_to_sell.push(Coin {
                 denom: cAsset.clone().asset.info.to_string(),
@@ -902,8 +902,8 @@ fn per_asset_fulfillments(
         caller_fee_messages.push(msg);
     }
 
-    println!("caller_coins: {:?}", caller_coins);
-    println!("protocol_coins: {:?}", protocol_coins);
+    // println!("caller_coins: {:?}", caller_coins);
+    // println!("protocol_coins: {:?}", protocol_coins);
 
     if !protocol_coins.is_empty(){
         //Create Msg to send all native token liq fees for MBRN to the staking contract

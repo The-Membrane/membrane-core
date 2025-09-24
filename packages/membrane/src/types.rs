@@ -445,16 +445,25 @@ pub struct CloseIntent { //Unloop/Close
 
 #[cw_serde]
 /// Enter RB LP Vault Intent
-pub struct EnterLPIntent {
+pub struct DeploymentIntent {
     pub user: String,
     pub position_id: Uint128,
     pub mint_to_ltv: Decimal,
+    pub destination: String, 
 }
 
+
 #[cw_serde]
-pub struct CDPUserIntents { 
+pub struct LeaveTokens {
+    pub percent_to_leave: Decimal,
+    pub intent_for_tokens: RangeBoundUserIntents,
+}
+
+
+#[cw_serde]
+pub struct UserDeploymentIntents { 
     pub user: String,
-    pub enter_lp_intents: Vec<EnterLPIntent>,
+    pub deployment_intents: Vec<DeploymentIntent>,
 }
 
 /// Osmosis PoolInfo

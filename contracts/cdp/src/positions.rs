@@ -17,10 +17,10 @@ use membrane::staking::{ExecuteMsg as Staking_ExecuteMsg, QueryMsg as Staking_Qu
 use membrane::oracle::{ExecuteMsg as OracleExecuteMsg, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::{ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
 use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
-use membrane::range_bound_lp_vault::{ExecuteMsg as RBLP_ExecuteMsg, LeaveTokens};
+use membrane::deployable_venue::{ExecuteMsg as DeploymentVenue_ExecuteMsg};
 use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_subtraction};
 use membrane::types::{
-    cAsset, AffiliateData, Asset, AssetInfo, AssetOracleInfo, Basket, CDPUserIntents, EnterLPIntent, LPAssetInfo, LiquidityInfo, PoolInfo, PoolStateResponse, PoolType, Position, PositionRedemption, PurchaseIntent, RangeBoundUserIntents, RedemptionInfo, SupplyCap, UserInfo
+    cAsset, AffiliateData, Asset, AssetInfo, AssetOracleInfo, Basket, UserDeploymentIntents, LeaveTokens, DeploymentIntent, LPAssetInfo, LiquidityInfo, PoolInfo, PoolStateResponse, PoolType, Position, PositionRedemption, PurchaseIntent, RangeBoundUserIntents, RedemptionInfo, SupplyCap, UserInfo
 };
 
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
@@ -492,13 +492,13 @@ pub fn withdraw(
                     //If new position is empty, remove from UserIntentState
                     if check_for_empty_position(target_position.clone().collateral_assets){
                         //Remove position from UserIntentState                        
-                        let mut intents = USER_INTENTS.load(deps.storage, valid_position_owner.clone().to_string()).unwrap_or_else(|_| CDPUserIntents {
+                        let mut intents = USER_INTENTS.load(deps.storage, valid_position_owner.clone().to_string()).unwrap_or_else(|_| UserDeploymentIntents {
                             user: valid_position_owner.clone().to_string(),
-                            enter_lp_intents: vec![],
+                            deployment_intents: vec![],
                         });
-                        intents.enter_lp_intents = intents.enter_lp_intents.into_iter().filter(|intent| intent.position_id != position_id).collect();
+                        intents.deployment_intents = intents.deployment_intents.into_iter().filter(|intent| intent.position_id != position_id).collect();
 
-                        if intents.enter_lp_intents.is_empty(){
+                        if intents.deployment_intents.is_empty(){
                             USER_INTENTS.remove(deps.storage, valid_position_owner.clone().to_string());
                         } else {
                             USER_INTENTS.save(deps.storage, valid_position_owner.clone().to_string(), &intents)?;
@@ -994,56 +994,60 @@ pub fn set_intents(
     deps: DepsMut,
     _env: Env,
     info: MessageInfo,
-    mint_intent: Option<EnterLPIntent>,
+    deployment_intent: DeploymentIntent,
 ) -> Result<Response, ContractError> {
 
-    //Save LTV for "Mint to Range Bound Vault" intent
-    if let Some(mint_intent) = mint_intent.clone() {
-        //Get Target position to check ownership
-        let (_, _) = get_target_position(deps.storage, info.clone().sender, mint_intent.position_id)?;
+    let config: Config = CONFIG.load(deps.storage)?;
+    //Save user Intent to deployment venue
+    //Get Target position to check ownership
+    let (_, _) = get_target_position(deps.storage, info.clone().sender, deployment_intent.position_id)?;
 
-        //Load UserIntents
-        let mut user_intents = match USER_INTENTS.load(deps.storage, info.clone().sender.to_string()){
-            Ok(user_intents) => user_intents,
-            Err(_err) => CDPUserIntents {
-                user: info.clone().sender.to_string(),
-                enter_lp_intents: vec![],
-            },
-        };
+    //Load UserIntents
+    let mut user_intents = match USER_INTENTS.load(deps.storage, info.clone().sender.to_string()){
+        Ok(user_intents) => user_intents,
+        Err(_err) => UserDeploymentIntents {
+            user: info.clone().sender.to_string(),
+            deployment_intents: vec![],
+        },
+    };
 
-        //if mint LTV > 1, error.
-        if mint_intent.mint_to_ltv > Decimal::one() {
-            return Err(ContractError::CustomError { val: String::from("Mint LTV is above 1, maybe you forgot to add the decimal place?") })
-        }
+    //if mint LTV > 1, error.
+    if deployment_intent.mint_to_ltv > Decimal::one() {
+        return Err(ContractError::CustomError { val: String::from("Mint LTV is above 1, maybe you forgot to add the decimal place?") })
+    }
 
-        //Add, or edit intent if position id is the same
-        if let Some((index, _)) = user_intents.enter_lp_intents.iter().enumerate().find(|(_i, intent)| intent.position_id == mint_intent.position_id){
+    let valid_deployment_venues = config.valid_deployment_venues.clone().into_iter().map(|venue| venue.address.to_string()).collect::<Vec<String>>();
+    if !valid_deployment_venues.contains(&deployment_intent.destination){
+        return Err(ContractError::CustomError { val: String::from("Destination is not a valid deployment venue.") })
+    }
 
-            //If mint_to_ltv is 0, remove intent    
-            if mint_intent.mint_to_ltv.is_zero() {
-                user_intents.enter_lp_intents.remove(index);
-            } else {
-                user_intents.enter_lp_intents[index].mint_to_ltv = mint_intent.mint_to_ltv;
-            }
+    //Add, or edit intent if position id is the same
+    if let Some((index, _)) = user_intents.deployment_intents.iter().enumerate().find(|(_i, intent)| intent.position_id == deployment_intent.position_id){
+
+        //If mint_to_ltv is 0, remove intent    
+        if deployment_intent.mint_to_ltv.is_zero() {
+            user_intents.deployment_intents.remove(index);
         } else {
-            user_intents.enter_lp_intents.push(mint_intent);
+            user_intents.deployment_intents[index].mint_to_ltv = deployment_intent.mint_to_ltv;
         }
-        //If intent list is empty, remove from state
-        if user_intents.enter_lp_intents.is_empty(){
-            USER_INTENTS.remove(deps.storage, info.clone().sender.to_string());
-        } 
-        //Otherwise save
-        else {
-            USER_INTENTS.save(deps.storage, info.clone().sender.to_string(), &user_intents)?;
-        }
+    } else {
+        user_intents.deployment_intents.push(deployment_intent.clone());
+    }
+    //If intent list is empty, remove from state
+    if user_intents.deployment_intents.is_empty(){
+        USER_INTENTS.remove(deps.storage, info.clone().sender.to_string());
+    } 
+    //Otherwise save
+    else {
+        USER_INTENTS.save(deps.storage, info.clone().sender.to_string(), &user_intents)?;
     }
 
     Ok(Response::new()
         .add_attribute("method", "set_intents")
-        .add_attribute("mint_intent", format!("{:?}", mint_intent)))
+        .add_attribute("deployment_intent", format!("{:?}", deployment_intent)))
 }
 
-/// Fulfill mint to RBLP Intents
+/// Fulfill mint to Deployment Venue Intents
 pub fn fulfill_intents(
     deps: DepsMut,
     env: Env,
@@ -1059,7 +1063,7 @@ pub fn fulfill_intents(
         //Load intent for user
         let intents = USER_INTENTS.load(deps.storage, user.clone())?;
 
-        for intent in intents.enter_lp_intents {
+        for intent in intents.deployment_intents {
             //Get target position
             let (_, target_position) = get_target_position(deps.storage, deps.api.addr_validate(&user.clone())?, intent.position_id)?;
 
@@ -1090,7 +1094,7 @@ pub fn fulfill_intents(
                             amount: None,
                             LTV: Some(mint_to_LTV),
                             mint_to_addr: None,
-                            mint_intent: Some(intent.clone()),
+                            deployment_intent: Some(intent.clone()),
                         })?,
                         funds: vec![],
                     })
@@ -1101,7 +1105,7 @@ pub fn fulfill_intents(
 
     //Fee to caller?
     // Not until we know the frequency of this call relative to the yield distribution.
-    // We don't want the user to get ground between the liquidation fee & this auto-remint fee.
+    // We don't want the user to get ground between the liquidation (caller) fee & this auto-remint fee.
     // So as the user you still want a relatively conservative LTV to buy time for the yield distrbution to come in. Probably (e.g. 70% max_LTV = 45%)
 
     Ok(Response::new()
@@ -1120,8 +1124,8 @@ pub fn increase_debt(
     amount: Option<Uint128>,
     LTV: Option<Decimal>,
     mint_to_addr: Option<String>,
-    // Contract uses this to mint for a user into the Range Bound Vault
-    mint_intent: Option<EnterLPIntent>,
+    // Contract uses this to mint for a user into a Deployment Venue
+    deployment_intent: Option<DeploymentIntent>,
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
     let mut basket: Basket = BASKET.load(deps.storage)?;
@@ -1130,14 +1134,14 @@ pub fn increase_debt(
     //Check if frozen
     if basket.frozen { return Err(ContractError::Frozen {  }) }
 
-    //Only the contract can send mint_intents
-    if mint_intent.is_some() && info.sender != env.contract.address {
+    //Only the contract can send deployment_intents
+    if deployment_intent.is_some() && info.sender != env.contract.address {
         return Err(ContractError::Unauthorized { owner: config.owner.to_string() });
     }
 
     //Set position owner
-    let position_owner = if let Some(mint_intent) = mint_intent.clone() {
-        deps.api.addr_validate(&mint_intent.user)?
+    let position_owner = if let Some(deployment_intent) = deployment_intent.clone() {
+        deps.api.addr_validate(&deployment_intent.user)?
     } else {
         info.clone().sender
     };
@@ -1190,7 +1194,7 @@ pub fn increase_debt(
         None => {
             if let Some(LTV) = LTV {
                 get_amount_from_LTV(deps.storage, deps.querier, env.clone(), config.clone(), target_position.clone(), basket.clone(), LTV)?
-            } else if let Some(intent) = mint_intent.clone() {
+            } else if let Some(intent) = deployment_intent.clone() {
                 //Get LTV from intent
                 get_amount_from_LTV(deps.storage, deps.querier, env.clone(), config.clone(), target_position.clone(), basket.clone(), intent.mint_to_ltv)?
             } else {
@@ -1233,8 +1237,8 @@ pub fn increase_debt(
                 if let Some(mint_to) = mint_to_addr {
                     deps.api.addr_validate(&mint_to)?
                 }               
-                else if let Some(_) = mint_intent.clone() {
-                    //mint to the contract so it can send it to the RBLP
+                else if let Some(_) = deployment_intent.clone() {
+                    //mint to the contract so it can send it to the Deployment Venue
                     env.contract.address
                 } else {
                     info.clone().sender
@@ -1249,8 +1253,8 @@ pub fn increase_debt(
                 },
                 recipient,
             )? );
-            //If intent, add RBLP entry message
-            if let Some(intent) = mint_intent.clone() {
+            //If intent, add Deployment Venue entry message
+            if let Some(intent) = deployment_intent.clone() {
                 //Create compounding purchase intents for all the positions assets
                 let purchase_intents: Vec<PurchaseIntent> = target_position.collateral_assets.clone().into_iter().enumerate().map(|(index, cAsset)| PurchaseIntent {
                     desired_asset: cAsset.asset.info.to_string(),
@@ -1261,8 +1265,8 @@ pub fn increase_debt(
                 }).collect();
 
                 messages.push( CosmosMsg::Wasm(WasmMsg::Execute {
-                    contract_addr: "osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx".to_string(),
-                    msg: to_json_binary(&RBLP_ExecuteMsg::EnterVault { 
+                    contract_addr: intent.destination.clone(),
+                    msg: to_json_binary(&DeploymentVenue_ExecuteMsg::EnterVault { 
                         leave_vault_tokens_in_vault: Some(
                             LeaveTokens {
                                 percent_to_leave: Decimal::one(),
@@ -1332,7 +1336,7 @@ pub fn increase_debt(
         .add_attribute("position_id", position_id.to_string())
         .add_attribute("total_loan", target_position.credit_amount.to_string())
         .add_attribute("increased_by", amount.to_string())
-        .add_attribute("mint_intent", format!("{:?}", mint_intent));
+        .add_attribute("deployment_intent", format!("{:?}", deployment_intent));
 
     Ok(response)
 }

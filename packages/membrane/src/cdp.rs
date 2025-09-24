@@ -1,7 +1,7 @@
 use cosmwasm_std::{Addr, Decimal, Uint128, StdResult, Api, StdError};
 use cosmwasm_schema::cw_serde;
 
-use crate::types::{ EnterLPIntent, CDPUserIntents,
+use crate::types::{ DeploymentIntent, UserDeploymentIntents,
     cAsset, Asset, AssetInfo, InsolventPosition,
     SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal, PremiumInfo,
     DeploymentVenue,
@@ -68,8 +68,8 @@ pub enum ExecuteMsg {
         LTV: Option<Decimal>,
         /// Mint debt tokens to this address
         mint_to_addr: Option<String>,
-        /// Contract uses this to mint for a user into the Range Bound Vault
-        mint_intent: Option<EnterLPIntent>,
+        /// Contract uses this to mint for a user into a Deployment Venue
+        deployment_intent: DeploymentIntent,
     },
     /// Withdraw collateral from a Position
     Withdraw {
@@ -89,8 +89,8 @@ pub enum ExecuteMsg {
         /// Send excess assets to this address if not the sender
         send_excess_to: Option<String>, 
     },
-    /// Repay message for the Stability Pool during liquidations
-    LiqRepay {},
+    // Repay message for the Stability Pool during liquidations
+    // LiqRepay {},
     /// Liquidate a Position
     Liquidate {
         /// Position ID to liquidate
@@ -139,8 +139,8 @@ pub enum ExecuteMsg {
         send_to: Option<String>,
     },
     SetUserIntents { 
-        /// Set an LTV for the "mint to Range Bound Vault" intent. If set to 0, removes the intent.
-        mint_intent: Option<EnterLPIntent>,
+        /// Set an LTV to mint to a valid_deployment_venue. If set to 0, removes the intent.
+        deployment_intent: DeploymentIntent
     },
     /// Fulfill minting intent
     FulfillIntents { users: Vec<String> },
@@ -656,6 +656,6 @@ pub struct InsolvencyResponse {
 #[cw_serde]
 pub struct UserIntentResponse {
     pub user: String,
-    pub intent: CDPUserIntents
+    pub intent: UserDeploymentIntents
 }
 

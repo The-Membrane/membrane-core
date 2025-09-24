@@ -1,7 +1,7 @@
 
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, Uint128};
-use crate::types::{RangeBounds, RangeTokens, RangePositions, RangeBoundUserIntents, UserIntentState, UserInfo};
+use crate::types::{RangeBounds, RangeTokens, RangePositions, RangeBoundUserIntents, UserIntentState, UserInfo, LeaveTokens};
 
 
 #[cw_serde]
@@ -11,12 +11,6 @@ pub struct InstantiateMsg {
     pub range_bounds: RangeBounds,
     pub osmosis_proxy_contract_addr: String,
     pub oracle_contract_addr: String,
-}
-
-#[cw_serde]
-pub struct LeaveTokens {
-    pub percent_to_leave: Decimal,
-    pub intent_for_tokens: RangeBoundUserIntents,
 }
 
 #[cw_serde]

@@ -175,8 +175,8 @@ pub fn execute(
             amount,
             mint_to_addr,
             LTV,
-            mint_intent
-        } => increase_debt(deps, env, info, position_id, amount, LTV, mint_to_addr, mint_intent),
+            deployment_intent
+        } => increase_debt(deps, env, info, position_id, amount, LTV, mint_to_addr, deployment_intent),
         ExecuteMsg::Repay {
             position_id,
             position_owner,
@@ -218,7 +218,7 @@ pub fn execute(
                 false
             )
         },
-        ExecuteMsg::LiqRepay {} => Err(ContractError::CustomError { val: String::from("LiqRepay removed") }),
+        // ExecuteMsg::LiqRepay {} => Err(ContractError::CustomError { val: String::from("LiqRepay removed") }),
         ExecuteMsg::EditcAsset {
             asset,
             max_borrow_LTV,
@@ -248,7 +248,7 @@ pub fn execute(
             close_percentage,
             max_spread,
             send_to),
-        ExecuteMsg::SetUserIntents { mint_intent } => set_intents(deps, env, info, mint_intent),
+        ExecuteMsg::SetUserIntents { deployment_intent } => set_intents(deps, env, info, deployment_intent),
         ExecuteMsg::FulfillIntents { users } => fulfill_intents(deps, env, info, users),
         ExecuteMsg::SetAffiliate { position_id, affiliate_address, affiliate_fee } => {
             set_affiliate(deps, env, info, position_id, affiliate_address, affiliate_fee)

@@ -39,6 +39,11 @@ pub enum QueryMsg {
     Market {
         denom: String,
     },
+    /// Get asset market with underlying collateral and debt amount (V2)
+    #[returns(MarketV2Response)]
+    MarketV2 {
+        denom: String,
+    },
 
     /// Get user collateral position for a specific asset
     #[returns(UserCollateralResponse)]
@@ -94,6 +99,16 @@ pub struct Market {
     pub collateral_total_scaled: Uint128,
     /// Total debt scaled for the market's currency
     pub debt_total_scaled: Uint128,
+}
+
+#[cw_serde]
+pub struct MarketV2Response {
+    pub collateral_total_amount: Uint128,
+    pub debt_total_amount: Uint128,
+    pub utilization_rate: Decimal,
+
+    #[serde(flatten)]
+    pub market: Market,
 }
 
 #[cw_serde]

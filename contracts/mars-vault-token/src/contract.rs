@@ -11,7 +11,7 @@ use membrane::math::{decimal_multiplication, decimal_division};
 use crate::error::TokenFactoryError;
 use crate::state::{APRInstance, APRTracker, APR_TRACKER, TOKEN_RATE_ASSURANCE, TokenRateAssurance, CONFIG, OWNERSHIP_TRANSFER, VAULT_TOKEN};
 use membrane::mars_vault_token::{Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, APRResponse};
-use membrane::mars_redbank::{QueryMsg as Mars_QueryMsg, ExecuteMsg as Mars_ExecuteMsg, UserCollateralResponse, Market};
+use membrane::mars_redbank::{QueryMsg as Mars_QueryMsg, ExecuteMsg as Mars_ExecuteMsg, UserCollateralResponse, Market, MarketV2Response};
 use membrane::stability_pool_vault::{
     calculate_base_tokens, calculate_vault_tokens
 };
@@ -584,8 +584,13 @@ fn query_deposit_token_conversion(
     Ok(vault_tokens)
 }
 
-//This checks the Red Bank to make sure its solvent & if not it discounts the total deposit tokens so that...
-//..call users take the risk of a Red Bank insolvency instead of it being a race to withdraw
+/// This checks the Red Bank to make sure its solvent & if not it discounts the total deposit tokens so that...
+/// ..all users take the risk of a Red Bank insolvency instead of it being a race to withdraw
+
+/// Querying the Mars Redbank Marketv2 for total collateral and total debt allows us to calculate the expected contract balance of tokens.
+/// If the expected balance is greater than the actual balance, we discount the total deposit tokens to account for this assumed loss/exploit.
+/// This is hack insurance & guarantees that underlying queries return less if the Red Bank has been exploited.
+/// This also allows us to price it with its actual current value and not an assumed value.
 fn get_total_deposit_tokens(
     deps: Deps,
     env: Env,
@@ -603,11 +608,37 @@ fn get_total_deposit_tokens(
         Ok(vault_info) => vault_info,
         Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to query the Mars Redbank for the vault's collateral info") }),
     };
-    //Set total deposit tokens
-    let total_deposit_tokens = vault_user_info.amount;
+
+    //Query the market v2
+    let market_v2: MarketV2Response = match deps.querier.query_wasm_smart::<MarketV2Response>(
+        config.mars_redbank_addr.to_string(),
+        &Mars_QueryMsg::MarketV2 {
+            denom: config.deposit_token.clone(),
+        },
+    ){
+        Ok(market_v2) => market_v2,
+        Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to query the Mars Redbank for the vault's market v2") }),
+    };
+    //Query the balance of the deposit token
+    let mars_deposit_token_balance: Uint128 = match deps.querier.query_balance(config.mars_redbank_addr.clone(), config.deposit_token.clone()){
+        Ok(balance) => balance.amount,
+        Err(_) => return Err(StdError::GenericErr { msg: format!("Failed to query the Mars Redbank for the vault's deposit token balance") }),
+    };
+
+    //Calc expected deposit token balance
+    let expected_deposit_token_balance = market_v2.collateral_total_amount.checked_sub(market_v2.debt_total_amount)?;
+    
+    //Calc total deposit token discount based on the expected balance & actual balance
+    let total_deposit_token_discount = Decimal::from_ratio(mars_deposit_token_balance, expected_deposit_token_balance);
+
+    //Calc the total deposit tokens
+    let total_deposit_tokens = decimal_multiplication(
+        Decimal::from_ratio(vault_user_info.amount, Uint128::one()),
+         total_deposit_token_discount
+        )?;
 
     //Return the total deposit tokens
-    Ok(total_deposit_tokens)
+    Ok(total_deposit_tokens.to_uint_floor())
     
 }
 

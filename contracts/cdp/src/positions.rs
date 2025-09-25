@@ -680,8 +680,8 @@ pub fn repay(
         if let Some(liq_queue) = basket.clone().liq_queue {
             if info.sender == liq_queue { let_pass = true; }
         }
-        // Any valid deployment venue
-        if config.clone().valid_deployment_venues.iter().any(|venue| venue.address == info.sender) { let_pass = true; }
+        // Any user's deployment venue
+        if target_position.clone().deployed_to.iter().any(|venue| venue.address == info.sender) { let_pass = true; }
         //Contract itself
         if info.sender == env.contract.address { let_pass = true; }
         if !let_pass {
@@ -1002,7 +1002,6 @@ pub fn set_intents(
     deployment_intent: DeploymentIntent,
 ) -> Result<Response, ContractError> {
 
-    let config: Config = CONFIG.load(deps.storage)?;
     //Save user Intent to deployment venue
     //Get Target position to check ownership
     let (_, _) = get_target_position(deps.storage, info.clone().sender, deployment_intent.position_id)?;
@@ -1021,10 +1020,6 @@ pub fn set_intents(
         return Err(ContractError::CustomError { val: String::from("Mint LTV is above 1, maybe you forgot to add the decimal place?") })
     }
 
-    let valid_deployment_venues = config.valid_deployment_venues.clone().into_iter().map(|venue| venue.address.to_string()).collect::<Vec<String>>();
-    if !valid_deployment_venues.contains(&deployment_intent.destination){
-        return Err(ContractError::CustomError { val: format!("Destination is not a valid deployment venue. Valid venues: {:?}", valid_deployment_venues) })
-    }
 
     //Add, or edit intent if position id is the same
     if let Some((index, _)) = user_intents.deployment_intents.iter().enumerate().find(|(_i, intent)| intent.position_id == deployment_intent.position_id && intent.destination == deployment_intent.destination){

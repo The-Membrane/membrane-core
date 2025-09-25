@@ -1985,15 +1985,6 @@ mod tests {
             redemption_fee: None,
             affiliate_fee_max: None,
             skip_credit_price_accrual: None,
-            valid_deployment_venues: Some(vec![membrane::cdp::AddressEntry {
-                address: venue_contract_addr.to_string(),
-                remove: false,
-            },
-            membrane::cdp::AddressEntry {
-                address: venue_contract_addr_2.to_string(),
-                remove: false,
-            },
-            ]),
         });
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
         app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4119,7 +4110,6 @@ mod tests {
                 rate_hike_rate: None,
                 redemption_fee: None,
                 skip_credit_price_accrual: None,
-                valid_deployment_venues: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7011,7 +7001,6 @@ mod tests {
                 rate_hike_rate: None,
                 redemption_fee: None,
                 skip_credit_price_accrual: None,
-                valid_deployment_venues: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7161,7 +7150,6 @@ mod tests {
                 rate_hike_rate: None,
                 redemption_fee: None,
                 skip_credit_price_accrual: None,
-                valid_deployment_venues: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7332,7 +7320,6 @@ mod tests {
                 rate_hike_rate: None,
                 redemption_fee: None,
                 skip_credit_price_accrual: None,
-                valid_deployment_venues: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9445,7 +9432,6 @@ mod tests {
                 rate_hike_rate: Some(Decimal::one()),
                 redemption_fee: Some(Decimal::percent(1)),
                 skip_credit_price_accrual: Some(false),
-                valid_deployment_venues: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9475,7 +9461,6 @@ mod tests {
             assert_eq!(resp.affiliate_fee_max, Decimal::percent(10));
             assert_eq!(resp.revenue_distributor, None);
             assert_eq!(resp.skip_credit_price_accrual, false);
-            assert_eq!(resp.valid_deployment_venues, vec![]);
 
             //Update owner after new owner calls the function
             //Update Config
@@ -9499,7 +9484,6 @@ mod tests {
                 rate_hike_rate: None,
                 redemption_fee: None,
                 skip_credit_price_accrual: None,
-                valid_deployment_venues: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
@@ -9529,7 +9513,6 @@ mod tests {
             assert_eq!(resp.affiliate_fee_max, Decimal::percent(10));
             assert_eq!(resp.revenue_distributor, None);
             assert_eq!(resp.skip_credit_price_accrual, false);
-            assert_eq!(resp.valid_deployment_venues, vec![]);
         }
         #[test]
         fn edit_cAsset() {
@@ -12431,7 +12414,6 @@ mod tests {
                 rate_hike_rate: None,
                 redemption_fee: None,
                 skip_credit_price_accrual: None,
-            valid_deployment_venues: None,
             });
             let cosmos_msg = cdp_contract.call(cfg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -12515,7 +12497,6 @@ mod tests {
                 rate_hike_rate: None,
                 redemption_fee: None,
                 skip_credit_price_accrual: None,
-            valid_deployment_venues: None,
             });
             let cosmos_msg = cdp_contract.call(cfg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();

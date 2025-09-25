@@ -55,7 +55,6 @@ pub fn instantiate(
         liquidity_contract: None,
         discounts_contract: None,
         revenue_distributor: None,
-        valid_deployment_venues: vec![],
         oracle_time_limit: msg.oracle_time_limit,
         cpc_multiplier: Decimal::one(), 
         rate_slope_multiplier: msg.rate_slope_multiplier,

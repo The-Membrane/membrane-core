@@ -69,7 +69,7 @@ pub enum ExecuteMsg {
         /// Mint debt tokens to this address
         mint_to_addr: Option<String>,
         /// Contract uses this to mint for a user into a Deployment Venue
-        deployment_intent: DeploymentIntent,
+        deployment_intent: Option<DeploymentIntent>,
     },
     /// Withdraw collateral from a Position
     Withdraw {
@@ -489,7 +489,10 @@ impl UpdateConfig {
                     config.valid_deployment_venues.retain(|venue| venue.address != addr);
                 } else {
                     let addr = api.addr_validate(&entry.address)?;
-                    config.valid_deployment_venues.push(crate::types::DeploymentVenue { address: addr });
+                    config.valid_deployment_venues.push(crate::types::DeploymentVenue { 
+                        address: addr,
+                        deployed_debt_amount: Uint128::zero(),
+                    });
                 }
             }
         }

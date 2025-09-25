@@ -448,7 +448,7 @@ pub fn handle_sell_collateral_reply(deps: DepsMut, env: Env, msg: Reply) -> StdR
 
             //Update position claims for each asset withdrawn + sold
             for sold_collateral in state_propagation.clone().collateral_sold {
-                println!("sold_collateral: {:?}", sold_collateral);
+                // println!("sold_collateral: {:?}", sold_collateral);
 
                 update_position_claims(
                     deps.storage, 

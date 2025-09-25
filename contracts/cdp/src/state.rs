@@ -6,7 +6,7 @@ use cw_storage_plus::{Item, Map};
 use membrane::helpers::get_contract_balances;
 use membrane::stability_pool_vault::calculate_base_tokens;
 
-use membrane::types::{AffiliateData, cAsset, Asset, AssetInfo, Basket, CDPUserIntents, Position, RedemptionInfo, StoredPrice, UserInfo};
+use membrane::types::{AffiliateData, cAsset, Asset, AssetInfo, Basket, UserDeploymentIntents, Position, RedemptionInfo, StoredPrice, UserInfo};
 use membrane::cdp::{Config, ExecuteMsg};
 
 use crate::ContractError;
@@ -107,7 +107,7 @@ pub const SELL_COLLATERAL: Item<SellCollateralPropagation> = Item::new("sell_col
 //Freeze Timer
 pub const FREEZE_TIMER: Item<Timer> = Item::new("freeze_timer");
 //Intents
-pub const USER_INTENTS: Map<String, CDPUserIntents> = Map::new("user_intents");
+pub const USER_INTENTS: Map<String, UserDeploymentIntents> = Map::new("user_intents");
 
 //Collateral Rate Assurance
 pub const COLLATERAL_RATE_ASSURANCE: Map<String, CollateralRateAssurance> = Map::new("collateral_rate_assurance");

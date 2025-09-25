@@ -448,7 +448,7 @@ pub struct CloseIntent { //Unloop/Close
 pub struct DeploymentIntent {
     pub user: String,
     pub position_id: Uint128,
-    pub mint_to_ltv: Decimal,
+    pub ltv_to_mint: Decimal,
     pub destination: String, 
 }
 
@@ -490,6 +490,8 @@ pub struct LPAssetInfo {
 pub struct DeploymentVenue {
     /// Address
     pub address: Addr,
+    /// Amount of debt deployed to this venue
+    pub deployed_debt_amount: Uint128,
 }
 
 #[cw_serde]
@@ -1877,4 +1879,13 @@ pub struct TickRecord {
 pub struct StringEntry {
     pub entry: String,
     pub remove: bool,
+}
+
+/// Neutron Proxy
+#[cw_serde]
+pub struct NeutronOwner {
+    /// Owner address
+    pub owner: Addr,
+    /// Authority over non-token contract messages
+    pub non_token_contract_auth: bool,
 }

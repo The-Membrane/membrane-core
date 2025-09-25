@@ -20,7 +20,7 @@ use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
 use membrane::deployable_venue::{ExecuteMsg as DeploymentVenue_ExecuteMsg};
 use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_subtraction};
 use membrane::types::{
-    cAsset, AffiliateData, Asset, AssetInfo, AssetOracleInfo, Basket, UserDeploymentIntents, LeaveTokens, DeploymentIntent, LPAssetInfo, LiquidityInfo, PoolInfo, PoolStateResponse, PoolType, Position, PositionRedemption, PurchaseIntent, RangeBoundUserIntents, RedemptionInfo, SupplyCap, UserInfo
+    cAsset, AffiliateData, Asset, AssetInfo, AssetOracleInfo, Basket, DeploymentIntent, DeploymentVenue, LPAssetInfo, LeaveTokens, LiquidityInfo, PoolInfo, PoolStateResponse, PoolType, Position, PositionRedemption, PurchaseIntent, RangeBoundUserIntents, RedemptionInfo, SupplyCap, UserDeploymentIntents, UserInfo
 };
 
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
@@ -633,6 +633,7 @@ pub fn repay(
     
     let mut messages = vec![];
     let mut excess_repayment = Uint128::zero();
+    // println!("target_position.credit_amount: {:?}", target_position.credit_amount);
 
     //Repay amount sent
     target_position.credit_amount = match target_position.credit_amount.checked_sub(credit_asset.amount){
@@ -644,6 +645,9 @@ pub fn repay(
             Uint128::zero()
         },
     };
+
+    // println!("excess_repayment: {:?}", excess_repayment);
+    // println!("credit_asset.amount: {:?}", credit_asset.amount);
 
     //Update Supply caps if this clears all debt
     if target_position.credit_amount.is_zero(){
@@ -705,7 +709,8 @@ pub fn repay(
     })?;
 
     //Get affiliates
-    let affiliations = AFFILIATES.load(storage, position_id.to_string())?;
+    let affiliations = AFFILIATES.load(storage, position_id.to_string())
+        .unwrap_or_else(|_| vec![]);
 
     //Burn repayment & send revenue to stakers & affiliates
     let burn_and_rev_msgs = credit_burn_rev_msg(
@@ -1012,27 +1017,28 @@ pub fn set_intents(
     };
 
     //if mint LTV > 1, error.
-    if deployment_intent.mint_to_ltv > Decimal::one() {
+    if deployment_intent.ltv_to_mint > Decimal::one() {
         return Err(ContractError::CustomError { val: String::from("Mint LTV is above 1, maybe you forgot to add the decimal place?") })
     }
 
     let valid_deployment_venues = config.valid_deployment_venues.clone().into_iter().map(|venue| venue.address.to_string()).collect::<Vec<String>>();
     if !valid_deployment_venues.contains(&deployment_intent.destination){
-        return Err(ContractError::CustomError { val: String::from("Destination is not a valid deployment venue.") })
+        return Err(ContractError::CustomError { val: format!("Destination is not a valid deployment venue. Valid venues: {:?}", valid_deployment_venues) })
     }
 
     //Add, or edit intent if position id is the same
-    if let Some((index, _)) = user_intents.deployment_intents.iter().enumerate().find(|(_i, intent)| intent.position_id == deployment_intent.position_id){
+    if let Some((index, _)) = user_intents.deployment_intents.iter().enumerate().find(|(_i, intent)| intent.position_id == deployment_intent.position_id && intent.destination == deployment_intent.destination){
 
-        //If mint_to_ltv is 0, remove intent    
-        if deployment_intent.mint_to_ltv.is_zero() {
+        //If ltv_to_mint is 0, remove intent    
+        if deployment_intent.ltv_to_mint.is_zero() {
             user_intents.deployment_intents.remove(index);
         } else {
-            user_intents.deployment_intents[index].mint_to_ltv = deployment_intent.mint_to_ltv;
+            user_intents.deployment_intents[index].ltv_to_mint = deployment_intent.ltv_to_mint;
         }
     } else {
         user_intents.deployment_intents.push(deployment_intent.clone());
     }
+    
     //If intent list is empty, remove from state
     if user_intents.deployment_intents.is_empty(){
         USER_INTENTS.remove(deps.storage, info.clone().sender.to_string());
@@ -1062,13 +1068,14 @@ pub fn fulfill_intents(
     for user in users {
         //Load intent for user
         let intents = USER_INTENTS.load(deps.storage, user.clone())?;
+        // println!("intents: {:?}", intents);
 
         for intent in intents.deployment_intents {
             //Get target position
-            let (_, target_position) = get_target_position(deps.storage, deps.api.addr_validate(&user.clone())?, intent.position_id)?;
+            let (_, mut target_position) = get_target_position(deps.storage, deps.api.addr_validate(&user.clone())?, intent.position_id)?;
 
             //Get LTV for the target position   
-            let ((_, LTV, _), ((max_borrow_LTV, _, _, _, _))) = insolvency_check(
+            let ((_, LTV, _), ((max_borrow_LTV, _, total_value, _, _))) = insolvency_check(
                 deps.storage,
                 env.clone(),
                 deps.querier,
@@ -1081,24 +1088,68 @@ pub fn fulfill_intents(
             )?;
 
             //Set max mint intent
-            let mint_to_LTV = min(intent.mint_to_ltv, max_borrow_LTV);
+            let ltv_to_mint = intent.ltv_to_mint;
 
-            //If the LTV is below the mint_to_ltv, create mint msg
-            if LTV < mint_to_LTV {
-                //Create increase_debt msg to this contract
-                msgs.push(
-                    CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: env.contract.address.to_string(),
-                        msg: to_json_binary(&ExecuteMsg::IncreaseDebt {
-                            position_id: intent.position_id,
-                            amount: None,
-                            LTV: Some(mint_to_LTV),
-                            mint_to_addr: None,
-                            deployment_intent: Some(intent.clone()),
-                        })?,
-                        funds: vec![],
-                    })
-                );
+            //Calc LTV space 
+            let ltv_space_to_mint = match max_borrow_LTV.checked_sub(LTV){
+                Ok(v) => v,
+                Err(_) => return Err(ContractError::CustomError { val: String::from("LTV space to mint is greater than max borrow LTV") }),
+            };
+
+            //If the LTV is below the ltv_to_mint, create mint msg
+            if ltv_space_to_mint > Decimal::zero() {
+                //Get deployment venue
+                let deployment_venue = match target_position.deployed_to.clone().into_iter().find(|venue| venue.address == intent.destination){
+                    Some(venue) => venue,
+                    None => DeploymentVenue { 
+                        address: deps.api.addr_validate(&intent.destination)?, 
+                        deployed_debt_amount: Uint128::zero() 
+                    },
+                };
+                //Calc how much ltv the deployment venue is currently using
+                let debt_value_used = basket.credit_price.get_value(deployment_venue.deployed_debt_amount)?;
+                let ltv_used = decimal_division(debt_value_used, total_value)?;
+                ///////
+                // Calc how much ltv the deployment venue has left to use
+                let usable_ltv = match ltv_to_mint.checked_sub(ltv_used){
+                    Ok(v) => v,
+                    Err(_) => Decimal::zero(),
+                };
+                //Calc usable debt value
+                let usable_debt_value = decimal_multiplication(total_value, usable_ltv)?;
+                //Calc amount of debt to mint
+                let usable_debt_amount = basket.credit_price.get_amount(usable_debt_value)?;
+
+                // Only proceed if we need to mint more debt
+                if !usable_debt_amount.is_zero() {
+                    //Create increase_debt msg to this contract
+                    msgs.push(
+                        CosmosMsg::Wasm(WasmMsg::Execute {
+                            contract_addr: env.contract.address.to_string(),
+                            msg: to_json_binary(&ExecuteMsg::IncreaseDebt {
+                                position_id: intent.position_id,
+                                amount: Some(usable_debt_amount),
+                                LTV: None, // Use amount instead of LTV since we calculated the exact amount
+                                mint_to_addr: None,
+                                deployment_intent: Some(intent.clone()),
+                            })?,
+                            funds: vec![],
+                        })
+                    );
+
+                    //Add deployment venue to target position with the debt amount
+                    if let Some(mut deployment_venue) = target_position.deployed_to.clone().into_iter().find(|venue| venue.address == intent.destination){
+                        deployment_venue.deployed_debt_amount += usable_debt_amount;
+                    } else {
+                        target_position.deployed_to.push(DeploymentVenue {
+                            address: deps.api.addr_validate(&intent.destination)?,
+                            deployed_debt_amount: usable_debt_amount,
+                        });
+                    }
+
+                    //Save target position
+                    update_position(deps.storage, deps.api.addr_validate(&user.clone())?, target_position)?;
+                }
             }
         }
     }
@@ -1196,7 +1247,7 @@ pub fn increase_debt(
                 get_amount_from_LTV(deps.storage, deps.querier, env.clone(), config.clone(), target_position.clone(), basket.clone(), LTV)?
             } else if let Some(intent) = deployment_intent.clone() {
                 //Get LTV from intent
-                get_amount_from_LTV(deps.storage, deps.querier, env.clone(), config.clone(), target_position.clone(), basket.clone(), intent.mint_to_ltv)?
+                get_amount_from_LTV(deps.storage, deps.querier, env.clone(), config.clone(), target_position.clone(), basket.clone(), intent.ltv_to_mint)?
             } else {
                 return Err(ContractError::CustomError { val: String::from("If amount isn't passed, LTV must be passed") })
             }            
@@ -2942,6 +2993,9 @@ fn update_affiliates(
     position_id: Uint128,
     current_time: u64,
 ) -> StdResult<()> {
+    if affiliates.is_empty() {
+        return Ok(())
+    }
     //Only save the last affiliate
     let mut affiliates = vec![affiliates[affiliates.len() - 1].clone()];
     //Set this affiliate's time affiliated to the current block time

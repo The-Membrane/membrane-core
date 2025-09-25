@@ -40,3 +40,4 @@ pub mod byte_minter;
 pub mod revenue_distributor;
 pub mod deployable_venue;
 pub mod chain_proxy;
+pub mod neutron_proxy;

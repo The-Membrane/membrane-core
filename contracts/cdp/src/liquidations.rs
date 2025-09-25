@@ -149,6 +149,7 @@ pub fn liquidate(
 
     //Set pre-user repay amount 
     let pre_user_repay_repay_amount = credit_repay_amount;
+    println!("pre_user_repay_repay_amount: {:?}", pre_user_repay_repay_amount);
 
     //Get amount of repayment user can repay from the Stability Pool
     // let user_sp_repay_amount = get_user_repay_amount(querier, config.clone(), basket.clone(), position_id, position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;
@@ -168,6 +169,7 @@ pub fn liquidate(
         &mut submessages,
         &mut attrs,
     )?;
+    println!("user_repay_amount: {:?}", user_repay_amount);
     
     //Account for rounding leaving leftovers
     if credit_repay_amount == Decimal::one(){
@@ -176,6 +178,7 @@ pub fn liquidate(
     
     //Track total leftover repayment after the liq_queue
     let leftover_repayment: Decimal = credit_repay_amount;
+    println!("leftover_repayment: {:?}", leftover_repayment);
     //Set repay value to the repay_value post user_repay
     let repay_value = basket.clone().credit_price.get_value(credit_repay_amount.to_uint_floor())?;
 
@@ -543,7 +546,8 @@ fn get_deployable_venues_user_repay_amount(
     attrs: &mut Vec<Attribute>,
 ) -> StdResult<Decimal>{
 
-    let mut user_repay_amount = Decimal::zero();
+    let mut total_user_repay_amount = Decimal::zero();
+    // println!("deployable_venues: {:?}", deployable_venues);
     for deployable_venue in deployable_venues {
 
         //Query Venue's Retrievable CDT
@@ -556,11 +560,12 @@ fn get_deployable_venues_user_repay_amount(
                 Err(_) => Uint128::zero(),
             };
         let retrievable_cdt = Decimal::from_ratio(retrievable_cdt, Uint128::one());
+        // println!("retrievable_cdt: {:?}", retrievable_cdt);
             
         //If the user has funds, tell the RBLP to repay and subtract from credit_repay_amount
         if !retrievable_cdt.is_zero() {
             //Set Repayment amount to what needs to get liquidated or total_deposits
-            user_repay_amount = {
+            let user_repay_amount = {
                 //Repay the full debt
                 if retrievable_cdt > *credit_repay_amount {
                     *credit_repay_amount
@@ -568,6 +573,9 @@ fn get_deployable_venues_user_repay_amount(
                     retrievable_cdt
                 }
             };
+            //Add to total user repay amount
+            total_user_repay_amount += user_repay_amount;
+            // println!("user_repay_amount: {:?}", user_repay_amount);
 
             //Add Repay SubMsg
             let repay_msg = DeployableVenue_ExecuteMsg::RepayUserDebt {
@@ -597,7 +605,9 @@ fn get_deployable_venues_user_repay_amount(
         }
     }
 
-    Ok( user_repay_amount )
+    // println!("user_repay_amount: {:?}", user_repay_amount);
+
+    Ok( total_user_repay_amount )
 }
 
 /// Calculate & send fees.
@@ -623,6 +633,8 @@ fn per_asset_fulfillments(
     caller_fee_value_paid: &mut Decimal,
     position_info: UserInfo,
 ) -> StdResult<(Option<CosmosMsg>, Uint128)>{
+
+    // println!("leftover_repayment: {:?}", leftover_repayment);
 
     let mut caller_coins: Vec<Coin> = vec![];
     let mut protocol_coins: Vec<Coin> = vec![];
@@ -775,10 +787,12 @@ fn per_asset_fulfillments(
                     Ok(res) => res,
                     //If this errors we go to the next asset.
                     //If they all error, the SP will get an initial call instead of waiting for the reply.
-                    Err(_) => continue, 
+                    Err(_) => {
+                        // println!("Error in liq_queue query");
+                        continue;
+                    }, 
                 
                 };
-                
             //Calculate how much collateral we are sending to the liq_queue to liquidate
             let leftover: Uint128 = Uint128::from_str(&res.leftover_collateral)?;
             let queue_asset_amount_paid: Uint128 = match 

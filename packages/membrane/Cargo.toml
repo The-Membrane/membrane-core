@@ -7,6 +7,7 @@ edition = "2018"
 [dependencies]
 osmosis-std = {version = "0.16.1"}
 cosmwasm-std = { version = "1.0.0", default-features = false, features = ["cosmwasm_1_1"] }
+neutron-sdk        = { git = "https://github.com/neutron-org/neutron-sdk", rev = "98d81ea" }
 cosmwasm-schema = "1.1.0"
 cw-coins = "0.6.1"
 pyth-sdk-cw = "1.0.0"

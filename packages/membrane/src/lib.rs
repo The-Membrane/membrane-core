@@ -41,3 +41,6 @@ pub mod revenue_distributor;
 pub mod deployable_venue;
 pub mod chain_proxy;
 pub mod neutron_proxy;
+pub mod neutron_oracle;
+pub mod ltv_disco;
+pub mod transmuter;

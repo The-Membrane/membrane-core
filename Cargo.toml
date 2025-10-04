@@ -9,6 +9,7 @@ members = [
     "contracts/governance",
     "contracts/launch",
     "contracts/liq-queue",
+    "contracts/ltv_disco",
     "contracts/liquidity_check",
     "contracts/mars-vault-token",
     "contracts/oracle",
@@ -28,7 +29,8 @@ members = [
     "contracts/vesting",
     "contracts/vol-earn-vault",
     "contracts/racing-revenue",
-    "contracts/revenue-distributor"
+    "contracts/revenue-distributor",
+    "contracts/transmuter",
 ]
 
 exclude = [

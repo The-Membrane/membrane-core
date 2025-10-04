@@ -1889,3 +1889,17 @@ pub struct NeutronOwner {
     /// Authority over non-token contract messages
     pub non_token_contract_auth: bool,
 }
+
+// Neutron Oracle
+
+#[cw_serde]
+pub struct NeutronOracleInfo {
+    /// Bool to provide $1 static_price if the asset is USD-par
+    pub is_usd_par: bool,
+    /// Asset decimals
+    pub decimals: u64,
+    /// Slinky base symbol for price queries
+    pub slinky_base_symbol: Option<String>,
+    /// Maximum number of blocks that Slinky price can be old
+    pub slinky_max_blocks_old: Option<u8>,
+}

@@ -1077,6 +1077,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ltv_disco"
+version = "0.1.0"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cosmwasm-storage",
+ "cw-multi-test 1.2.0",
+ "cw-storage-plus 1.2.0",
+ "cw2 0.13.4",
+ "membrane",
+ "schemars",
+ "serde",
+ "thiserror",
+ "uint",
+]
+
+[[package]]
 name = "mars_vault_token"
 version = "0.1.0"
 dependencies = [
@@ -2215,6 +2232,24 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "thiserror",
+]
+
+[[package]]
+name = "transmuter"
+version = "0.1.0"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cosmwasm-storage",
+ "cw-multi-test 1.2.0",
+ "cw-storage-plus 1.2.0",
+ "cw-utils 1.0.3",
+ "cw2 0.13.4",
+ "membrane",
+ "osmosis-std 0.16.2",
+ "schemars",
+ "serde",
  "thiserror",
 ]
 

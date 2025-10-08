@@ -194,7 +194,7 @@ pub fn liquidate(
         &mut submessages,
         &mut attrs,
     )?;
-    println!("user_repay_amount: {:?}", user_repay_amount);
+    // println!("user_repay_amount: {:?}", user_repay_amount);
     
     //Account for rounding leaving leftovers
     if credit_repay_amount == Decimal::one(){
@@ -203,7 +203,7 @@ pub fn liquidate(
     
     //Track total leftover repayment after the liq_queue
     let leftover_repayment: Decimal = credit_repay_amount;
-    println!("leftover_repayment: {:?}", leftover_repayment);
+    // println!("leftover_repayment: {:?}", leftover_repayment);
     //Set repay value to the repay_value post user_repay
     let repay_value = basket.clone().credit_price.get_value(credit_repay_amount.to_uint_floor())?;
 
@@ -587,7 +587,7 @@ fn get_deployable_venues_user_repay_amount(
         let retrievable_cdt = Decimal::from_ratio(retrievable_cdt, Uint128::one());
         // println!("retrievable_cdt: {:?}", retrievable_cdt);
             
-        //If the user has funds, tell the RBLP to repay and subtract from credit_repay_amount
+        //If the user has funds, tell the venue to repay and subtract from credit_repay_amount
         if !retrievable_cdt.is_zero() {
             //Set Repayment amount to what needs to get liquidated or total_deposits
             let user_repay_amount = {
@@ -617,7 +617,7 @@ fn get_deployable_venues_user_repay_amount(
             });
 
             //Convert to submsg
-            let sub_msg: SubMsg = SubMsg::reply_on_error(msg, BAD_DEBT_REPLY_ID); //This just means no error on errors in the RBLP's msg
+            let sub_msg: SubMsg = SubMsg::reply_on_error(msg, BAD_DEBT_REPLY_ID); //This just means no error on errors in the venue's msg
             submessages.push(sub_msg);
 
             attrs.push(attr(    format!("repay_deployable_venue_from_{}", deployable_venue.address.to_string()), user_repay_amount.to_string()));

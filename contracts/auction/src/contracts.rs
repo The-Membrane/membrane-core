@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    attr, coins, entry_point, to_binary, Addr, Binary, CosmosMsg, Decimal, Deps,
+    attr, entry_point, to_json_binary, Addr, Binary, CosmosMsg, Decimal, Deps,
     DepsMut, Env, MessageInfo, QueryRequest, Response, StdError, StdResult, Uint128, WasmMsg,
     WasmQuery, Order, Coin, BankMsg,
 };
@@ -10,10 +10,9 @@ use membrane::math::{decimal_division, decimal_multiplication, decimal_subtracti
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
-use membrane::cdp::{BasketPositionsResponse, ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
+use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
 use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, DebtAuction, FeeAuction};
 use membrane::helpers::withdrawal_msg;
-use serde::de;
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, DEBT_AUCTION, FEE_AUCTIONS, OWNERSHIP_TRANSFER};
@@ -465,7 +464,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                 //Staking DepositFee
                 msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.clone().staking_contract.to_string(),
-                    msg: to_binary(&StakingExecuteMsg::DepositFee { })?,
+                    msg: to_json_binary(&StakingExecuteMsg::DepositFee { })?,
                     funds: vec![Coin {
                         denom: config.clone().desired_asset,
                         amount: coin.amount - overpay,
@@ -560,8 +559,6 @@ fn get_discount_ratio(
 fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    let mut overpay = Uint128::zero();
-
     let mut msgs: Vec<CosmosMsg> = vec![];
     let mut attrs = vec![attr("method", "swap_for_mbrn")];
 
@@ -595,7 +592,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
             .querier
             .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
                 contract_addr: config.clone().positions_contract.to_string(),
-                msg: to_binary(&CDPQueryMsg::GetBasket { })?,
+                msg: to_json_binary(&CDPQueryMsg::GetBasket { })?,
             }))?;
         let basket_credit_price = basket.credit_price;
 
@@ -618,7 +615,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
         //Else
         let message = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.clone().osmosis_proxy.to_string(),
-            msg: to_binary(&OsmoExecuteMsg::MintTokens {
+            msg: to_json_binary(&OsmoExecuteMsg::MintTokens {
                 denom: config.clone().mbrn_denom,
                 amount: mbrn_mint_amount,
                 mint_to_address: info.clone().sender.to_string(),
@@ -635,172 +632,53 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
             ),
         ));
         
-        let mut swap_amount: Uint128 = swap_amount * Uint128::new(1u128);
+        let swap_amount: Uint128 = swap_amount * Uint128::new(1u128);
 
-        //Calculate what positions can be repaid for
-        for (i, position) in auction.repayment_positions.clone().into_iter().enumerate() {
-            if !position.repayment.is_zero() && !swap_amount.is_zero() {
-
-                //Query the target position
-                let positions: Vec<BasketPositionsResponse> = deps
-                    .querier
-                    .query::<Vec<BasketPositionsResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-                        contract_addr: config.clone().positions_contract.to_string(),
-                        msg: to_binary(&CDPQueryMsg::GetBasketPositions { 
-                            start_after: None, 
-                            limit: None, 
-                            user_info: Some(
-                                UserInfo { 
-                                    position_id: position.clone().position_info.position_id,
-                                    position_owner: position.clone().position_info.position_owner,
-                                }
-                            ), 
-                            user: None 
-                        })?,
-                    }))?;
-                //Get the position info
-                let target_position = positions[0].clone().positions[0].clone();
-
-                //If position debt is 0, skip and update state
-                if target_position.credit_amount.is_zero() {
-                    //Remove Position repayment
-                    auction.repayment_positions[i].repayment = Uint128::zero();
-                    //Update auction remaining_recapitalization amount
-                    auction.remaining_recapitalization = match auction
-                        .remaining_recapitalization
-                        .checked_sub(position.repayment)
-                    {
-                        Ok(val) => val,
-                        Err(_) => Uint128::zero(),
-                    };
-
-                    continue;
-                }
-
-
-                let repay_amount: Uint128;
-                //Calc how much to repay for this position
-                if position.repayment >= swap_amount {
-                    //Repay the full swap_amount
-                    repay_amount = swap_amount;
-                } else {
-                    //Repay the position.repayment
-                    repay_amount = position.repayment;
-                }
-
-                //Update Position repayment
-                auction.repayment_positions[i].repayment = match auction.repayment_positions[i].repayment.checked_sub(repay_amount){
-                    Ok(val) => val,
-                    Err(_) => Uint128::zero(),
-                };
-                //Update swap amount
-                swap_amount = match swap_amount.checked_sub(repay_amount){
-                    Ok(val) => val,
-                    Err(_) => Uint128::zero(),
-                };
-
-                //Create Repay message
-                if !repay_amount.is_zero() {
-                    //Send msg otherwise
-                    let message = CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: config.clone().positions_contract.to_string(),
-                        msg: to_binary(&CDPExecuteMsg::Repay {
-                            position_id: position.clone().position_info.position_id,
-                            position_owner: Some(
-                                position.clone().position_info.position_owner,
-                            ),
-                            send_excess_to: Some(config.clone().owner.to_string()),
-                        })?,
-                        funds: coins(repay_amount.u128(), coin.clone().denom),
-                    });
-                    msgs.push(message);
-
-                    attrs.push(attr(
-                        "position_repaid",
-                        format!(
-                            "Position Info: {:?}, Repayment: {}",
-                            position.clone().position_info,
-                            repay_amount
-                        ),
-                    ));
-                }
-            }                    
-        }
-
-        //Filter out fully repaid debts
-        auction.repayment_positions = auction
-            .clone()
-            .repayment_positions
-            .into_iter()
-            .filter(|info| !info.repayment.is_zero())
-            .collect::<Vec<RepayPosition>>();
-
-        //Subtract from send_to users if Some
-        for (i, recipient) in auction.clone().send_to.into_iter().enumerate() {
-
-            if !swap_amount.is_zero() && !recipient.amount.is_zero(){
-
-                let withdrawal_amount: Uint128;
-
-                //Calculate amount able to send & update DebtAuction state
-                if swap_amount >= recipient.amount {
-                    auction.send_to[i].amount = Uint128::zero();
-
-                    swap_amount -= recipient.amount;
-
-                    withdrawal_amount = recipient.amount;
-
-                } else {
-                    auction.send_to[i].amount -= swap_amount;
-
-                    withdrawal_amount = swap_amount;
-
-                    swap_amount = Uint128::zero();                          
-                }
-
-                //Get credit asset info
-                let credit_asset = basket.credit_asset.info.clone();
-
-                //Create withdrawal msg
-                let msg = withdrawal_msg(
-                    Asset {
-                        amount: withdrawal_amount,
-                        info: credit_asset,
-                    }, recipient.recipient)?;
-                
-                //Push msg
-                msgs.push(msg);
-            }                    
-        }
-
-        if swap_amount > Uint128::zero() {                            
-            //Calculate the the user's overpayment
-            //We want to allow users to focus on speed rather than correctness
-            overpay = swap_amount;
-            
-            //Update DebtAuction limit
-            auction.remaining_recapitalization -= (coin.clone().amount - overpay);
+        // Determine how much of the sent CDT fulfills pending recapitalization
+        let fulfill_amount = if swap_amount >= auction.remaining_recapitalization {
+            auction.remaining_recapitalization
         } else {
-            
-            //Update DebtAuction limit
-            auction.remaining_recapitalization -= coin.clone().amount;
+            swap_amount
+        };
+
+        // Send fulfilled CDT to the CDP to burn via FulfillBadDebt
+        if !fulfill_amount.is_zero() {
+            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.clone().positions_contract.to_string(),
+                msg: to_json_binary(&CDPExecuteMsg::FulfillBadDebt {})?,
+                funds: vec![Coin { denom: coin.clone().denom, amount: fulfill_amount }],
+            }));
+
+            attrs.push(attr("fulfilled_bad_debt", fulfill_amount));
+        }
+
+        // Any remaining CDT is overpay and should be returned
+        let overpay = match swap_amount.checked_sub(fulfill_amount) {
+            Ok(val) => val,
+            Err(_) => Uint128::zero(),
+        };
+
+        // Update remaining recapitalization
+        auction.remaining_recapitalization = match auction.remaining_recapitalization.checked_sub(fulfill_amount) {
+            Ok(val) => val,
+            Err(_) => Uint128::zero(),
+        };
+
+        //Send back overpayment
+        if !overpay.is_zero() {
+            //Create msg
+            msgs.push(withdrawal_msg(
+                Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: coin.clone().denom,
+                    },
+                    amount: overpay,
+                },
+                info.clone().sender,
+            )?);
         }
     } else {
         return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Auction ended") }));
-    }
-
-    //Send back overpayment
-    if !overpay.is_zero() {
-        //Create msg
-        msgs.push(withdrawal_msg(
-            Asset {
-                info: AssetInfo::NativeToken {
-                    denom: coin.clone().denom,
-                },
-                amount: overpay,
-            },
-            info.clone().sender,
-        )?);
     }
 
     //Update or Remove DebtAuction 
@@ -817,10 +695,10 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::DebtAuction {} => to_binary(&DEBT_AUCTION.load(deps.storage)?),
+        QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
+        QueryMsg::DebtAuction {} => to_json_binary(&DEBT_AUCTION.load(deps.storage)?),
         QueryMsg::OngoingFeeAuctions { auction_asset, limit, start_after } => {
-            to_binary(&get_ongoing_fee_auctions(
+            to_json_binary(&get_ongoing_fee_auctions(
                 deps,
                 auction_asset,
                 limit,
@@ -882,6 +760,6 @@ fn get_ongoing_fee_auctions(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
     Ok(Response::default())
 }

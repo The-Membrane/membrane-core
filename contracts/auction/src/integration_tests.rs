@@ -10,7 +10,7 @@ mod tests {
     use membrane::types::{Asset, AssetInfo, Basket, DebtAuction, FeeAuction, UserInfo};
 
     use cosmwasm_std::{
-        coin, to_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
+        coin, to_json_binary, Addr, Binary, Decimal, Empty, Response, StdResult, Uint128,
     };
     use cw_multi_test::{App, AppBuilder, BankKeeper, Contract, ContractWrapper, Executor};
     use schemars::JsonSchema;
@@ -76,18 +76,14 @@ mod tests {
                         denom,
                         amount,
                         burn_from_address,
-                    } => {
-                            panic!("{}", amount);
-                        
-                        Ok(Response::new())
-                    }
+                    } => Ok(Response::new()),
                 }
             },
             |_, _, _, _: Osmo_MockInstantiateMsg| -> StdResult<Response> {
                 Ok(Response::default())
             },
             |_, _, msg: Osmo_MockQueryMsg| -> StdResult<Binary> {
-                Ok(to_binary(&MockResponse { })?)
+                Ok(to_json_binary(&MockResponse { })?)
             },
         );
         Box::new(contract)
@@ -132,7 +128,7 @@ mod tests {
                         if asset_info.to_string() == String::from("no_price"){
                             return Err(cosmwasm_std::StdError::GenericErr { msg: String::from("Asset has no oracle price") })
                         } else {
-                            Ok(to_binary(&vec![PriceResponse {
+                            Ok(to_json_binary(&vec![PriceResponse {
                                 prices: vec![],
                                 price: Decimal::one(),
                                 decimals: 0,
@@ -154,6 +150,7 @@ mod tests {
             position_owner: Option<String>,
             send_excess_to: Option<String>, 
         },
+        FulfillBadDebt { },
     }
 
     #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
@@ -181,12 +178,13 @@ mod tests {
                         position_owner,
                         send_excess_to,
                     } => Ok(Response::default()),
+                    CDP_MockExecuteMsg::FulfillBadDebt { } => Ok(Response::default()),
                 }
             },
             |_, _, _, _: CDP_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
             |_, _, msg: CDP_MockQueryMsg| -> StdResult<Binary> {
                 match msg {
-                    CDP_MockQueryMsg::GetBasket { } => Ok(to_binary(&Basket {
+                    CDP_MockQueryMsg::GetBasket { } => Ok(to_json_binary(&Basket {
                         basket_id: Uint128::one(),
                         current_position_id: Uint128::one(),
                         collateral_types: vec![],
@@ -214,10 +212,10 @@ mod tests {
                         credit_last_accrued: 0,
                         rates_last_accrued: 0,
                         oracle_set: false,
-                        revenue_destinations: Some(vec![]),
+                        pending_bad_debt: Uint128::zero(),
                     })?),
                     CDP_MockQueryMsg::GetBasketPositions { start_after, limit, user_info, user } => {
-                        Ok(to_binary(&vec![
+                        Ok(to_json_binary(&vec![
                             BasketPositionsResponse {
                                 user: String::from("user"),
                                 positions: vec![
@@ -350,7 +348,7 @@ mod tests {
         use cosmwasm_std::BlockInfo;
         use membrane::{
             auction::{UpdateConfig, Config},
-            types::{RepayPosition, UserInfo, AuctionRecipient},
+            types::{RepayPosition, UserInfo},
         };
 
         #[test]
@@ -612,15 +610,15 @@ mod tests {
                 .call(msg, vec![coin(3_000, "uosmo")])
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
-            //Swap cost 999 OSMO for 1063 fee_asset
+            //Swap cost 1000 OSMO for 1063 fee_asset
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
-                vec![coin(201_000, "credit_fulldenom"), coin(99, "error"), coin(99_999, "fee_asset"),  coin(96_000, "mbrn_denom"), coin(102001, "uosmo")]
+                vec![coin(201_000, "credit_fulldenom"), coin(99, "error"), coin(99_999, "fee_asset"),  coin(96_000, "mbrn_denom"), coin(102000, "uosmo")]
             );
             //Assert Governance got the proceeds
             assert_eq!(
                 app.wrap().query_all_balances("contract0").unwrap(),
-                vec![coin(93999, "uosmo")]
+                vec![coin(94000, "uosmo")]
             );
 
             //Assert Auction is empty
@@ -683,7 +681,8 @@ mod tests {
                     },
                 )
                 .unwrap();
-            //Successful Overpay Swap that doesn't send extra fee_asset
+            //Successful Overpay Swap that doesn't send extra fee_asset.
+            //if it sent extra, the tx will fail.
             let msg = ExecuteMsg::SwapForFee { auction_asset: AssetInfo::NativeToken { denom: String::from("fee_asset") }};
             let cosmos_msg = debt_contract
                 .call(msg, vec![coin(3_000, "uosmo")])
@@ -757,16 +756,10 @@ mod tests {
                 auction.remaining_recapitalization,
                 Uint128::new(1_000u128)
             );
-            assert_eq!(
-                auction.repayment_positions,
-                vec![RepayPosition {
-                    repayment: Uint128::new(1_000u128),
-                    position_info: UserInfo {
-                        position_id: Uint128::new(1u128),
-                        position_owner: String::from("owner"),
-                    }
-                }]
-            );
+
+            // Assert CDP received fulfilled bad debt funds (99,000)
+            let cdp_balance = app.wrap().query_balance(cdp_contract.as_str(), "credit_fulldenom").unwrap();
+            assert_eq!(cdp_balance.amount, Uint128::new(99_000));
 
             //Successful StartAuction: Send_to
             let msg = ExecuteMsg::StartAuction {
@@ -816,24 +809,25 @@ mod tests {
                 auction.remaining_recapitalization,
                 Uint128::new(2_000u128)
             );
-            assert_eq!(
-                auction.send_to,
-                vec![AuctionRecipient {
-                    amount: Uint128::new(2_000),
-                    recipient: Addr::unchecked("send_to_me"),
-                }]
-            );
+
+            // Assert CDP received fulfilled bad debt funds (99,000 + 99k from the second one)
+            let cdp_balance = app.wrap().query_balance(cdp_contract.as_str(), "credit_fulldenom").unwrap();
+            assert_eq!(cdp_balance.amount, Uint128::new(198_000));
 
             //Successful Overpay Swap
             let msg = ExecuteMsg::SwapForMBRN {};
             let cosmos_msg = debt_contract
                 .call(msg, vec![coin(3_000, "credit_fulldenom")])
                 .unwrap();
-            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+            let _ = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             assert_eq!(
                 app.wrap().query_all_balances(USER).unwrap(),
                 vec![coin(1_000, "credit_fulldenom"), coin(99, "error"), coin(96_000, "mbrn_denom"),  coin(196_000, "uosmo")]
             );
+
+            // Assert CDP received the final 2,000 fulfillment: 99k + 99k + 2k
+            let cdp_balance = app.wrap().query_balance(cdp_contract.as_str(), "credit_fulldenom").unwrap();
+            assert_eq!(cdp_balance.amount, Uint128::new(200_000));
 
             //Assert Auction is empty & therefore removed
             let auction = app

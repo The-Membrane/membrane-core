@@ -65,6 +65,13 @@ pub struct SellCollateralPropagation {
     pub position_info: UserInfo,
 }
 #[cw_serde]
+pub struct LiquidationStat {
+    pub block_time: u64,
+    pub position_id: Uint128,
+    pub collateral_assets: Vec<Asset>,
+    pub amount_liquidated: Uint128,
+}
+#[cw_serde]
 pub struct Timer {
     pub start_time: u64,
     pub end_time: u64,
@@ -104,6 +111,7 @@ pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation"
 pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("repay_propagation");
 pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");
 pub const SELL_COLLATERAL: Item<SellCollateralPropagation> = Item::new("sell_collateral_propagation");
+pub const LIQUIDATION_STATS: Item<Vec<LiquidationStat>> = Item::new("liquidation_stats");
 //Freeze Timer
 pub const FREEZE_TIMER: Item<Timer> = Item::new("freeze_timer");
 //Intents

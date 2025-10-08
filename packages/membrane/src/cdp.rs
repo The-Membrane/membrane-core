@@ -40,6 +40,8 @@ pub struct InstantiateMsg {
     pub liquidity_contract: Option<String>,
     /// System Discounts contract    
     pub discounts_contract: Option<String>,
+    /// LTV Disco contract address
+    pub ltv_disco: String,
     /// Basket Creation struct
     pub create_basket: CreateBasket,
 }
@@ -171,6 +173,10 @@ pub enum ExecuteMsg {
         /// Affiliate fee %
         affiliate_fee: Decimal,
     },
+    /// Fulfill bad debt.
+    /// CDT is sent to the contract & burned to eliminate the accounted for and fulfilled bad debt.
+    /// We don't want to have stray CDT in the contract.
+    FulfillBadDebt { },
     /// Collateral rate assurance check
     CollateralRateAssurance {
         /// Collateral denoms to check (empty means check all)
@@ -250,6 +256,13 @@ pub enum QueryMsg {
     // },
     // Used internally to test state propagation
     // Propagation {},
+    /// Returns liquidation stats with pagination
+    GetLiquidationStats {
+        /// Return stats strictly after this block_time
+        start_after: Option<u64>,
+        /// Response limiter
+        limit: Option<u32>,
+    },
 }
 
 #[cw_serde]
@@ -277,6 +290,8 @@ pub struct Config {
     pub liquidity_contract: Option<Addr>,
     /// System Discounts contract address
     pub discounts_contract: Option<Addr>,
+    /// LTV Disco contract address
+    pub ltv_disco: Addr,
     /// Liquidation fee as percent
     pub liq_fee: Decimal,
     /// Collateral TWAP time frame in minutes
@@ -307,6 +322,8 @@ pub struct Config {
     pub revenue_distributor: Option<Addr>,
     /// Skip credit price accrual
     pub skip_credit_price_accrual: bool,
+    /// Maximum number of liquidation stats stored
+    pub liquidation_stat_limit: u64,
 }
 
 
@@ -351,6 +368,8 @@ pub struct UpdateConfig {
     pub liquidity_contract: Option<String>,
     /// System Discounts contract address
     pub discounts_contract: Option<String>,
+    /// LTV Disco contract address
+    pub ltv_disco: Option<String>,
     /// Liquidation fee as percent
     pub liq_fee: Option<Decimal>,
     /// Collateral TWAP time frame in minutes
@@ -376,6 +395,8 @@ pub struct UpdateConfig {
     pub affiliate_fee_max: Option<Decimal>,
     /// Skip credit price accrual
     pub skip_credit_price_accrual: Option<bool>,
+    /// Maximum number of liquidation stats stored
+    pub liquidation_stat_limit: Option<u64>,
 }
 
 #[cw_serde]
@@ -416,6 +437,9 @@ impl UpdateConfig {
         }
         if let Some(discounts_contract) = self.discounts_contract {
             config.discounts_contract = Some(api.addr_validate(&discounts_contract)?);
+        }
+        if let Some(ltv_disco) = self.ltv_disco {
+            config.ltv_disco = api.addr_validate(&ltv_disco)?;
         }
         if let Some(liq_fee) = self.liq_fee {
             //Enforce 0-100% range
@@ -477,8 +501,19 @@ impl UpdateConfig {
         if let Some(skip_credit_price_accrual) = self.skip_credit_price_accrual {
             config.skip_credit_price_accrual = skip_credit_price_accrual;
         }
+        if let Some(liquidation_stat_limit) = self.liquidation_stat_limit {
+            config.liquidation_stat_limit = liquidation_stat_limit;
+        }
         Ok(())
     }
+}
+
+#[cw_serde]
+pub struct LiquidationStatResponse {
+    pub block_time: u64,
+    pub position_id: Uint128,
+    pub collateral_assets: Vec<Asset>,
+    pub amount_liquidated: Uint128,
 }
 
 #[cw_serde]

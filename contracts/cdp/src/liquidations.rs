@@ -22,7 +22,7 @@ use crate::error::ContractError;
 use crate::positions::{BAD_DEBT_REPLY_ID, LIQ_QUEUE_REPLY_ID, SELL_COLLATERAL_REPLY_ID};
 use crate::query::{insolvency_check, get_cAsset_ratios};
 use crate::risk_engine::update_basket_tally;
-use crate::state::{create_collateral_rate_assurance, get_target_position, update_position, LiquidationPropagation, SellCollateralPropagation, Timer, BASKET, CONFIG, FREEZE_TIMER, LIQUIDATION, SELL_COLLATERAL};
+use crate::state::{create_collateral_rate_assurance, get_target_position, update_position, LiquidationPropagation, SellCollateralPropagation, Timer, BASKET, CONFIG, FREEZE_TIMER, LIQUIDATION, SELL_COLLATERAL, LIQUIDATION_STATS, LiquidationStat};
 
 pub const SECONDS_PER_DAY: u64 = 86400;
 pub const BAD_DEBT_CALLER_FEE: Decimal = Decimal::percent(1);
@@ -149,7 +149,32 @@ pub fn liquidate(
 
     //Set pre-user repay amount 
     let pre_user_repay_repay_amount = credit_repay_amount;
-    println!("pre_user_repay_repay_amount: {:?}", pre_user_repay_repay_amount);
+    // println!("pre_user_repay_repay_amount: {:?}", pre_user_repay_repay_amount);
+
+    // Track liquidation stat
+    let mut liquidation_stats = match LIQUIDATION_STATS.load(storage) {
+        Ok(maybe) => maybe,
+        Err(_) => vec![],
+    };
+    liquidation_stats.push(LiquidationStat {
+        block_time: env.block.time.seconds(),
+        position_id,
+        collateral_assets: target_position
+            .collateral_assets
+            .iter()
+            .map(|c| c.asset.clone())
+            .collect(),
+        amount_liquidated: pre_user_repay_repay_amount.to_uint_floor(),
+    });
+    // Enforce stat limit
+    let stat_limit = config.liquidation_stat_limit as usize;
+    if stat_limit == 0 {
+        liquidation_stats.clear();
+    } else if liquidation_stats.len() > stat_limit {
+        let excess = liquidation_stats.len() - stat_limit;
+        liquidation_stats.drain(0..excess);
+    }
+    LIQUIDATION_STATS.save(storage, &liquidation_stats)?;
 
     //Get amount of repayment user can repay from the Stability Pool
     // let user_sp_repay_amount = get_user_repay_amount(querier, config.clone(), basket.clone(), position_id, position_owner.clone(), &mut credit_repay_amount, &mut submessages)?;

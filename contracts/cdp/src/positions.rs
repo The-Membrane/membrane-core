@@ -2340,6 +2340,7 @@ pub fn redeem_for_collateral(
         },
         base_interest_rate,
         pending_revenue: Uint128::zero(),
+        pending_bad_debt: Uint128::zero(),
         credit_last_accrued: env.block.time.seconds(),
         rates_last_accrued: env.block.time.seconds(),
         liq_queue: new_liq_queue,

@@ -576,6 +576,8 @@ pub struct Basket {
     pub base_interest_rate: Decimal,
     /// Pending revenue available to mint
     pub pending_revenue: Uint128,
+    /// Pending bad debt
+    pub pending_bad_debt: Uint128,
     /// Last time credit price was updated, in seconds
     pub credit_last_accrued: u64,
     /// Last time rate indices for collateral_types was updated, in seconds
@@ -1902,4 +1904,13 @@ pub struct NeutronOracleInfo {
     pub slinky_base_symbol: Option<String>,
     /// Maximum number of blocks that Slinky price can be old
     pub slinky_max_blocks_old: Option<u8>,
+}
+
+//LTV Disco
+#[cw_serde]
+pub struct DepositDenom {
+    /// Denom 
+    pub denom: String,
+    /// Vault Info (for vault tokens only)
+    pub vault_info: Option<VaultTokenInfo>,
 }

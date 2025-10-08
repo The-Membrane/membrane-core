@@ -66,9 +66,13 @@ pub fn instantiate(
         msg.vault_subdenom
     );
 
+    //Validate the revenue contract
+    let revenue_contract = deps.api.addr_validate(&msg.clone().revenue_contract)?;
+
     let config = Config {
         owner: owner.clone(),
         tokenfactory_contract: msg.clone().tokenfactory_contract,
+        revenue_contract: msg.clone().revenue_contract,
         vault_token: vault_token.clone(),
         deposit_pair: msg.clone().deposit_pair,
         composition_leeway: msg.clone().composition_leeway,
@@ -115,6 +119,7 @@ pub fn execute(
             asset_a_to_b_rate,
             target_ratio,
             tokenfactory_contract,
+            revenue_contract,
             swap_history_cap,
             volume_history_cap,
         } => execute_update_config(
@@ -127,6 +132,7 @@ pub fn execute(
             asset_a_to_b_rate,
             target_ratio,
             tokenfactory_contract,
+            revenue_contract,
             swap_history_cap,
             volume_history_cap,
         ),
@@ -151,6 +157,7 @@ fn execute_update_config(
     asset_a_to_b_rate: Option<Decimal>,
     target_ratio: Option<Decimal>,
     tokenfactory_contract: Option<Addr>,
+    revenue_contract: Option<String>,
     swap_history_cap: Option<u32>,
     volume_history_cap: Option<u32>,
 ) -> Result<Response, ContractError> {
@@ -197,6 +204,12 @@ fn execute_update_config(
         config.tokenfactory_contract = Some(tf_addr);
     }
 
+    if let Some(rc) = revenue_contract {
+        //Validate the address
+        deps.api.addr_validate(&rc)?;
+        config.revenue_contract = rc;
+    }
+
     if let Some(cap) = swap_history_cap {
         if cap == 0 {
             return Err(ContractError::Validation(
@@ -238,16 +251,21 @@ fn execute_enter_vault(
         });
     }
 
-    println!("deposit_a: {:?}", deposit_a);
-    println!("deposit_b: {:?}", deposit_b);
-    //Ensure the deposit is aligned with the deposit pair
-    ensure_deposit_alignment(
-        deps.querier,
-        &env,
-        &config,
-        deposit_a,
-        deposit_b,
-    )?;
+    // println!("deposit_a: {:?}", deposit_a);
+    // println!("deposit_b: {:?}", deposit_b);
+    //If the sender is not the revenue contract, ensure the deposit is aligned with the deposit pair
+    //Revenue contract can deposit any ratio into the contract.
+    //Which will tend to be 100% CDT.
+    if info.clone().sender.to_string() != config.revenue_contract {
+        //Ensure the deposit is aligned with the deposit pair
+        ensure_deposit_alignment(
+            deps.querier,
+            &env,
+            &config,
+            deposit_a,
+            deposit_b,
+        )?;
+    }
 
     //Calc user deposit value, denominated in asset A
     let user_deposit_value = sum_base_value(deposit_a, deposit_b, config.asset_a_to_b_rate)?;
@@ -256,9 +274,9 @@ fn execute_enter_vault(
             reason: "deposit value is zero".into(),
         });
     }
-    println!("user_deposit_value: {:?}", user_deposit_value);
-    println!("total_deposits: {:?}", total_deposits);
-    println!("vault_supply: {:?}", vault_supply);
+    // println!("user_deposit_value: {:?}", user_deposit_value);
+    // println!("total_deposits: {:?}", total_deposits);
+    // println!("vault_supply: {:?}", vault_supply);
 
     //Calc the amount of vault tokens to mint
     let vault_tokens_to_mint = calculate_vault_tokens(
@@ -583,6 +601,16 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::VaultInfo {} => to_json_binary(&query_vault_info(deps, env)?),
+        QueryMsg::VaultTokenUnderlying { vault_token_amount } => to_json_binary(&calculate_base_tokens(
+            vault_token_amount,
+             get_total_deposit_value(deps.querier, &env, &CONFIG.load(deps.storage)?).map_err(|err| StdError::GenericErr { msg: format!("Failed to query the contract for the total deposit value") })?,
+              VAULT_TOKEN_SUPPLY.load(deps.storage)?
+            )?),
+        QueryMsg::DepositTokenConversion { deposit_token_amount } => to_json_binary(&calculate_vault_tokens(
+            deposit_token_amount,
+             get_total_deposit_value(deps.querier, &env, &CONFIG.load(deps.storage)?).map_err(|err| StdError::GenericErr { msg: format!("Failed to query the contract for the total deposit value") })?,
+              VAULT_TOKEN_SUPPLY.load(deps.storage)?
+            )?,),
         QueryMsg::TransmuteHistory { start_after, limit } => {
             to_json_binary(&query_swap_history(deps, start_after, limit)?)
         }
@@ -782,6 +810,7 @@ fn convert_asset_b_to_a(amount: Uint128, rate: Decimal) -> Result<Uint128, Contr
     Ok(decimal_multiplication(inv_rate, decimal_amount)?.to_uint_floor())
 }
 
+/// Ensures deposits are pushing the ratio closer to the target ratio or keeping it stagnant
 fn ensure_deposit_alignment(
     querier: QuerierWrapper,
     env: &Env,

@@ -11,7 +11,7 @@ use cw_storage_plus::Bound;
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::cdp::{
     Config, CollateralInterestResponse, UserIntentResponse,
-    InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse,
+    InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse, LiquidationStatResponse,
 };
 
 use membrane::types::{
@@ -20,10 +20,43 @@ use membrane::types::{
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::positions::get_amount_from_LTV;
-use crate::state::{get_target_position, USER_INTENTS, CollateralVolatility, BASKET, CONFIG, POSITIONS, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
+use crate::state::{get_target_position, USER_INTENTS, CollateralVolatility, BASKET, CONFIG, POSITIONS, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY, LIQUIDATION_STATS};
 
 const MAX_LIMIT: u32 = 31;
 pub const VOLATILITY_LIST_LIMIT: u32 = 48;
+
+/// Returns liquidation stats with optional pagination
+pub fn query_liquidation_stats(
+    deps: Deps,
+    start_after: Option<u64>,
+    limit: Option<u32>,
+) -> StdResult<Vec<LiquidationStatResponse>> {
+    let mut stats = LIQUIDATION_STATS.load(deps.storage).unwrap_or_else(|_| vec![]);
+    println!("stats: {:?}", stats);
+
+    if let Some(sa) = start_after {
+        stats = stats.into_iter().filter(|s| s.block_time > sa).collect();
+    }
+
+    let take = limit.unwrap_or(50) as usize;
+
+    if stats.len() > take {
+        stats.truncate(take);
+    }
+    println!("stats: {:?}", stats);
+
+    let resp: Vec<LiquidationStatResponse> = stats
+        .into_iter()
+        .map(|s| LiquidationStatResponse {
+            block_time: s.block_time,
+            position_id: s.position_id,
+            collateral_assets: s.collateral_assets,
+            amount_liquidated: s.amount_liquidated,
+        })
+        .collect();
+
+    Ok(resp)
+}
 
 pub fn query_user_intent_state(
     deps: Deps,

@@ -16,13 +16,14 @@ use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, 
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::deployable_venue::{ExecuteMsg as DeployableVenue_ExecuteMsg, QueryMsg as DeployableVenue_QueryMsg};
 use membrane::chain_proxy::ExecuteMsg as ChainProxyExecuteMsg;
-use membrane::types::{cAsset, Asset, AssetInfo, AssetPool, Basket, DeploymentVenue, PoolStateResponse, Position, UserInfo};
+use membrane::types::{cAsset, Asset, AssetInfo, AssetPool, Basket, DeploymentVenue, PoolStateResponse, Position, StringEntry, UserInfo};
 
+use crate::contract::set_active_deployment_venues;
 use crate::error::ContractError; 
-use crate::positions::{BAD_DEBT_REPLY_ID, LIQ_QUEUE_REPLY_ID, SELL_COLLATERAL_REPLY_ID};
+use crate::positions::{BAD_DEBT_REPLY_ID, DEPLOYABLE_VENUE_REPLY_ID, LIQ_QUEUE_REPLY_ID, SELL_COLLATERAL_REPLY_ID};
 use crate::query::{insolvency_check, get_cAsset_ratios};
 use crate::risk_engine::update_basket_tally;
-use crate::state::{create_collateral_rate_assurance, get_target_position, update_position, LiquidationPropagation, SellCollateralPropagation, Timer, BASKET, CONFIG, FREEZE_TIMER, LIQUIDATION, SELL_COLLATERAL, LIQUIDATION_STATS, LiquidationStat};
+use crate::state::{create_collateral_rate_assurance, get_target_position, update_position, DeployableVenuePropagation, LiquidationPropagation, LiquidationStat, SellCollateralPropagation, Timer, BASKET, CONFIG, DEPLOYABLE_VENUE, FREEZE_TIMER, LIQUIDATION, LIQUIDATION_STATS, SELL_COLLATERAL};
 
 pub const SECONDS_PER_DAY: u64 = 86400;
 pub const BAD_DEBT_CALLER_FEE: Decimal = Decimal::percent(1);
@@ -184,12 +185,13 @@ pub fn liquidate(
 
     //Get amount of repayment user can repay from its deployed Venues
     let user_repay_amount = get_deployable_venues_user_repay_amount(
+        storage,
         querier, 
         config.clone(), 
         basket.clone(), 
         position_id, 
         position_owner.clone(), 
-        target_position.clone().deployed_to,
+        &mut target_position,
         &mut credit_repay_amount, 
         &mut submessages,
         &mut attrs,
@@ -560,20 +562,27 @@ fn get_repay_quantities(
 
 /// Calculate amount of debt the User can repay from its list of Deployable Venues
 fn get_deployable_venues_user_repay_amount(
+    storage: &mut dyn Storage,
     querier: QuerierWrapper,    
     _config: Config,
     _basket: Basket,
     position_id: Uint128,
     position_owner: String,
-    deployable_venues: Vec<DeploymentVenue>,
+    position: &mut Position,
     credit_repay_amount: &mut Decimal,
     submessages: &mut Vec<SubMsg>,
     attrs: &mut Vec<Attribute>,
 ) -> StdResult<Decimal>{
 
     let mut total_user_repay_amount = Decimal::zero();
+    let mut used_venues: Vec<String> = vec![];
+    let deployable_venues = position.deployed_to.clone();
     // println!("deployable_venues: {:?}", deployable_venues);
     for deployable_venue in deployable_venues {
+        //If the venue has failed liquidation, skip it
+        if deployable_venue.failed_liquidation {
+            continue;
+        }
 
         //Query Venue's Retrievable CDT
         let retrievable_cdt: Uint128 = match querier
@@ -589,6 +598,8 @@ fn get_deployable_venues_user_repay_amount(
             
         //If the user has funds, tell the venue to repay and subtract from credit_repay_amount
         if !retrievable_cdt.is_zero() {
+            //Add to used venues
+            used_venues.push(deployable_venue.address.to_string());
             //Set Repayment amount to what needs to get liquidated or total_deposits
             let user_repay_amount = {
                 //Repay the full debt
@@ -615,12 +626,34 @@ fn get_deployable_venues_user_repay_amount(
                 msg: to_json_binary(&repay_msg)?,
                 funds: vec![],
             });
-
             //Convert to submsg
-            let sub_msg: SubMsg = SubMsg::reply_on_error(msg, BAD_DEBT_REPLY_ID); //This just means no error on errors in the venue's msg
+            let sub_msg: SubMsg = SubMsg::reply_always(msg, DEPLOYABLE_VENUE_REPLY_ID); 
+            //This also means no error on errors in the venue's msg
             submessages.push(sub_msg);
-
             attrs.push(attr(    format!("repay_deployable_venue_from_{}", deployable_venue.address.to_string()), user_repay_amount.to_string()));
+
+            //Subtract user repay amount from deployed debt amount for the venue
+            if let Some((index, venue)) = position.deployed_to
+                .iter_mut()
+                .enumerate()
+                .find(|(_, venue)| venue.address == deployable_venue.address)
+                {
+                    venue.deployed_debt_amount = match venue.deployed_debt_amount.checked_sub(user_repay_amount.to_uint_ceil()){
+                        Ok(res) => res,
+                        //if it errors during execution it'll skip anyway
+                        Err(_) => Uint128::zero(),
+                    };
+                    //if the deployed debt amount is 0, remove the venue from the position
+                    if venue.deployed_debt_amount.is_zero() {
+                        //Remove venue from position (will be saved alongside liquidation logic)
+                        position.deployed_to.remove(index);
+                        //Update active deployment venues
+                        set_active_deployment_venues(storage, vec![StringEntry {
+                            entry: deployable_venue.address.to_string(),
+                            remove: true,
+                        }])?;
+                    }
+                }
 
             //Subtract Repay amount from credit_repay_amount for the liquidation
             *credit_repay_amount = match decimal_subtraction(*credit_repay_amount, user_repay_amount){
@@ -629,6 +662,15 @@ fn get_deployable_venues_user_repay_amount(
             };
         }
     }
+
+    //Set Deployment Propagation
+    DEPLOYABLE_VENUE.save(storage, &DeployableVenuePropagation {
+        user: UserInfo {
+            position_id,
+            position_owner: position_owner.clone(),
+        },
+        venues: used_venues,
+    })?;
 
     // println!("user_repay_amount: {:?}", user_repay_amount);
 

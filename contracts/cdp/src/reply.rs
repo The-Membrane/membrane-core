@@ -7,7 +7,7 @@ use membrane::types::{cAsset, Asset, AssetInfo, Basket};
 use membrane::helpers::{asset_to_coin, get_contract_balances, withdrawal_msg};
 
 use crate::risk_engine::update_basket_tally;
-use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, LiquidationPropagation, SellCollateralPropagation, BASKET, CLOSE_POSITION, CONFIG, LIQUIDATION, SELL_COLLATERAL, WITHDRAW};
+use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, DeployableVenuePropagation, LiquidationPropagation, SellCollateralPropagation, BASKET, CLOSE_POSITION, CONFIG, DEPLOYABLE_VENUE, LIQUIDATION, SELL_COLLATERAL, WITHDRAW};
 
 //Signify the revenue destination that errored without halting the msg flow
 #[allow(unused_variables)]
@@ -477,3 +477,56 @@ pub fn handle_sell_collateral_reply(deps: DepsMut, env: Env, msg: Reply) -> StdR
     }
 }
 
+//Load Deployment Venue Propagation & the user position to update the failed_liquidation field
+//On success, remove venue from the vector
+//On error, set the failed_liquidation field to true
+pub fn handle_deployable_venue_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(_result) => {
+            //Load Deployment Venue Propagation to remove the venue from the vector
+            let mut deployable_venue_propagation: DeployableVenuePropagation = DEPLOYABLE_VENUE.load(deps.storage)?;
+            let used_venue = deployable_venue_propagation.venues[0].clone();
+            //Remove venue from the vector
+            deployable_venue_propagation.venues.remove(0);
+            //Save state
+            DEPLOYABLE_VENUE.save(deps.storage, &deployable_venue_propagation)?;
+            Ok(Response::new()
+                .add_attribute("failed_liquidation", "false")
+                .add_attribute("venue", used_venue)
+            )
+        }
+        Err(err) => {
+            //Load Deployment Venue Propagation & the user position to update the failed_liquidation field
+            let mut deployable_venue_propagation: DeployableVenuePropagation = DEPLOYABLE_VENUE.load(deps.storage)?;
+            println!("deployable_venue_propagation: {:?}", deployable_venue_propagation);
+            //Get user position
+            let (_i, mut user_position) = get_target_position(
+                deps.storage,
+                 deps.api.addr_validate(&deployable_venue_propagation.user.position_owner)?,
+                deployable_venue_propagation.user.position_id
+            ).map_err(|e| StdError::GenericErr { msg: e.to_string() })?;
+            //Update failed_liquidation field
+            user_position.deployed_to
+                .iter_mut()
+                .find(|venue| venue.address == deployable_venue_propagation.venues[0]
+                ).unwrap().failed_liquidation = true;
+            //Save state
+            update_position(
+                deps.storage,
+                deps.api.addr_validate(&deployable_venue_propagation.user.position_owner)?, 
+                user_position
+            )?;
+            //Extract venue from the vector
+            let used_venue = deployable_venue_propagation.venues[0].clone();
+            //Remove venue from the vector
+            deployable_venue_propagation.venues.remove(0);
+            //Save state
+            DEPLOYABLE_VENUE.save(deps.storage, &deployable_venue_propagation)?;
+            Ok(Response::new()
+                .add_attribute("error", err)
+                .add_attribute("failed_liquidation", "true")
+                .add_attribute("venue", used_venue)
+            )
+        }
+    }
+}

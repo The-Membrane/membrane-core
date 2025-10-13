@@ -2,7 +2,8 @@ use cosmwasm_std::{coin, coins, Addr, Binary, Decimal, Deps, DepsMut, Empty, Env
 use cw_multi_test::{App, Contract, ContractWrapper, Executor};
 
 use membrane::tokenfactory::{ExecuteMsg as TfExecuteMsg, InstantiateMsg as TfInstantiateMsg};
-use membrane::transmuter::{ExecuteMsg, InstantiateMsg, QueryMsg, AssetPair, TransmuteHistoryResponse, VolumeHistoryResponse, VaultInfoResponse};
+use membrane::cdp::QueryMsg as CdpQueryMsg;
+use membrane::transmuter::{ExecuteMsg, InstantiateMsg, QueryMsg, AssetPair, TransmuteHistoryResponse, VolumeHistoryResponse, VaultInfoResponse, RateLimitStatusResponse, RateLimitManyResponse};
 
 use crate::contract::{execute, instantiate, query};
 
@@ -58,6 +59,26 @@ fn setup_app() -> App {
     app
 }
 
+fn mock_cdp_contract() -> Box<dyn Contract<Empty>> {
+    // Query msg type is CdpQueryMsg so the framework decodes it for us
+    Box::new(ContractWrapper::new(
+        |_deps, _env, _info, _msg: Empty| -> Result<Response, StdError> { Ok(Response::new()) },
+        |_deps, _env, _info, _msg: Empty| -> StdResult<Response> { Ok(Response::new()) },
+        |_deps, _env, q: CdpQueryMsg| -> StdResult<Binary> {
+            match q {
+                CdpQueryMsg::GetActiveDeploymentVenues { venue, .. } => {
+                    let list = match venue {
+                        Some(v) if v == USER => vec![USER.to_string()],
+                        _ => Vec::<String>::new(),
+                    };
+                    cosmwasm_std::to_json_binary(&list)
+                },
+                _ => Err(StdError::generic_err("unsupported mock cdp query")),
+            }
+        },
+    ))
+}
+
 fn instantiate_transmuter(app: &mut App) -> Addr {
     let tf_code = app.store_code(mock_tokenfactory_contract());
     let tokenfactory_addr = app
@@ -72,19 +93,37 @@ fn instantiate_transmuter(app: &mut App) -> Addr {
         .unwrap();
 
     let code_id = app.store_code(transmuter_contract());
+    let cdp_code = app.store_code(mock_cdp_contract());
+    let cdp_addr = app
+        .instantiate_contract(
+            cdp_code,
+            Addr::unchecked(ADMIN),
+            &Empty {},
+            &[],
+            "mock-cdp",
+            None,
+        )
+        .unwrap();
     let msg = InstantiateMsg {
         owner: Some(ADMIN.to_string()),
         tokenfactory_contract: Some(tokenfactory_addr),
+        revenue_contract: ADMIN.to_string(),
+        cdp_contract: cdp_addr.to_string(),
         vault_subdenom: VAULT_SUBDENOM.to_string(),
         deposit_pair: AssetPair {
-            asset_a: ASSET_A.to_string(),
-            asset_b: ASSET_B.to_string(),
+            cdt: ASSET_A.to_string(),
+            paired_asset: ASSET_B.to_string(),
         },
         composition_leeway: Decimal::percent(1),
         asset_a_to_b_rate: Decimal::one(),
         target_ratio: Decimal::percent(50),
+        usage_fee: Some(Decimal::percent(0)),
         swap_history_cap: 5,
         volume_history_cap: 5,
+        rate_limit_window_secs: Some(60 * 60 * 8),
+        rate_limit_threshold: Some(Decimal::percent(5)),
+        allowlist: Some(vec![]),
+        allowlist_rate_limit_threshold: Some(Decimal::percent(10)),
     };
 
     app.instantiate_contract(
@@ -96,6 +135,474 @@ fn instantiate_transmuter(app: &mut App) -> Addr {
         None,
     )
     .unwrap()
+}
+
+fn query_rate_limit(app: &App, contract: &Addr, address: &str) -> RateLimitStatusResponse {
+    let resp: RateLimitManyResponse = app
+        .wrap()
+        .query_wasm_smart(contract, &QueryMsg::RateLimitMany { addresses: Some(vec![address.to_string()]), start_after: None, limit: None })
+        .unwrap();
+    resp.records.into_iter().next().unwrap()
+}
+
+fn query_rate_limit_many(app: &App, contract: &Addr, addrs: Option<Vec<String>>, start_after: Option<u64>, limit: Option<u32>) -> RateLimitManyResponse {
+    app.wrap()
+        .query_wasm_smart(contract, &QueryMsg::RateLimitMany { addresses: addrs, start_after, limit })
+        .unwrap()
+}
+
+#[test]
+fn rate_limit_blocks_when_threshold_exceeded_and_nets_flows() {
+    let mut app = setup_app();
+    let contract = instantiate_transmuter(&mut app);
+
+    // Enter vault to set deposits baseline (so threshold calc > 0)
+    app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::EnterVault { recipient: None },
+        &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
+    ).unwrap();
+
+    // Perform alternating flows that net to zero within window
+    // A->B (-10k A)
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(10_000, ASSET_A)).unwrap(); 
+    // B->A (+10k A)
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(10_000, ASSET_B)).unwrap(); 
+
+    let status = query_rate_limit(&app, &contract, USER);
+    assert_eq!(status.status.net_flow_base, 0);
+    assert!(status.status.remaining_base > Uint128::zero());
+
+    //+10k
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(10_000, ASSET_B)).unwrap(); // B->A (+10k A)
+
+    // Now push only B->A until exceeding 5% of deposits (deposits ~ 200k A base; 5% = 10k)
+    // We already did +10k; next +1 pushes over -> should error
+    let res = app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(1, ASSET_B));
+    assert!(res.is_err());
+
+    //Flip to -set back net to 0
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(10_000, ASSET_A)).unwrap(); 
+    //Error @ -10k + 1
+    let res = app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(10_001, ASSET_A)); 
+    assert!(res.is_err());
+    //Set to -10k
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(10_000, ASSET_A)).unwrap(); 
+    //Error @ -10k + 1
+    let res = app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(1, ASSET_A)); 
+    assert!(res.is_err());
+
+}
+
+
+#[test]
+fn allowlist_uses_higher_threshold() {
+    let mut app = setup_app();
+    let contract = instantiate_transmuter(&mut app);
+
+    // Update config to add USER to allowlist and set small base deposits
+    app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::UpdateConfig {
+            owner: None,
+            deposit_pair: None,
+            composition_leeway: None,
+            asset_a_to_b_rate: None,
+            target_ratio: None,
+            tokenfactory_contract: None,
+            cdp_contract: None,
+            revenue_contract: None,
+            usage_fee: None,
+            swap_history_cap: None,
+            volume_history_cap: None,
+            rate_limit_window_secs: None,
+            rate_limit_threshold: None,
+            allowlist: Some(vec![membrane::types::StringEntry { entry: USER.to_string(), remove: false }]),
+            allowlist_rate_limit_threshold: Some(Decimal::percent(20)),
+        },
+        &[],
+    ).unwrap();
+
+    app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::EnterVault { recipient: None },
+        &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
+    ).unwrap();
+
+    // Seed B
+    // app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::DepositFee {}, &coins(1_000_000, ASSET_B)).unwrap();
+
+    // USER can move up to 20% before block
+    // 20% of 200k = 40k. Try 39,999 -> ok, 1 more -> block
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(39_999, ASSET_B)).unwrap();
+    let res = app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(2, ASSET_B));
+    assert!(res.is_err());
+}
+
+#[test]
+fn rate_limit_many_paginates() {
+    let mut app = setup_app();
+    let contract = instantiate_transmuter(&mut app);
+
+    // Add two allowlist entries
+    app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::UpdateConfig {
+            owner: None,
+            deposit_pair: None,
+            composition_leeway: None,
+            asset_a_to_b_rate: None,
+            target_ratio: None,
+            tokenfactory_contract: None,
+            cdp_contract: None,
+            revenue_contract: None,
+            usage_fee: None,
+            swap_history_cap: None,
+            volume_history_cap: None,
+            rate_limit_window_secs: None,
+            rate_limit_threshold: None,
+            allowlist: Some(vec![
+                membrane::types::StringEntry { entry: USER.to_string(), remove: false },
+                membrane::types::StringEntry { entry: OTHER.to_string(), remove: false },
+            ]),
+            allowlist_rate_limit_threshold: None,
+        },
+        &[],
+    ).unwrap();
+
+    let page1 = query_rate_limit_many(&app, &contract, None, None, Some(1));
+    assert_eq!(page1.records.len(), 1);
+    let page2 = query_rate_limit_many(&app, &contract, None, page1.next_start_after, Some(1));
+    assert_eq!(page2.records.len(), 1);
+}
+
+#[test]
+fn window_expiry_unblocks_usage() {
+    let mut app = setup_app();
+    let contract = instantiate_transmuter(&mut app);
+
+    // Set shorter window (2 hours)
+    app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::UpdateConfig {
+            owner: None,
+            deposit_pair: None,
+            composition_leeway: None,
+            asset_a_to_b_rate: None,
+            target_ratio: None,
+            tokenfactory_contract: None,
+            cdp_contract: None,
+            revenue_contract: None,
+            usage_fee: None,
+            swap_history_cap: None,
+            volume_history_cap: None,
+            rate_limit_window_secs: Some(3 * 60 * 60),
+            rate_limit_threshold: None,
+            allowlist: None,
+            allowlist_rate_limit_threshold: None,
+        },
+        &[],
+    ).unwrap();
+
+    // Deposits only (no extra liquidity that would inflate threshold)
+    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None }, &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)]).unwrap();
+
+    // Add several entries spreading over time
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(4_000, ASSET_B)).unwrap();
+    let s1 = query_rate_limit(&app, &contract, USER);
+    assert_eq!(s1.status.entries_count, 1);
+
+    app.update_block(|b| { b.time = b.time.plus_seconds(60 * 60); b.height += 1; });
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(3_000, ASSET_B)).unwrap();
+    let s2 = query_rate_limit(&app, &contract, USER);
+    assert_eq!(s2.status.entries_count, 2);
+
+    app.update_block(|b| { b.time = b.time.plus_seconds(60 * 60 * 2); b.height += 1; });
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(3_000, ASSET_B)).unwrap();
+    let s3 = query_rate_limit(&app, &contract, USER);
+    assert_eq!(s3.status.entries_count, 3);
+
+    // Move window forward just past the first entry; expect 2 entries remain
+    app.update_block(|b| { b.time = b.time.plus_seconds(1); b.height += 1; });
+    let s4 = query_rate_limit(&app, &contract, USER);
+    assert_eq!(s4.status.entries_count, 2);
+
+    // Move window forward again past the second
+    app.update_block(|b| { b.time = b.time.plus_seconds(60 * 60 + 1); b.height += 1; });
+    let s5 = query_rate_limit(&app, &contract, USER);
+    assert_eq!(s5.status.entries_count, 1);
+
+    // Finally past the third, entries should be 0
+    app.update_block(|b| { b.time = b.time.plus_seconds(60 * 60 * 2 + 1); b.height += 1; });
+    let s6 = query_rate_limit(&app, &contract, USER);
+    assert_eq!(s6.status.entries_count, 0);
+}
+
+#[test]
+fn usage_fee_applied_for_non_cdp_and_non_deployable() {
+    let mut app = setup_app();
+    let contract = instantiate_transmuter(&mut app);
+
+    // Set usage fee to 10%
+    app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::UpdateConfig {
+            owner: None,
+            deposit_pair: None,
+            composition_leeway: None,
+            asset_a_to_b_rate: None,
+            target_ratio: None,
+            tokenfactory_contract: None,
+            cdp_contract: None,
+            revenue_contract: None,
+            usage_fee: Some(Decimal::percent(10)),
+            swap_history_cap: None,
+            volume_history_cap: None,
+            rate_limit_window_secs: None,
+            rate_limit_threshold: None,
+            allowlist: None,
+            allowlist_rate_limit_threshold: None,
+        },
+        &[],
+    ).unwrap();
+
+    // Seed contract with B liquidity to pay out A->B swaps
+    app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::EnterVault { recipient: None },
+        &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
+    ).unwrap();
+
+    // USER (non-CDP, non-deployable) pays usage fee; send 10_000 A, after 10% fee => 9_000 A considered
+    app.execute_contract(
+        Addr::unchecked(USER),
+        contract.clone(),
+        &ExecuteMsg::Transmute { recipient: None },
+        &coins(10_000, ASSET_A),
+    ).unwrap();
+
+    let swaps = query_swap_history(&app, &contract);
+    println!("swaps: {:?}", swaps);
+    let last = swaps.records.last().unwrap();
+    assert_eq!(last.offered_asset, ASSET_A);
+    assert_eq!(last.offered_amount, Uint128::from(9_000u64));
+    assert_eq!(last.received_asset, ASSET_B);
+    assert_eq!(last.received_amount, Uint128::from(9_000u64));
+
+    // CDP address should be exempt from usage fee
+    let cfg: membrane::transmuter::Config = app
+        .wrap()
+        .query_wasm_smart(&contract, &QueryMsg::Config {})
+        .unwrap();
+    let cdp_addr = Addr::unchecked(cfg.cdp_contract);
+
+    // Fund CDP with A to perform the swap
+    app.send_tokens(Addr::unchecked(ADMIN), cdp_addr.clone(), &coins(20_000, ASSET_A)).unwrap();
+
+    app.execute_contract(
+        cdp_addr,
+        contract.clone(),
+        &ExecuteMsg::Transmute { recipient: None },
+        &coins(10_000, ASSET_A),
+    ).unwrap();
+
+    let swaps2 = query_swap_history(&app, &contract);
+    let last2 = swaps2.records.last().unwrap();
+    assert_eq!(last2.offered_asset, ASSET_A);
+    assert_eq!(last2.offered_amount, Uint128::from(10_000u64)); // no fee applied
+    assert_eq!(last2.received_asset, ASSET_B);
+    assert_eq!(last2.received_amount, Uint128::from(10_000u64));
+}
+
+#[test]
+fn paired_asset_outstanding_tracks_allowlisted_flows() {
+    let mut app = setup_app();
+    let contract = instantiate_transmuter(&mut app);
+
+    // query initial outstanding
+    let start: membrane::transmuter::DeployedPairedAssetResponse = app
+        .wrap()
+        .query_wasm_smart(&contract, &QueryMsg::DeployedPairedAsset {})
+        .unwrap();
+    assert_eq!(start.amount, Uint128::zero());
+
+    // Add USER to allowlist in config (simulating allowlisted venue)
+    app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::UpdateConfig {
+            owner: None,
+            deposit_pair: None,
+            composition_leeway: None,
+            asset_a_to_b_rate: None,
+            target_ratio: None,
+            tokenfactory_contract: None,
+            cdp_contract: None,
+            revenue_contract: None,
+            usage_fee: None,
+            swap_history_cap: None,
+            volume_history_cap: None,
+            rate_limit_window_secs: None,
+            rate_limit_threshold: None,
+            allowlist: Some(vec![membrane::types::StringEntry { entry: USER.to_string(), remove: false }]),
+            allowlist_rate_limit_threshold: None,
+        },
+        &[],
+    ).unwrap();
+
+    // Seed enough cdt so CDT->USDC can be paid out
+    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None }, &[coin(50_000, ASSET_A), coin(50_000, ASSET_B)]).unwrap();
+
+    // Allowlisted CDT->USDC should increment outstanding by received paired_asset amount (rate=1)
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(10_000, ASSET_A)).unwrap();
+    let after_cdt_to_usdc: membrane::transmuter::DeployedPairedAssetResponse = app
+        .wrap()
+        .query_wasm_smart(&contract, &QueryMsg::DeployedPairedAsset {})
+        .unwrap();
+    assert_eq!(after_cdt_to_usdc.amount, Uint128::from(10_000u64));
+
+    // Allowlisted USDC->CDT should decrement outstanding by offered paired_asset
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(4_000, ASSET_B)).unwrap();
+    let after_usdc_to_cdt: membrane::transmuter::DeployedPairedAssetResponse = app
+        .wrap()
+        .query_wasm_smart(&contract, &QueryMsg::DeployedPairedAsset {})
+        .unwrap();
+    assert_eq!(after_usdc_to_cdt.amount, Uint128::from(6_000u64));
+
+    // Non-allowlisted swaps should NOT change outstanding
+    let before = after_usdc_to_cdt.amount;
+    // OTHER performs USDC->CDT (paired->cdt); contract pays out CDT which it has from vault
+    app.execute_contract(Addr::unchecked(OTHER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(1_000, ASSET_B)).unwrap();
+    let check1: membrane::transmuter::DeployedPairedAssetResponse = app
+        .wrap()
+        .query_wasm_smart(&contract, &QueryMsg::DeployedPairedAsset {})
+        .unwrap();
+    assert_eq!(check1.amount, before);
+
+    // Provide some paired_asset liquidity so A->B payouts can succeed
+    app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::EnterVault { recipient: None },
+        &[coin(0, ASSET_A), coin(2_000, ASSET_B)],
+    ).unwrap();
+
+    // OTHER performs CDT->USDC; contract pays out paired_asset; outstanding should remain unchanged
+    app.execute_contract(Addr::unchecked(OTHER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(1_000, ASSET_A)).unwrap();
+    let check2: membrane::transmuter::DeployedPairedAssetResponse = app
+        .wrap()
+        .query_wasm_smart(&contract, &QueryMsg::DeployedPairedAsset {})
+        .unwrap();
+    assert_eq!(check2.amount, before);
+}
+
+#[test]
+fn effective_target_reflects_deployed_value_and_bounds() {
+    let mut app = setup_app();
+    let contract = instantiate_transmuter(&mut app);
+
+    // With zero deposits, target should be config.target_ratio (50%)
+    let eff0: membrane::transmuter::EffectiveTargetResponse = app
+        .wrap()
+        .query_wasm_smart(&contract, &QueryMsg::EffectiveTarget {})
+        .unwrap();
+    assert_eq!(eff0.target, Decimal::percent(50));
+
+    // Add deposits 100k cdt + 100k paired, no deployed yet -> target stays 50%
+    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None }, &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)]).unwrap();
+    let eff1: membrane::transmuter::EffectiveTargetResponse = app
+        .wrap()
+        .query_wasm_smart(&contract, &QueryMsg::EffectiveTarget {})
+        .unwrap();
+    assert_eq!(eff1.target, Decimal::percent(50));
+
+    // Mark USER allowlisted and as deployment venue via mock, then do CDT->USDC (10k) to increase deployed tally
+    app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::UpdateConfig {
+            owner: None,
+            deposit_pair: None,
+            composition_leeway: None,
+            asset_a_to_b_rate: None,
+            target_ratio: None,
+            tokenfactory_contract: None,
+            cdp_contract: None,
+            revenue_contract: None,
+            usage_fee: None,
+            swap_history_cap: None,
+            volume_history_cap: None,
+            rate_limit_window_secs: None,
+            rate_limit_threshold: None,
+            allowlist: Some(vec![membrane::types::StringEntry { entry: USER.to_string(), remove: false }]),
+            allowlist_rate_limit_threshold: Some(Decimal::one()),
+        },
+        &[],
+    ).unwrap();
+
+    // Ensure contract has paired_asset liquidity for payouts
+    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None }, &[coin(0, ASSET_A), coin(20_000, ASSET_B)]).unwrap();
+
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(10_000, ASSET_A)).unwrap();
+
+    // Now effective min target should be deployed_value / total_value = 10k / 220k ~= 4.545% < base 50%, so still 50%
+    let eff2: membrane::transmuter::EffectiveTargetResponse = app
+        .wrap()
+        .query_wasm_smart(&contract, &QueryMsg::EffectiveTarget {})
+        .unwrap();
+    assert_eq!(eff2.target, Decimal::percent(50));
+
+    // Push deployed higher than base target: deploy 150k paired -> need CDT deposits to enable; simulate by multiple CDT->USDC
+    // Add more paired liquidity to allow payout
+    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None }, &[coin(0, ASSET_A), coin(200_000, ASSET_B)]).unwrap();
+    app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(120_000, ASSET_A)).unwrap();
+
+    // Total deposits base = (100k + 0) + (100k + 220k converted to base 1:1) = 420k; deployed ~130k (prev 10k + 120k)
+    // effective target = max(50%, 130/420 ~= 30.95%) = 50%
+    let eff3: membrane::transmuter::EffectiveTargetResponse = app
+        .wrap()
+        .query_wasm_smart(&contract, &QueryMsg::EffectiveTarget {})
+        .unwrap();
+    assert_eq!(eff3.target, Decimal::percent(50));
+
+    // Lower base target to 10% to allow deployed to dominate
+    app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::UpdateConfig {
+            owner: None,
+            deposit_pair: None,
+            composition_leeway: None,
+            asset_a_to_b_rate: None,
+            target_ratio: Some(Decimal::percent(10)),
+            tokenfactory_contract: None,
+            cdp_contract: None,
+            revenue_contract: None,
+            usage_fee: None,
+            swap_history_cap: None,
+            volume_history_cap: None,
+            rate_limit_window_secs: None,
+            rate_limit_threshold: None,
+            allowlist: None,
+            allowlist_rate_limit_threshold: None,
+        },
+        &[],
+    ).unwrap();
+
+    // Now effective should be ~31% (> 10%)
+    let eff4: membrane::transmuter::EffectiveTargetResponse = app
+        .wrap()
+        .query_wasm_smart(&contract, &QueryMsg::EffectiveTarget {})
+        .unwrap();
+    println!("eff4: {:?}", eff4);
+    assert!(eff4.target.to_string() == String::from("0.309523809523809523"));
 }
 
 fn mock_tokenfactory_instantiate(
@@ -166,8 +673,8 @@ fn instantiate_sets_config() {
         .unwrap();
 
     assert_eq!(config.owner, Addr::unchecked(ADMIN));
-    assert_eq!(config.deposit_pair.asset_a, ASSET_A);
-    assert_eq!(config.deposit_pair.asset_b, ASSET_B);
+    assert_eq!(config.deposit_pair.cdt, ASSET_A);
+    assert_eq!(config.deposit_pair.paired_asset, ASSET_B);
     assert_eq!(config.target_ratio, Decimal::percent(50));
     assert!(config.tokenfactory_contract.is_some());
 }
@@ -187,8 +694,8 @@ fn enter_vault_mints_tokens_and_updates_state() {
 
     let info = query_vault_info(&app, &contract);
     assert!(info.vault_token_supply > Uint128::zero());
-    assert_eq!(info.asset_a_balance, Uint128::from(USER_DEPOSIT));
-    assert_eq!(info.asset_b_balance, Uint128::from(USER_DEPOSIT));
+    assert_eq!(info.cdt_balance, Uint128::from(USER_DEPOSIT));
+    assert_eq!(info.paired_asset_balance, Uint128::from(USER_DEPOSIT));
 }
 
 #[test]
@@ -205,7 +712,7 @@ fn deposit_fee_accepts_single_asset_without_vault_tokens() {
     .unwrap();
 
     let info = query_vault_info(&app, &contract);
-    assert_eq!(info.asset_a_balance, Uint128::from(50_000u64));
+    assert_eq!(info.cdt_balance, Uint128::from(50_000u64));
 }
 
 #[test]
@@ -302,6 +809,13 @@ fn update_config_changes_owner_and_ratio() {
             target_ratio: Some(Decimal::percent(60)),
             swap_history_cap: Some(20),
             volume_history_cap: Some(20),
+            cdp_contract: None,
+            revenue_contract: None,
+            usage_fee: None,
+            rate_limit_window_secs: None,
+            rate_limit_threshold: None,
+            allowlist: None,
+            allowlist_rate_limit_threshold: None,
         },
         &[],
     )

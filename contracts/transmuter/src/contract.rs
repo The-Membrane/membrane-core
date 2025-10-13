@@ -1,24 +1,26 @@
 use cosmwasm_std::{
-    attr, coin, entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, QuerierWrapper, Response, StdError, StdResult, Storage, Uint128
+    attr, coin, entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Int128, MessageInfo, QuerierWrapper, Response, StdError, StdResult, Storage, Timestamp, Uint128
 };
 use cw2::set_contract_version;
-use cw_storage_plus::Bound;
+// use cw_storage_plus::Bound;
 
 use membrane::helpers::get_contract_balances;
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::stability_pool_vault::{calculate_base_tokens, calculate_vault_tokens};
+use membrane::cdp::{QueryMsg as CDP_QueryMsg};
 use membrane::tokenfactory::{burn_msg, create_denom_msg, mint_msg};
 use membrane::transmuter::{
     AssetPair, Config, ExecuteMsg, InstantiateMsg, QueryMsg, TransmuteHistoryResponse, SwapRecord,
-    VaultInfoResponse, VolumeHistoryResponse, VolumeWindow, VolumeWindowResponse,
+    VaultInfoResponse, VolumeHistoryResponse, VolumeWindowResponse, RateLimitStatus, RateLimitStatusResponse, RateLimitManyResponse,
 };
+use membrane::types::StringEntry;
 use membrane::types::AssetInfo;
 
 use crate::error::ContractError;
 use crate::state::{
     append_transmute_snapshot, append_volume_window, apply_volume_update, history_slice,
     history_total, init_history, new_volume_window, CONFIG, TRANSMUTE_HISTORY, VOLUME_HISTORY,
-    VOLUME_WINDOW, VAULT_TOKEN_SUPPLY, TransmuteSnapshot,
+    VOLUME_WINDOW, VAULT_TOKEN_SUPPLY, TransmuteSnapshot, RATE_LIMIT_FLOWS, FlowEntry, DEPLOYED_PAIRED_ASSET,
 };
 
 const CONTRACT_NAME: &str = "membrane-transmuter";
@@ -66,26 +68,60 @@ pub fn instantiate(
         msg.vault_subdenom
     );
 
-    //Validate the revenue contract
-    let revenue_contract = deps.api.addr_validate(&msg.clone().revenue_contract)?;
+    //Validate the revenue and cdp contract addresses
+    let _ = deps.api.addr_validate(&msg.clone().revenue_contract)?;
+    let _ = deps.api.addr_validate(&msg.clone().cdp_contract)?;
+
+    // Default usage_fee to 1%
+    let usage_fee = msg
+        .usage_fee
+        .unwrap_or(Decimal::percent(1));
+    if usage_fee > Decimal::one() {
+        return Err(ContractError::Validation(
+            "usage_fee must be less than or equal to 1".into(),
+        ));
+    }
+
+    // Defaults for per-address rate limiting
+    let rate_limit_window_secs = msg.rate_limit_window_secs.unwrap_or(60 * 60 * 8); // 8 hours
+    if rate_limit_window_secs == 0 {
+        return Err(ContractError::Validation(
+            "rate_limit_window_secs must be greater than zero".into(),
+        ));
+    }
+    let rate_limit_threshold = msg
+        .rate_limit_threshold
+        .unwrap_or(Decimal::percent(5));
+    if rate_limit_threshold.is_zero() || rate_limit_threshold > Decimal::one() {
+        return Err(ContractError::Validation(
+            "rate_limit_threshold must be > 0 and <= 1".into(),
+        ));
+    }
 
     let config = Config {
         owner: owner.clone(),
         tokenfactory_contract: msg.clone().tokenfactory_contract,
         revenue_contract: msg.clone().revenue_contract,
+        cdp_contract: msg.clone().cdp_contract,
         vault_token: vault_token.clone(),
         deposit_pair: msg.clone().deposit_pair,
         composition_leeway: msg.clone().composition_leeway,
         asset_a_to_b_rate: msg.clone().asset_a_to_b_rate,
         target_ratio: msg.clone().target_ratio,
+        usage_fee,
         swap_history_cap: msg.clone().swap_history_cap,
         volume_history_cap: msg.clone().volume_history_cap,
+        rate_limit_window_secs,
+        rate_limit_threshold,
+        allowlist: msg.allowlist.unwrap_or_default(),
+        allowlist_rate_limit_threshold: msg.allowlist_rate_limit_threshold.unwrap_or(rate_limit_threshold),
     };
 
     CONFIG.save(deps.storage, &config)?;
     VAULT_TOKEN_SUPPLY.save(deps.storage, &Uint128::zero())?;
     init_history(deps.storage)?;
     VOLUME_WINDOW.save(deps.storage, &new_volume_window(env.block.time))?;
+    DEPLOYED_PAIRED_ASSET.save(deps.storage, &Uint128::zero())?;
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -119,9 +155,15 @@ pub fn execute(
             asset_a_to_b_rate,
             target_ratio,
             tokenfactory_contract,
+            cdp_contract,
             revenue_contract,
+            usage_fee,
             swap_history_cap,
             volume_history_cap,
+            rate_limit_window_secs,
+            rate_limit_threshold,
+            allowlist,
+            allowlist_rate_limit_threshold,
         } => execute_update_config(
             deps,
             env,
@@ -132,9 +174,15 @@ pub fn execute(
             asset_a_to_b_rate,
             target_ratio,
             tokenfactory_contract,
+            cdp_contract,
             revenue_contract,
+            usage_fee,
             swap_history_cap,
             volume_history_cap,
+            rate_limit_window_secs,
+            rate_limit_threshold,
+            allowlist,
+            allowlist_rate_limit_threshold,
         ),
         ExecuteMsg::EnterVault { recipient } => execute_enter_vault(deps, env, info, recipient),
         ExecuteMsg::DepositFee {} => execute_deposit_fee(deps, env, info),
@@ -149,7 +197,7 @@ pub fn execute(
 
 fn execute_update_config(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
     owner: Option<String>,
     deposit_pair: Option<AssetPair>,
@@ -157,9 +205,15 @@ fn execute_update_config(
     asset_a_to_b_rate: Option<Decimal>,
     target_ratio: Option<Decimal>,
     tokenfactory_contract: Option<Addr>,
+    cdp_contract: Option<String>,
     revenue_contract: Option<String>,
+    usage_fee: Option<Decimal>,
     swap_history_cap: Option<u32>,
     volume_history_cap: Option<u32>,
+    rate_limit_window_secs: Option<u64>,
+    rate_limit_threshold: Option<Decimal>,
+    allowlist: Option<Vec<StringEntry>>,
+    allowlist_rate_limit_threshold: Option<Decimal>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     ensure_owner(&config, &info.sender)?;
@@ -204,10 +258,25 @@ fn execute_update_config(
         config.tokenfactory_contract = Some(tf_addr);
     }
 
+    if let Some(cdp) = cdp_contract {
+        //Validate the address
+        deps.api.addr_validate(&cdp)?;
+        config.cdp_contract = cdp;
+    }
+
     if let Some(rc) = revenue_contract {
         //Validate the address
         deps.api.addr_validate(&rc)?;
         config.revenue_contract = rc;
+    }
+
+    if let Some(fee) = usage_fee {
+        if fee > Decimal::one() {
+            return Err(ContractError::Validation(
+                "usage_fee must be less than or equal to 1".into(),
+            ));
+        }
+        config.usage_fee = fee;
     }
 
     if let Some(cap) = swap_history_cap {
@@ -228,6 +297,44 @@ fn execute_update_config(
         config.volume_history_cap = cap;
     }
 
+    if let Some(window) = rate_limit_window_secs {
+        if window == 0 {
+            return Err(ContractError::Validation(
+                "rate_limit_window_secs must be greater than zero".into(),
+            ));
+        }
+        config.rate_limit_window_secs = window;
+    }
+
+    if let Some(threshold) = rate_limit_threshold {
+        if threshold.is_zero() || threshold > Decimal::one() {
+            return Err(ContractError::Validation(
+                "rate_limit_threshold must be > 0 and <= 1".into(),
+            ));
+        }
+        config.rate_limit_threshold = threshold;
+    }
+
+    if let Some(entries) = allowlist {
+        // apply add/remove semantics
+        for e in entries {
+            if e.remove {
+                config.allowlist.retain(|addr| addr != &e.entry);
+            } else if !config.allowlist.iter().any(|addr| addr == &e.entry) {
+                config.allowlist.push(e.entry);
+            }
+        }
+    }
+
+    if let Some(wl_threshold) = allowlist_rate_limit_threshold {
+        if wl_threshold.is_zero() || wl_threshold > Decimal::one() {
+            return Err(ContractError::Validation(
+                "allowlist_rate_limit_threshold must be > 0 and <= 1".into(),
+            ));
+        }
+        config.allowlist_rate_limit_threshold = wl_threshold;
+    }
+
     CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new().add_attribute("action", "update_config"))
@@ -240,7 +347,7 @@ fn execute_enter_vault(
     recipient: Option<String>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let mut total_deposits = get_total_deposit_value(deps.querier, &env, &config)?;
+    let total_deposits = get_total_deposit_value(deps.querier.clone(), &env, &config)?;
     let mut vault_supply = VAULT_TOKEN_SUPPLY.load(deps.storage)?;
 
     //Split the funds into the two assets
@@ -257,11 +364,14 @@ fn execute_enter_vault(
     //Revenue contract can deposit any ratio into the contract.
     //Which will tend to be 100% CDT.
     if info.clone().sender.to_string() != config.revenue_contract {
-        //Ensure the deposit is aligned with the deposit pair
+        // Compute effective CDT target ratio considering deployed paired asset
+        let effective_target = compute_effective_cdt_target_ratio(deps.as_ref(), &env, &config)?;
+        // Ensure the deposit is aligned with the effective target
         ensure_deposit_alignment(
             deps.querier,
             &env,
             &config,
+            effective_target,
             deposit_a,
             deposit_b,
         )?;
@@ -306,7 +416,7 @@ fn execute_enter_vault(
         //Update the total vault supply
         vault_supply = increment_vault_supply(deps.storage, vault_supply, vault_tokens_to_mint)?;
     }
-println!("vault_tokens_to_mint: {:?}", vault_tokens_to_mint);
+// println!("vault_tokens_to_mint: {:?}", vault_tokens_to_mint);
     VAULT_TOKEN_SUPPLY.save(deps.storage, &vault_supply)?;
 
     Ok(Response::new()
@@ -319,7 +429,7 @@ println!("vault_tokens_to_mint: {:?}", vault_tokens_to_mint);
         ]))
 }
 
-fn execute_deposit_fee(deps: DepsMut, env: Env, info: MessageInfo) -> Result<Response, ContractError> {
+fn execute_deposit_fee(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     // let mut total_deposits = get_total_deposit_value(deps.querier, &env, &config)?;
 
@@ -352,7 +462,7 @@ fn execute_exit_vault(
     withdraw_as: Option<String>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let mut total_deposits = get_total_deposit_value(deps.querier, &env, &config)?;
+    let total_deposits = get_total_deposit_value(deps.querier, &env, &config)?;
     let mut vault_supply = VAULT_TOKEN_SUPPLY.load(deps.storage)?;
 
     if vault_supply.is_zero() {
@@ -404,25 +514,25 @@ fn execute_exit_vault(
 
     //Send the assets to the recipient & convert assets if needed
     match withdraw_as {
-        Some(ref denom) if denom == &config.deposit_pair.asset_a => {
+        Some(ref denom) if denom == &config.deposit_pair.cdt => {
             let converted = convert_asset_b_to_a(asset_b_share, config.asset_a_to_b_rate)?;
             let total_a_needed = asset_a_share
                 .checked_add(converted)
                 .map_err(|err| ContractError::Std(err.into()))?;
             if balances.0 < total_a_needed {
-                return Err(ContractError::InsufficientLiquidity(config.deposit_pair.asset_a.clone()));
+                return Err(ContractError::InsufficientLiquidity(config.deposit_pair.cdt.clone()));
             }
             if !total_a_needed.is_zero() {
                 send_coins.push(coin(total_a_needed.u128(), denom));
             }
         }
-        Some(ref denom) if denom == &config.deposit_pair.asset_b => {
+        Some(ref denom) if denom == &config.deposit_pair.paired_asset => {
             let converted = convert_asset_a_to_b(asset_a_share, config.asset_a_to_b_rate)?;
             let total_b_needed = asset_b_share
                 .checked_add(converted)
                 .map_err(|err| ContractError::Std(err.into()))?;
             if balances.1 < total_b_needed {
-                return Err(ContractError::InsufficientLiquidity(config.deposit_pair.asset_b.clone()));
+                return Err(ContractError::InsufficientLiquidity(config.deposit_pair.paired_asset.clone()));
             }
             if !total_b_needed.is_zero() {
                 send_coins.push(coin(total_b_needed.u128(), denom));
@@ -433,10 +543,10 @@ fn execute_exit_vault(
         }
         None => {
             if !asset_a_share.is_zero() {
-                send_coins.push(coin(asset_a_share.u128(), config.deposit_pair.asset_a.clone()));
+                send_coins.push(coin(asset_a_share.u128(), config.deposit_pair.cdt.clone()));
             }
             if !asset_b_share.is_zero() {
-                send_coins.push(coin(asset_b_share.u128(), config.deposit_pair.asset_b.clone()));
+                send_coins.push(coin(asset_b_share.u128(), config.deposit_pair.paired_asset.clone()));
             }
         }
     }
@@ -484,7 +594,7 @@ fn execute_transmute(
         .transpose()?;
     let recipient_addr = recipient_addr.unwrap_or_else(|| info.sender.clone());
 
-    let (funds_a, funds_b) = segregate_funds(pair, &info)?;
+    let (mut funds_a, mut funds_b) = segregate_funds(pair, &info)?;
     if funds_a.is_zero() && funds_b.is_zero() {
         return Err(ContractError::InvalidFunds {
             reason: "no valid funds provided".into(),
@@ -496,25 +606,119 @@ fn execute_transmute(
         });
     }
 
+    // Determine allowlist status
+    let is_allowlisted = is_allowlisted_sender(&deps.querier, &info.sender, &config)?;
+
+
+
+    //Calc user value sent, denominated in asset A
+    let user_value_sent = sum_base_value(funds_a, funds_b, config.asset_a_to_b_rate)?;
+    
+    //If the sender isn't the cdp_contract or a deployable venue, add fee by reducing the amount of the asset sent
+    if !is_allowlisted {
+        if config.usage_fee == Decimal::one() {
+            return Err(ContractError::InvalidFunds {
+                reason: "Blocking non-CDP & non-deployable venue usage".into(),
+            });
+        } else {
+            //Set the usage fee
+            let usage_fee = decimal_subtraction(Decimal::one(), config.usage_fee)?;
+            //Subtract the usage fee from the amount of the asset A sent
+            funds_a = decimal_multiplication(
+                Decimal::from_ratio(funds_a, Uint128::one()), 
+                usage_fee
+            )?.to_uint_floor();
+            //Subtract the usage fee from the amount of the asset B sent
+            funds_b = decimal_multiplication(
+                Decimal::from_ratio(funds_b, Uint128::one()), 
+                usage_fee
+            )?.to_uint_floor();
+        }
+    }
+    
     let (offered_asset, offered_amount, received_asset, received_amount) = if !funds_a.is_zero() {
         let receive_amount = convert_asset_a_to_b(funds_a, config.asset_a_to_b_rate)?;
-        ensure_contract_balance(deps.querier, &env, &pair.asset_b, receive_amount)?;
+        ensure_contract_balance(deps.querier, &env, &pair.paired_asset, receive_amount)?;
         (
-            pair.asset_a.clone(),
+            pair.cdt.clone(),
             funds_a,
-            pair.asset_b.clone(),
+            pair.paired_asset.clone(),
             receive_amount,
         )
     } else {
         let receive_amount = convert_asset_b_to_a(funds_b, config.asset_a_to_b_rate)?;
-        ensure_contract_balance(deps.querier, &env, &pair.asset_a, receive_amount)?;
+        ensure_contract_balance(deps.querier, &env, &pair.cdt, receive_amount)?;
         (
-            pair.asset_b.clone(),
+            pair.paired_asset.clone(),
             funds_b,
-            pair.asset_a.clone(),
+            pair.cdt.clone(),
             receive_amount,
         )
     };
+
+    // Per-address sliding window rate limit for both directions with netting.
+    // Positive amount for asset_b -> asset_a (USDC->CDT), negative for asset_a -> asset_b.
+    let current_time: Timestamp = env.block.time;
+    let net_flow_signed: Int128 = if offered_asset == pair.paired_asset {
+        // USDC->CDT: positive in base A units equals amount of A received
+        Int128::new(received_amount.u128() as i128)
+    } else {
+        // CDT->USDC: negative in base A units equals amount of A offered
+        Int128::new(-(offered_amount.u128() as i128))
+    };
+    // load and prune existing flows for sender
+    let mut entries = RATE_LIMIT_FLOWS.may_load(deps.storage, info.sender.to_string().clone())?.unwrap_or_default();
+    let start_secs = current_time.seconds().saturating_sub(config.rate_limit_window_secs);
+    let window_start = Timestamp::from_seconds(start_secs);
+    entries.retain(|e| e.block_time >= window_start);
+    // compute net total including current
+    let mut net_total: i128 = 0;
+    for e in &entries {
+        net_total = net_total.saturating_add(e.amount_base.i128());
+    }
+    // println!("net_total: {:?}", net_total);
+    // println!("net_flow_signed: {:?}", net_flow_signed);
+    net_total = net_total.saturating_add(net_flow_signed.i128());
+
+    let net_total_abs = if net_total < 0 { (-net_total) as u128 } else { net_total as u128 };
+
+    //Need to subtract the current deposit value from the total deposits to get the correct threshold
+    let total_deposits = get_total_deposit_value(
+        deps.querier, 
+        &env, 
+        &config
+    )? - user_value_sent;
+    // choose threshold based on whitelist membership
+    let is_allowlisted = config.allowlist.iter().any(|a| a == &info.sender.to_string());
+    let active_threshold = if is_allowlisted { config.allowlist_rate_limit_threshold } else { config.rate_limit_threshold };
+    let threshold_amount = decimal_multiplication(
+        Decimal::from_ratio(total_deposits, Uint128::one()),
+        active_threshold,
+    )?.to_uint_floor();
+    // println!("total_deposits: {:?}", total_deposits);
+    // println!("active_threshold: {:?}", active_threshold);
+    // println!("threshold_amount: {:?}", threshold_amount);
+    // println!("net_total_abs: {:?}", net_total_abs);
+    if Uint128::from(net_total_abs) > threshold_amount {
+        return Err(ContractError::RateLimitExceeded { address: info.sender.to_string() });
+    }
+
+    // append current entry and persist
+    entries.push(FlowEntry { amount_base: net_flow_signed, block_time: current_time });
+    RATE_LIMIT_FLOWS.save(deps.storage, info.sender.to_string().clone(), &entries)?;
+
+    // Update outstanding paired_asset for allowlisted flows
+    if is_allowlisted && is_deployment_venue(&deps.querier, &info.sender, &config)? {
+        let current = DEPLOYED_PAIRED_ASSET.load(deps.storage).unwrap_or_else(|_| Uint128::zero());
+        let new_value = if offered_asset == pair.paired_asset {
+            current.saturating_sub(offered_amount)
+        } else {
+            current
+                .checked_add(received_amount)
+                .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?
+        };
+        DEPLOYED_PAIRED_ASSET.save(deps.storage, &new_value)?;
+    }
 
     let mut send_coins: Vec<Coin> = vec![];
     if !received_amount.is_zero() {
@@ -536,22 +740,22 @@ fn execute_transmute(
     VOLUME_WINDOW.update(deps.storage, |mut window| -> StdResult<_> {
         apply_volume_update(
             &mut window,
-            if offered_asset == pair.asset_a {
+            if offered_asset == pair.cdt {
                 offered_amount
             } else {
                 Uint128::zero()
             },
-            if received_asset == pair.asset_a {
+            if received_asset == pair.cdt {
                 received_amount
             } else {
                 Uint128::zero()
             },
-            if offered_asset == pair.asset_b {
+            if offered_asset == pair.paired_asset {
                 offered_amount
             } else {
                 Uint128::zero()
             },
-            if received_asset == pair.asset_b {
+            if received_asset == pair.paired_asset {
                 received_amount
             } else {
                 Uint128::zero()
@@ -603,12 +807,12 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::VaultInfo {} => to_json_binary(&query_vault_info(deps, env)?),
         QueryMsg::VaultTokenUnderlying { vault_token_amount } => to_json_binary(&calculate_base_tokens(
             vault_token_amount,
-             get_total_deposit_value(deps.querier, &env, &CONFIG.load(deps.storage)?).map_err(|err| StdError::GenericErr { msg: format!("Failed to query the contract for the total deposit value") })?,
+             get_total_deposit_value(deps.querier, &env, &CONFIG.load(deps.storage)?).map_err(|_err| StdError::GenericErr { msg: format!("Failed to query the contract for the total deposit value") })?,
               VAULT_TOKEN_SUPPLY.load(deps.storage)?
             )?),
         QueryMsg::DepositTokenConversion { deposit_token_amount } => to_json_binary(&calculate_vault_tokens(
             deposit_token_amount,
-             get_total_deposit_value(deps.querier, &env, &CONFIG.load(deps.storage)?).map_err(|err| StdError::GenericErr { msg: format!("Failed to query the contract for the total deposit value") })?,
+             get_total_deposit_value(deps.querier, &env, &CONFIG.load(deps.storage)?).map_err(|_err| StdError::GenericErr { msg: format!("Failed to query the contract for the total deposit value") })?,
               VAULT_TOKEN_SUPPLY.load(deps.storage)?
             )?,),
         QueryMsg::TransmuteHistory { start_after, limit } => {
@@ -621,21 +825,98 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             let window = VOLUME_WINDOW.load(deps.storage)?;
             to_json_binary(&VolumeWindowResponse { window })
         }
+        QueryMsg::DeployedPairedAsset {} => {
+            let amount = DEPLOYED_PAIRED_ASSET.load(deps.storage).unwrap_or_else(|_| Uint128::zero());
+            to_json_binary(&membrane::transmuter::DeployedPairedAssetResponse { amount })
+        }
+        QueryMsg::EffectiveTarget {} => {
+            let target = compute_effective_cdt_target_ratio(deps, &env, &CONFIG.load(deps.storage)?)?;
+            to_json_binary(&membrane::transmuter::EffectiveTargetResponse { target })
+        }
+        QueryMsg::RateLimitMany { addresses, start_after, limit } => {
+            to_json_binary(&query_rate_limit_many(deps, env, addresses, start_after, limit)?)
+        }
     }
 }
 
 fn query_vault_info(deps: Deps, env: Env) -> StdResult<VaultInfoResponse> {
     let config = CONFIG.load(deps.storage)?;
-    let total_deposit_value = get_total_deposit_value(deps.querier, &env, &config).map_err(|err| StdError::GenericErr { msg: format!("Failed to query the contract for the total deposit value") })?;
+    let total_deposit_value = get_total_deposit_value(deps.querier, &env, &config).map_err(|_err| StdError::GenericErr { msg: format!("Failed to query the contract for the total deposit value") })?;
     let vault_token_supply = VAULT_TOKEN_SUPPLY.load(deps.storage)?;
     let balances = current_balances(deps.querier, &env, &config.deposit_pair)?;
 
     Ok(VaultInfoResponse {
         total_deposit_value,
         vault_token_supply,
-        asset_a_balance: balances.0,
-        asset_b_balance: balances.1,
+        cdt_balance: balances.0,
+        paired_asset_balance: balances.1,
     })
+}
+
+fn build_rate_limit_status(
+    deps: Deps,
+    env: &Env,
+    address: &str,
+) -> StdResult<RateLimitStatusResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    let key = address.to_string();
+    let now = env.block.time;
+    let start_secs = now.seconds().saturating_sub(config.rate_limit_window_secs);
+    let window_start = Timestamp::from_seconds(start_secs);
+    let entries = RATE_LIMIT_FLOWS
+        .may_load(deps.storage, key.clone())?
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| e.block_time >= window_start)
+        .collect::<Vec<_>>();
+    let mut net_total: i128 = 0;
+    for e in &entries {
+        net_total = net_total.saturating_add(e.amount_base.i128());
+    }
+    let total_deposits = get_total_deposit_value(deps.querier, env, &config)
+        .map_err(|_e| StdError::generic_err("Failed to query the contract for the total deposit value"))?;
+    let is_allowlisted = config.allowlist.iter().any(|a| a == &key);
+    let active_threshold = if is_allowlisted { config.allowlist_rate_limit_threshold } else { config.rate_limit_threshold };
+    let threshold_base = decimal_multiplication(
+        Decimal::from_ratio(total_deposits, Uint128::one()),
+        active_threshold,
+    )?.to_uint_floor();
+    let abs_net = if net_total < 0 { (-net_total) as u128 } else { net_total as u128 };
+    let remaining_base = if abs_net >= threshold_base.u128() { Uint128::zero() } else { Uint128::from(threshold_base.u128() - abs_net) };
+    Ok(RateLimitStatusResponse {
+        address: key,
+        status: RateLimitStatus {
+            net_flow_base: net_total,
+            threshold_base,
+            is_allowlisted,
+            remaining_base,
+            entries_count: entries.len() as u64,
+        }
+    })
+}
+
+fn query_rate_limit_many(
+    deps: Deps,
+    env: Env,
+    addresses: Option<Vec<String>>,
+    start_after: Option<u64>,
+    limit: Option<u32>,
+) -> StdResult<RateLimitManyResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    let list = addresses.unwrap_or_else(|| config.allowlist.clone());
+    let total = list.len() as u64;
+    let start_index = start_after
+        .and_then(|i| i.checked_add(1))
+        .unwrap_or(0)
+        .min(total as u64) as usize;
+    let max = limit.unwrap_or(50).min(100) as usize;
+    let end_index = (start_index + max).min(list.len());
+    let mut records: Vec<RateLimitStatusResponse> = Vec::new();
+    for addr in &list[start_index..end_index] {
+        records.push(build_rate_limit_status(deps, &env, addr)?);
+    }
+    let next_start_after = if end_index < list.len() { Some((end_index - 1) as u64) } else { None };
+    Ok(RateLimitManyResponse { records, total, next_start_after })
 }
 
 fn query_swap_history(
@@ -644,6 +925,7 @@ fn query_swap_history(
     limit: Option<u32>,
 ) -> StdResult<TransmuteHistoryResponse> {
     let history = TRANSMUTE_HISTORY.load(deps.storage)?;
+    println!("history: {:?}", history);
     let total = history_total(&history);
     let (slice, start_index) = history_slice(&history, start_after, limit);
 
@@ -708,12 +990,12 @@ fn query_volume_history(
 }
 
 fn validate_asset_pair(pair: &AssetPair) -> Result<(), ContractError> {
-    if pair.asset_a.is_empty() || pair.asset_b.is_empty() {
+    if pair.cdt.is_empty() || pair.paired_asset.is_empty() {
         return Err(ContractError::Validation(
             "asset denoms must be non-empty".into(),
         ));
     }
-    if pair.asset_a == pair.asset_b {
+    if pair.cdt == pair.paired_asset {
         return Err(ContractError::Validation(
             "asset A and asset B must differ".into(),
         ));
@@ -728,6 +1010,26 @@ fn ensure_owner(config: &Config, sender: &Addr) -> Result<(), ContractError> {
     Ok(())
 }
 
+fn is_allowlisted_sender(_querier: &QuerierWrapper, sender: &Addr, config: &Config) -> StdResult<bool> {
+    if sender.to_string() == config.cdp_contract {
+        return Ok(true);
+    }
+    Ok(config.allowlist.iter().any(|a| a == &sender.to_string()))
+}
+
+fn is_deployment_venue(querier: &QuerierWrapper, sender: &Addr, config: &Config) -> StdResult<bool> {
+    // Query CDP for active deployment venues for the sender
+    let venues: Vec<String> = querier.query_wasm_smart(
+        config.cdp_contract.to_string(),
+        &CDP_QueryMsg::GetActiveDeploymentVenues {
+            venue: Some(sender.to_string()),
+            start_after: None,
+            limit: None,
+        },
+    )?;
+    Ok(!venues.is_empty())
+}
+
 fn segregate_funds(
     pair: &AssetPair,
     info: &MessageInfo,
@@ -736,11 +1038,11 @@ fn segregate_funds(
     let mut asset_b_total = Uint128::zero();
 
     for fund in &info.funds {
-        if fund.denom == pair.asset_a {
+        if fund.denom == pair.cdt {
             asset_a_total = asset_a_total
                 .checked_add(fund.amount)
                 .map_err(|err| ContractError::Std(err.into()))?;
-        } else if fund.denom == pair.asset_b {
+        } else if fund.denom == pair.paired_asset {
             asset_b_total = asset_b_total
                 .checked_add(fund.amount)
                 .map_err(|err| ContractError::Std(err.into()))?;
@@ -772,12 +1074,8 @@ fn current_balances(
     pair: &AssetPair,
 ) -> StdResult<(Uint128, Uint128)> {
     let assets = vec![
-        AssetInfo::NativeToken {
-            denom: pair.asset_a.clone(),
-        },
-        AssetInfo::NativeToken {
-            denom: pair.asset_b.clone(),
-        },
+        AssetInfo::NativeToken { denom: pair.cdt.clone() },
+        AssetInfo::NativeToken { denom: pair.paired_asset.clone() },
     ];
     let balances = get_contract_balances(querier, env.clone(), assets)?;
     Ok((balances[0], balances[1]))
@@ -792,6 +1090,23 @@ fn sum_base_value(
     asset_a_amount
         .checked_add(converted_b_to_a)
         .map_err(|err| ContractError::Std(err.into()))
+}
+
+fn compute_effective_cdt_target_ratio(deps: Deps, env: &Env, config: &Config) -> StdResult<Decimal> {
+    // total deposits in base A (cdt) units
+    let total_deposits = get_total_deposit_value(deps.querier.clone(), env, config)
+        .map_err(|e| StdError::generic_err(format!("{e}")))?;
+    if total_deposits.is_zero() {
+        return Ok(config.target_ratio);
+    }
+    // value of deployed paired asset converted to base A
+    let deployed_paired = DEPLOYED_PAIRED_ASSET
+        .load(deps.storage)
+        .unwrap_or_else(|_| Uint128::zero());
+    let deployed_value_in_a = convert_asset_b_to_a(deployed_paired, config.asset_a_to_b_rate)
+        .map_err(|e| StdError::generic_err(format!("{e}")))?;
+    let min_target = Decimal::from_ratio(deployed_value_in_a, total_deposits);
+    Ok(if min_target > config.target_ratio { min_target } else { config.target_ratio })
 }
 
 fn convert_asset_a_to_b(amount: Uint128, rate: Decimal) -> Result<Uint128, ContractError> {
@@ -815,6 +1130,7 @@ fn ensure_deposit_alignment(
     querier: QuerierWrapper,
     env: &Env,
     config: &Config,
+    effective_target: Decimal,
     deposit_a: Uint128,
     deposit_b: Uint128,
 ) -> Result<(), ContractError> {
@@ -845,7 +1161,7 @@ fn ensure_deposit_alignment(
         });
     }
 
-    let target = config.target_ratio;
+    let target = effective_target;
     let leeway = config.composition_leeway;
 
     //If the total contract value before the deposit is zero,
@@ -882,7 +1198,7 @@ fn ensure_deposit_alignment(
     //or it at least puts the contract composition closer to the target ratio
     match ensure_within_leeway(new_ratio, target, leeway){
         Ok(()) => Ok(()),
-        Err(err) => {
+        Err(_) => {
             //OR, if the new ratio is outside the leeway,
             //..we error ONLY IF the deposit puts the balance in a worse position
             if new_diff > current_diff {

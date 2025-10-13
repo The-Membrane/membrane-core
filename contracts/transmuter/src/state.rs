@@ -1,6 +1,6 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{StdError, StdResult, Storage, Timestamp, Uint128};
-use cw_storage_plus::Item;
+use cosmwasm_std::{Int128, StdError, StdResult, Storage, Timestamp, Uint128};
+use cw_storage_plus::{Item, Map};
 
 use membrane::transmuter::{Config, VolumeWindow};
 
@@ -11,6 +11,14 @@ pub const TRANSMUTE_HISTORY: Item<Vec<TransmuteSnapshot>> = Item::new("transmute
 pub const VOLUME_HISTORY: Item<Vec<VolumeWindow>> = Item::new("volume_history");
 pub const VOLUME_WINDOW: Item<VolumeWindow> = Item::new("volume_window");
 
+// Per-address sliding window entries for rate limiting (amounts denominated in Asset A base units)
+pub const RATE_LIMIT_FLOWS: Map<String, Vec<FlowEntry>> = Map::new("rate_limit_flows");
+
+// Whitelist set management stored in config.whitelist; this map can be used later for derived data if needed
+
+// Tracks how much paired_asset is currently outstanding from allowlisted deployment venues
+pub const DEPLOYED_PAIRED_ASSET: Item<Uint128> = Item::new("deployed_paired_asset");
+
 #[cw_serde]
 pub struct TransmuteSnapshot {
     pub offered_asset: String,
@@ -20,28 +28,35 @@ pub struct TransmuteSnapshot {
     pub block_time: Timestamp,
 }
 
+#[cw_serde]
+pub struct FlowEntry {
+    /// Signed base amount in Asset A units; positive for asset_b->asset_a, negative for asset_a->asset_b
+    pub amount_base: Int128,
+    pub block_time: Timestamp,
+}
+
 
 pub fn new_volume_window(now: Timestamp) -> VolumeWindow {
     VolumeWindow {
-        asset_a_swapped: Uint128::zero(),
-        asset_a_received: Uint128::zero(),
-        asset_b_swapped: Uint128::zero(),
-        asset_b_received: Uint128::zero(),
+        cdt_swapped: Uint128::zero(),
+        cdt_received: Uint128::zero(),
+        paired_asset_swapped: Uint128::zero(),
+        paired_asset_received: Uint128::zero(),
         block_time: now,
     }
 }
 
 pub fn apply_volume_update(
     window: &mut VolumeWindow,
-    asset_a_swapped: Uint128,
-    asset_a_received: Uint128,
-    asset_b_swapped: Uint128,
-    asset_b_received: Uint128,
+    cdt_swapped: Uint128,
+    cdt_received: Uint128,
+    paired_asset_swapped: Uint128,
+    paired_asset_received: Uint128,
 ) {
-    window.asset_a_swapped += asset_a_swapped;
-    window.asset_a_received += asset_a_received;
-    window.asset_b_swapped += asset_b_swapped;
-    window.asset_b_received += asset_b_received;
+    window.cdt_swapped += cdt_swapped;
+    window.cdt_received += cdt_received;
+    window.paired_asset_swapped += paired_asset_swapped;
+    window.paired_asset_received += paired_asset_received;
 }
 
 pub fn init_history(store: &mut dyn Storage) -> StdResult<()> {

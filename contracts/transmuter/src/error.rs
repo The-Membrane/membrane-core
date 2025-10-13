@@ -23,4 +23,7 @@ pub enum ContractError {
 
     #[error("Validation error: {0}")]
     Validation(String),
+
+    #[error("Rate limit exceeded for address {address}")]
+    RateLimitExceeded { address: String },
 }

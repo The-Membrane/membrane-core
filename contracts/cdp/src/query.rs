@@ -20,7 +20,7 @@ use membrane::types::{
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::positions::get_amount_from_LTV;
-use crate::state::{get_target_position, USER_INTENTS, CollateralVolatility, BASKET, CONFIG, POSITIONS, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY, LIQUIDATION_STATS};
+use crate::state::{get_target_position, CollateralVolatility, ACTIVE_DEPLOYMENT_VENUES, BASKET, CONFIG, LIQUIDATION_STATS, POSITIONS, REDEMPTION_OPT_IN, STORED_PRICES, USER_INTENTS, VOLATILITY};
 
 const MAX_LIMIT: u32 = 31;
 pub const VOLATILITY_LIST_LIMIT: u32 = 48;
@@ -43,7 +43,7 @@ pub fn query_liquidation_stats(
     if stats.len() > take {
         stats.truncate(take);
     }
-    println!("stats: {:?}", stats);
+    // println!("stats: {:?}", stats);
 
     let resp: Vec<LiquidationStatResponse> = stats
         .into_iter()
@@ -58,6 +58,43 @@ pub fn query_liquidation_stats(
     Ok(resp)
 }
 
+
+/// Returns active deployment venues with optional pagination
+pub fn query_active_deployment_venues(
+    deps: Deps,
+    venue: Option<String>,
+    start_after: Option<String>,
+    limit: Option<u32>,
+) -> StdResult<Vec<String>> {
+    let mut venues = ACTIVE_DEPLOYMENT_VENUES.load(deps.storage)?;
+    let limit = limit.unwrap_or(MAX_LIMIT) as usize;
+
+    // Sort for deterministic ordering
+    venues.sort();
+
+    if let Some(target) = venue {
+        // Optional single-venue output: return the venue if it's active, else empty
+        if venues.iter().any(|v| v == &target) {
+            return Ok(vec![target]);
+        } else {
+            return Ok(vec![]);
+        }
+    }
+
+    // Apply start_after filtering if provided, after sorting for deterministic order
+    let mut filtered: Vec<String> = if let Some(sa) = start_after {
+        venues.into_iter().filter(|v| v > &sa).collect()
+    } else {
+        venues
+    };
+
+    // Apply limit in all cases
+    if filtered.len() > limit {
+        filtered.truncate(limit);
+    }
+
+    Ok(filtered)
+}
 pub fn query_user_intent_state(
     deps: Deps,
     _env: Env,
@@ -110,8 +147,6 @@ pub fn query_basket_positions(
     // Single user
     user: Option<String>,
 ) -> StdResult<Vec<BasketPositionsResponse>> {
-    let basket = BASKET.load(deps.storage)?;
-    let config = CONFIG.load(deps.storage)?;
     /////Check single user and single position first/////
     /// User, default limit is 10 anyway
     if let Some(user) = user {
@@ -133,6 +168,8 @@ pub fn query_basket_positions(
                 credit_amount: position.credit_amount,
                 avg_borrow_LTV: Decimal::zero(),
                 avg_max_LTV: Decimal::zero(),
+                deployed_to: position.deployed_to,
+                pending_interest: position.pending_interest,
             });
         };
 
@@ -157,6 +194,8 @@ pub fn query_basket_positions(
                 credit_amount: position.credit_amount,
                 avg_borrow_LTV: Decimal::zero(),
                 avg_max_LTV: Decimal::zero(),
+                deployed_to: position.deployed_to,
+                pending_interest: position.pending_interest,
             }],
         }])
     }
@@ -188,6 +227,8 @@ pub fn query_basket_positions(
                             credit_amount: pos.credit_amount, 
                             avg_borrow_LTV: Decimal::zero(), 
                             avg_max_LTV: Decimal::zero(),
+                            deployed_to: pos.deployed_to,
+                            pending_interest: pos.pending_interest,
                         }
                     })
                     .collect(),

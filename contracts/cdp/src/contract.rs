@@ -4,7 +4,7 @@ use std::str::FromStr;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdError, StdResult, Uint128, WasmMsg
+    attr, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdError, StdResult, Storage, Uint128, WasmMsg
 };
 
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
@@ -15,21 +15,22 @@ use membrane::math::decimal_multiplication;
 use membrane::stability_pool_vault::calculate_base_tokens;
 use membrane::ltv_disco::{QueryMsg as LTVDisco_QueryMsg, ExecuteMsg as LTVDisco_ExecuteMsg};
 use membrane::types::{
-    cAsset, AffiliateData, Asset, AssetInfo, Basket, UserInfo
+    cAsset, AffiliateData, Asset, AssetInfo, Basket, StringEntry, UserInfo
 };
 
 use crate::error::ContractError;
 use crate::rates::{external_accrue_call};
 use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
-    close_position, create_basket, deposit, edit_basket, edit_redemption_info, fulfill_intents, increase_debt, redeem_for_collateral, repay, set_intents, withdraw, BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQ_QUEUE_REPLY_ID, REVENUE_REPLY_ID, WITHDRAW_REPLY_ID, SELL_COLLATERAL_REPLY_ID
+    close_position, create_basket, deposit, edit_basket, edit_redemption_info, fulfill_intents, increase_debt, redeem_for_collateral, repay, set_intents, withdraw, 
+    BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQ_QUEUE_REPLY_ID, REVENUE_REPLY_ID, WITHDRAW_REPLY_ID, SELL_COLLATERAL_REPLY_ID, DEPLOYABLE_VENUE_REPLY_ID
 };
 use crate::query::{
-    query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, simulate_LTV_mint, query_user_intent_state, query_liquidation_stats
+    query_active_deployment_venues, query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, query_liquidation_stats, query_user_intent_state, simulate_LTV_mint
 };
 use crate::liquidations::liquidate;
-use crate::reply::{handle_close_position_reply, handle_liq_queue_reply, handle_revenue_reply, handle_sell_collateral_reply, handle_withdraw_reply};
-use crate::state::{ get_target_position, update_position, ContractVersion, BASKET, AFFILIATES, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS, COLLATERAL_RATE_ASSURANCE};
+use crate::reply::{handle_close_position_reply, handle_liq_queue_reply, handle_revenue_reply, handle_sell_collateral_reply, handle_withdraw_reply, handle_deployable_venue_reply};
+use crate::state::{ get_target_position, update_position, ContractVersion, ACTIVE_DEPLOYMENT_VENUES, AFFILIATES, BASKET, COLLATERAL_RATE_ASSURANCE, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS};
 
 // use membrane::range_bound_lp_vault::{QueryMsg as RBLP_QueryMsg, UserIntentResponse};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
@@ -67,8 +68,8 @@ pub fn instantiate(
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
         credit_twap_timeframe: msg.credit_twap_timeframe,
         rate_hike_rate: Some(Decimal::percent(30)),
-        redemption_fee: Decimal::from_str("0.005").unwrap(), //0.5%
-        affiliate_fee_max: Decimal::percent(10), //10%
+        // redemption_fee: Decimal::from_str("0.005").unwrap(), //0.5%
+        affiliate_fee_max: Decimal::percent(5), //5%
         skip_credit_price_accrual: true,
         liquidation_stat_limit: 500,
     };
@@ -96,6 +97,7 @@ pub fn instantiate(
     };
     
     CONFIG.save(deps.storage, &config)?;
+    ACTIVE_DEPLOYMENT_VENUES.save(deps.storage, &vec![])?;
 
     //Set contract version
     CONTRACT.save(deps.storage, &ContractVersion {
@@ -254,8 +256,8 @@ pub fn execute(
             send_to),
         ExecuteMsg::SetUserIntents { deployment_intent } => set_intents(deps, env, info, deployment_intent),
         ExecuteMsg::FulfillIntents { users } => fulfill_intents(deps, env, info, users),
-        ExecuteMsg::SetAffiliate { position_id, affiliate_address, affiliate_fee } => {
-            set_affiliate(deps, env, info, position_id, affiliate_address, affiliate_fee)
+        ExecuteMsg::SetAffiliate { position_id, affiliate_address, affiliate_fee, label } => {
+            set_affiliate(deps, env, info, position_id, affiliate_address, affiliate_fee, label)
         },
         ExecuteMsg::FulfillBadDebt { } => {
             fulfill_bad_debt(deps, env, info)
@@ -503,11 +505,13 @@ fn set_affiliate(
     position_id: Uint128,
     affiliate_address: String,
     affiliate_fee: Decimal,
+    label: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut attrs = vec![
         attr("method", "set_affiliate"),
         attr("position_id", position_id.to_string()),
         attr("affiliate_address", affiliate_address.clone()),
+        attr("label", label.clone().unwrap_or_default()),
     ];
     let config: Config = CONFIG.load(deps.storage)?;
 
@@ -520,9 +524,9 @@ fn set_affiliate(
     }
 
     //Validate fee
-    if affiliate_fee == Decimal::zero() {
-        return Err(ContractError::CustomError { val: String::from("Affiliate fee can't be 0") });
-    }
+    // if affiliate_fee == Decimal::zero() {
+    //     return Err(ContractError::CustomError { val: String::from("Affiliate fee can't be 0") });
+    // }
 
     //Get target Position's affiliations
     let affiliations = AFFILIATES.load(deps.storage, position_id.to_string()).unwrap_or_else(|_| vec![]);
@@ -538,7 +542,7 @@ fn set_affiliate(
     } else {
         //Can't add more than 3 affiliations
         if affiliations.len() >= AFFILIATE_LIMIT {
-            return Err(ContractError::CustomError { val: String::from("Can't add more than 3 affiliations") });
+            return Err(ContractError::CustomError { val: String::from("Can't add more than 3 affiliations but affiliations reset to only the latest one on repayments.") });
         }
         //Add new affiliation
         let mut new_affiliations = affiliations.clone();
@@ -546,6 +550,7 @@ fn set_affiliate(
             affiliate_address: affiliate_address.clone(),
             affiliate_fee,
             time_affiliated: env.block.time.seconds(),
+            label: label.clone(),
         });
         attrs.push(attr("affiliate_fee", affiliate_fee.to_string()));
     }
@@ -565,6 +570,7 @@ fn set_affiliate(
             affiliate_address,
             affiliate_fee,
             time_affiliated: env.block.time.seconds(),
+            label,
         });
         AFFILIATES.save(deps.storage, position_id.to_string(), &new_affiliations)?;
     }
@@ -625,17 +631,17 @@ fn check_and_fulfill_bad_debt(
         ];
 
         //If the basket has revenue, "mint" and repay the bad debt
-        if !basket.pending_revenue.is_zero() {
-            if bad_debt_amount >= basket.pending_revenue {
+        if !basket.pending_revenue.total_pending.is_zero() {
+            if bad_debt_amount >= basket.pending_revenue.total_pending {
 
                 //Update bad_debt
-                bad_debt_amount -= basket.pending_revenue;
+                bad_debt_amount -= basket.pending_revenue.total_pending;
 
                 //Update basket revenue
-                basket.pending_revenue = Uint128::zero();
+                basket.pending_revenue.total_pending = Uint128::zero();
             } else {                
                 //Update basket revenue
-                basket.pending_revenue -= bad_debt_amount;
+                basket.pending_revenue.total_pending -= bad_debt_amount;
 
                 //Set bad_debt to 0
                 bad_debt_amount = Uint128::zero();
@@ -729,6 +735,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         REVENUE_REPLY_ID => handle_revenue_reply(deps, env, msg),
         CLOSE_POSITION_REPLY_ID => handle_close_position_reply(deps, env, msg),
         SELL_COLLATERAL_REPLY_ID => handle_sell_collateral_reply(deps, env, msg),
+        DEPLOYABLE_VENUE_REPLY_ID => handle_deployable_venue_reply(deps, env, msg),
         // 99u64 => handle_rblp_query(deps, env, msg),
         BAD_DEBT_REPLY_ID => Ok(Response::new()),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
@@ -807,6 +814,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::GetLiquidationStats { start_after, limit } => {
             to_json_binary(&query_liquidation_stats(deps, start_after, limit)?)
+        }
+        QueryMsg::GetActiveDeploymentVenues { venue, start_after, limit } => {
+            to_json_binary(&query_active_deployment_venues(deps, venue, start_after, limit)?)
         }
     }
 }
@@ -975,3 +985,22 @@ pub fn collateral_rate_assurance(
     Ok(Response::new().add_attributes(attrs))
 }
 
+/// Set active deployment venues
+pub fn set_active_deployment_venues(
+    storage: &mut dyn Storage,
+    venues: Vec<StringEntry>,
+) -> StdResult<()> {
+    //load active deployment venues
+    let mut active_deployment_venues = ACTIVE_DEPLOYMENT_VENUES.load(storage)?;
+    //update active deployment venues
+    for venue in venues {
+        if venue.remove {
+            active_deployment_venues.retain(|v| v != &venue.entry);
+        } else {
+            active_deployment_venues.push(venue.entry);
+        }
+    }
+    //save active deployment venues
+    ACTIVE_DEPLOYMENT_VENUES.save(storage, &active_deployment_venues)?;
+    Ok(())
+}

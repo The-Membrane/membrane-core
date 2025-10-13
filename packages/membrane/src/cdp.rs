@@ -3,7 +3,7 @@ use cosmwasm_schema::cw_serde;
 
 use crate::types::{ DeploymentIntent, UserDeploymentIntents,
     cAsset, Asset, AssetInfo, InsolventPosition,
-    SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal, PremiumInfo,
+    SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal, PremiumInfo, DeploymentVenue,
 };
 
 #[cw_serde]
@@ -172,6 +172,8 @@ pub enum ExecuteMsg {
         affiliate_address: String,
         /// Affiliate fee %
         affiliate_fee: Decimal,
+        /// Affiliate label
+        label: Option<String>,
     },
     /// Fulfill bad debt.
     /// CDT is sent to the contract & burned to eliminate the accounted for and fulfilled bad debt.
@@ -247,6 +249,14 @@ pub enum QueryMsg {
         /// Position ID to query
         position_id: Uint128,
     },
+    GetActiveDeploymentVenues {
+        /// Search for specific venue
+        venue: Option<String>,
+        /// Start after this venue address
+        start_after: Option<String>,
+        /// Response limiter
+        limit: Option<u32>,
+    },
     // Returns insolvency status of a Position
     // GetPositionInsolvency {
     //     /// Position ID to query
@@ -315,7 +325,7 @@ pub struct Config {
     pub rate_hike_rate: Option<Decimal>,
     /// Redemption Fee
     //This is only optional for backwards compatibility & should never be None as we do a bare unwrap() call in redeem_for_collateral()
-    pub redemption_fee: Decimal,
+    // pub redemption_fee: Decimal,
     /// Affiliate FeeMax
     pub affiliate_fee_max: Decimal,
     /// Revenue Distributor contract address
@@ -370,6 +380,8 @@ pub struct UpdateConfig {
     pub discounts_contract: Option<String>,
     /// LTV Disco contract address
     pub ltv_disco: Option<String>,
+    /// Revenue distributor address
+    pub revenue_distributor: Option<String>,
     /// Liquidation fee as percent
     pub liq_fee: Option<Decimal>,
     /// Collateral TWAP time frame in minutes
@@ -390,7 +402,7 @@ pub struct UpdateConfig {
     /// Rate hike rate
     pub rate_hike_rate: Option<Decimal>,
     /// Redemption Fee
-    pub redemption_fee: Option<Decimal>,
+    // pub redemption_fee: Option<Decimal>,
     /// Affiliate Fee Max
     pub affiliate_fee_max: Option<Decimal>,
     /// Skip credit price accrual
@@ -441,6 +453,9 @@ impl UpdateConfig {
         if let Some(ltv_disco) = self.ltv_disco {
             config.ltv_disco = api.addr_validate(&ltv_disco)?;
         }
+        if let Some(revenue_distributor) = self.revenue_distributor {
+            config.revenue_distributor = Some(api.addr_validate(&revenue_distributor)?);
+        }
         if let Some(liq_fee) = self.liq_fee {
             //Enforce 0-100% range
             if liq_fee > Decimal::percent(100) || liq_fee < Decimal::zero() {
@@ -484,13 +499,13 @@ impl UpdateConfig {
         if let Some(new_rate) = self.rate_hike_rate {
             config.rate_hike_rate = Some(new_rate);
         }
-        if let Some(redemption_fee) = self.redemption_fee {
-            //Enforce 0-99% range
-            if redemption_fee >= Decimal::percent(100) || redemption_fee < Decimal::zero() {
-                return Err(StdError::GenericErr{ msg: String::from("Redemption fee must be between 0-99%") });
-            }
-            config.redemption_fee = redemption_fee;
-        }
+        // if let Some(redemption_fee) = self.redemption_fee {
+        //     //Enforce 0-99% range
+        //     if redemption_fee >= Decimal::percent(100) || redemption_fee < Decimal::zero() {
+        //         return Err(StdError::GenericErr{ msg: String::from("Redemption fee must be between 0-99%") });
+        //     }
+        //     config.redemption_fee = redemption_fee;
+        // }
         if let Some(affiliate_fee_max) = self.affiliate_fee_max {
             //Enforce 0-100% range
             if affiliate_fee_max > Decimal::percent(100) || affiliate_fee_max < Decimal::zero() {
@@ -606,7 +621,7 @@ impl EditBasket {
             basket.cpc_margin_of_error = error_margin;
         }
         if let Some(take_revenue) = self.take_revenue {
-            basket.pending_revenue = match basket.pending_revenue.checked_sub(take_revenue){
+            basket.pending_revenue.total_pending = match basket.pending_revenue.total_pending.checked_sub(take_revenue){
                 Ok(val) => val,
                 Err(_) => Uint128::zero(),
             };
@@ -636,6 +651,10 @@ pub struct PositionResponse {
     pub avg_borrow_LTV: Decimal,
     /// Average max LTV of collateral assets
     pub avg_max_LTV: Decimal,
+    /// Deployment venues and deployed debt/failure flags
+    pub deployed_to: Vec<DeploymentVenue>,
+    /// Pending interest
+    pub pending_interest: Uint128,
 }
 
 #[cw_serde]

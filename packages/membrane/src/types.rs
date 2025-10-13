@@ -492,6 +492,9 @@ pub struct DeploymentVenue {
     pub address: Addr,
     /// Amount of debt deployed to this venue
     pub deployed_debt_amount: Uint128,
+    //Failed liquidation.
+    //Only way to set this to false once its true is to reset the venue by setting the intent.ltv_to_mint to 0 in CDP::SetIntents
+    pub failed_liquidation: bool, 
 }
 
 #[cw_serde]
@@ -504,6 +507,9 @@ pub struct Position {
     pub credit_amount: Uint128,
     /// Deployed to
     pub deployed_to: Vec<DeploymentVenue>,
+    /// Interest waiting to be paid.
+    /// This allows us to attribute interest payments to the position & therefore users.
+    pub pending_interest: Uint128,
 }
 
 
@@ -513,6 +519,9 @@ pub struct AffiliateData {
     pub affiliate_address: String,
     /// Affiliate fee %
     pub affiliate_fee: Decimal,
+    /// Affiliate label.
+    /// Can be used to track marketing campaigns.
+    pub label: Option<String>,
     /// Time affiliation started in block time.
     /// Resets on position repayment.
     pub time_affiliated: u64,
@@ -575,7 +584,7 @@ pub struct Basket {
     /// Enter as percent, 0.02 = 2%.
     pub base_interest_rate: Decimal,
     /// Pending revenue available to mint
-    pub pending_revenue: Uint128,
+    pub pending_revenue: PendingRevenue,
     /// Pending bad debt
     pub pending_bad_debt: Uint128,
     /// Last time credit price was updated, in seconds
@@ -596,6 +605,21 @@ pub struct Basket {
     pub cpc_margin_of_error: Decimal,
     /// Liquidation queue contract address
     pub liq_queue: Option<Addr>,
+}
+
+#[cw_serde]
+pub struct PendingRevenue {
+    /// Total pending CDT revenue
+    pub total_pending: Uint128,
+    /// Per-asset revenue allocation used for LTV Disco ratios
+    pub per_asset_rev: Vec<Asset>,
+}
+
+impl std::fmt::Display for PendingRevenue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PendingRevenue {{ total_pending: {}, per_asset_rev: {:?} }}", 
+               self.total_pending, self.per_asset_rev)
+    }
 }
 
 #[cw_serde]

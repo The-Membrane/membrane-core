@@ -500,7 +500,7 @@ pub fn add_bad_debt(
 /// 
 pub fn add_revenue(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
     asset: String,
 ) -> Result<Response, ContractError> {

@@ -13,6 +13,7 @@ use membrane::cdp::{Config, EditBasket, ExecuteMsg};
 use membrane::oracle::{AssetResponse, PriceResponse};
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::liquidity_check::ExecuteMsg as LiquidityExecuteMsg;
+use membrane::ltv_disco::{ExecuteMsg as LTVDiscoExecuteMsg};
 use membrane::staking::{ExecuteMsg as Staking_ExecuteMsg, QueryMsg as Staking_QueryMsg, Config as Staking_Config};
 use membrane::oracle::{ExecuteMsg as OracleExecuteMsg, QueryMsg as OracleQueryMsg};
 use membrane::osmosis_proxy::{ExecuteMsg as OsmoExecuteMsg, QueryMsg as OsmoQueryMsg };
@@ -20,9 +21,10 @@ use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
 use membrane::deployable_venue::{ExecuteMsg as DeploymentVenue_ExecuteMsg};
 use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_subtraction};
 use membrane::types::{
-    cAsset, AffiliateData, Asset, AssetInfo, AssetOracleInfo, Basket, DeploymentIntent, DeploymentVenue, LPAssetInfo, LeaveTokens, LiquidityInfo, PoolInfo, PoolStateResponse, PoolType, Position, PositionRedemption, PurchaseIntent, RangeBoundUserIntents, RedemptionInfo, SupplyCap, UserDeploymentIntents, UserInfo
+    cAsset, AffiliateData, Asset, AssetInfo, AssetOracleInfo, Basket, DeploymentIntent, DeploymentVenue, LPAssetInfo, LeaveTokens, LiquidityInfo, PendingRevenue, PoolInfo, PoolStateResponse, PoolType, Position, PositionRedemption, PurchaseIntent, RangeBoundUserIntents, RedemptionInfo, StringEntry, SupplyCap, UserDeploymentIntents, UserInfo
 };
 
+use crate::contract::set_active_deployment_venues;
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
 use crate::rates::accrue;
 use crate::risk_engine::update_basket_tally;
@@ -42,6 +44,7 @@ pub const WITHDRAW_REPLY_ID: u64 = 4u64;
 pub const REVENUE_REPLY_ID: u64 = 5u64;
 pub const CLOSE_POSITION_REPLY_ID: u64 = 6u64;
 pub const SELL_COLLATERAL_REPLY_ID: u64 = 7u64;
+pub const DEPLOYABLE_VENUE_REPLY_ID: u64 = 8u64;
 pub const BAD_DEBT_REPLY_ID: u64 = 999999u64;
 
 
@@ -690,6 +693,38 @@ pub fn repay(
         //This would also pass for ClosePosition, but since spread is added to collateral amount this should never happen
         //Even if it does, the subsequent withdrawal would then error
     }
+
+    //Get affiliates
+    let affiliations = AFFILIATES.load(storage, position_id.to_string())
+        .unwrap_or_else(|_| vec![]);
+
+    //Set total_interest_paid
+    let total_interest_paid = std::cmp::min(target_position.pending_interest, credit_asset.amount - excess_repayment);
+    //Update pending interest
+    target_position.pending_interest = match target_position.pending_interest.checked_sub(total_interest_paid){
+        Ok(difference) => difference,
+        Err(_) => Uint128::zero(),
+    };
+        
+
+    //Burn repayment & send revenue to stakers & affiliates
+    let burn_and_rev_msgs = credit_burn_rev_msg(
+        config.clone(),
+        env.clone(),
+        Asset {
+            amount: credit_asset.clone().amount - excess_repayment,
+            ..credit_asset.clone()
+        },
+        &mut basket,
+        affiliations.clone(),
+        false
+    )?;
+    messages.extend(burn_and_rev_msgs);
+
+    //Update affiliates.
+    //Used during repay to reset the time affiliated & shrink the list to a single affiliate..
+    update_affiliates(storage, affiliations, position_id, env.block.time.seconds())?;
+
     
     //To indicate removed positions during ClosePosition
     let mut removed = false;
@@ -707,26 +742,6 @@ pub fn repay(
         
         Ok(updating_positions)
     })?;
-
-    //Get affiliates
-    let affiliations = AFFILIATES.load(storage, position_id.to_string())
-        .unwrap_or_else(|_| vec![]);
-
-    //Burn repayment & send revenue to stakers & affiliates
-    let burn_and_rev_msgs = credit_burn_rev_msg(
-        config.clone(),
-        env.clone(),
-        Asset {
-            amount: credit_asset.clone().amount - excess_repayment,
-            ..credit_asset.clone()
-        },
-        &mut basket,
-        affiliations.clone(),
-    )?;
-    messages.extend(burn_and_rev_msgs);
-
-    //Update affiliates
-    update_affiliates(storage, affiliations, position_id, env.block.time.seconds())?;
 
 
     //Send back excess repayment, defaults to the repaying address
@@ -775,7 +790,9 @@ pub fn repay(
         .add_attributes(vec![
             attr("method", "repay"),
             attr("position_id", position_id),
+            attr("pending_interest", target_position.pending_interest),
             attr("loan_amount", target_position.credit_amount),
+            attr("total_interest_paid", total_interest_paid),
     ]))
 }
 
@@ -1001,10 +1018,11 @@ pub fn set_intents(
     info: MessageInfo,
     deployment_intent: DeploymentIntent,
 ) -> Result<Response, ContractError> {
+    let mut msgs: Vec<CosmosMsg> = vec![];
 
     //Save user Intent to deployment venue
     //Get Target position to check ownership
-    let (_, _) = get_target_position(deps.storage, info.clone().sender, deployment_intent.position_id)?;
+    let (_, mut user_position) = get_target_position(deps.storage, info.clone().sender, deployment_intent.position_id)?;
 
     //Load UserIntents
     let mut user_intents = match USER_INTENTS.load(deps.storage, info.clone().sender.to_string()){
@@ -1026,7 +1044,39 @@ pub fn set_intents(
 
         //If ltv_to_mint is 0, remove intent    
         if deployment_intent.ltv_to_mint.is_zero() {
+            //Remove intent from the vector
             user_intents.deployment_intents.remove(index);
+            //Find venue in user's position 
+            let venue = user_position.deployed_to
+                .iter()
+                .enumerate()
+                .find(|(_, venue)| venue.address == deployment_intent.destination);
+
+            if let Some((index, venue)) = venue {
+                //Exit vault & send to user
+                msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: deployment_intent.destination.clone(),
+                    msg: to_json_binary(&DeploymentVenue_ExecuteMsg::RepayUserDebt { 
+                        user_info: (UserInfo {
+                            position_id: deployment_intent.position_id,
+                            position_owner: info.clone().sender.to_string(),
+                        }), 
+                        repayment: venue.deployed_debt_amount,
+                    })?,
+                    funds: vec![],
+                }));
+
+                //Remove venue from user's position
+                user_position.deployed_to.remove(index);
+                //Update active deployment venues
+                set_active_deployment_venues(deps.storage, vec![StringEntry {
+                    entry: deployment_intent.destination.to_string(),
+                    remove: true,
+                }])?;
+                //Save user's position
+                update_position(deps.storage, info.clone().sender, user_position)?;
+            }
+
         } else {
             user_intents.deployment_intents[index].ltv_to_mint = deployment_intent.ltv_to_mint;
         }
@@ -1098,7 +1148,8 @@ pub fn fulfill_intents(
                     Some(venue) => venue,
                     None => DeploymentVenue { 
                         address: deps.api.addr_validate(&intent.destination)?, 
-                        deployed_debt_amount: Uint128::zero() 
+                        deployed_debt_amount: Uint128::zero(),
+                        failed_liquidation: false,
                     },
                 };
                 //Calc how much ltv the deployment venue is currently using
@@ -1139,7 +1190,13 @@ pub fn fulfill_intents(
                         target_position.deployed_to.push(DeploymentVenue {
                             address: deps.api.addr_validate(&intent.destination)?,
                             deployed_debt_amount: usable_debt_amount,
+                            failed_liquidation: false,
                         });
+                        //Update active deployment venues
+                        set_active_deployment_venues(deps.storage, vec![StringEntry {
+                            entry: intent.destination.to_string(),
+                            remove: false,
+                        }])?;
                     }
 
                     //Save target position
@@ -1948,26 +2005,24 @@ pub fn redeem_for_collateral(
                     
                     //Calc & remove redemption fee from redeemable_credit
                     //This is done after the credit_amount subtraction to ensure excess being sent back doesn't forego the fee
-                    let redemption_fee = decimal_multiplication(
-                        redeemable_credit, 
-                        config.redemption_fee
-                    )?;
-                    //Add redemption fee to revenue
-                    basket.pending_revenue += redemption_fee.to_uint_floor();
+                    // let redemption_fee = decimal_multiplication(
+                    //     redeemable_credit, 
+                    //     config.redemption_fee
+                    // )?;
 
                     //If the remaining credit_amount is less than the redemption fee, subtract the fee from the redeemable_credit.
                     //Ex: 50 sent, 50 is redeemable, 1% fee = 0.5, 50 - 0.5 = 49.5 redeemable
-                    if credit_amount < redemption_fee {
-                        redeemable_credit = decimal_subtraction(redeemable_credit, redemption_fee)?;
-                    } 
+                    // if credit_amount < redemption_fee {
+                    //     redeemable_credit = decimal_subtraction(redeemable_credit, redemption_fee)?;
+                    // } 
                     //If the remaining credit_amount can fulfill the fee, we take it from there to allow full redemptions to be made
                     //Otherwise there would always be a remainder of credit that can't be redeemed, at the size of the fee.
                     //Ex: 100 sent, 50 is redeemable, 50 remaining credit, 1% fee = 0.5, 50 > 0.5...
                     // 49.5 is sent back as excess. 50 is used to redeem, 0.5 is taken as the fee.
-                    else if credit_amount >= redemption_fee {
-                        //If the credit_amount is greater than the fee, subtract the fee from the credit_amount
-                        credit_amount = decimal_subtraction(credit_amount, redemption_fee)?;
-                    }
+                    // else if credit_amount >= redemption_fee {
+                    //     //If the credit_amount is greater than the fee, subtract the fee from the credit_amount
+                    //     credit_amount = decimal_subtraction(credit_amount, redemption_fee)?;
+                    // }
 
 
                     //Subtract redeemed debt from Basket
@@ -2149,6 +2204,7 @@ pub fn redeem_for_collateral(
                 },
                 &mut basket,
                 vec![],
+                true,
                 
             )?;
             messages.extend(burn_and_rev_msgs);
@@ -2339,7 +2395,10 @@ pub fn redeem_for_collateral(
             decimals: 6,
         },
         base_interest_rate,
-        pending_revenue: Uint128::zero(),
+        pending_revenue: PendingRevenue {
+            total_pending: Uint128::zero(),
+            per_asset_rev: vec![],
+        },
         pending_bad_debt: Uint128::zero(),
         credit_last_accrued: env.block.time.seconds(),
         rates_last_accrued: env.block.time.seconds(),
@@ -2474,6 +2533,7 @@ pub fn edit_basket(
             });
         }
 
+        //Specific logic for direct adds of Osmosis xyk LPs (Maybe we reuse for Astroport LPs)
         if let Some(mut pool_info) = added_cAsset.pool_info {
 
             //Query share asset amount
@@ -2627,6 +2687,15 @@ pub fn edit_basket(
                 funds: vec![],
             }));
         }
+
+        //Create LTV Disco queue for the asset
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.ltv_disco.to_string(),
+            msg: to_json_binary(&LTVDiscoExecuteMsg::CreateQueue {
+                asset: new_cAsset.clone().asset.info.to_string(),
+            })?,
+            funds: vec![],
+        }));
 
         //..needs minimum viable LTV parameters
         if new_cAsset.max_borrow_LTV >= new_cAsset.max_LTV
@@ -2942,6 +3011,7 @@ pub fn create_position(
         collateral_assets: cAssets,
         credit_amount: Uint128::zero(),
         deployed_to: vec![],
+        pending_interest: Uint128::zero(),
     };
 
     //increment position id
@@ -2983,6 +3053,8 @@ pub fn credit_mint_msg(
     }
 }
 
+/// Updates the affiliates for a position.
+/// Used during repay to reset the time affiliated & shrink the list to a single affiliate.
 fn update_affiliates(
     storage: &mut dyn Storage,
     affiliates: Vec<AffiliateData>,
@@ -3009,26 +3081,28 @@ pub fn credit_burn_rev_msg(
     credit_asset: Asset,
     basket: &mut Basket,
     position_affiliates: Vec<AffiliateData>,
+    //Burn all 
+    burn_all: bool
 ) -> StdResult<Vec<SubMsg>> {
 
     //Calculate the amount to burn
-    let (mut burn_amount, mut revenue_amount) = {
-        //If not sent to stakers, burn all
-        if !basket.distribute_revenue {
+    let (burn_amount, revenue_amount) = {
+        //If not distributing revenue, burn all
+        if !basket.distribute_revenue || burn_all {
             (credit_asset.amount, Uint128::zero())
 
             //if pending rev is != 0
-        } else if !basket.pending_revenue.is_zero() {
+        } else if !basket.pending_revenue.total_pending.is_zero() {
             //If pending_revenue && repay amount are more than 50 CDT, send all to stakers
             //Limits Repay gas costs for smaller users & frequent management costs for larger
-            if basket.pending_revenue >= Uint128::new(50_000_000) && credit_asset.amount >= Uint128::new(50_000_000){
-                if basket.pending_revenue >= credit_asset.amount {
+            if basket.pending_revenue.total_pending >= Uint128::new(50_000_000) && credit_asset.amount >= Uint128::new(50_000_000){
+                if basket.pending_revenue.total_pending >= credit_asset.amount {
                     //if pending rev is greater send the full repayment
                     (Uint128::zero(), credit_asset.amount)
                 } else {
                     //if pending rev is less send the full pending rev
                     //Burn the remainder
-                    (credit_asset.amount - basket.pending_revenue, basket.pending_revenue)
+                    (credit_asset.amount - basket.pending_revenue.total_pending, basket.pending_revenue.total_pending)
                 }
             } else {
                 (credit_asset.amount, Uint128::zero())
@@ -3039,33 +3113,75 @@ pub fn credit_burn_rev_msg(
         }        
     };
 
+
     //Initialize messages
     let mut messages: Vec<SubMsg> = vec![];
     if let AssetInfo::NativeToken { denom } = credit_asset.clone().info {
         if let Some(chain_proxy_addr) = config.chain_proxy {
+            //Initialize promises
+            let mut promises = vec![];
+            let mut promised_revenue = Uint128::zero();
 
             //If we have revenue to distribute and a revenue distributor is configured
             if !revenue_amount.is_zero() && config.revenue_distributor.is_some() {
-                //Calculate affiliate fees
-                let affiliate_fees = split_affiliate_fee(position_affiliates.clone(), config.affiliate_fee_max, env.block.time.seconds())?;
-                let affiliate_fees_amount = decimal_multiplication(
-                    Decimal::from_ratio(revenue_amount, Uint128::from(1u128)), 
-                    affiliate_fees.iter().sum::<Decimal>())?.to_uint_floor();
 
-                //Create affiliate promises
-                let mut promises = vec![];
-                for (i, affiliate_fee) in affiliate_fees.into_iter().enumerate() {
-                    promises.push(membrane::revenue_distributor::RevenuePromise {
-                        address: position_affiliates[i].affiliate_address.to_string(),
-                        amount: affiliate_fee * affiliate_fees_amount,
-                    });
+                if !position_affiliates.is_empty() {
+                    //Calculate affiliate fees
+                    let affiliate_fees = split_affiliate_fee(position_affiliates.clone(), config.affiliate_fee_max, env.block.time.seconds())?;
+                    let affiliate_fees_amount = decimal_multiplication(
+                        Decimal::from_ratio(revenue_amount, Uint128::from(1u128)), 
+                        affiliate_fees.iter().sum::<Decimal>())?.to_uint_floor();
+
+
+                    //Create affiliate promises
+                    for (i, affiliate_fee) in affiliate_fees.into_iter().enumerate() {
+                        //Calc the amount of revenue to promise
+                        let amount = affiliate_fee * affiliate_fees_amount;
+                        //Subtract affiliate fees from revenue
+                        promised_revenue += amount;
+                        //Create promise
+                        promises.push(membrane::revenue_distributor::RevenuePromise {
+                            address: position_affiliates[i].affiliate_address.to_string(),
+                            amount: amount,
+                        });
+                    }
                 }
+                //Set non_promised_revenue to the revenue amount minus the promised revenue
+                let revenue_to_distribute = revenue_amount - promised_revenue;
 
+                // Compute get asset ratio from each asset in the basket's pending revenue struct
+                let ltv_disco_distribution = basket.pending_revenue.per_asset_rev.clone()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, a)| {
+                        let ratio = decimal_division(
+                            Decimal::from_ratio(a.amount, Uint128::one()), 
+                            Decimal::from_ratio(basket.pending_revenue.total_pending, Uint128::one())
+                        )?;
+                        let amount = decimal_multiplication(ratio, 
+                            Decimal::from_ratio(revenue_to_distribute, Uint128::one())
+                        )?.to_uint_floor();
+                        //Set amount to the max as the per asset pending amount 
+                        let amount = std::cmp::min(amount, basket.pending_revenue.per_asset_rev[i].amount);
+
+                        //Update promised revenue
+                        promised_revenue += amount;
+                        //Update per-asset revenue
+                        basket.pending_revenue.per_asset_rev[i].amount -= amount;
+
+                        //Return
+                        Ok(Asset { info: a.info.clone(), amount: amount })
+                    })
+                    .collect::<StdResult<Vec<Asset>>>()?;
+                //Update pending_revenue.
+                //We update here from a promsed tracker to account for any rounding, instead of just subtracting revenue_amount.
+                basket.pending_revenue.total_pending -= promised_revenue;
                 //Send revenue to distributor
                 let revenue_distributor_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.revenue_distributor.unwrap().to_string(),
                     msg: to_json_binary(&membrane::revenue_distributor::ExecuteMsg::SetPromises {
                         promises,
+                        ltv_disco_distribution: Some(ltv_disco_distribution),
                     })?,
                     funds: vec![asset_to_coin(Asset {
                         amount: revenue_amount,
@@ -3074,8 +3190,6 @@ pub fn credit_burn_rev_msg(
                 });
                 messages.push(SubMsg::new(revenue_distributor_msg));
 
-                //Update pending_revenue
-                basket.pending_revenue -= revenue_amount;
             }
 
             if !burn_amount.is_zero() {    
@@ -3101,7 +3215,7 @@ pub fn credit_burn_rev_msg(
 
 
 //Split affiliate fee % between affiliates based on time affiliated
-fn split_affiliate_fee(affiliates: Vec<AffiliateData>, affiliate_fee: Decimal, current_time: u64) -> StdResult<Vec<Decimal>> {
+fn split_affiliate_fee(affiliates: Vec<AffiliateData>, max_affiliate_fee: Decimal, current_time: u64) -> StdResult<Vec<Decimal>> {
     //Calculate total time affiliated since last repayment 
     let time_since_last_repayment = current_time - affiliates[0].time_affiliated;
 
@@ -3111,20 +3225,20 @@ fn split_affiliate_fee(affiliates: Vec<AffiliateData>, affiliate_fee: Decimal, c
     for i in 0..affiliates.len() - 1 {
         let time_affiliated =  affiliates[i + 1].time_affiliated - affiliates[i].time_affiliated;
         let ratio_affiliated = Decimal::from_ratio(time_affiliated, time_since_last_repayment);
-        let per_affiliate_fee = decimal_multiplication(affiliate_fee, ratio_affiliated)?;
+        let per_affiliate_fee = decimal_multiplication(affiliates[i].affiliate_fee, ratio_affiliated)?;
         affiliate_fees.push(per_affiliate_fee);
     }
 
     //Add the last affiliate fee
     let last_affiliates_time =  current_time - affiliates.last().unwrap().time_affiliated;
     let ratio_affiliated = Decimal::from_ratio(last_affiliates_time, time_since_last_repayment);
-    let per_affiliate_fee = decimal_multiplication(affiliate_fee, ratio_affiliated)?;
+    let per_affiliate_fee = decimal_multiplication(affiliates.last().unwrap().affiliate_fee, ratio_affiliated)?;
     affiliate_fees.push(per_affiliate_fee);
 
     //Assert that the sum of the affiliate fees is equal or less than the affiliate fee
     let sum_of_affiliate_fees = affiliate_fees.iter().sum::<Decimal>();
-    if sum_of_affiliate_fees > affiliate_fee {
-        return Err(StdError::GenericErr { msg: format!("Sum of affiliate fees is greater than the affiliate fee: {}", sum_of_affiliate_fees) })
+    if sum_of_affiliate_fees > max_affiliate_fee {
+        return Err(StdError::GenericErr { msg: format!("Sum of affiliate fees is greater than the max affiliate fee: {} > {}", sum_of_affiliate_fees, max_affiliate_fee) })
     }
 
     Ok(affiliate_fees)

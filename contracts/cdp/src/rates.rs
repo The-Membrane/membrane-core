@@ -5,7 +5,7 @@ use cosmwasm_std::{attr, Addr, Api, Decimal, DepsMut, Env, MessageInfo, Order, Q
 
 use membrane::cdp::Config;
 use membrane::system_discounts::{QueryMsg as DiscountQueryMsg, UserDiscountResponse};
-use membrane::types::{cAsset, Basket, Position, Rate, SupplyCap};
+use membrane::types::{cAsset, Asset, Basket, Position, Rate, SupplyCap};
 use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 
@@ -109,7 +109,7 @@ pub fn update_rate_indices(
             })
         }
     };
-    
+
     // let mut error: Option<StdError> = None;
 
     //Add/Subtract the repayment rate to the rates
@@ -445,7 +445,7 @@ pub fn accrue(
     basket: &mut Basket,
     user: String,
     is_deposit_function: bool,
-) -> StdResult<Vec<Decimal>> {
+) -> StdResult<Vec<Decimal>> { // cAsset ratios
     /////Accrue Interest to the Repayment Price///
     //Calc Time-elapsed and update last_Accrued
     let time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
@@ -625,14 +625,40 @@ pub fn accrue(
             };
         }
 
+        //Track new_total_pending.
+        //Using a tracker instead of accrued_interest to account for any rounding.
+        let mut new_interest = Uint128::zero();
+        //Split accrued interest into per-asset distribution
+        for (i, cAsset) in position.collateral_assets.iter().enumerate() {
+            let ratio = ratios[i];
+            let amount = decimal_multiplication(ratio, 
+                Decimal::from_ratio(accrued_interest, Uint128::one())
+            )?;
+            //Add amount to per-asset distribution
+            if let Some(asset) = basket.pending_revenue.per_asset_rev.iter_mut().find(|a| a.info.equal(&cAsset.asset.info)) {
+                //Update existing asset
+                asset.amount += amount.to_uint_floor();
+            } else {
+                //Create new asset
+                basket.pending_revenue.per_asset_rev.push(Asset { 
+                    info: cAsset.asset.info.clone(), 
+                    amount: amount.to_uint_floor() 
+                });
+            }
+            //Add amount to new_interest tally
+            new_interest += amount.to_uint_floor();
+        }
+
+
         //Add accrued interest to the basket's pending revenue
-        basket.pending_revenue += accrued_interest;
+        basket.pending_revenue.total_pending += new_interest;
 
         //Set position's debt to the debt + accrued_interest
-        position.credit_amount += accrued_interest;
+        position.credit_amount += new_interest;
+        position.pending_interest += new_interest;
 
         //Add accrued interest to the Basket's debt tally
-        basket.credit_asset.amount += accrued_interest;
+        basket.credit_asset.amount += new_interest;
     }    
 
     Ok(ratios)

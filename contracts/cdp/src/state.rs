@@ -64,6 +64,13 @@ pub struct SellCollateralPropagation {
     pub collateral_sold: Vec<Coin>,
     pub position_info: UserInfo,
 }
+
+#[cw_serde]
+pub struct DeployableVenuePropagation {
+    pub user: UserInfo,
+    pub venues: Vec<String>,
+}
+
 #[cw_serde]
 pub struct LiquidationStat {
     pub block_time: u64,
@@ -111,6 +118,9 @@ pub const WITHDRAW: Item<WithdrawPropagation> = Item::new("withdraw_propagation"
 pub const LIQUIDATION: Item<LiquidationPropagation> = Item::new("repay_propagation");
 pub const CLOSE_POSITION: Item<ClosePositionPropagation> = Item::new("close_position_propagation");
 pub const SELL_COLLATERAL: Item<SellCollateralPropagation> = Item::new("sell_collateral_propagation");
+pub const DEPLOYABLE_VENUE: Item<DeployableVenuePropagation> = Item::new("deployable_venue_propagation");
+//////
+pub const ACTIVE_DEPLOYMENT_VENUES: Item<Vec<String>> = Item::new("active_deployment_venues");
 pub const LIQUIDATION_STATS: Item<Vec<LiquidationStat>> = Item::new("liquidation_stats");
 //Freeze Timer
 pub const FREEZE_TIMER: Item<Timer> = Item::new("freeze_timer");

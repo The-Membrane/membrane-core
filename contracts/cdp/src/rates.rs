@@ -10,7 +10,7 @@ use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 
 use crate::ContractError;
-use crate::query::{get_asset_values, get_cAsset_ratios, VOLATILITY_LIST_LIMIT};
+use crate::query::{get_asset_values, get_cAsset_ratios, query_ltv_disco_for_asset_ltvs, VOLATILITY_LIST_LIMIT};
 use crate::state::{get_target_position, update_position, BASKET, CONFIG, VOLATILITY};
 
 //Constants
@@ -190,9 +190,16 @@ pub fn get_interest_rates(
 ) -> StdResult<Vec<Decimal>> {
     let config = CONFIG.load(storage)?;
 
+    // Query ltv_disco for LTVs
+    let ltv_tuples = query_ltv_disco_for_asset_ltvs(
+        querier,
+        config.ltv_disco.clone(),
+        basket.clone().collateral_types.clone(),
+    )?;
+
     let mut rates = vec![];
 
-    for asset in basket.clone().collateral_types {
+    for (i, asset) in basket.clone().collateral_types.iter().enumerate() {
         //Base_Rate * max collateral_ratio
         //ex: 2% * 110% = 2.2%
         //Higher rates for more volatile assets
@@ -200,10 +207,10 @@ pub fn get_interest_rates(
         if config.rate_hike_rate.is_some() && asset.hike_rates.is_some() && asset.hike_rates.unwrap() {
             rates.push( config.rate_hike_rate.unwrap() )
         } else {
-            //base * (1/max_LTV)
+            //base * (1/max_LTV) - using queried LTV from ltv_disco
             rates.push(decimal_multiplication(
                 basket.clone().base_interest_rate,
-                decimal_division(Decimal::one(), asset.max_LTV)?,
+                decimal_division(Decimal::one(), ltv_tuples[i].0)?, // Use queried max_ltv
             )?);    
         }    
     }

@@ -1091,13 +1091,44 @@ mod tests {
 
     // Mock LTV Disco Contract (minimal for CanHandleBadDebt query)
     pub fn ltv_disco_mock_contract() -> Box<dyn Contract<Empty>> {
-        use membrane::ltv_disco::{ExecuteMsg as LTVDisco_ExecuteMsg, QueryMsg as LTVDisco_QueryMsg, InstantiateMsg as LTVDisco_InstantiateMsg};
+        use membrane::ltv_disco::{ExecuteMsg as LTVDisco_ExecuteMsg, QueryMsg as LTVDisco_QueryMsg, InstantiateMsg as LTVDisco_InstantiateMsg, AverageLTVsResponse};
         let contract = ContractWrapper::new(
             |_, _, _, _msg: LTVDisco_ExecuteMsg| -> StdResult<Response> { Ok(Response::new()) },
             |_, _, _, _msg: LTVDisco_InstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
             |_, _, msg: LTVDisco_QueryMsg| -> StdResult<Binary> {
                 match msg {
                     LTVDisco_QueryMsg::CanHandleBadDebt { .. } => Ok(to_json_binary(&false)?),
+                    LTVDisco_QueryMsg::GetAverageLTVs { .. } => {
+                        // Return zero LTVs to trigger fallback to stored LTVs
+                        Ok(to_json_binary(&AverageLTVsResponse {
+                            average_max_ltv: Decimal::zero(),
+                            average_max_borrow_ltv: Decimal::zero(),
+                        })?)
+                    },
+                    _ => Ok(to_json_binary(&true)?),
+                }
+            },
+        );
+        Box::new(contract)
+    }
+
+    // Mock LTV Disco Contract with non-zero LTVs
+    pub fn ltv_disco_mock_contract_with_deposits() -> Box<dyn Contract<Empty>> {
+        use membrane::ltv_disco::{ExecuteMsg as LTVDisco_ExecuteMsg, QueryMsg as LTVDisco_QueryMsg, InstantiateMsg as LTVDisco_InstantiateMsg, AverageLTVsResponse};
+        let contract = ContractWrapper::new(
+            |_, _, _, _msg: LTVDisco_ExecuteMsg| -> StdResult<Response> { Ok(Response::new()) },
+            |_, _, _, _msg: LTVDisco_InstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, msg: LTVDisco_QueryMsg| -> StdResult<Binary> {
+                match msg {
+                    LTVDisco_QueryMsg::CanHandleBadDebt { .. } => Ok(to_json_binary(&false)?),
+                    LTVDisco_QueryMsg::GetAverageLTVs { .. } => {
+                        // Return higher LTVs than the stored fallback values
+                        // This simulates deposits in ltv_disco with higher LTV preferences
+                        Ok(to_json_binary(&AverageLTVsResponse {
+                            average_max_ltv: Decimal::percent(85), // Higher than typical 80%
+                            average_max_borrow_ltv: Decimal::percent(75), // Higher than typical 70%
+                        })?)
+                    },
                     _ => Ok(to_json_binary(&true)?),
                 }
             },

@@ -13,6 +13,7 @@ use membrane::cdp::{
     Config, CollateralInterestResponse, UserIntentResponse,
     InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse, LiquidationStatResponse,
 };
+use membrane::ltv_disco::{QueryMsg as LTVDiscoQueryMsg, AverageLTVsResponse};
 
 use membrane::types::{
     cAsset, AssetInfo, Basket, DebtCap, Position, PremiumInfo, RedemptionInfo, StoredPrice, UserInfo
@@ -675,6 +676,43 @@ pub fn simulate_LTV_mint(
     Ok( amount )
 }
 
+/// Query ltv_disco contract for average LTVs per asset
+/// Returns Vec of (max_ltv, max_borrow_ltv) tuples corresponding to each asset
+pub fn query_ltv_disco_for_asset_ltvs(
+    querier: QuerierWrapper,
+    ltv_disco_addr: Addr,
+    assets: Vec<cAsset>,
+) -> StdResult<Vec<(Decimal, Decimal)>> {
+    let mut ltv_tuples = Vec::new();
+
+    for asset in assets {
+        // Query ltv_disco for this specific asset's average LTVs
+        let response: AverageLTVsResponse = querier.query_wasm_smart(
+            ltv_disco_addr.to_string(),
+            &LTVDiscoQueryMsg::GetAverageLTVs {
+                assets: vec![asset.asset.info.to_string()],
+            },
+        )?;
+
+        // If ltv_disco returns zero (no deposits for this asset), fall back to cAsset's stored LTVs
+        let max_ltv = if response.average_max_ltv.is_zero() {
+            asset.max_LTV
+        } else {
+            response.average_max_ltv
+        };
+
+        let max_borrow_ltv = if response.average_max_borrow_ltv.is_zero() {
+            asset.max_borrow_LTV
+        } else {
+            response.average_max_borrow_ltv
+        };
+
+        ltv_tuples.push((max_ltv, max_borrow_ltv));
+    }
+
+    Ok(ltv_tuples)
+}
+
 /// Calculate cAsset values & returns a tuple of (cAsset_values, cAsset_prices)
 pub fn get_asset_values(
     storage: &dyn Storage,
@@ -753,11 +791,19 @@ pub fn get_avg_LTV(
         is_deposit_function,
     )?;
     
+    //Query ltv_disco for asset LTVs
+    let ltv_tuples = query_ltv_disco_for_asset_ltvs(
+        querier,
+        config.ltv_disco.clone(),
+        collateral_assets.clone(),
+    )?;
+    
     //Calculate avg LTV & return values
     calculate_avg_LTV(
         cAsset_values, 
         cAsset_price_res, 
-        collateral_assets, 
+        collateral_assets,
+        ltv_tuples,
     )
 }
 
@@ -766,6 +812,7 @@ pub fn calculate_avg_LTV(
     cAsset_values: Vec<Decimal>,
     cAsset_prices: Vec<PriceResponse>,    
     collateral_assets: Vec<cAsset>,
+    ltv_tuples: Vec<(Decimal, Decimal)>, // (max_ltv, max_borrow_ltv) for each asset
 ) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>)> {
     let total_value: Decimal = cAsset_values.iter().sum();
 
@@ -796,8 +843,8 @@ pub fn calculate_avg_LTV(
     //Skip unecessary calculations if length is 1
     if cAsset_ratios.len() == 1 {
         return Ok((
-            collateral_assets[0].max_borrow_LTV,
-            collateral_assets[0].max_LTV,
+            ltv_tuples[0].1, // max_borrow_ltv from ltv_disco
+            ltv_tuples[0].0, // max_ltv from ltv_disco
             total_value,
             cAsset_prices,
             cAsset_ratios,
@@ -806,11 +853,11 @@ pub fn calculate_avg_LTV(
 
     for (i, _cAsset) in collateral_assets.iter().enumerate() {
         avg_borrow_LTV +=
-            decimal_multiplication(cAsset_ratios[i], collateral_assets[i].max_borrow_LTV)?;
+            decimal_multiplication(cAsset_ratios[i], ltv_tuples[i].1)?; // Use queried max_borrow_ltv
     }
 
     for (i, _cAsset) in collateral_assets.iter().enumerate() {
-        avg_max_LTV += decimal_multiplication(cAsset_ratios[i], collateral_assets[i].max_LTV)?;
+        avg_max_LTV += decimal_multiplication(cAsset_ratios[i], ltv_tuples[i].0)?; // Use queried max_ltv
     }
 
     Ok((avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices, cAsset_ratios))

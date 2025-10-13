@@ -842,16 +842,16 @@ fn duplicate_asset_check(assets: Vec<Asset>) -> Result<(), ContractError> {
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
 
-    let mut basket = BASKET.load(deps.storage)?;
+    // let mut basket = BASKET.load(deps.storage)?;
     
-    //Align basket
-    align_basket_arrays(&mut basket);
+    // //Align basket
+    // align_basket_arrays(&mut basket);
 
-    // Reset basket from positions
-    reset_basket_from_positions(deps.storage, &mut basket);
+    // // Reset basket from positions
+    // reset_basket_from_positions(deps.storage, &mut basket);
 
-    // Save the basket
-    BASKET.save(deps.storage, &basket)?;
+    // // Save the basket
+    // BASKET.save(deps.storage, &basket)?;
 
     Ok(Response::new())
 }

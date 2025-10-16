@@ -8,7 +8,7 @@ use cosmwasm_std::{
 };
 
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
-use membrane::helpers::{assert_sent_native_token_balance, get_contract_balances};
+use membrane::helpers::{assert_sent_native_token_balance, get_contract_balances, asset_to_coin};
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, MigrateMsg};
 use membrane::math::decimal_multiplication;
@@ -30,7 +30,7 @@ use crate::query::{
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_close_position_reply, handle_liq_queue_reply, handle_revenue_reply, handle_sell_collateral_reply, handle_withdraw_reply, handle_deployable_venue_reply};
-use crate::state::{ get_target_position, update_position, ContractVersion, ACTIVE_DEPLOYMENT_VENUES, AFFILIATES, BASKET, COLLATERAL_RATE_ASSURANCE, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS};
+use crate::state::{ get_target_position, update_position, update_position_claims, ContractVersion, ACTIVE_DEPLOYMENT_VENUES, AFFILIATES, BASKET, CLOSE_POSITION, COLLATERAL_RATE_ASSURANCE, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS, ClosePositionPropagation};
 
 // use membrane::range_bound_lp_vault::{QueryMsg as RBLP_QueryMsg, UserIntentResponse};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
@@ -490,6 +490,119 @@ pub fn callback_handler(
             position_owner,
             position_id,
         } => check_and_fulfill_bad_debt(deps, env, position_id, position_owner),
+        CallbackMsg::ClosePositionCallback {
+            position_id,
+            position_owner,
+        } => {
+            // Handle close position callback after venue repayments
+            handle_close_position_callback(deps, env, position_id, position_owner)
+        }
+    }
+}
+
+/// Handle close position callback after venue repayments
+fn handle_close_position_callback(
+    deps: DepsMut,
+    env: Env,
+    position_id: Uint128,
+    position_owner: String,
+) -> Result<Response, ContractError> {
+    //Load Close Position Prop
+    let state_propagation: ClosePositionPropagation = CLOSE_POSITION.load(deps.storage)?;
+
+    //Create user info variables
+    let valid_position_owner = deps.api.addr_validate(&position_owner)?;
+
+    //Load State
+    let basket: Basket = BASKET.load(deps.storage)?;
+    let config: Config = CONFIG.load(deps.storage)?;
+
+    //Query contract balance of the basket credit_asset
+    let credit_asset_balance = get_contract_balances(
+        deps.querier, 
+        env.clone(), 
+        vec![basket.credit_asset.info.clone()]
+    )?[0];
+
+    //Create repay_msg
+    let repay_msg = ExecuteMsg::Repay { 
+        position_id, 
+        position_owner: Some(valid_position_owner.clone().to_string()),
+        send_excess_to: Some(valid_position_owner.clone().to_string()),
+    };
+
+    //Create repay_msg with queried funds
+    //This works because the contract doesn't hold excess credit_asset, all repayments are burned & revenue isn't minted
+    let repay_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
+        contract_addr: env.contract.address.to_string(), 
+        msg: to_json_binary(&repay_msg)?, 
+        funds: vec![asset_to_coin(
+            Asset { 
+                info: basket.credit_asset.info.clone(),
+                amount: credit_asset_balance.clone(),
+            })?]
+    });
+
+    //Update position claims for each asset withdrawn + sold
+    for withdrawn_collateral in state_propagation.clone().withdrawn_assets {
+
+        update_position_claims(
+            deps.storage, 
+            deps.querier, 
+            env.clone(), 
+            config.clone(),
+            position_id,
+            valid_position_owner.clone(), 
+            withdrawn_collateral.info, 
+            withdrawn_collateral.amount
+        )?;
+    }
+
+    //Load position
+    let (_i, target_position) = match get_target_position(
+        deps.storage, 
+        valid_position_owner.clone(), 
+        position_id, 
+    ){
+        Ok(position) => position,
+        Err(err) => return Err(ContractError::CustomError { val: err.to_string() })
+    };
+
+    //Withdrawing everything thats left
+    let assets_to_withdraw: Vec<Asset> = target_position.collateral_assets
+        .into_iter()
+        .filter(|cAsset| cAsset.asset.amount > Uint128::zero())
+        .map(|cAsset| cAsset.asset)
+        .collect::<Vec<Asset>>();
+
+    if assets_to_withdraw.len() > 0 && target_position.credit_amount.is_zero() {     
+        //Create WithdrawMsg
+        let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
+            contract_addr: env.contract.address.to_string(), 
+            msg: to_json_binary(& ExecuteMsg::Withdraw { 
+                position_id, 
+                assets: assets_to_withdraw, 
+                send_to: state_propagation.send_to, 
+            })?, 
+            funds: vec![],
+        });
+
+        //Response 
+        Ok(Response::new()
+            .add_message(repay_msg)
+            .add_attribute("amount_repaid", credit_asset_balance)
+            .add_message(withdraw_msg)
+            .add_attribute("sold_assets", format!("{:?}", state_propagation.withdrawn_assets))
+            .add_attribute("method", "close_position_callback")
+        )
+    } else {
+        //Response 
+        Ok(Response::new()
+            .add_message(repay_msg)
+            .add_attribute("amount_repaid", credit_asset_balance)
+            .add_attribute("sold_assets", format!("{:?}", state_propagation.withdrawn_assets))
+            .add_attribute("method", "close_position_callback")
+        )
     }
 }
 

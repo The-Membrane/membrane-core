@@ -3,7 +3,7 @@ mod tests {
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cosmwasm_std::{coins, from_json, Addr, Decimal, Uint128, DepsMut, Env, Response, to_json_binary, SystemResult, ContractResult, CosmosMsg, WasmMsg, Reply, SubMsgResult, SubMsgResponse, Event, Binary};
     use membrane::ltv_disco::*;
-    use membrane::types::{AssetInfo, Basket, cAsset, Asset, DepositDenom, VaultTokenInfo};
+    use membrane::types::{cAsset, Asset, AssetInfo, Basket, DepositDenom, PendingRevenue, VaultTokenInfo};
     use membrane::transmuter::QueryMsg as Transmuter_QueryMsg;
     use membrane::oracle::PriceResponse;
     use crate::contract::{instantiate, execute, query};
@@ -48,7 +48,10 @@ mod tests {
                 decimals: 6,
             },
             base_interest_rate: Decimal::percent(5),
-            pending_revenue: Uint128::zero(),
+            pending_revenue: PendingRevenue {
+                total_pending: Uint128::zero(),
+                per_asset_rev: vec![],
+            },
             pending_bad_debt: Uint128::zero(),
             credit_last_accrued: 0,
             rates_last_accrued: 0,
@@ -1477,5 +1480,532 @@ mod tests {
         let info = mock_info("user1", &[]);
         let result = execute(deps.as_mut(), env.clone(), info, msg);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_post_deposit_tracker_entry() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        
+        // Mock CDP contract response
+        let basket = setup_mock_basket();
+        deps.querier.update_wasm(move |_| SystemResult::Ok(ContractResult::Ok(to_json_binary(&basket).unwrap())));
+        
+        instantiate_contract(deps.as_mut(), env.clone()).unwrap();
+        
+        // Create queue and deposit first
+        let msg = ExecuteMsg::CreateQueue {
+            asset: "uusd".to_string(),
+        };
+        let info = mock_info("owner", &[]);
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        let msg = ExecuteMsg::SubmitDeposit {
+            deposit_input: BackingDepositInput {
+                asset: "uusd".to_string(),
+                ltv: Decimal::percent(60),
+                max_borrow_ltv: Decimal::percent(40),
+            },
+            deposit_owner: None,
+        };
+        let info = mock_info("user1", &coins(1000, "uusd"));
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Test successful tracker entry by owner
+        let msg = ExecuteMsg::PostDepositTrackerEntry {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let info = mock_info("owner", &[]);
+        let result = execute(deps.as_mut(), env.clone(), info, msg);
+        assert!(result.is_ok());
+        
+        // Test successful tracker entry by CDP contract
+        let msg = ExecuteMsg::PostDepositTrackerEntry {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let info = mock_info("cdp_contract", &[]);
+        let result = execute(deps.as_mut(), env.clone(), info, msg);
+        assert!(result.is_ok());
+        
+        // Test unauthorized tracker entry (currently commented out in code)
+        let msg = ExecuteMsg::PostDepositTrackerEntry {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let info = mock_info("unauthorized", &[]);
+        let result = execute(deps.as_mut(), env.clone(), info, msg);
+        assert!(result.is_ok()); // Currently allows any sender
+    }
+
+    #[test]
+    fn test_base_token_tracking_entries_creation_and_query() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        
+        // Mock CDP contract response
+        let basket = setup_mock_basket();
+        deps.querier.update_wasm(move |_| SystemResult::Ok(ContractResult::Ok(to_json_binary(&basket).unwrap())));
+        
+        instantiate_contract(deps.as_mut(), env.clone()).unwrap();
+        
+        // Create queue and deposit
+        let msg = ExecuteMsg::CreateQueue {
+            asset: "uusd".to_string(),
+        };
+        let info = mock_info("owner", &[]);
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        let msg = ExecuteMsg::SubmitDeposit {
+            deposit_input: BackingDepositInput {
+                asset: "uusd".to_string(),
+                ltv: Decimal::percent(60),
+                max_borrow_ltv: Decimal::percent(40),
+            },
+            deposit_owner: None,
+        };
+        let info = mock_info("user1", &coins(1_000_000, "uusd"));
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Post tracker entry
+        let msg = ExecuteMsg::PostDepositTrackerEntry {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let info = mock_info("owner", &[]);
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Query the tracking entries
+        let msg = QueryMsg::GetDepositGrowth {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let result = query(deps.as_ref(), env.clone(), msg);
+        assert!(result.is_ok());
+        
+        let entries: Vec<BaseTokenTrackingEntry> = from_json(result.unwrap()).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].base_token_amount, Uint128::new(1_000_000)); // 1:1 ratio for first deposit
+        assert!(entries[0].timestamp > 0);
+    }
+
+    #[test]
+    fn test_base_token_tracking_automatic_on_deposit_and_withdrawal() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        
+        // Mock CDP contract response
+        let basket = setup_mock_basket();
+        deps.querier.update_wasm(move |_| SystemResult::Ok(ContractResult::Ok(to_json_binary(&basket).unwrap())));
+        
+        instantiate_contract(deps.as_mut(), env.clone()).unwrap();
+        
+        // Create queue
+        let msg = ExecuteMsg::CreateQueue {
+            asset: "uusd".to_string(),
+        };
+        let info = mock_info("owner", &[]);
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Submit deposit - should automatically create tracking entry
+        let msg = ExecuteMsg::SubmitDeposit {
+            deposit_input: BackingDepositInput {
+                asset: "uusd".to_string(),
+                ltv: Decimal::percent(60),
+                max_borrow_ltv: Decimal::percent(40),
+            },
+            deposit_owner: None,
+        };
+        let info = mock_info("user1", &coins(1500, "uusd"));
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Check tracking entry was created
+        let msg = QueryMsg::GetDepositGrowth {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let result = query(deps.as_ref(), env.clone(), msg);
+        assert!(result.is_ok());
+        
+        let entries: Vec<BaseTokenTrackingEntry> = from_json(result.unwrap()).unwrap();
+        assert_eq!(entries.len(), 1);
+        
+        // Withdraw deposit - shouldn't create another tracking entry bc it's the same base token amount
+        let msg = ExecuteMsg::WithdrawDeposit {
+            deposit_id: Uint128::new(1),
+            asset: "uusd".to_string(),
+            amount: Some(Uint128::new(500)),
+        };
+        let info = mock_info("user1", &[]);
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Check another tracking entry was created
+        let msg = QueryMsg::GetDepositGrowth {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let result = query(deps.as_ref(), env.clone(), msg);
+        assert!(result.is_ok());
+        
+        let entries: Vec<BaseTokenTrackingEntry> = from_json(result.unwrap()).unwrap();
+        assert_eq!(entries.len(), 1);
+        
+    }
+
+    #[test]
+    fn test_base_token_tracking_limit_enforcement() {
+        let mut deps = mock_dependencies();
+        let mut env = mock_env();
+        
+        // Mock CDP contract response
+        let basket = setup_mock_basket();
+        deps.querier.update_wasm(move |_| SystemResult::Ok(ContractResult::Ok(to_json_binary(&basket).unwrap())));
+        
+        instantiate_contract(deps.as_mut(), env.clone()).unwrap();
+        
+        // Create queue and deposit
+        let msg = ExecuteMsg::CreateQueue {
+            asset: "uusd".to_string(),
+        };
+        let info = mock_info("owner", &[]);
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        let msg = ExecuteMsg::SubmitDeposit {
+            deposit_input: BackingDepositInput {
+                asset: "uusd".to_string(),
+                ltv: Decimal::percent(60),
+                max_borrow_ltv: Decimal::percent(40),
+            },
+            deposit_owner: None,
+        };
+        let info = mock_info("user1", &coins(1000, "uusd"));
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Create many tracking entries to test limit (BASE_TOKEN_TRACKING_LIMIT = 1000)
+        // We'll create 1001 entries to test the limit
+        for _i in 0..101 {
+            // Advance time slightly for each entry to ensure different timestamps
+            env.block.time = env.block.time.plus_seconds(1);
+
+            //add revenue
+            let msg = ExecuteMsg::AddRevenue {
+                asset: "uusd".to_string(),
+            };
+            let info = mock_info("anyone", &coins(100, "uusd"));
+            execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+            //post tracker entry
+            let msg = ExecuteMsg::PostDepositTrackerEntry {
+                asset: "uusd".to_string(),
+                max_ltv: Decimal::percent(60),
+                max_borrow_ltv: Decimal::percent(40),
+            };
+            let info = mock_info("owner", &[]);
+            execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        }
+        
+        // Query and verify only 100 entries are kept (oldest should be removed)
+        let msg = QueryMsg::GetDepositGrowth {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let result = query(deps.as_ref(), env.clone(), msg);
+        assert!(result.is_ok());
+        
+        let entries: Vec<BaseTokenTrackingEntry> = from_json(result.unwrap()).unwrap();
+        assert_eq!(entries.len(), 100); // Should be limited to 100 entries
+        
+        // Verify the first entry is not the original one (oldest should be removed)
+        // The first entry should have timestamp > 0 (not the very first one)
+        assert!(entries[0].timestamp > 1);
+    }
+
+    #[test]
+    fn test_base_token_tracking_multiple_ltv_combinations() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        
+        // Mock CDP contract response
+        let basket = setup_mock_basket();
+        deps.querier.update_wasm(move |_| SystemResult::Ok(ContractResult::Ok(to_json_binary(&basket).unwrap())));
+        
+        instantiate_contract(deps.as_mut(), env.clone()).unwrap();
+        
+        // Create queue
+        let msg = ExecuteMsg::CreateQueue {
+            asset: "uusd".to_string(),
+        };
+        let info = mock_info("owner", &[]);
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Create deposits with different LTV combinations
+        let combinations = vec![
+            (Decimal::percent(60), Decimal::percent(40)),
+            (Decimal::percent(70), Decimal::percent(50)),
+            (Decimal::percent(60), Decimal::percent(50)), // Same LTV, different max_borrow_ltv
+        ];
+        
+        for (i, (ltv, max_borrow_ltv)) in combinations.iter().enumerate() {
+            let msg = ExecuteMsg::SubmitDeposit {
+                deposit_input: BackingDepositInput {
+                    asset: "uusd".to_string(),
+                    ltv: *ltv,
+                    max_borrow_ltv: *max_borrow_ltv,
+                },
+                deposit_owner: None,
+            };
+            let info = mock_info(&format!("user{}", i), &coins(1000, "uusd"));
+            execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        }
+        
+        // Verify each combination has its own tracking entries
+        for (ltv, max_borrow_ltv) in combinations {
+            let msg = QueryMsg::GetDepositGrowth {
+                asset: "uusd".to_string(),
+                max_ltv: ltv,
+                max_borrow_ltv: max_borrow_ltv,
+            };
+            let result = query(deps.as_ref(), env.clone(), msg);
+            assert!(result.is_ok());
+            
+            let entries: Vec<BaseTokenTrackingEntry> = from_json(result.unwrap()).unwrap();
+            assert_eq!(entries.len(), 1); // Each combination should have 1 entry
+        }
+        
+        // Verify that querying non-existent combination returns empty
+        let msg = QueryMsg::GetDepositGrowth {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(80),
+            max_borrow_ltv: Decimal::percent(60),
+        };
+        let result = query(deps.as_ref(), env.clone(), msg);
+        assert!(result.is_ok());
+        
+        let entries: Vec<BaseTokenTrackingEntry> = from_json(result.unwrap()).unwrap();
+        assert_eq!(entries.len(), 0); // Should be empty for non-existent combination
+    }
+
+    #[test]
+    fn test_base_token_tracking_with_revenue_distribution() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        
+        // Mock CDP contract response
+        let basket = setup_mock_basket();
+        deps.querier.update_wasm(move |_| SystemResult::Ok(ContractResult::Ok(to_json_binary(&basket).unwrap())));
+        
+        instantiate_contract(deps.as_mut(), env.clone()).unwrap();
+        
+        // Create queue and deposit
+        let msg = ExecuteMsg::CreateQueue {
+            asset: "uusd".to_string(),
+        };
+        let info = mock_info("owner", &[]);
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        let msg = ExecuteMsg::SubmitDeposit {
+            deposit_input: BackingDepositInput {
+                asset: "uusd".to_string(),
+                ltv: Decimal::percent(60),
+                max_borrow_ltv: Decimal::percent(40),
+            },
+            deposit_owner: None,
+        };
+        let info = mock_info("user1", &coins(1000, "uusd"));
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Get initial tracking entry
+        let msg = QueryMsg::GetDepositGrowth {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let result = query(deps.as_ref(), env.clone(), msg);
+        assert!(result.is_ok());
+        
+        let initial_entries: Vec<BaseTokenTrackingEntry> = from_json(result.unwrap()).unwrap();
+        assert_eq!(initial_entries.len(), 1);
+        let initial_base_amount = initial_entries[0].base_token_amount;
+        
+        // Add revenue - this should NOT automatically create tracking entries
+        // (since we removed the automatic tracking from add_revenue)
+        let msg = ExecuteMsg::AddRevenue {
+            asset: "uusd".to_string(),
+        };
+        let info = mock_info("anyone", &coins(100, "uusd"));
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Check that no new tracking entry was created automatically
+        let msg = QueryMsg::GetDepositGrowth {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let result = query(deps.as_ref(), env.clone(), msg);
+        assert!(result.is_ok());
+        
+        let after_revenue_entries: Vec<BaseTokenTrackingEntry> = from_json(result.unwrap()).unwrap();
+        assert_eq!(after_revenue_entries.len(), 1); // Should still be 1 entry
+        
+        // Manually post a tracker entry after revenue
+        let msg = ExecuteMsg::PostDepositTrackerEntry {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let info = mock_info("owner", &[]);
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Check that new entry was created and base token amount increased
+        let msg = QueryMsg::GetDepositGrowth {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let result = query(deps.as_ref(), env.clone(), msg);
+        assert!(result.is_ok());
+        
+        let final_entries: Vec<BaseTokenTrackingEntry> = from_json(result.unwrap()).unwrap();
+        assert_eq!(final_entries.len(), 2); // Should now have 2 entries
+        
+        // The second entry should have higher base token amount due to revenue
+        assert!(final_entries[1].base_token_amount > initial_base_amount);
+    }
+
+    #[test]
+    fn test_base_token_tracking_edge_cases() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        
+        // Mock CDP contract response
+        let basket = setup_mock_basket();
+        deps.querier.update_wasm(move |_| SystemResult::Ok(ContractResult::Ok(to_json_binary(&basket).unwrap())));
+        
+        instantiate_contract(deps.as_mut(), env.clone()).unwrap();
+        
+        // Create queue
+        let msg = ExecuteMsg::CreateQueue {
+            asset: "uusd".to_string(),
+        };
+        let info = mock_info("owner", &[]);
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Test posting tracker entry for non-existent slot/group
+        let msg = ExecuteMsg::PostDepositTrackerEntry {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(80), // Non-existent slot
+            max_borrow_ltv: Decimal::percent(60), // Non-existent group
+        };
+        let info = mock_info("owner", &[]);
+        let result = execute(deps.as_mut(), env.clone(), info, msg);
+        assert!(result.is_ok()); // Should succeed but create no entry
+        
+        // Verify no entry was created
+        let msg = QueryMsg::GetDepositGrowth {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(80),
+            max_borrow_ltv: Decimal::percent(60),
+        };
+        let result = query(deps.as_ref(), env.clone(), msg);
+        assert!(result.is_ok());
+        
+        let entries: Vec<BaseTokenTrackingEntry> = from_json(result.unwrap()).unwrap();
+        assert_eq!(entries.len(), 0); // Should be empty
+        
+        // Test posting tracker entry for non-existent asset
+        let msg = ExecuteMsg::PostDepositTrackerEntry {
+            asset: "unknown_asset".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let info = mock_info("owner", &[]);
+        let result = execute(deps.as_mut(), env.clone(), info, msg);
+        assert!(result.is_err()); // Should fail for non-existent asset
+    }
+
+    #[test]
+    fn test_base_token_tracking_calculation_accuracy() {
+        let mut deps = mock_dependencies();
+        let env = mock_env();
+        
+        // Mock CDP contract response
+        let basket = setup_mock_basket();
+        deps.querier.update_wasm(move |_| SystemResult::Ok(ContractResult::Ok(to_json_binary(&basket).unwrap())));
+        
+        instantiate_contract(deps.as_mut(), env.clone()).unwrap();
+        
+        // Create queue
+        let msg = ExecuteMsg::CreateQueue {
+            asset: "uusd".to_string(),
+        };
+        let info = mock_info("owner", &[]);
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Create deposit with specific amount
+        let deposit_amount = Uint128::new(2000);
+        let msg = ExecuteMsg::SubmitDeposit {
+            deposit_input: BackingDepositInput {
+                asset: "uusd".to_string(),
+                ltv: Decimal::percent(60),
+                max_borrow_ltv: Decimal::percent(40),
+            },
+            deposit_owner: None,
+        };
+        let info = mock_info("user1", &coins(deposit_amount.u128(), "uusd"));
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Get tracking entry
+        let msg = QueryMsg::GetDepositGrowth {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let result = query(deps.as_ref(), env.clone(), msg);
+        assert!(result.is_ok());
+        
+        let entries: Vec<BaseTokenTrackingEntry> = from_json(result.unwrap()).unwrap();
+        assert_eq!(entries.len(), 1);
+        
+        // For the first deposit, vault tokens = deposit tokens (1:1 ratio)
+        // So 1,000,000 vault tokens should equal 1,000,000 base tokens
+        assert_eq!(entries[0].base_token_amount, Uint128::new(1_000_000));
+        
+        // Add another deposit to change the ratio
+        let additional_deposit = Uint128::new(1000);
+        let msg = ExecuteMsg::SubmitDeposit {
+            deposit_input: BackingDepositInput {
+                asset: "uusd".to_string(),
+                ltv: Decimal::percent(60),
+                max_borrow_ltv: Decimal::percent(40),
+            },
+            deposit_owner: None,
+        };
+        let info = mock_info("user2", &coins(additional_deposit.u128(), "uusd"));
+        execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+        
+        // Get updated tracking entry
+        let msg = QueryMsg::GetDepositGrowth {
+            asset: "uusd".to_string(),
+            max_ltv: Decimal::percent(60),
+            max_borrow_ltv: Decimal::percent(40),
+        };
+        let result = query(deps.as_ref(), env.clone(), msg);
+        assert!(result.is_ok());
+        
+        let entries: Vec<BaseTokenTrackingEntry> = from_json(result.unwrap()).unwrap();
+        assert_eq!(entries.len(), 1);
+
+        //There is no second entry bc the base token amount is the same as the first entry
+        
+        // The entry should still show 1,000,000 base tokens for 1,000,000 vault tokens
+        // because the ratio remains 1:1 (total_deposit_tokens = total_vault_tokens)
     }
 }

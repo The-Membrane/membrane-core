@@ -663,6 +663,7 @@ pub fn accrue(
         //Set position's debt to the debt + accrued_interest
         position.credit_amount += new_interest;
         position.pending_interest += new_interest;
+        position.total_interest_accrued += new_interest;
 
         //Add accrued interest to the Basket's debt tally
         basket.credit_asset.amount += new_interest;

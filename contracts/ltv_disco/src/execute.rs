@@ -1,9 +1,9 @@
 use cosmwasm_std::{
-    attr, to_json_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo, QueryRequest, Response, StdError, Storage, SubMsg, Uint128, WasmMsg, WasmQuery
+    attr, to_json_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo, QueryRequest, Response, Storage, SubMsg, Uint128, WasmMsg, WasmQuery
 };
 use membrane::cdp::{LiquidationStatResponse, QueryMsg as CDP_QueryMsg};
 use membrane::ltv_disco::{
-    BackingDeposit, BackingDepositInput, Config, DecimalMinMax, Dispersal, ActiveDispersal, LTVQueue, MaxBorrowLTVGroup, MaxLTVSlot
+    BackingDeposit, BackingDepositInput, BaseTokenTrackingEntry, Config, DecimalMinMax, Dispersal, ActiveDispersal, LTVQueue, MaxBorrowLTVGroup, MaxLTVSlot, ExecuteMsg
 };
 use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::types::{Basket, DepositDenom};
@@ -12,15 +12,16 @@ use membrane::transmuter::{ExecuteMsg as Transmuter_ExecuteMsg, QueryMsg as Tran
 use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 
 use crate::error::ContractError;
-use crate::state::{BadDebtPropagation, BAD_DEBT_PROPAGATION, CONFIG, DISPERSAL, LTV_QUEUES, PENDING_BAD_DEBT};
+use crate::state::{BadDebtPropagation, BAD_DEBT_PROPAGATION, BASE_TOKEN_TRACKING, CONFIG, DISPERSAL, LTV_QUEUES, PENDING_BAD_DEBT};
 use crate::contract::TRANSMUTER_REPLY_ID;
 
 const MAX_LIMIT: u32 = 32;
+const BASE_TOKEN_TRACKING_LIMIT: usize = 100; // Limit for base token tracking vectors
 
 /// Create a new LTV queue for an asset
 pub fn create_queue(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
     asset: String,
 ) -> Result<Response, ContractError> {
@@ -82,7 +83,7 @@ pub fn create_queue(
 /// Update an existing LTV queue
 pub fn update_queue(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
     asset: String,
     mut max_ltv: Option<Decimal>,
@@ -144,6 +145,7 @@ pub fn submit_deposit(
     deposit_input: BackingDepositInput,
     deposit_owner: Option<String>,
 ) -> Result<Response, ContractError> {
+    let mut msgs: Vec<CosmosMsg> = vec![];
     let config: Config = CONFIG.load(deps.storage)?;
     
     let valid_owner_addr = validate_deposit_owner(deps.api, info.clone(), deposit_owner)?;
@@ -214,6 +216,22 @@ pub fn submit_deposit(
     }
 
 
+    //Must do this before updating totals for Rate Assurance checks
+    add_base_token_tracking_entry(deps.storage, env.clone(), deposit_input.asset.clone(), deposit_input.ltv, deposit_input.max_borrow_ltv)?;
+
+    //Add rate assurance callback msg
+    if !group.total_deposit_tokens.is_zero() && !group.total_vault_tokens.is_zero() {
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance {
+                asset: deposit_input.asset.clone(),
+                max_ltv: deposit_input.ltv,
+                max_borrow_ltv: deposit_input.max_borrow_ltv,
+            })?,
+            funds: vec![],
+        }));
+    }
+
     // Update group totals
     group.total_deposit_tokens += deposit_amount;
     group.total_vault_tokens += vault_tokens.clone();
@@ -223,12 +241,16 @@ pub fn submit_deposit(
     // slot.total_vault_tokens += deposit.vault_tokens; //No need to update this bc VTS are per group
 
     // Update queue
-    slot.deposit_groups[group_index] = group;
+    slot.deposit_groups[group_index] = group.clone();
     queue.slots[slot_index] = slot;
 
     LTV_QUEUES.save(deps.storage, deposit_input.asset.clone(), &queue)?;
 
+    // Track base token amounts
+
+
     Ok(Response::new()
+        .add_messages(msgs)
         .add_attributes(vec![
             attr("method", "submit_deposit"),
             attr("deposit_owner", valid_owner_addr.to_string()),
@@ -325,9 +347,12 @@ pub fn withdraw_deposit(
     // Update slot totals
     slot.total_deposit_tokens -= base_tokens_to_withdraw;
     // Update queue
-    slot.deposit_groups[group_index] = group;
-    queue.slots[slot_index] = slot;
+    slot.deposit_groups[group_index] = group.clone();
+    queue.slots[slot_index] = slot.clone();
     LTV_QUEUES.save(deps.storage, asset.clone(), &queue)?;
+
+    // Track base token amounts
+    add_base_token_tracking_entry(deps.storage, env.clone(), asset.clone(), slot.ltv.clone(), deposit.max_borrow_ltv)?;
 
     // Send tokens back to user
     let mut msgs: Vec<CosmosMsg> = vec![];
@@ -345,6 +370,19 @@ pub fn withdraw_deposit(
         });
     }
 
+    //Add rate assurance callback msg if remaining tokens are non-zero
+    if !group.total_deposit_tokens.is_zero() && !group.total_vault_tokens.is_zero() {
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance {
+                asset: asset.clone(),
+                max_ltv: slot.ltv,
+                max_borrow_ltv: deposit.max_borrow_ltv,
+            })?,
+            funds: vec![],
+        }));
+    }
+
     Ok(Response::new()
         .add_messages(msgs)
         .add_attributes(vec![
@@ -359,7 +397,7 @@ pub fn withdraw_deposit(
 /// Add bad debt to an LTV queue (CDP contract only)
 pub fn add_bad_debt(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     info: MessageInfo,
     asset: String,
     mut amount: Uint128,
@@ -550,7 +588,6 @@ pub fn add_revenue(
     distribute_revenue(&mut queue, revenue_amount);
 
     LTV_QUEUES.save(deps.storage, asset.clone(), &queue)?;
-
     Ok(response
         .add_attributes(vec![
             attr("method", "add_revenue"),
@@ -1031,4 +1068,157 @@ fn distribute_slot_revenue(slot: &mut MaxLTVSlot, slot_revenue: Uint128) {
         group.total_deposit_tokens += group_revenue;
         slot.total_deposit_tokens += group_revenue;
     }
+}
+
+/// Track base token amounts for vault tokens for a specific slot and group
+/// This function calculates and stores underlying base token amounts for 1,000,000 vault tokens
+/// Stores data per (asset, max LTV, max borrow LTV) combination
+fn add_base_token_tracking_entry(
+    storage: &mut dyn Storage,
+    env: Env,
+    asset: String,
+    max_ltv: Decimal,
+    max_borrow_ltv: Decimal,
+) -> Result<(), ContractError> {
+    let timestamp = env.block.time.seconds();
+    
+    // Load the queue to find the specific slot and group
+    let queue: LTVQueue = LTV_QUEUES.load(storage, asset.clone())?;
+    
+    // Find the specific slot and group
+    if let Some(slot) = queue.slots.iter().find(|s| s.ltv == max_ltv) {
+        if let Some(group) = slot.deposit_groups.iter().find(|g| g.max_borrow_ltv == max_borrow_ltv) {
+            if !group.total_vault_tokens.is_zero() {
+                // Calculate base tokens for 1,000,000,000,000 vault tokens
+                let base_tokens_for_million = calculate_base_tokens(
+                    Uint128::new(1_000_000_000_000),
+                    group.total_deposit_tokens,
+                    group.total_vault_tokens,
+                )?;
+                
+                // Create tracking entry
+                let tracking_entry = BaseTokenTrackingEntry {
+                    timestamp,
+                    base_token_amount: base_tokens_for_million,
+                };
+                
+                // Load existing entries for this (asset, max LTV, max borrow LTV) combination
+                let mut existing_entries = BASE_TOKEN_TRACKING
+                    .may_load(storage, (asset.clone(), max_ltv.to_string(), max_borrow_ltv.to_string()))?
+                    .unwrap_or_else(Vec::new);
+                
+
+                //If the new entry is the same base token amount as the last entry, don't add it
+                if existing_entries.len() > 0 && existing_entries.last().unwrap().base_token_amount == tracking_entry.base_token_amount {
+                    return Ok(());
+                }
+                
+                // Add new entry
+                existing_entries.push(tracking_entry);
+                
+                // Apply size limit
+                if existing_entries.len() > BASE_TOKEN_TRACKING_LIMIT {
+                    existing_entries.drain(0..existing_entries.len() - BASE_TOKEN_TRACKING_LIMIT);
+                }
+                
+                // Save updated entries
+                BASE_TOKEN_TRACKING.save(
+                    storage, 
+                    (asset, max_ltv.to_string(), max_borrow_ltv.to_string()), 
+                    &existing_entries
+                )?;
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+/// Post a deposit tracker entry for base token tracking
+pub fn post_deposit_tracker_entry(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    asset: String,
+    max_ltv: Decimal,
+    max_borrow_ltv: Decimal,
+) -> Result<Response, ContractError> {
+    let config: Config = CONFIG.load(deps.storage)?;
+
+    // Only owner or CDP contract can post tracker entries
+    // if info.sender != config.owner && info.sender != config.cdp_contract {
+    //     return Err(ContractError::Unauthorized {});
+    // }
+
+    // Call the base token tracking function
+    add_base_token_tracking_entry(deps.storage, env, asset.clone(), max_ltv, max_borrow_ltv)?;
+
+    Ok(Response::new()
+        .add_attributes(vec![
+            attr("method", "post_deposit_tracker_entry"),
+            attr("asset", asset),
+            attr("max_ltv", max_ltv.to_string()),
+            attr("max_borrow_ltv", max_borrow_ltv.to_string()),
+        ]))
+}
+
+/// Rate assurance
+/// Ensures that the conversion rate is static for deposits & withdrawals
+pub fn execute_rate_assurance(
+    deps: DepsMut,
+    env: Env,
+    _info: MessageInfo,
+    asset: String,
+    max_ltv: Decimal,
+    max_borrow_ltv: Decimal,
+) -> Result<Response, ContractError> {
+    //Error if not the contract calling
+    if _info.sender != env.contract.address {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    //Load queue for the asset
+    let queue: LTVQueue = LTV_QUEUES.load(deps.storage, asset.clone())?;
+    
+    //Find the specific slot (by max_ltv) and group (by max_borrow_ltv)
+    let slot = queue.slots.iter()
+        .find(|s| s.ltv == max_ltv)
+        .ok_or_else(|| ContractError::CustomError {
+            val: "Slot not found".to_string(),
+        })?;
+    
+    let group = slot.deposit_groups.iter()
+        .find(|g| g.max_borrow_ltv == max_borrow_ltv)
+        .ok_or_else(|| ContractError::CustomError {
+            val: "Group not found".to_string(),
+        })?;
+
+    //Get last entry from BASE_TOKEN_TRACKING for this (asset, max_ltv, max_borrow_ltv)
+    let tracking_entries = BASE_TOKEN_TRACKING
+        .may_load(deps.storage, (asset.clone(), max_ltv.to_string(), max_borrow_ltv.to_string()))?
+        .unwrap_or_else(Vec::new);
+
+    if tracking_entries.is_empty() {
+        // If no previous entries, this is the first deposit - allow it
+        return Ok(Response::new());
+    }
+
+    let last_entry = tracking_entries.last().unwrap();
+
+    //Calculate current rate: btokens_per_one = calculate_base_tokens(1_000_000_000_000, group.total_deposit_tokens, group.total_vault_tokens)
+    let current_btokens_per_one = calculate_base_tokens(
+        Uint128::new(1_000_000_000_000),
+        group.total_deposit_tokens,
+        group.total_vault_tokens,
+    )?;
+
+    //Compare with previous entry's base_token_amount, allowing +/- tolerance
+    if !(current_btokens_per_one + Uint128::one() >= last_entry.base_token_amount) {
+        return Err(ContractError::CustomError { 
+            val: format!("Rate assurance failed for asset {} (max_ltv: {}, max_borrow_ltv: {}). Previous rate: {:?}, current rate: {:?}", 
+                asset, max_ltv, max_borrow_ltv, last_entry.base_token_amount, current_btokens_per_one) 
+        });
+    }
+
+    Ok(Response::new())
 }

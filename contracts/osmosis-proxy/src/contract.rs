@@ -643,34 +643,34 @@ pub fn mint_tokens(
     }; 
     
     //Update Token Supply
-    TOKENS.update(
-        deps.storage,
-        denom.clone(),
-        |token_info| -> Result<TokenInfo, TokenFactoryError> {
-            match token_info {
-                Some(mut token_info) => {
-                    if token_info.clone().max_supply.is_some() {
-                        if token_info.current_supply <= token_info.max_supply.unwrap()
-                            || mint_allowed
-                        {
-                            token_info.current_supply += amount;
-                            mint_allowed = true;
-                        }
-                    } else {
-                        token_info.current_supply += amount;
-                        mint_allowed = true;
-                    }
+    // TOKENS.update(
+    //     deps.storage,
+    //     denom.clone(),
+    //     |token_info| -> Result<TokenInfo, TokenFactoryError> {
+    //         match token_info {
+    //             Some(mut token_info) => {
+    //                 if token_info.clone().max_supply.is_some() {
+    //                     if token_info.current_supply <= token_info.max_supply.unwrap()
+    //                         || mint_allowed
+    //                     {
+    //                         token_info.current_supply += amount;
+    //                         mint_allowed = true;
+    //                     }
+    //                 } else {
+    //                     token_info.current_supply += amount;
+    //                     mint_allowed = true;
+    //                 }
 
-                    Ok(token_info)
-                }
-                None => {
-                    Err(TokenFactoryError::CustomError {
-                        val: String::from("Denom was not created in this contract"),
-                    })
-                }
-            }
-        },
-    )?;
+    //                 Ok(token_info)
+    //             }
+    //             None => {
+    //                 Err(TokenFactoryError::CustomError {
+    //                     val: String::from("Denom was not created in this contract"),
+    //                 })
+    //             }
+    //         }
+    //     },
+    // )?;
 
     //Create mint msg
     let mint_tokens_msg: CosmosMsg = TokenFactory::MsgMint{
@@ -800,26 +800,26 @@ pub fn burn_tokens(
 
 
     //Update Token Supply
-    TOKENS.update(
-        deps.storage,
-        denom.clone(),
-        |token_info| -> Result<TokenInfo, TokenFactoryError> {
-            match token_info {
-                Some(mut token_info) => {
-                    //Update token_info
-                    token_info.current_supply -= amount;
-                    token_info.burned_supply += amount;
+    // TOKENS.update(
+    //     deps.storage,
+    //     denom.clone(),
+    //     |token_info| -> Result<TokenInfo, TokenFactoryError> {
+    //         match token_info {
+    //             Some(mut token_info) => {
+    //                 //Update token_info
+    //                 token_info.current_supply -= amount;
+    //                 token_info.burned_supply += amount;
                     
-                    Ok(token_info)
-                }
-                None => {
-                    Err(TokenFactoryError::CustomError {
-                        val: String::from("Denom was not created in this contract"),
-                    })
-                }
-            }
-        },
-    )?;
+    //                 Ok(token_info)
+    //             }
+    //             None => {
+    //                 Err(TokenFactoryError::CustomError {
+    //                     val: String::from("Denom was not created in this contract"),
+    //                 })
+    //             }
+    //         }
+    //     },
+    // )?;
 
     let burn_token_msg: CosmosMsg = TokenFactory::MsgBurn {
         sender: env.contract.address.to_string(),

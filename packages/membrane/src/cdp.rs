@@ -200,6 +200,13 @@ pub enum CallbackMsg {
         /// Position owner to check
         position_owner: Addr,
     },
+    /// Close position callback after venue repayments
+    ClosePositionCallback {
+        /// Position ID to close
+        position_id: Uint128,
+        /// Position owner
+        position_owner: String,
+    },
 }
 
 
@@ -655,6 +662,8 @@ pub struct PositionResponse {
     pub deployed_to: Vec<DeploymentVenue>,
     /// Pending interest
     pub pending_interest: Uint128,
+    /// Total interest paid
+    pub total_interest_accrued: Uint128,
 }
 
 #[cw_serde]

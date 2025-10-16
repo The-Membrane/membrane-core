@@ -561,7 +561,7 @@ fn get_repay_quantities(
 // }
 
 /// Calculate amount of debt the User can repay from its list of Deployable Venues
-fn get_deployable_venues_user_repay_amount(
+pub fn get_deployable_venues_user_repay_amount(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,    
     _config: Config,

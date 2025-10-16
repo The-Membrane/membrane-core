@@ -1,6 +1,6 @@
 
 
-mod tests {
+pub mod tests {
 
     use std::str::FromStr;
 
@@ -1090,11 +1090,14 @@ mod tests {
     }
 
     // Mock LTV Disco Contract (minimal for CanHandleBadDebt query)
+    #[cw_serde]
+    pub struct LTVDisco_MockInstantiateMsg {}
+
     pub fn ltv_disco_mock_contract() -> Box<dyn Contract<Empty>> {
         use membrane::ltv_disco::{ExecuteMsg as LTVDisco_ExecuteMsg, QueryMsg as LTVDisco_QueryMsg, InstantiateMsg as LTVDisco_InstantiateMsg, AverageLTVsResponse};
         let contract = ContractWrapper::new(
             |_, _, _, _msg: LTVDisco_ExecuteMsg| -> StdResult<Response> { Ok(Response::new()) },
-            |_, _, _, _msg: LTVDisco_InstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
+            |_, _, _, _msg: LTVDisco_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
             |_, _, msg: LTVDisco_QueryMsg| -> StdResult<Binary> {
                 match msg {
                     LTVDisco_QueryMsg::CanHandleBadDebt { .. } => Ok(to_json_binary(&false)?),
@@ -2074,6 +2077,20 @@ mod tests {
             )
             .unwrap();
 
+        //Instaniate LTV Disco Contract
+        let ltv_disco_id = app.store_code(ltv_disco_mock_contract());
+
+        let ltv_disco_contract_addr = app
+            .instantiate_contract(
+                ltv_disco_id,
+                Addr::unchecked(ADMIN),
+                &LTVDisco_MockInstantiateMsg {},
+                &[],
+                "test",
+                None,
+            )
+            .unwrap();
+
         //Instantiate CDP contract
         let cdp_id = app.store_code(cdp_contract());
         
@@ -2113,7 +2130,7 @@ mod tests {
             debt_auction: Some(auction_contract_addr.to_string()),
             liquidity_contract: Some(liquidity_contract_addr.to_string()),
             discounts_contract: Some(discounts_contract_addr.to_string()),
-            ltv_disco: osmosis_proxy_contract_addr.to_string(),
+            ltv_disco: ltv_disco_contract_addr.to_string(),
             oracle_time_limit: 60u64,
             debt_minimum: Uint128::new(2000u128),
             collateral_twap_timeframe: 60u64,
@@ -2344,8 +2361,24 @@ mod tests {
             let basket_query = QueryMsg::GetBasket {};
             let basket: Basket = app.wrap().query_wasm_smart(cdp_contract.addr(), &basket_query).unwrap();
             
+            //Assert Positions were updated
+            let position: Vec<BasketPositionsResponse> = app
+                .wrap()
+                .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetBasketPositions {
+                    start_after: None, 
+                    limit: None,
+                    user: None,
+                    user_info: Some(
+                        UserInfo {
+                            position_id: Uint128::new(1),
+                            position_owner: USER.to_string(),
+                        }
+                    ),
+                })
+                .unwrap();
             // Check that pending revenue has the new structure
             assert!(basket.pending_revenue.total_pending == Uint128::new(1269841268));
+            assert!(position[0].positions[0].total_interest_accrued == Uint128::new(1269841268));
             // The per_asset_rev should be populated based on the position's collateral ratios
             assert!(basket.pending_revenue.per_asset_rev == vec![
                 Asset { info: AssetInfo::NativeToken { denom: "debit".to_string() }, amount: Uint128::new(634920634) },
@@ -2371,11 +2404,25 @@ mod tests {
             let basket_query = QueryMsg::GetBasket {};
             let basket: Basket = app.wrap().query_wasm_smart(cdp_contract.addr(), &basket_query).unwrap();
             
-            // Check that pending revenue has the new structure
-            println!("basket.pending_revenue.total_pending: {:?}", basket.pending_revenue.total_pending);
-            println!("basket.pending_revenue.per_asset_rev: {:?}", basket.pending_revenue.per_asset_rev);
+            //Assert Positions were updated
+            let position: Vec<BasketPositionsResponse> = app
+                .wrap()
+                .query_wasm_smart(&cdp_contract.addr(), &QueryMsg::GetBasketPositions {
+                    start_after: None, 
+                    limit: None,
+                    user: None,
+                    user_info: Some(
+                        UserInfo {
+                            position_id: Uint128::new(1),
+                            position_owner: USER.to_string(),
+                        }
+                    ),
+                })
+                .unwrap();
 
             assert!(basket.pending_revenue.total_pending == Uint128::new(1219841268));
+            //Total accrued doesn't change after repayments
+            assert!(position[0].positions[0].total_interest_accrued == Uint128::new(1269841268));
             // The per_asset_rev should be populated based on the position's collateral ratios
             assert!(basket.pending_revenue.per_asset_rev == vec![ 
                 Asset { info: AssetInfo::NativeToken { denom: "debit".to_string() }, amount: Uint128::new(609920634) },
@@ -10104,6 +10151,7 @@ mod tests {
                     avg_max_LTV: Decimal::percent(0), //arent calc'd in queries anymore
                     deployed_to: vec![],
                     pending_interest: Uint128::zero(),
+                    total_interest_accrued: Uint128::zero(),
                 },
             );
 

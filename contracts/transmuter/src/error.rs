@@ -9,6 +9,9 @@ pub enum ContractError {
     #[error("Std error: {0}")]
     Std(#[from] StdError),
 
+    #[error("Custom error: {val}")]
+    CustomError { val: String },
+
     #[error("Invalid funds: {reason}")]
     InvalidFunds { reason: String },
 

@@ -6,6 +6,7 @@ use membrane::transmuter::{Config, VolumeWindow};
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const VAULT_TOKEN_SUPPLY: Item<Uint128> = Item::new("vault_token_supply");
+pub const TOKEN_RATE_ASSURANCE: Item<TokenRateAssurance> = Item::new("token_rate_assurance");
 
 pub const TRANSMUTE_HISTORY: Item<Vec<TransmuteSnapshot>> = Item::new("transmute_history");
 pub const VOLUME_HISTORY: Item<Vec<VolumeWindow>> = Item::new("volume_history");
@@ -33,6 +34,11 @@ pub struct FlowEntry {
     /// Signed base amount in Asset A units; positive for asset_b->asset_a, negative for asset_a->asset_b
     pub amount_base: Int128,
     pub block_time: Timestamp,
+}
+
+#[cw_serde]
+pub struct TokenRateAssurance {
+    pub pre_btokens_per_one: Uint128,
 }
 
 

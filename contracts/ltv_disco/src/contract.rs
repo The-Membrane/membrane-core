@@ -3,7 +3,7 @@ use std::env;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdError, StdResult
+    to_json_binary, Binary, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdError, StdResult
 };
 use cw2::set_contract_version;
 use membrane::ltv_disco::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, MigrateMsg};
@@ -11,14 +11,15 @@ use membrane::ltv_disco::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, MigrateM
 use crate::error::ContractError;
 use crate::execute::{
     create_queue, update_queue, submit_deposit, withdraw_deposit, 
-    add_bad_debt, add_revenue, activate_dispersal, disperse_revenue, update_config, retry_failed_bad_debt
+    add_bad_debt, add_revenue, activate_dispersal, disperse_revenue, update_config, retry_failed_bad_debt,
+    post_deposit_tracker_entry, execute_rate_assurance
 };
 use crate::query::{
-    query_config, query_ltv_queue, query_backing_deposit, 
+    query_config, query_ltv_queue, query_backing_deposit,
     query_backing_deposits_by_user, query_average_ltvs, query_can_handle_bad_debt
 };
 use crate::reply::handle_transmuter_withdraw_reply;
-use crate::state::{CONFIG};
+use crate::state::{BASE_TOKEN_TRACKING, CONFIG};
 
 //Reply IDs
 pub const TRANSMUTER_REPLY_ID: u64 = 1u64;
@@ -111,6 +112,12 @@ pub fn execute(
         ExecuteMsg::UpdateConfig { owner, cdp_contract, deposit_denom, minimum_deposit, waiting_period, percent_to_disperse, dispersal_window, activation_window} => {
             update_config(deps, info, owner, cdp_contract, deposit_denom, minimum_deposit, waiting_period, percent_to_disperse, dispersal_window, activation_window)
         }
+        ExecuteMsg::PostDepositTrackerEntry { asset, max_ltv, max_borrow_ltv } => {
+            post_deposit_tracker_entry(deps, env, info, asset, max_ltv, max_borrow_ltv)
+        }
+        ExecuteMsg::RateAssurance { asset, max_ltv, max_borrow_ltv } => {
+            execute_rate_assurance(deps, env, info, asset, max_ltv, max_borrow_ltv)
+        }
     }
 }
 
@@ -130,6 +137,10 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::CanHandleBadDebt { asset, amount } => {
             to_json_binary(&query_can_handle_bad_debt(deps, asset, amount)?)
+        }
+        QueryMsg::GetDepositGrowth { asset, max_ltv, max_borrow_ltv } => {
+            to_json_binary(&BASE_TOKEN_TRACKING.load(deps.storage, (asset, max_ltv.to_string(), max_borrow_ltv.to_string()))
+            .unwrap_or_else(|_| vec![]))
         }
     }
 }

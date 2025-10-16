@@ -16,10 +16,10 @@ use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, 
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
 use membrane::cdp::{BasketPositionsResponse, QueryMsg as CDP_QueryMsg};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
-use membrane::types::{AssetInfo, Basket, Deposit, AssetPool};
+use membrane::types::{AssetInfo, AssetPool, Basket, Deposit, TimedDiscountPeriod};
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, OWNERSHIP_TRANSFER, STATIC_DISCOUNTS};
+use crate::state::{CONFIG, OWNERSHIP_TRANSFER, STATIC_DISCOUNTS, TIMED_DISCOUNT_PERIOD};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "system_discounts";
@@ -84,12 +84,14 @@ pub fn instantiate(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn execute(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::UpdateConfig(update) => update_config(deps, info, update),
+        ExecuteMsg::SetDiscountPeriod { start_time, duration, discount } => set_timed_discount_period(deps, env, info, start_time, duration, discount),
+        ExecuteMsg::ClearDiscountPeriod {} => clear_timed_discount_period(deps, env),
     }
 }
 
@@ -197,10 +199,24 @@ fn get_discount(
     
     //Load static discounts
     let static_discounts = STATIC_DISCOUNTS.load(deps.storage)?;
-    //Return discount if it exists
-    if let Some(discount) = static_discounts.into_iter().find(|diss| diss.user == user){
-        return Ok(discount)
-    } 
+
+    //Load timed discount period
+    let timed_discount_period: TimedDiscountPeriod = TIMED_DISCOUNT_PERIOD.load(deps.storage)?;
+
+    //If the period is active, return the discount
+    let user_static_discount = if env.block.time.seconds() >= timed_discount_period.start_time && env.block.time.seconds() <= timed_discount_period.end_time {
+        timed_discount_period.discount
+    } else if let Some(discount) = static_discounts.into_iter().find(|diss| diss.user == user){
+        discount.discount
+    } else {
+        Decimal::zero()
+    };
+    if user_static_discount > Decimal::zero() {
+        return Ok(UserDiscountResponse {
+            user,
+            discount: user_static_discount,
+        })
+    }
 
     //Load Config
     let config = CONFIG.load(deps.storage)?;
@@ -302,6 +318,57 @@ fn get_user_value_in_network(
     
     
     Ok( total_value )
+}
+
+/// Set current timed discount period
+fn set_timed_discount_period(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    start_time: Option<u64>, //Now or specified time
+    duration: u64, //hours
+    discount: Decimal,
+) -> Result<Response, ContractError> {
+    let mut config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![attr("method", "set_timed_discount_period")];
+
+    //Assert Authority
+    if info.sender != config.owner {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    //Set duration seconds
+    let duration_seconds = duration * 60;
+    //Set start time
+    let start_time = start_time.unwrap_or(env.block.time.seconds());
+    //Set end time
+    let end_time = start_time + duration_seconds;
+
+    //Set timed discount period
+    TIMED_DISCOUNT_PERIOD.save(deps.storage, &TimedDiscountPeriod {
+        start_time,
+        end_time,
+        discount,
+    })?;
+
+    Ok(Response::new())
+}
+
+/// Clear current timed discount period
+fn clear_timed_discount_period(
+    deps: DepsMut,
+    env: Env,
+) -> Result<Response, ContractError> {
+    //Load state
+    let timed_discount_period: TimedDiscountPeriod = TIMED_DISCOUNT_PERIOD.load(deps.storage)?;
+
+    //Anyone can clear if the period is expired
+    if env.block.time.seconds() > timed_discount_period.clone().end_time {
+        TIMED_DISCOUNT_PERIOD.remove(deps.storage);
+        Ok(Response::new())
+    } else {
+        Err(ContractError::CustomError { val: format!("Period is not expired, ends in {} seconds", timed_discount_period.clone().end_time - env.block.time.seconds()) })
+    }
 }
 
 /// Return value of LPs in Osmosis Incentive Lockups

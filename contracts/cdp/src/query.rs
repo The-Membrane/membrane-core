@@ -171,6 +171,7 @@ pub fn query_basket_positions(
                 avg_max_LTV: Decimal::zero(),
                 deployed_to: position.deployed_to,
                 pending_interest: position.pending_interest,
+                total_interest_accrued: position.total_interest_accrued,
             });
         };
 
@@ -197,6 +198,7 @@ pub fn query_basket_positions(
                 avg_max_LTV: Decimal::zero(),
                 deployed_to: position.deployed_to,
                 pending_interest: position.pending_interest,
+                total_interest_accrued: position.total_interest_accrued,
             }],
         }])
     }
@@ -230,6 +232,7 @@ pub fn query_basket_positions(
                             avg_max_LTV: Decimal::zero(),
                             deployed_to: pos.deployed_to,
                             pending_interest: pos.pending_interest,
+                            total_interest_accrued: pos.total_interest_accrued,
                         }
                     })
                     .collect(),

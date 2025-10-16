@@ -510,6 +510,9 @@ pub struct Position {
     /// Interest waiting to be paid.
     /// This allows us to attribute interest payments to the position & therefore users.
     pub pending_interest: Uint128,
+    /// Total interest paid.
+    /// Helps track profits & losses when combined with the deploymeny vaults.
+    pub total_interest_accrued: Uint128,
 }
 
 
@@ -1937,4 +1940,15 @@ pub struct DepositDenom {
     pub denom: String,
     /// Vault Info (for vault tokens only)
     pub vault_info: Option<VaultTokenInfo>,
+}
+
+//System Discounts
+#[cw_serde]
+pub struct TimedDiscountPeriod {
+    /// Start time of the discount period (Unix timestamp)
+    pub start_time: u64,
+    /// End time of the discount period (Unix timestamp)
+    pub end_time: u64,
+    /// Discount
+    pub discount: Decimal,
 }

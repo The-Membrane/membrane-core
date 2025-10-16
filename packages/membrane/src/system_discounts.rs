@@ -1,6 +1,7 @@
 use cosmwasm_std::{Addr, Decimal};
 use cosmwasm_schema::cw_serde;
 
+
 #[cw_serde]
 pub struct InstantiateMsg {
     /// Contract owner, defaults to info.sender
@@ -25,6 +26,17 @@ pub struct InstantiateMsg {
 pub enum ExecuteMsg {
     //Updates Config
     UpdateConfig(UpdateConfig),
+    /// Set current discount period
+    SetDiscountPeriod {
+        /// Start time of the discount period (Unix timestamp), if None, start now.
+        start_time: Option<u64>,
+        /// Duration of the discount period in hours
+        duration: u64,
+        /// Discount
+        discount: Decimal,
+    },
+    /// Clear current discount period
+    ClearDiscountPeriod {},
 }
 
 #[cw_serde]

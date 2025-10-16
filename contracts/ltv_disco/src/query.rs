@@ -1,10 +1,11 @@
-use cosmwasm_std::{Deps, StdResult, Uint128, Decimal, Addr};
+use cosmwasm_std::{Decimal, Deps, Order, StdResult, Uint128};
+use cw_storage_plus::Bound;
 use membrane::ltv_disco::{
-    Config, LTVQueue, BackingDeposit, AverageLTVsResponse,
+    Config, LTVQueue, AverageLTVsResponse, BaseTokenTrackingEntry,
     LTVQueueResponse, BackingDepositResponse, BackingDepositsByUserResponse
 };
 
-use crate::state::{CONFIG, LTV_QUEUES};
+use crate::state::{CONFIG, LTV_QUEUES, BASE_TOKEN_TRACKING};
 
 const MAX_LIMIT: u32 = 32;
 

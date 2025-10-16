@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    attr, coin, entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Int128, MessageInfo, QuerierWrapper, Response, StdError, StdResult, Storage, Timestamp, Uint128
+    attr, coin, entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Int128, MessageInfo, QuerierWrapper, Response, StdError, StdResult, Storage, Timestamp, Uint128, WasmMsg
 };
 use cw2::set_contract_version;
 // use cw_storage_plus::Bound;
@@ -21,6 +21,7 @@ use crate::state::{
     append_transmute_snapshot, append_volume_window, apply_volume_update, history_slice,
     history_total, init_history, new_volume_window, CONFIG, TRANSMUTE_HISTORY, VOLUME_HISTORY,
     VOLUME_WINDOW, VAULT_TOKEN_SUPPLY, TransmuteSnapshot, RATE_LIMIT_FLOWS, FlowEntry, DEPLOYED_PAIRED_ASSET,
+    TOKEN_RATE_ASSURANCE, TokenRateAssurance,
 };
 
 const CONTRACT_NAME: &str = "membrane-transmuter";
@@ -192,6 +193,7 @@ pub fn execute(
         } => execute_exit_vault(deps, env, info, recipient, withdraw_as),
         ExecuteMsg::Transmute { recipient } => execute_transmute(deps, env, info, recipient),
         ExecuteMsg::UpdateVolumeWindow {} => execute_update_volume_window(deps, env),
+        ExecuteMsg::RateAssurance {} => execute_rate_assurance(deps, env, info),
     }
 }
 
@@ -388,6 +390,16 @@ fn execute_enter_vault(
     // println!("total_deposits: {:?}", total_deposits);
     // println!("vault_supply: {:?}", vault_supply);
 
+    //Calc & save base token rates for rate assurance
+    let pre_btokens_per_one = calculate_base_tokens(
+        Uint128::new(1_000_000_000_000), 
+        total_deposits - user_deposit_value, 
+        vault_supply
+    )?;
+    TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
+        pre_btokens_per_one,
+    })?;
+
     //Calc the amount of vault tokens to mint
     let vault_tokens_to_mint = calculate_vault_tokens(
         user_deposit_value,
@@ -418,6 +430,15 @@ fn execute_enter_vault(
     }
 // println!("vault_tokens_to_mint: {:?}", vault_tokens_to_mint);
     VAULT_TOKEN_SUPPLY.save(deps.storage, &vault_supply)?;
+
+    //Add rate assurance callback msg
+    if !total_deposits.is_zero() && !vault_supply.is_zero() {
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance {})?,
+            funds: vec![],
+        }));
+    }
 
     Ok(Response::new()
         .add_messages(messages)
@@ -481,6 +502,16 @@ fn execute_exit_vault(
             reason: "vault token amount exceeds supply".into(),
         });
     }
+
+    //Calc & save base token rates for rate assurance
+    let pre_btokens_per_one = calculate_base_tokens(
+        Uint128::new(1_000_000_000_000), 
+        total_deposits, 
+        vault_supply
+    )?;
+    TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
+        pre_btokens_per_one,
+    })?;
 
     //Calc withdraw value, denominated in asset A
     let base_amount = calculate_base_tokens(
@@ -575,6 +606,15 @@ fn execute_exit_vault(
             to_address: recipient_addr.to_string(),
             amount: send_coins,
         });
+    }
+
+    //Add rate assurance callback msg
+    if !total_deposits.is_zero() && !vault_supply.is_zero() {
+        response = response.add_message(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance {})?,
+            funds: vec![],
+        }));
     }
 
     Ok(response)
@@ -1283,4 +1323,42 @@ fn decrement_vault_supply(
         .map_err(|err| ContractError::Std(err.into()))?;
     VAULT_TOKEN_SUPPLY.save(storage, &new_supply)?;
     Ok(new_supply)
+}
+
+///Rate assurance
+/// Ensures that the conversion rate is static for deposits & withdrawals
+fn execute_rate_assurance(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+    //Load config    
+    let config = CONFIG.load(deps.storage)?;
+
+    //Error if not the contract calling
+    if info.sender != env.contract.address {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    //Load State
+    let token_rate_assurance = TOKEN_RATE_ASSURANCE.load(deps.storage)?;
+    let total_vault_tokens = VAULT_TOKEN_SUPPLY.load(deps.storage)?;
+
+    //Get total deposit tokens
+    let total_deposit_tokens = get_total_deposit_value(deps.querier.clone(), &env, &config)?;
+
+    //Calc the rate of vault tokens to deposit tokens
+    let btokens_per_one = calculate_base_tokens(
+        Uint128::new(1_000_000_000_000), 
+        total_deposit_tokens, 
+        total_vault_tokens
+    )?;
+
+    //Check that the rates are within 1 millionth
+    if !(btokens_per_one + Uint128::one() >= token_rate_assurance.pre_btokens_per_one) {
+        return Err(ContractError::CustomError { val: format!("Conversation rate assurance failed, should be equal or greater than. If its 1 off just try again. Deposit tokens per 1 pre-tx: {:?} --- post-tx: {:?}", token_rate_assurance.pre_btokens_per_one, btokens_per_one) });
+    }
+    //We're adding 1 to stop errors for rounding errors.
+
+    Ok(Response::new())
 }

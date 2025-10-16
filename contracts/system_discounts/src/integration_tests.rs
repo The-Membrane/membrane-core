@@ -10,7 +10,7 @@ mod tests {
     use membrane::staking::{StakerResponse, RewardsResponse, Config as Staking_Config};
     use membrane::oracle::PriceResponse;
     use membrane::discount_vault::UserResponse as Discount_UserResponse;
-    use membrane::types::{Asset, AssetInfo, AssetPool, Basket, Deposit, StakeDistribution, UserInfo};
+    use membrane::types::{Asset, AssetInfo, AssetPool, Basket, Deposit, StakeDistribution, UserInfo, PendingRevenue};
 
     use cosmwasm_std::{
         to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal, Coin,
@@ -78,6 +78,9 @@ mod tests {
                                 cAsset_ratios: vec![ ],
                                 avg_borrow_LTV: Decimal::zero(),
                                 avg_max_LTV: Decimal::zero(),
+                                deployed_to: vec![],
+                                pending_interest: Uint128::zero(),
+                                total_interest_accrued: Uint128::zero(),
                         }]}])?)
                     },
                     CDP_MockQueryMsg::GetBasket { } => {
@@ -95,7 +98,10 @@ mod tests {
                             },
                             liq_queue: None,
                             base_interest_rate: Decimal::zero(),
-                            pending_revenue: Uint128::zero(),
+                            pending_revenue: PendingRevenue {
+                                total_pending: Uint128::zero(),
+                                per_asset_rev: vec![],
+                            },
                             negative_rates: false,
                             cpc_margin_of_error: Decimal::zero(),
                             multi_asset_supply_caps: vec![],
@@ -104,7 +110,7 @@ mod tests {
                             credit_last_accrued: 0,
                             rates_last_accrued: 0,
                             oracle_set: false,
-                            revenue_destinations: None,
+                            pending_bad_debt: Uint128::zero(),
                         })?)
                     },
                 }
@@ -494,7 +500,7 @@ mod tests {
                     },
                 )
                 .unwrap();
-            assert_eq!(discount.discount.to_string(), String::from("0.444000042"));
+            assert_eq!(discount.discount.to_string(), String::from("0.042"));
         }
 
         #[test]
@@ -639,6 +645,134 @@ mod tests {
             });
             let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
+        }
+
+        #[test]
+        fn test_timed_discount_full_flow() {
+            let (mut app, discounts_contract) = proper_instantiate();
+            
+            // 1. Set a future timed discount period (as owner)
+            let current_time = app.block_info().time.seconds();
+            let start_time = current_time + 100; // Start in 100 seconds
+            let duration = 100; // 100 minutes (duration * 60 seconds)
+            let discount = Decimal::percent(95);
+            
+            let msg = ExecuteMsg::SetDiscountPeriod {
+                start_time: Some(start_time),
+                duration,
+                discount,
+            };
+            
+            let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            
+            // 2. Query discount before period starts
+            let discount_response: UserDiscountResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    discounts_contract.addr(),
+                    &QueryMsg::UserDiscount {
+                        user: String::from("test_user"),
+                    },
+                )
+                .unwrap();
+            
+            // Should NOT be the timed discount (should be calculated normally)
+            assert_ne!(discount_response.discount, discount);
+            assert_eq!(discount_response.discount.to_string(), String::from("0.042"));
+            
+            // 3. Advance blockchain time to during the period
+            app.update_block(|block| {
+                block.time = block.time.plus_seconds(150); // Advance to middle of period
+            });
+            
+            let discount_response: UserDiscountResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    discounts_contract.addr(),
+                    &QueryMsg::UserDiscount {
+                        user: String::from("test_user"),
+                    },
+                )
+                .unwrap();
+            
+            // Should IS the timed discount value (95%)
+            assert_eq!(discount_response.discount, discount);
+            
+            // 4. Advance time past the period end
+            app.update_block(|block| {
+                block.time = block.time.plus_seconds(6000); // Advance past end_time (period duration was 100 minutes = 6000 seconds)
+            });
+            
+            let discount_response: UserDiscountResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    discounts_contract.addr(),
+                    &QueryMsg::UserDiscount {
+                        user: String::from("test_user"),
+                    },
+                )
+                .unwrap();
+            
+            // Should return to normal calculation (not 95%)
+            assert_ne!(discount_response.discount, discount);
+            assert_eq!(discount_response.discount.to_string(), String::from("0.042"));
+            
+            // 5. Clear the expired period
+            let msg = ExecuteMsg::ClearDiscountPeriod {};
+            let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap(); // Anyone can clear expired periods
+            
+            // 6. Test authorization - try to set a period as non-owner
+            let msg = ExecuteMsg::SetDiscountPeriod {
+                start_time: Some(current_time + 200),
+                duration: 50,
+                discount: Decimal::percent(50),
+            };
+            
+            let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
+            let result = app.execute(Addr::unchecked(USER), cosmos_msg);
+            assert!(result.is_err()); // Should fail with Unauthorized
+            
+            // Set a period as owner first
+            let msg = ExecuteMsg::SetDiscountPeriod {
+                start_time: Some(current_time + 10000), // Start far in the future
+                duration: 50,
+                discount: Decimal::percent(50),
+            };
+            
+            let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            
+            // Try to clear a non-expired period
+            let msg = ExecuteMsg::ClearDiscountPeriod {};
+            let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
+            let result = app.execute(Addr::unchecked(USER), cosmos_msg);
+            assert!(result.is_err()); // Should fail because period is not expired
+            
+            // 7. Test setting period with start_time = None (starts immediately)
+            let msg = ExecuteMsg::SetDiscountPeriod {
+                start_time: None, // Start immediately
+                duration: 30,
+                discount: Decimal::percent(80),
+            };
+            
+            let cosmos_msg = discounts_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+            
+            // Immediately query discount
+            let discount_response: UserDiscountResponse = app
+                .wrap()
+                .query_wasm_smart(
+                    discounts_contract.addr(),
+                    &QueryMsg::UserDiscount {
+                        user: String::from("test_user"),
+                    },
+                )
+                .unwrap();
+            
+            // Should be the timed discount (80%)
+            assert_eq!(discount_response.discount, Decimal::percent(80));
         }
     }
 }

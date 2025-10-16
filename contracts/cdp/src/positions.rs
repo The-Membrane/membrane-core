@@ -9,7 +9,7 @@ use cosmwasm_std::{
 };
 
 use membrane::helpers::{validate_position_owner, asset_to_coin, withdrawal_msg, get_contract_balances};
-use membrane::cdp::{Config, EditBasket, ExecuteMsg};
+use membrane::cdp::{Config, EditBasket, ExecuteMsg, CallbackMsg};
 use membrane::oracle::{AssetResponse, PriceResponse};
 use membrane::liq_queue::ExecuteMsg as LQ_ExecuteMsg;
 use membrane::liquidity_check::ExecuteMsg as LiquidityExecuteMsg;
@@ -25,6 +25,7 @@ use membrane::types::{
 };
 
 use crate::contract::set_active_deployment_venues;
+use crate::liquidations::get_deployable_venues_user_repay_amount;
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
 use crate::rates::accrue;
 use crate::risk_engine::update_basket_tally;
@@ -791,6 +792,7 @@ pub fn repay(
             attr("method", "repay"),
             attr("position_id", position_id),
             attr("pending_interest", target_position.pending_interest),
+            attr("total_interest_accrued", target_position.total_interest_accrued),
             attr("loan_amount", target_position.credit_amount),
             attr("total_interest_paid", total_interest_paid),
     ]))
@@ -1468,16 +1470,39 @@ pub fn close_position(
     };
 
     //Load target_position, restrict to owner
-    let (_i, target_position) = get_target_position(deps.storage, info.clone().sender, position_id)?;
+    let (_i, mut target_position) = get_target_position(deps.storage, info.clone().sender, position_id)?;
 
     //Set close_amount
     let close_amount = target_position.credit_amount * close_percentage;
+
+    println!("close_amount: {}", close_amount);
+
+    //Try to repay debt from deployable venues first
+    let mut credit_repay_amount = Decimal::from_ratio(close_amount, Uint128::one());
+    let mut venue_submessages = vec![];
+    let mut attrs = vec![];
+    
+    let user_repay_amount = get_deployable_venues_user_repay_amount(
+        deps.storage,
+        deps.querier, 
+        config.clone(), 
+        basket.clone(), 
+        position_id, 
+        info.sender.to_string(), 
+        &mut target_position,
+        &mut credit_repay_amount,
+        &mut venue_submessages,
+        &mut attrs,
+    )?;
+
+    //Update close_amount to reflect what was repaid from venues
+    let remaining_close_amount = credit_repay_amount.to_uint_floor();
 
     //Calc collateral to sell
     //credit_amount * credit_price * (1 + max_spread)
     let total_collateral_value_to_sell = {
             decimal_multiplication(
-                basket.clone().credit_price.get_value(close_amount)?, 
+                basket.clone().credit_price.get_value(remaining_close_amount)?, 
                 (max_spread + Decimal::one())
             )?
     };
@@ -1490,52 +1515,58 @@ pub fn close_position(
 
     let mut router_messages = vec![];
     let mut withdrawn_assets = vec![];
+    println!("credit_repay_amount: {}", credit_repay_amount);
 
-    //Calc collateral_amount_to_sell per asset & create router msg
-    for (i, _collateral_ratio) in cAsset_ratios.clone().into_iter().enumerate(){
+    println!("remaining_close_amount: {}", remaining_close_amount);
 
-        //Calc collateral_amount_to_sell
-        let mut collateral_amount_to_sell = {
+    //Only sell collateral if there's remaining debt to repay
+    if !remaining_close_amount.is_zero() {
+        //Calc collateral_amount_to_sell per asset & create router msg
+        for (i, _collateral_ratio) in cAsset_ratios.clone().into_iter().enumerate(){
 
-            let collateral_value_to_sell = decimal_multiplication(total_collateral_value_to_sell, cAsset_ratios[i])?;
+            //Calc collateral_amount_to_sell
+            let mut collateral_amount_to_sell = {
 
-            let post_normalized_amount: Uint128 = match cAsset_prices[i].get_amount(collateral_value_to_sell){
-                Ok(amount) => amount,
-                Err(_e) => return Err(ContractError::CustomError { val: String::from("Collateral value to sell is too high to calculate an amount for due to the max spread creating an out of bounds error") })
+                let collateral_value_to_sell = decimal_multiplication(total_collateral_value_to_sell, cAsset_ratios[i])?;
+
+                let post_normalized_amount: Uint128 = match cAsset_prices[i].get_amount(collateral_value_to_sell){
+                    Ok(amount) => amount,
+                    Err(_e) => return Err(ContractError::CustomError { val: String::from("Collateral value to sell is too high to calculate an amount for due to the max spread creating an out of bounds error") })
+                };
+
+                post_normalized_amount
             };
 
-            post_normalized_amount
-        };
+            //Collateral to sell can't be more than the position owns
+            if collateral_amount_to_sell > target_position.collateral_assets.clone()[i].asset.amount {
+                collateral_amount_to_sell = target_position.collateral_assets.clone()[i].asset.amount;
+            }
 
-        //Collateral to sell can't be more than the position owns
-        if collateral_amount_to_sell > target_position.collateral_assets.clone()[i].asset.amount {
-            collateral_amount_to_sell = target_position.collateral_assets.clone()[i].asset.amount;
+            //Set collateral asset
+            let collateral_asset = target_position.clone().collateral_assets[i].clone().asset;
+
+            //Add collateral_amount to list for propagation
+            withdrawn_assets.push(Asset{
+                amount: collateral_amount_to_sell,
+                ..collateral_asset.clone()
+            });
+
+            //Create router subMsg to sell, repay in reply on success
+            let router_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: config.clone().chain_proxy.unwrap().to_string(),
+                msg: to_json_binary(&OsmoExecuteMsg::ExecuteSwaps { 
+                    token_out: basket.clone().credit_asset.info.to_string(),
+                    max_slippage: max_spread,
+                })?,
+                funds: vec![
+                    Coin {
+                        denom: collateral_asset.clone().info.to_string(),
+                        amount: collateral_amount_to_sell,
+                    }
+                ],
+            });
+            router_messages.push(router_msg);
         }
-
-        //Set collateral asset
-        let collateral_asset = target_position.clone().collateral_assets[i].clone().asset;
-
-        //Add collateral_amount to list for propagation
-        withdrawn_assets.push(Asset{
-            amount: collateral_amount_to_sell,
-            ..collateral_asset.clone()
-        });
-
-        //Create router subMsg to sell, repay in reply on success
-        let router_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.clone().chain_proxy.unwrap().to_string(),
-            msg: to_json_binary(&OsmoExecuteMsg::ExecuteSwaps { 
-                token_out: basket.clone().credit_asset.info.to_string(),
-                max_slippage: max_spread,
-            })?,
-            funds: vec![
-                Coin {
-                    denom: collateral_asset.clone().info.to_string(),
-                    amount: collateral_amount_to_sell,
-                }
-            ],
-        });
-        router_messages.push(router_msg);
     }
 
     //Set send_to for WithdrawMsg in Reply
@@ -1554,9 +1585,26 @@ pub fn close_position(
     })?;
 
     //The last router message is updated to a CLOSE_POSITION_REPLY to close the position after all sales and repayments are done.
-    let sub_msg = SubMsg::reply_on_success(router_messages.pop().unwrap(), CLOSE_POSITION_REPLY_ID);    
-    //Transform Router Msgs into SubMsgs so they run after LP Withdrawals
-    let router_messages = router_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
+    let mut all_submessages = venue_submessages.clone(); // Add venue messages first
+    
+    if !router_messages.is_empty() {
+        let sub_msg = SubMsg::reply_on_success(router_messages.pop().unwrap(), CLOSE_POSITION_REPLY_ID);    
+        //Transform Router Msgs into SubMsgs so they run after venue repayments
+        let router_submessages = router_messages.into_iter().map(|msg| SubMsg::new(msg)).collect::<Vec<SubMsg>>();
+        all_submessages.extend(router_submessages);
+        all_submessages.push(sub_msg);
+    } else if !venue_submessages.is_empty() {
+        //If no router messages but venue messages exist, add a callback to close the position
+        let close_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::Callback(CallbackMsg::ClosePositionCallback {
+                position_id,
+                position_owner: info.sender.to_string(),
+            }))?,
+            funds: vec![],
+        });
+        all_submessages.push(SubMsg::reply_on_success(close_msg, CLOSE_POSITION_REPLY_ID));
+    }
 
     // Create collateral rate assurance for closed position assets
     let collateral_denoms: Vec<String> = withdrawn_assets.clone().iter()
@@ -1570,14 +1618,19 @@ pub fn close_position(
         &basket,
     )?;
 
-    Ok(Response::new()
-        .add_submessages(router_messages)
-        .add_submessage(sub_msg)
-        .add_messages(rate_assurance_msgs)
-        .add_attributes(vec![
+    //Combine venue repayment attributes with existing attributes
+    let mut response_attrs = vec![
         attr("position_id", position_id),
         attr("user", info.sender),
-    ])) //If the sale incurred slippage and couldn't repay through the debt minimum, the subsequent withdraw msg will error and revert state 
+        attr("venue_repay_amount", user_repay_amount.to_string()),
+        attr("remaining_close_amount", remaining_close_amount.to_string()),
+    ];
+    response_attrs.extend(attrs);
+
+    Ok(Response::new()
+        .add_submessages(all_submessages)
+        // .add_messages(rate_assurance_msgs)
+        .add_attributes(response_attrs)) //If the sale incurred slippage and couldn't repay through the debt minimum, the subsequent withdraw msg will error and revert state 
 }
 
 /// Asserts valid state after increase_debt()
@@ -3012,6 +3065,7 @@ pub fn create_position(
         credit_amount: Uint128::zero(),
         deployed_to: vec![],
         pending_interest: Uint128::zero(),
+        total_interest_accrued: Uint128::zero(),
     };
 
     //increment position id

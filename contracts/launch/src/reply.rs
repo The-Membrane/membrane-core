@@ -1240,6 +1240,7 @@ pub fn handle_auction_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Re
                 liquidity_contract: Some(addrs.clone().liquidity_check.to_string()),
                 oracle_contract: Some(addrs.clone().oracle.to_string()),
                 edit_routes: None,
+                transmutation_pairs: None,
             };
             let msg = CosmosMsg::Wasm(WasmMsg::Execute { 
                 contract_addr: addrs.clone().osmosis_proxy.to_string(), 

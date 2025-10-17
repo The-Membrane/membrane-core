@@ -7,23 +7,22 @@ use std::convert::TryInto;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, QuerierWrapper, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg
+    attr, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg
 };
 use cw2::set_contract_version;
-use membrane::helpers::get_asset_liquidity;
-use membrane::math::{decimal_multiplication, decimal_division};
+use membrane::math::decimal_multiplication;
 use osmosis_std::types::osmosis::gamm::v1beta1::{GammQuerier, MsgExitPool};
 use osmosis_std::types::osmosis::poolmanager::v1beta1::PoolmanagerQuerier;
 use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 
 use crate::error::TokenFactoryError;
-use crate::state::{PendingTokenInfo, TokenInfo, SwapInfo, CONFIG, PENDING, SWAP_INFO, SWAP_ROUTES, TOKENS};
+use crate::state::{PendingTokenInfo, TokenInfo, SwapInfo, CONFIG, PENDING, SWAP_INFO, SWAP_ROUTES, TOKENS, TRANSMUTATION_PAIRS};
 use membrane::osmosis_proxy::{
     Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, MigrateMsg, TokenInfoResponse, OwnerResponse, ContractDenomsResponse,
 };
-use membrane::cdp::{QueryMsg as CDPQueryMsg, Config as CDPConfig};
 use membrane::oracle::{QueryMsg as OracleQueryMsg, PriceResponse, AssetResponse};
-use membrane::types::{PoolStateResponse, Basket, Owner, AssetInfo, SwapRoute};
+use membrane::types::{PoolStateResponse, Owner, AssetInfo, SwapRoute, TransmutationPairEntry};
+use membrane::helpers::get_contract_balances;
 use membrane::mars_vault_token::ExecuteMsg as MarsVaultExecuteMsg;
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse, MsgCreateDenomResponse};
 use osmosis_std::types::osmosis::poolmanager::v1beta1::{MsgSwapExactAmountIn, SwapAmountInRoute};
@@ -60,9 +59,11 @@ pub fn instantiate(
         positions_contract: None,
         liquidity_contract: None,
         oracle_contract: None,
+        restrict_mbrn_mints: Some(false),
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
+    TRANSMUTATION_PAIRS.save(deps.storage, &vec![])?;
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
@@ -82,6 +83,7 @@ pub fn execute(
         ExecuteMsg::ExecuteSwaps { token_out, max_slippage } => {
             execute_swaps(deps, env, info.sender.clone(), info.funds.clone(), token_out, max_slippage)
         }
+        ExecuteMsg::TransmuteTokens {} => transmute_tokens(deps, env, info),
         ExecuteMsg::AddSwapRoutesFromOracleInfo { assets } => {
             add_swap_routes_from_oracle(deps, env, assets)
         }
@@ -121,8 +123,10 @@ pub fn execute(
             positions_contract,
             liquidity_contract,
             oracle_contract,
-            edit_routes
-        } => update_config(deps, info, owners, liquidity_multiplier, debt_auction, positions_contract, liquidity_contract, oracle_contract, add_owner, edit_routes),
+            edit_routes,
+            transmutation_pairs,
+            restrict_mbrn_mints,
+        } => update_config(deps, info, owners, liquidity_multiplier, debt_auction, positions_contract, liquidity_contract, oracle_contract, add_owner, edit_routes, transmutation_pairs, restrict_mbrn_mints),
         ExecuteMsg::EditOwner { owner, stability_pool_ratio, non_token_contract_auth } => {
             edit_owner(deps, info, owner, stability_pool_ratio, non_token_contract_auth)
         }
@@ -132,7 +136,7 @@ pub fn execute(
 //Anyone can execute to add swap routes by calling this function to check the oracle for its asset pool info for a list of assets & add the pool info as 2 bidirectional swap routes
 fn add_swap_routes_from_oracle(
     deps: DepsMut,
-    env: Env,
+    _env: Env,
     assets: Vec<String>
 ) -> Result<Response, TokenFactoryError> {
 
@@ -194,6 +198,7 @@ fn execute_swaps(
 ) -> Result<Response, TokenFactoryError> {
     let config = CONFIG.load(deps.storage)?;
     let swap_routes = SWAP_ROUTES.load(deps.storage)?;
+    let transmutation_pairs = TRANSMUTATION_PAIRS.load(deps.storage)?;
     let mut msgs = vec![];
     let mut used_special = false;
 
@@ -202,8 +207,18 @@ fn execute_swaps(
         return Err(TokenFactoryError::ZeroAmount {});
     }
 
+    //Filter out transmutation token_ins
+    let transmutation_token_ins: HashSet<String> = transmutation_pairs.into_iter().map(|pair| pair.token_in).collect();
+    let filtered_denoms: Vec<String> = funds.iter().filter(|coin| transmutation_token_ins.contains(&coin.denom)).map(|coin| coin.denom.clone()).collect();
+    let filtered_funds: Vec<Coin> = funds.into_iter().filter(|coin| !transmutation_token_ins.contains(&coin.denom)).collect();
+
+    //If no funds left after filtering, error
+    if filtered_funds.is_empty() {
+        return Err(TokenFactoryError::ZeroAmount {});
+    }
+
     //create swap msgs for each asset sent
-    for coin in funds.into_iter() {
+    for coin in filtered_funds.into_iter() {
         //Get routes
         let routes: Vec<SwapAmountInRoute> = get_swap_route(swap_routes.clone(), coin.denom.clone(), token_out.clone())?;
         
@@ -297,7 +312,80 @@ fn execute_swaps(
     Ok(Response::new()
     .add_attribute("token_out", token_out)
     .add_attribute("max_slippage", max_slippage.to_string())
+    .add_attribute("filtered_transmutation_tokens", format!("{:?}", filtered_denoms))
     .add_submessages(msgs))
+}
+
+/// Transmute tokens
+fn transmute_tokens(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, TokenFactoryError> {
+    let transmutation_pairs = TRANSMUTATION_PAIRS.load(deps.storage)?;
+    let transmutation_in = transmutation_pairs.into_iter().map(|pair| pair.token_in).collect::<Vec<String>>();
+
+    //Assert only one asset sent
+    if info.funds.len() != 1 {
+        return Err(TokenFactoryError::CustomError { val: format!("Invalid number of assets sent: {}", info.funds.len()) });
+    }
+
+    //Assert asset is a transmutation token in
+    if !transmutation_in.contains(&info.funds[0].denom) {
+        return Err(TokenFactoryError::CustomError { val: format!("Invalid transmutation token in: {}", info.funds[0].denom) });
+    }
+
+    //Get transmutation pair
+    let transmutation_pairs = TRANSMUTATION_PAIRS.load(deps.storage)?;
+    let transmutation_pair = transmutation_pairs.into_iter().find(|pair| pair.token_in == info.funds[0].denom).unwrap();
+    let transmutation_pair_clone = transmutation_pair.clone();
+
+    //Check if the token_to_mint is a denom we can mint
+    if !TOKENS.has(deps.storage, transmutation_pair.token_to_mint.clone()) {
+        //If not, we get the "amount_to_mint" from the contract balance of the token_to_mint
+        let token_out_balance = get_contract_balances(deps.querier, env.clone(), vec![AssetInfo::NativeToken { denom: transmutation_pair.token_to_mint.clone() }])?[0];
+        //If no balance, error
+        if token_out_balance.is_zero() {
+            return Err(TokenFactoryError::CustomError { val: format!("No balance of token to mint: {}", transmutation_pair.token_to_mint) });
+        }
+
+        //Calculate amount to send
+        let amount_to_send = token_out_balance * transmutation_pair.mint_ratio;
+
+        //Send tokens
+        let send_tokens_msg = CosmosMsg::Bank(BankMsg::Send {
+            to_address: info.sender.to_string(),
+            amount: vec![Coin { denom: transmutation_pair.token_to_mint, amount: amount_to_send }],
+        });
+
+        Ok(Response::new()
+            .add_attribute("method", "transmute_tokens")
+            .add_attribute("transmutation_pair", format!("{:?}", transmutation_pair_clone))
+            .add_attribute("amount_to_send", amount_to_send)
+            .add_message(send_tokens_msg))
+    } else {    
+
+        //Calculate amount to mint
+        let amount_to_mint = info.funds[0].amount * transmutation_pair.mint_ratio;
+
+        //Mint tokens
+        let mint_tokens_msg: CosmosMsg = TokenFactory::MsgMint{
+            sender: env.contract.address.to_string(), 
+            amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin{
+                denom: transmutation_pair.token_to_mint.clone(),
+                amount: amount_to_mint.to_string(),
+            }), 
+            mint_to_address: info.sender.to_string(),
+        }.into();  
+
+        Ok(Response::new()
+            .add_attribute("method", "transmute_tokens")
+            .add_attribute("transmutation_pair", format!("{:?}", transmutation_pair_clone))
+            .add_attribute("amount_to_mint", amount_to_mint)
+            .add_message(mint_tokens_msg))
+
+    }
+
 }
 
 fn get_swap_route(swap_routes: Vec<SwapRoute>, token_in: String, token_out: String) -> Result<Vec<SwapAmountInRoute>, TokenFactoryError> {
@@ -351,6 +439,8 @@ fn update_config(
     oracle_contract: Option<String>,
     add_owner: Option<bool>,
     edit_routes: Option<Vec<SwapRoute>>,
+    transmutation_pairs: Option<Vec<TransmutationPairEntry>>,
+    restrict_mbrn_mints: Option<bool>,
 ) -> Result<Response, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -426,6 +516,30 @@ fn update_config(
         }
         //Save new routes
         SWAP_ROUTES.save(deps.storage, &swap_routes)?;
+    }
+
+    //Edit Transmutation Pairs
+    if let Some(transmutation_pairs) = transmutation_pairs {
+        let mut current_pairs = TRANSMUTATION_PAIRS.load(deps.storage)?;
+        for pair in transmutation_pairs {
+            if pair.remove {
+                current_pairs.retain(|p| p.token_in != pair.transmutation_pair.token_in);
+            } else {
+                //Add new pair or update existing pair
+                if let Some((index, _pair)) = current_pairs.clone().into_iter().enumerate()
+                .find(|(_i, existing_pair)| existing_pair.token_in == pair.transmutation_pair.token_in && existing_pair.token_to_mint == pair.transmutation_pair.token_to_mint){
+                    current_pairs[index].mint_ratio = pair.transmutation_pair.mint_ratio;
+                } else {
+                    current_pairs.push(pair.transmutation_pair);
+                }
+            }
+        }
+        TRANSMUTATION_PAIRS.save(deps.storage, &current_pairs)?;
+    }
+
+    //Edit Restrict MBRN mints
+    if let Some(restrict_mbrn_mints) = restrict_mbrn_mints {
+        config.restrict_mbrn_mints = Some(restrict_mbrn_mints);
     }
 
     //Save Config
@@ -633,6 +747,18 @@ pub fn mint_tokens(
     }
     //Validate denom
     validate_denom(denom.clone())?;
+
+    //Check if MBRN minting is restricted
+    if denom.to_lowercase().contains("mbrn") && config.restrict_mbrn_mints.unwrap_or(false) {
+        //Debt auction can still mint MBRN
+        if let Some(debt_auction) = config.clone().debt_auction {
+            if info.sender != debt_auction {
+                return Err(TokenFactoryError::CustomError { val: String::from("MBRN minting is disabled, use TransmuteTokens instead") });
+            }
+        } else {
+            return Err(TokenFactoryError::CustomError { val: String::from("MBRN minting is disabled, use TransmuteTokens instead") });
+        }
+    }
 
     //Debt Auction can mint over max supply
     let mut mint_allowed = false;
@@ -842,16 +968,16 @@ pub fn burn_tokens(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config { } => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::GetOwner { owner } => to_binary(&get_contract_owner(deps, owner)?),
+        QueryMsg::Config { } => to_json_binary(&CONFIG.load(deps.storage)?),
+        QueryMsg::GetOwner { owner } => to_json_binary(&get_contract_owner(deps, owner)?),
         QueryMsg::GetDenom {
             creator_address,
             subdenom,
-        } => to_binary(&get_denom(deps, creator_address, subdenom)?),
-        QueryMsg::GetContractDenoms { limit } => to_binary(&get_contract_denoms(deps, limit)?),
-        QueryMsg::PoolState { id } => to_binary(&get_pool_state(deps, id)?),
-        QueryMsg::GetTokenInfo { denom } => to_binary(&get_token_info(deps, denom)?),
-        QueryMsg::GetSwapRoutes { } => to_binary(&SWAP_ROUTES.load(deps.storage)?),
+        } => to_json_binary(&get_denom(deps, creator_address, subdenom)?),
+        QueryMsg::GetContractDenoms { limit } => to_json_binary(&get_contract_denoms(deps, limit)?),
+        QueryMsg::PoolState { id } => to_json_binary(&get_pool_state(deps, id)?),
+        QueryMsg::GetTokenInfo { denom } => to_json_binary(&get_token_info(deps, denom)?),
+        QueryMsg::GetSwapRoutes { } => to_json_binary(&SWAP_ROUTES.load(deps.storage)?),
     }
 }
 
@@ -1079,16 +1205,9 @@ fn handle_create_denom_reply(
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
-    //Query routes from the test OP
-    // let routes: Vec<SwapRoute> = deps.querier.query_wasm_smart::<Vec<SwapRoute>>(
-    //     "osmo1968gjpryrmvkydzw47dfdae0p9jzy43p4ckr9geswekm73j4ufkq5tz07q".to_string(),
-    //     &QueryMsg::GetSwapRoutes {  }
-    // )?;
-    // //Update current routes
-    // SWAP_ROUTES.save(deps.storage, &routes)?;
-    
+    let mut config = CONFIG.load(deps.storage)?;
+    config.restrict_mbrn_mints = Some(true);
+    CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::default()
-    // .add_attribute("routes", format!("{:?}", routes))
-)
+    Ok(Response::default())
 }

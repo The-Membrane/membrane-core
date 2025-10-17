@@ -16,7 +16,8 @@ use crate::state::{PendingTokenInfo, TokenInfo, CONFIG, PENDING, TOKENS};
 use membrane::neutron_proxy::{
     ExecuteMsg, Config, GetDenomResponse, InstantiateMsg, QueryMsg, MigrateMsg, TokenInfoResponse, ContractDenomsResponse, DualityRoute,
 };
-use membrane::types::Owner;
+use membrane::types::{Owner, AssetInfo};
+use membrane::helpers::get_contract_balances;
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse, MsgCreateDenomResponse};
 
 // version info for migration info
@@ -179,14 +180,25 @@ fn execute_swaps(
     max_slippage: Decimal,
 ) -> Result<Response, TokenFactoryError> {
     let mut msgs = vec![];
+    let config = CONFIG.load(deps.storage)?;
 
     //If no funds sent, error
     if funds.is_empty() {
         return Err(TokenFactoryError::ZeroAmount {});
     }
 
+    //Filter out transmutation token_ins
+    let transmutation_token_ins: Vec<String> = config.transmutation_pairs.into_iter().map(|pair| pair.token_in).collect();
+    let filtered_funds: Vec<Coin> = funds.into_iter().filter(|coin| !transmutation_token_ins.contains(&coin.denom)).collect();
+    let filtered_denoms: Vec<String> = funds.iter().filter(|coin| transmutation_token_ins.contains(&coin.denom)).map(|coin| coin.denom.clone()).collect();
+
+    //If no funds left after filtering, error
+    if filtered_funds.is_empty() {
+        return Err(TokenFactoryError::ZeroAmount {});
+    }
+
     //create swap msgs for each asset sent
-    for coin in funds.into_iter() {
+    for coin in filtered_funds.into_iter() {
         // Create a simple DualityRoute for direct swap
         let route = DualityRoute {
             from: coin.denom.clone(),
@@ -215,6 +227,7 @@ fn execute_swaps(
         .add_attribute("method", "execute_swaps")
         .add_attribute("token_out", token_out)
         .add_attribute("max_slippage", max_slippage.to_string())
+        .add_attribute("filtered_transmutation_tokens", format!("{:?}", filtered_denoms))
         .add_submessages(msgs))
 }
 

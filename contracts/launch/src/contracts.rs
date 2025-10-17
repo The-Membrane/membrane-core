@@ -786,6 +786,7 @@ fn update_contract_configs(
                 liquidity_contract: None,
                 oracle_contract: None,
                 edit_routes: None,
+                transmutation_pairs: None,
             })?,
             funds: vec![],
         })
@@ -1054,6 +1055,7 @@ pub fn end_of_launch(
         liquidity_contract: None,
         oracle_contract: None,
         edit_routes: None,
+        transmutation_pairs: None,
     };
     let config_msg = CosmosMsg::Wasm(WasmMsg::Execute { 
         contract_addr: addrs.clone().osmosis_proxy.to_string(), 

@@ -1952,3 +1952,23 @@ pub struct TimedDiscountPeriod {
     /// Discount
     pub discount: Decimal,
 }
+
+//Chain Proxy
+#[cw_serde]
+pub struct TransmutationPair {
+    /// Token in
+    pub token_in: String,
+    /// Token minted using the token in as exchange (effectively burnt)
+    pub token_to_mint: String,
+    /// Mint ratio
+    /// 1:1 = 1
+    pub mint_ratio: Decimal,
+}
+
+#[cw_serde]
+pub struct TransmutationPairEntry {
+    /// Transmutation pair
+    pub transmutation_pair: TransmutationPair,
+    /// Remove
+    pub remove: bool,
+}

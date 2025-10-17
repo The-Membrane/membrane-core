@@ -4,7 +4,7 @@ use cosmwasm_std::{Uint128, Decimal, Addr};
 use cw_storage_plus::{Item, Map};
 
 use membrane::osmosis_proxy::Config;
-use membrane::types::SwapRoute;
+use membrane::types::{SwapRoute, TransmutationPair};
 
 #[cw_serde]
 pub struct TokenInfo {
@@ -37,3 +37,4 @@ pub const TOKENS: Map<String, TokenInfo> = Map::new("tokens"); //AssetInfo, Toke
 pub const PENDING: Item<PendingTokenInfo> = Item::new("pending_denoms");
 pub const SWAP_ROUTES: Item<Vec<SwapRoute>> = Item::new("swap_routes");
 pub const SWAP_INFO: Item<SwapInfo> = Item::new("swap_info");
+pub const TRANSMUTATION_PAIRS: Item<Vec<TransmutationPair>> = Item::new("transmutation_pairs");

@@ -1,5 +1,5 @@
 [package]
-name = "osmosis_proxy"
+name = "neutron-proxy"
 version = "0.1.0"
 authors = ["Membrane Devs"]
 edition = "2018"

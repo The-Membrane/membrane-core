@@ -3,7 +3,7 @@ use cosmwasm_std::{Uint128, Addr, Decimal};
 
 use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 
-use crate::types::{Owner, SwapRoute};
+use crate::types::{Owner, SwapRoute, TransmutationPairEntry, TransmutationPair};
 
 #[cw_serde]
 pub struct InstantiateMsg {}
@@ -63,6 +63,8 @@ pub enum ExecuteMsg {
         /// Max slippage
         max_slippage: Decimal,
     },
+    /// Transmute tokens
+    TransmuteTokens {},
     /// Update contract config
     UpdateConfig {
         /// List of owners
@@ -81,6 +83,12 @@ pub enum ExecuteMsg {
         oracle_contract: Option<String>,
         /// Edit swap routes
         edit_routes: Option<Vec<SwapRoute>>,
+        /// Transmutation pairs.
+        /// If you want A <> B, you need to add A:B and B:A
+        transmutation_pairs: Option<Vec<TransmutationPairEntry>>,
+        /// Restrict MBRN mints.
+        /// If true, only the debt_auction contract can mint MBRN.
+        restrict_mbrn_mints: Option<bool>,
     },
     /// Edit owner params & permissions
     EditOwner {
@@ -145,6 +153,9 @@ pub struct Config {
     pub liquidity_contract: Option<Addr>,
     /// Oracle contract address
     pub oracle_contract: Option<Addr>,
+    /// Restrict MBRN mints.
+    /// If true, only the debt_auction contract can mint MBRN.
+    pub restrict_mbrn_mints: Option<bool>,
 }
 
 #[cw_serde]

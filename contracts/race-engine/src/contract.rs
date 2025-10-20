@@ -865,25 +865,26 @@ pub fn execute_simulate_race(
         }
     }
 
-    //Update car energy
-    if train {
-        for car in &race_state.cars {
-            //Skip The Singularity
-            if car.car_id == 0 {
-                continue;
-            }
+    //Update car energy.
+    // We are removing energy, evil addiction mechanism.
+    // if train {
+    //     for car in &race_state.cars {
+    //         //Skip The Singularity
+    //         if car.car_id == 0 {
+    //             continue;
+    //         }
             
-            //Update car energy
-            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.car_contract.clone(),
-                msg: to_json_binary(&Car_ExecuteMsg::<Option<CarMetadata>, cosmwasm_std::Empty>::ConsumeTrainingEnergy {
-                    token_id: car.car_id.to_string(),
-                    sessions: 1,
-                })?,
-                funds: vec![],
-            }));
-        }
-    }
+    //         //Update car energy
+    //         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+    //             contract_addr: config.car_contract.clone(),
+    //             msg: to_json_binary(&Car_ExecuteMsg::<Option<CarMetadata>, cosmwasm_std::Empty>::ConsumeTrainingEnergy {
+    //                 token_id: car.car_id.to_string(),
+    //                 sessions: 1,
+    //             })?,
+    //             funds: vec![],
+    //         }));
+    //     }
+    // }
 
     response = response
         .add_messages(msgs)

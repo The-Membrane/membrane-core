@@ -218,7 +218,7 @@ fn execute_swaps(
     }
 
     //create swap msgs for each asset sent
-    for coin in filtered_funds.into_iter() {
+    for coin in filtered_funds.clone().into_iter() {
         //Get routes
         let routes: Vec<SwapAmountInRoute> = get_swap_route(swap_routes.clone(), coin.denom.clone(), token_out.clone())?;
         
@@ -292,6 +292,7 @@ fn execute_swaps(
     //Set Swap Info
     SWAP_INFO.save(deps.storage, &SwapInfo {
         swapper,
+        prev_balances: filtered_funds.clone(),
         token_out: token_out.clone(),
         max_slippage,
     })?;
@@ -371,7 +372,7 @@ fn transmute_tokens(
         //Mint tokens
         let mint_tokens_msg: CosmosMsg = TokenFactory::MsgMint{
             sender: env.contract.address.to_string(), 
-            amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin{
+            amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
                 denom: transmutation_pair.token_to_mint.clone(),
                 amount: amount_to_mint.to_string(),
             }), 
@@ -1110,18 +1111,30 @@ fn handle_swap_balances_reply(
 ) -> StdResult<Response> {
     match msg.result.into_result() {
         Ok(_) => {
+            let _config = CONFIG.load(deps.storage)?;
             //Get swapper
             let swap_info = SWAP_INFO.load(deps.storage)?;
 
             //Swap all assets in the contract
             let balances = deps.querier.query_all_balances(&env.contract.address)?;
 
+
+            //Filter out transmutation token_ins
+            let transmutation_pairs = TRANSMUTATION_PAIRS.load(deps.storage)?;
+            let transmutation_token_ins: Vec<String> = transmutation_pairs.into_iter().map(|pair| pair.token_in).collect();
+            let filtered_funds: Vec<Coin> = balances.iter().filter(|coin| !transmutation_token_ins.contains(&coin.denom)).cloned().collect();
+            let _filtered_denoms: Vec<String> = balances.iter().filter(|coin| transmutation_token_ins.contains(&coin.denom)).map(|coin| coin.denom.clone()).collect();
+
+            //If no funds left after filtering, error
+            if filtered_funds.is_empty() {
+                return Err(StdError::GenericErr { msg: String::from("No funds left after filtering") });
+            }
             //Execute swap with new balances
             let res = match execute_swaps(
                 deps, 
                 env, 
                 swap_info.swapper.clone(),
-                balances.clone(),
+                filtered_funds.clone(),
                 swap_info.token_out.clone(),
                 swap_info.max_slippage.clone(),
             ){
@@ -1131,7 +1144,7 @@ fn handle_swap_balances_reply(
 
             return Ok(res
             .add_attribute("swap_info", format!("{:?}", swap_info))
-            .add_attribute("tokens_received", format!("{:?}", balances)))
+            .add_attribute("tokens_received", format!("{:?}", filtered_funds)))
         } //We only reply on success
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }
@@ -1144,15 +1157,43 @@ fn handle_swap_reply(
 ) -> StdResult<Response> {
     match msg.result.into_result() {
         Ok(_) => {
-            //Get swapper
-            let swapper = SWAP_INFO.load(deps.storage)?.swapper;
+            //Get swap info and swapper
+            let swap_info = SWAP_INFO.load(deps.storage)?;
+            let swapper = swap_info.clone().swapper;
 
-            //Send all assets in the contract to the swapper
+            // Current balances
             let balances = deps.querier.query_all_balances(&env.contract.address)?;
 
+            // Filter out transmutation token_ins
+            let transmutation_pairs = TRANSMUTATION_PAIRS.load(deps.storage)?;
+            let transmutation_token_ins: Vec<String> = transmutation_pairs.into_iter().map(|pair| pair.token_in).collect();
+
+            // Compute delta: only send newly received funds (current - previous), excluding token_ins
+            let mut new_funds: Vec<Coin> = Vec::new();
+            for coin in balances.iter() {
+                if transmutation_token_ins.contains(&coin.denom) {
+                    continue;
+                }
+                let prev_amount = swap_info
+                    .prev_balances
+                    .iter()
+                    .find(|c| c.denom == coin.denom)
+                    .map(|c| c.amount)
+                    .unwrap_or(Uint128::zero());
+                if coin.amount > prev_amount {
+                    new_funds.push(Coin { denom: coin.denom.clone(), amount: coin.amount - prev_amount });
+                }
+            }
+
+            // If no new funds were received, do not send anything
+            if new_funds.is_empty() {
+                return Err(StdError::GenericErr { msg:  format!("No new funds received. Old balances: {:?} --- New balances: {:?}", swap_info.prev_balances, balances) });
+            }
+
+            // Send only the newly received funds to the swapper
             let msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
                 to_address: swapper.clone().to_string(),
-                amount: balances.clone(),
+                amount: new_funds.clone(),
             });
 
             //Remove swapper
@@ -1160,8 +1201,8 @@ fn handle_swap_reply(
             //Don't remove incase we have 2 swap replies due to a special exit
 
             return Ok(Response::new()
-            .add_attribute("swapper", swapper)
-            .add_attribute("tokens_received", format!("{:?}", balances))
+            .add_attribute("swap_info", format!("{:?}", swap_info))
+            .add_attribute("tokens_received", format!("{:?}", new_funds))
             .add_message(msg))
         } //We only reply on success
         Err(err) => return Err(StdError::GenericErr { msg: err }),

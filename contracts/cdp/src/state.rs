@@ -12,6 +12,7 @@ use membrane::cdp::{Config, ExecuteMsg};
 use crate::ContractError;
 use crate::risk_engine::update_basket_tally;
 
+const MAX_CDT_SUPPLY_ENTRIES: usize = 500;
 
 #[cw_serde]
 pub struct ContractVersion {
@@ -95,6 +96,12 @@ pub struct CollateralRateAssurance {
     pub pre_collateral_per_one: Uint128,
 }
 
+#[cw_serde]
+pub struct SupplyTimestamp {
+    pub supply: u64,
+    pub timestamp: u64,
+}
+
 pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
 pub const CONFIG: Item<Config> = Item::new("config");
@@ -130,7 +137,31 @@ pub const USER_INTENTS: Map<String, UserDeploymentIntents> = Map::new("user_inte
 //Collateral Rate Assurance
 pub const COLLATERAL_RATE_ASSURANCE: Map<String, CollateralRateAssurance> = Map::new("collateral_rate_assurance");
 
+// CDT Supply Growth Tracker
+pub const CDT_SUPPLY: Item<Vec<SupplyTimestamp>> = Item::new("cdt_supply");
+
 //Helper functions
+/// Update CDT Supply Growth Tracker
+pub fn update_cdt_supply(
+    storage: &mut dyn Storage,
+    env: Env,
+    current_cdt_supply: Uint128,
+) -> StdResult<()> {
+    let mut cdt_supply = CDT_SUPPLY.load(storage)?;
+    cdt_supply.push(SupplyTimestamp {
+        timestamp: env.block.time.seconds(),
+        supply: current_cdt_supply.u128() as u64,
+    });
+
+    //Prune up to 500 .
+    //Basic remove bc we polish per addition.
+    if cdt_supply.len() > MAX_CDT_SUPPLY_ENTRIES {
+        cdt_supply.remove(0);
+    }
+    //Save new CDT Supply Growth Tracker
+    CDT_SUPPLY.save(storage, &cdt_supply)?;
+    Ok(())
+}
 /// Update asset claims a Position has
 pub fn update_position_claims(
     storage: &mut dyn Storage,

@@ -4,7 +4,7 @@ mod tests {
 
     use membrane::oracle::PriceResponse;
     use membrane::osmosis_proxy::{ExecuteMsg, InstantiateMsg, QueryMsg};
-    use membrane::types::{AssetInfo, Asset, Basket, LiquidityInfo, Owner, SupplyCap};
+    use membrane::types::{AssetInfo, Asset, Basket, LiquidityInfo, Owner, SupplyCap, PendingRevenue};
 
     use cosmwasm_std::{
         coin, to_binary, Addr, Binary, Empty, Response, StdResult, Uint128, Decimal,
@@ -139,13 +139,12 @@ mod tests {
                         Ok(to_binary(&membrane::cdp::Config {
                             owner: Addr::unchecked(ADMIN),
                             oracle_contract: None,
-                            stability_pool: None,
-                            dex_router: None,
                             staking_contract: None,
-                            osmosis_proxy: None,
+                            chain_proxy: None,
                             debt_auction: None,
                             liquidity_contract: None,
                             discounts_contract: None,
+                            ltv_disco: Addr::unchecked("ltv_disco"),
                             liq_fee: Decimal::zero(),
                             collateral_twap_timeframe: 60,
                             credit_twap_timeframe: 60,
@@ -154,6 +153,11 @@ mod tests {
                             debt_minimum: Uint128::zero(),
                             base_debt_cap_multiplier: Uint128::zero(),
                             rate_slope_multiplier: Decimal::zero(),
+                            rate_hike_rate: None,
+                            affiliate_fee_max: Decimal::zero(),
+                            revenue_distributor: None,
+                            skip_credit_price_accrual: false,
+                            liquidation_stat_limit: 100,
                         })?)
                         },
                     CDP_MockQueryMsg::GetBasket { } => {
@@ -178,7 +182,11 @@ mod tests {
                             },
                             liq_queue: None,
                             base_interest_rate: Decimal::zero(),
-                            pending_revenue: Uint128::zero(),
+                            pending_revenue: PendingRevenue {
+                                total_pending: Uint128::zero(),
+                                per_asset_rev: vec![],
+                            },
+                            pending_bad_debt: Uint128::zero(),
                             negative_rates: false,
                             cpc_margin_of_error: Decimal::zero(),
                             multi_asset_supply_caps: vec![],
@@ -301,6 +309,9 @@ mod tests {
             positions_contract: Some(String::from("contract0")),
             liquidity_contract: Some(String::from("contract1")),
             oracle_contract: Some(String::from("contract2")),
+            edit_routes: None,
+            transmutation_pairs: None,
+            restrict_mbrn_mints: None,
         };
         let cosmos_msg = op_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -348,6 +359,9 @@ mod tests {
                 positions_contract: None,
                 liquidity_contract: None,
                 oracle_contract: None,
+                edit_routes: None,
+                transmutation_pairs: None,
+                restrict_mbrn_mints: None,
             };
             let cosmos_msg = op_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -380,6 +394,9 @@ mod tests {
                 positions_contract: None,
                 liquidity_contract: None,
                 oracle_contract: None,
+                edit_routes: None,
+                transmutation_pairs: None,
+                restrict_mbrn_mints: None,
             };
             let cosmos_msg = op_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();

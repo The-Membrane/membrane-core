@@ -6,18 +6,17 @@ use std::convert::TryInto;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_binary, Addr, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, Reply, Response, StdError, StdResult, SubMsg, Uint128
+    attr, to_json_binary, BankMsg, Addr, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, Reply, Response, StdError, StdResult, SubMsg, Uint128
 };
-use neutron_sdk::bindings::msg::NeutronMsg;
+use membrane::neutron_proxy::{
+    Config, ContractDenomsResponse, DualityRoute, ExecuteMsg, GetDenomResponse, InstantiateMsg, MigrateMsg, QueryMsg, TokenInfoResponse, NeutronOwnerEntry, NeutronMsg
+};
+use membrane::types::{AssetInfo, NeutronOwner, TransmutationPairEntry};
+use membrane::helpers::get_contract_balances;
 use cw2::set_contract_version;
 
 use crate::error::TokenFactoryError;
-use crate::state::{PendingTokenInfo, TokenInfo, CONFIG, PENDING, TOKENS};
-use membrane::neutron_proxy::{
-    ExecuteMsg, Config, GetDenomResponse, InstantiateMsg, QueryMsg, MigrateMsg, TokenInfoResponse, ContractDenomsResponse, DualityRoute,
-};
-use membrane::types::{Owner, AssetInfo};
-use membrane::helpers::get_contract_balances;
+use crate::state::{PendingTokenInfo, TokenInfo, SwapInfo, CONFIG, PENDING, TOKENS, SWAP_ROUTES, SWAP_INFO};
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse, MsgCreateDenomResponse};
 
 // version info for migration info
@@ -35,19 +34,20 @@ pub fn instantiate(
     env: Env,
     info: MessageInfo,
     _msg: InstantiateMsg,
-) -> Result<Response, TokenFactoryError> {
+) -> Result<Response<NeutronMsg>, TokenFactoryError> {
     let config = Config {
         owners: vec![
-            Owner {
+            NeutronOwner {
                 owner: info.sender.clone(),
                 non_token_contract_auth: true, 
             }],
             debt_auction: None,
+            transmutation_pairs: vec![],
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new()
+    Ok(Response::<NeutronMsg>::new()
         .add_attribute("method", "instantiate")
         .add_attribute("config", format!("{:?}", config))
         .add_attribute("contract_address", env.contract.address)
@@ -60,7 +60,7 @@ pub fn execute(
     env: Env,
     info: MessageInfo,
     msg: ExecuteMsg,
-) -> Result<Response, TokenFactoryError> {
+) -> Result<Response<NeutronMsg>, TokenFactoryError> {
     match msg {
         ExecuteMsg::CreateDenom {
             subdenom,
@@ -76,6 +76,9 @@ pub fn execute(
             denom,
             new_admin_address,
         } => change_admin(deps, env, info, denom, new_admin_address),
+        ExecuteMsg::EditOwner { owner, non_token_contract_auth, remove } => {
+             edit_owner(deps, info, owner, non_token_contract_auth, remove)
+         },
         ExecuteMsg::MintTokens {
             denom,
             amount,
@@ -96,7 +99,8 @@ pub fn execute(
             owners,
             debt_auction,
             transmutation_pairs,
-        } => update_config(deps, info, owners, debt_auction, transmutation_pairs)
+        } => update_config(deps, info, owners, debt_auction, transmutation_pairs),
+        ExecuteMsg::TransmuteTokens { } => transmute_tokens(deps, env, info),
     }
 }
 
@@ -105,9 +109,9 @@ fn transmute_tokens(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    ) -> Result<Response, TokenFactoryError> {
+    ) -> Result<Response<NeutronMsg>, TokenFactoryError> {
         let config = CONFIG.load(deps.storage)?;
-        let transmutation_in = config.transmutation_pairs.into_iter().map(|pair| pair.token_in).collect::<Vec<String>>();
+        let transmutation_in = config.transmutation_pairs.clone().into_iter().map(|pair| pair.token_in).collect::<Vec<String>>();
 
         //Assert only one asset sent
         if info.funds.len() != 1 {
@@ -115,18 +119,19 @@ fn transmute_tokens(
         }
 
         //Assert asset is a transmutation token in
-        if !transmutation_in.contains(info.funds[0].denom) {
+        if !transmutation_in.contains(&info.funds[0].denom) {
             return Err(TokenFactoryError::CustomError { val: format!("Invalid transmutation token in: {}", info.funds[0].denom) });
         }
 
         //Get transmutation pair
-        let transmutation_pair = config.transmutation_pairs.into_iter().find(|pair| pair.token_in == info.funds[0].denom).unwrap();
+        let transmutation_pair = config.transmutation_pairs.clone().into_iter().find(|pair| pair.token_in == info.funds[0].denom).unwrap();
+        let transmutation_pair_clone = transmutation_pair.clone();
 
 
         //Check if the token_to_mint is a denom we can mint
-        if !TOKENS.contains(deps.storage, &transmutation_pair.token_to_mint) {
+        if !TOKENS.has(deps.storage, transmutation_pair.token_to_mint.clone()) {
             //If not, we get the "amount_to_mint" from the contract balance of the token_to_mint
-            let token_out_balance = get_contract_balances(deps.querier, env.clone(), vec![AssetInfo::NativeToken { denom: transmutation_pair.token_to_mint }])?[0];
+            let token_out_balance = get_contract_balances(deps.querier, env.clone(), vec![AssetInfo::NativeToken { denom: transmutation_pair.token_to_mint.clone() }])?[0];
             //If no balance, error
             if token_out_balance.is_zero() {
                 return Err(TokenFactoryError::CustomError { val: format!("No balance of token to mint: {}", transmutation_pair.token_to_mint) });
@@ -136,14 +141,14 @@ fn transmute_tokens(
             let amount_to_send = token_out_balance * transmutation_pair.mint_ratio;
 
             //Send tokens
-            let send_tokens_msg = TokenFactory::MsgSend {
+            let send_tokens_msg: CosmosMsg<NeutronMsg> = CosmosMsg::Bank(BankMsg::Send {
                 to_address: info.sender.to_string(),
                 amount: vec![Coin { denom: transmutation_pair.token_to_mint, amount: amount_to_send }],
-            };
+            });
 
-            Ok(Response::new()
+            Ok(Response::<NeutronMsg>::new()
                 .add_attribute("method", "transmute_tokens")
-                .add_attribute("transmutation_pair", format!("{:?}", transmutation_pair))
+                .add_attribute("transmutation_pair", format!("{:?}", transmutation_pair_clone))
                 .add_attribute("amount_to_send", amount_to_send)
                 .add_message(send_tokens_msg))
         } else {    
@@ -152,15 +157,19 @@ fn transmute_tokens(
             let amount_to_mint = info.funds[0].amount * transmutation_pair.mint_ratio;
 
             //Mint tokens
-            let mint_tokens_msg = TokenFactory::MsgMintTokens {
-                denom: transmutation_pair.token_to_mint,
-                amount: amount_to_mint,
-            };  
+            let mint_tokens_msg: CosmosMsg<NeutronMsg> = TokenFactory::MsgMint {
+                sender: env.contract.address.to_string(), 
+                amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+                    denom: transmutation_pair.token_to_mint.clone(),
+                    amount: amount_to_mint.to_string(),
+                }), 
+                mint_to_address: info.sender.to_string(),
+            }.into();  
 
 
-            Ok(Response::new()
+            Ok(Response::<NeutronMsg>::new()
                 .add_attribute("method", "transmute_tokens")
-                .add_attribute("transmutation_pair", format!("{:?}", transmutation_pair))
+                .add_attribute("transmutation_pair", format!("{:?}", transmutation_pair_clone))
                 .add_attribute("amount_to_mint", amount_to_mint)
                 .add_message(mint_tokens_msg))
 
@@ -174,12 +183,12 @@ fn transmute_tokens(
 fn execute_swaps(
     deps: DepsMut,
     env: Env,
-    swapper: Addr,
+    _swapper: Addr,
     funds: Vec<Coin>,
     token_out: String,
     max_slippage: Decimal,
-) -> Result<Response, TokenFactoryError> {
-    let mut msgs = vec![];
+) -> Result<Response<NeutronMsg>, TokenFactoryError> {
+    let mut msgs: Vec<SubMsg<NeutronMsg>> = vec![];
     let config = CONFIG.load(deps.storage)?;
 
     //If no funds sent, error
@@ -189,7 +198,7 @@ fn execute_swaps(
 
     //Filter out transmutation token_ins
     let transmutation_token_ins: Vec<String> = config.transmutation_pairs.into_iter().map(|pair| pair.token_in).collect();
-    let filtered_funds: Vec<Coin> = funds.into_iter().filter(|coin| !transmutation_token_ins.contains(&coin.denom)).collect();
+    let filtered_funds: Vec<Coin> = funds.iter().filter(|coin| !transmutation_token_ins.contains(&coin.denom)).cloned().collect();
     let filtered_denoms: Vec<String> = funds.iter().filter(|coin| transmutation_token_ins.contains(&coin.denom)).map(|coin| coin.denom.clone()).collect();
 
     //If no funds left after filtering, error
@@ -198,7 +207,7 @@ fn execute_swaps(
     }
 
     //create swap msgs for each asset sent
-    for coin in filtered_funds.into_iter() {
+    for coin in filtered_funds.clone().into_iter() {
         // Create a simple DualityRoute for direct swap
         let route = DualityRoute {
             from: coin.denom.clone(),
@@ -223,7 +232,15 @@ fn execute_swaps(
         msgs.push(SubMsg::new(swap_msg));
     }
 
-    Ok(Response::new()
+    //Save SwapInfo
+    SWAP_INFO.save(deps.storage, &SwapInfo {
+        swapper: _swapper,
+        prev_balances: filtered_funds.clone(),
+        token_out: token_out.clone(),
+        max_slippage: max_slippage.clone(),
+    })?;
+
+    Ok(Response::<NeutronMsg>::new()
         .add_attribute("method", "execute_swaps")
         .add_attribute("token_out", token_out)
         .add_attribute("max_slippage", max_slippage.to_string())
@@ -237,10 +254,10 @@ fn execute_swaps(
 fn update_config(
     deps: DepsMut,
     info: MessageInfo,
-    owners: Option<Vec<Owner>>,
+    owners: Option<Vec<NeutronOwnerEntry>>,
     debt_auction: Option<String>,
     transmutation_pairs: Option<Vec<TransmutationPairEntry>>,
-) -> Result<Response, TokenFactoryError> {
+) -> Result<Response<NeutronMsg>, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
 
     let (authorized, owner_index) = validate_authority(config.clone(), info.clone());
@@ -250,20 +267,24 @@ fn update_config(
 
     //Edit Owner
     if let Some(owners) = owners {
-        //Add all new owners
-        for owner in owners {
-            //Validate Owner address
-            deps.api.addr_validate(&owner.owner.to_string())?;
+        for owner_entry in owners {
+            if owner_entry.remove {
+                //Remove owner
+                config.owners.retain(|o| o.owner != owner_entry.owner.owner);
+            } else {
+                //Validate Owner address
+                deps.api.addr_validate(&owner_entry.owner.owner.to_string())?;
 
-            //Error if owner already exists
-            for stored_owner in config.clone().owners {
-                if stored_owner.owner == owner.owner {
-                    return Err(TokenFactoryError::AlreadyOwner {});
+                //Error if owner already exists
+                for stored_owner in config.clone().owners {
+                    if stored_owner.owner == owner_entry.owner.owner {
+                        return Err(TokenFactoryError::AlreadyOwner {});
+                    }
                 }
-            }
 
-            //Add owner to config
-            config.owners.push( owner );
+                //Add owner
+                config.owners.push(owner_entry.owner);
+            }
         }
     }
 
@@ -292,7 +313,7 @@ fn update_config(
     //Save Config
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new().add_attributes(vec![
+    Ok(Response::<NeutronMsg>::new().add_attributes(vec![
         attr("method", "update_config"),
         attr("updated_config", format!("{:?}", config)),
         ]))
@@ -304,9 +325,9 @@ fn edit_owner(
     deps: DepsMut,
     info: MessageInfo,
     owner: String,
-    stability_pool_ratio: Option<Decimal>,
-    non_token_contract_auth: Option<bool>,
-) -> Result<Response, TokenFactoryError>{
+    non_token_contract_auth: bool,
+    remove: bool,
+) -> Result<Response<NeutronMsg>, TokenFactoryError>{
     let mut config = CONFIG.load(deps.storage)?;
 
     //Assert Authority
@@ -322,21 +343,20 @@ fn edit_owner(
         .enumerate()
         .find(|(_i, owner)| owner.owner == valid_owner_addr){
         //Update Optionals
-        if stability_pool_ratio.clone().is_some() {
-            owner.stability_pool_ratio = stability_pool_ratio;
-        }
-        if let Some(toggle) = non_token_contract_auth.clone() {
-            owner.non_token_contract_auth = toggle;
-        }
+        owner.non_token_contract_auth = non_token_contract_auth;
 
-        //Update Owner
-        config.owners[owner_index] = owner;
+        if remove {
+            config.owners.remove(owner_index);
+        } else {
+            config.owners[owner_index] = owner;
+        }
+        
     } else { return Err(TokenFactoryError::CustomError { val: String::from("Non-existent owner address") }) }
 
     //Save edited Owner
     CONFIG.save(deps.storage, &config)?;
 
-    Ok(Response::new().add_attribute("edited_owner", format!("{:?}", config.owners[owner_index])))
+    Ok(Response::<NeutronMsg>::new().add_attribute("edited_owner", format!("{:?}", config.owners[owner_index])))
 }
 
 /// Assert info.sender is an owner
@@ -361,7 +381,7 @@ pub fn create_denom(
     info: MessageInfo,
     subdenom: String,
     max_supply: Option<Uint128>,
-) -> Result<Response, TokenFactoryError> {
+) -> Result<Response<NeutronMsg>, TokenFactoryError> {
     let config = CONFIG.load(deps.storage)?;
 
     //Assert Authority
@@ -381,7 +401,7 @@ pub fn create_denom(
     //Save PendingTokenInfo
     PENDING.save(deps.storage, &PendingTokenInfo { subdenom: subdenom.clone(), max_supply })?;
 
-    let res = Response::new()
+    let res = Response::<NeutronMsg>::new()
         .add_attribute("method", "create_denom")
         .add_attribute("sub_denom", subdenom)
         .add_attribute("max_supply", max_supply.unwrap_or_else(Uint128::zero))
@@ -397,7 +417,7 @@ pub fn change_admin(
     info: MessageInfo,
     denom: String,
     new_admin_address: String,
-) -> Result<Response, TokenFactoryError> {
+) -> Result<Response<NeutronMsg>, TokenFactoryError> {
 
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
@@ -416,7 +436,7 @@ pub fn change_admin(
         new_admin: new_admin_address.clone(),
     };
 
-    let res = Response::new()
+    let res = Response::<NeutronMsg>::new()
         .add_attribute("method", "change_admin")
         .add_attribute("denom", denom)
         .add_attribute("new_admin_address", new_admin_address)
@@ -431,7 +451,7 @@ fn edit_token_max(
     info: MessageInfo,
     denom: String,
     max_supply: Uint128,
-) -> Result<Response, TokenFactoryError> {
+) -> Result<Response<NeutronMsg>, TokenFactoryError> {
 
     let config = CONFIG.load(deps.storage)?;
     //Assert Authority
@@ -462,7 +482,7 @@ fn edit_token_max(
 
     //If max supply is changed to under current_supply, it halts new mints.
 
-    Ok(Response::new().add_attributes(vec![
+    Ok(Response::<NeutronMsg>::new().add_attributes(vec![
         attr("method", "edit_token_max"),
         attr("denom", denom),
         attr("new_max", max_supply),
@@ -477,7 +497,7 @@ pub fn mint_tokens(
     denom: String,
     amount: Uint128,
     mint_to_address: String,
-) -> Result<Response, TokenFactoryError> {
+) -> Result<Response<NeutronMsg>, TokenFactoryError> {
     let config = CONFIG.load(deps.storage)?;
 
     //Assert Authority
@@ -534,7 +554,7 @@ pub fn mint_tokens(
     )?;
 
     //Create mint msg
-    let mint_tokens_msg: CosmosMsg = TokenFactory::MsgMint{
+    let mint_tokens_msg: CosmosMsg<NeutronMsg> = TokenFactory::MsgMint{
         sender: env.contract.address.to_string(), 
         amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin{
             denom: denom.clone(),
@@ -543,7 +563,7 @@ pub fn mint_tokens(
         mint_to_address: mint_to_address.clone(),
     }.into(); 
 
-    let mut res = Response::new()
+    let mut res = Response::<NeutronMsg>::new()
         .add_attribute("method", "mint_tokens")
         .add_attribute("mint_status", mint_allowed.to_string())
         .add_attribute("denom", denom.clone())
@@ -551,7 +571,7 @@ pub fn mint_tokens(
 
     //If a mint was made/allowed
     if mint_allowed {
-        res = Response::new()
+        res = Response::<NeutronMsg>::new()
             .add_attribute("method", "mint_tokens")
             .add_attribute("mint_status", mint_allowed.to_string())
             .add_attribute("denom", denom)
@@ -565,11 +585,11 @@ pub fn mint_tokens(
 
 /// Create Osmosis Incentive Gauge.
 /// Uses osmosis-std to make it easier for contracts to execute osmosis messages.
-fn create_gauge(
-    gauge_msg: MsgCreateGauge,
-) -> Result<Response, TokenFactoryError>{
-    Ok(Response::new().add_message(gauge_msg))
-}
+// fn create_gauge(
+//     gauge_msg: MsgCreateGauge,
+// ) -> Result<Response, TokenFactoryError>{
+//     Ok(Response::<NeutronMsg>::new().add_message(gauge_msg))
+// }
 
 /// Query's Position Basket collateral supplyCaps and finds the owner's ratio of the total supply
 // fn get_owner_liquidity_multiplier(
@@ -643,7 +663,7 @@ pub fn burn_tokens(
     denom: String,
     amount: Uint128,
     burn_from_address: String,
-) -> Result<Response, TokenFactoryError> {    
+) -> Result<Response<NeutronMsg>, TokenFactoryError> {    
     let config = CONFIG.load(deps.storage)?;
 
     //Assert Authority
@@ -682,7 +702,7 @@ pub fn burn_tokens(
         },
     )?;
 
-    let burn_token_msg: CosmosMsg = TokenFactory::MsgBurn {
+    let burn_token_msg: CosmosMsg<NeutronMsg> = TokenFactory::MsgBurn {
         sender: env.contract.address.to_string(),
         amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin{
             denom,
@@ -691,7 +711,7 @@ pub fn burn_tokens(
         burn_from_address: burn_from_address.clone(),
     }.into();
 
-    let res = Response::new()
+    let res = Response::<NeutronMsg>::new()
         .add_attribute("method", "burn_tokens")
         .add_attribute("amount", amount)
         .add_attribute("burn_from_address", burn_from_address)
@@ -703,30 +723,27 @@ pub fn burn_tokens(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
-        QueryMsg::Config { } => to_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::GetOwner { owner } => to_binary(&get_contract_owner(deps, owner)?),
+        QueryMsg::Config { } => to_json_binary(&CONFIG.load(deps.storage)?),
+        QueryMsg::GetOwner { owner } => to_json_binary(&get_contract_owner(deps, owner)?),
         QueryMsg::GetDenom {
             creator_address,
             subdenom,
-        } => to_binary(&get_denom(deps, creator_address, subdenom)?),
-        QueryMsg::GetContractDenoms { limit } => to_binary(&get_contract_denoms(deps, limit)?),
-        QueryMsg::PoolState { id } => to_binary(&get_pool_state(deps, id)?),
-        QueryMsg::GetTokenInfo { denom } => to_binary(&get_token_info(deps, denom)?),
-        QueryMsg::GetSwapRoutes { } => to_binary(&SWAP_ROUTES.load(deps.storage)?),
+        } => to_json_binary(&get_denom(deps, creator_address, subdenom)?),
+        QueryMsg::GetContractDenoms { limit } => to_json_binary(&get_contract_denoms(deps, limit)?),
+        // QueryMsg::PoolState { id } => to_json_binary(&get_pool_state(deps, id)?),
+        QueryMsg::GetTokenInfo { denom } => to_json_binary(&get_token_info(deps, denom)?),
+        QueryMsg::GetSwapRoutes { } => to_json_binary(&SWAP_ROUTES.load(deps.storage)?),
     }
 }
 
 /// Returns state data regarding a specified contract owner
-fn get_contract_owner(deps: Deps, owner: String) -> StdResult<OwnerResponse> {
+fn get_contract_owner(deps: Deps, owner: String) -> StdResult<NeutronOwner> {
     let config = CONFIG.load(deps.storage)?;
     if let Some(owner) = config.clone().owners.into_iter().find(|stored_owner| stored_owner .owner == owner) {
 
         // If we end up with multiple positions contracts, we'll need to query OP's total minted in the Positions contracts instead of only using the Basket's total minted
 
-        Ok(OwnerResponse {
-            owner, 
-            liquidity_multiplier: config.liquidity_multiplier.unwrap_or_else(|| Decimal::one()),
-        })
+        Ok(owner)
     } else {
         Err(StdError::generic_err("Owner not found"))
     }
@@ -765,25 +782,6 @@ fn get_contract_denoms(deps: Deps, limit: Option<u32>) -> StdResult<ContractDeno
             denoms,
         }
     )
-}
-
-/// Returns PoolStateResponse for a specified pool id
-fn get_pool_state(
-    deps: Deps,
-    pool_id: u64,
-) -> StdResult<PoolStateResponse> {
-    let liquidity_res: osmosis_std::types::osmosis::poolmanager::v1beta1::TotalPoolLiquidityResponse = PoolmanagerQuerier::new(&deps.querier).total_pool_liquidity(pool_id)?;
-    let shares_res: osmosis_std::types::osmosis::gamm::v1beta1::QueryTotalSharesResponse = match GammQuerier::new(&deps.querier).total_shares(pool_id){
-        Ok(res) => res,
-        //We return None as it'll error for CL pools but I'm pretty sure we need this query for GAMM pricing in the oracle
-        Err(_) => osmosis_std::types::osmosis::gamm::v1beta1::QueryTotalSharesResponse { total_shares: None }
-    };
-        
-    Ok(PoolStateResponse { 
-        assets: liquidity_res.liquidity, 
-        shares: shares_res.total_shares.unwrap_or_default(),
-    })
-    
 }
 
 /// Returns denom for a specified creator address and subdenom
@@ -829,11 +827,11 @@ pub fn validate_denom(denom: String) -> Result<(), TokenFactoryError> {
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
+pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response<NeutronMsg>> {
     match msg.id {
         CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, env, msg),
         SWAP_REPLY_ID => handle_swap_reply(deps, env, msg),
-        USE_BALANCE_SWAP_REPLY_ID => handle_swap_balances_reply(deps, env, msg),
+        _USE_BALANCE_SWAP_REPLY_ID => handle_swap_balances_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }
@@ -842,21 +840,31 @@ fn handle_swap_balances_reply(
     deps: DepsMut,
     env: Env,
     msg: Reply,
-) -> StdResult<Response> {
+) -> StdResult<Response<NeutronMsg>> {
     match msg.result.into_result() {
         Ok(_) => {
+            let config = CONFIG.load(deps.storage)?;
             //Get swapper
             let swap_info = SWAP_INFO.load(deps.storage)?;
 
             //Swap all assets in the contract
             let balances = deps.querier.query_all_balances(&env.contract.address)?;
 
+            //Filter out transmutation token_ins
+            let transmutation_token_ins: Vec<String> = config.transmutation_pairs.into_iter().map(|pair| pair.token_in).collect();
+            let filtered_funds: Vec<Coin> = balances.iter().filter(|coin| !transmutation_token_ins.contains(&coin.denom)).cloned().collect();
+            let _filtered_denoms: Vec<String> = balances.iter().filter(|coin| transmutation_token_ins.contains(&coin.denom)).map(|coin| coin.denom.clone()).collect();
+
+            //If no funds left after filtering, error
+            if filtered_funds.is_empty() {
+                return Err(StdError::GenericErr { msg: String::from("No funds left after filtering") });
+            }
             //Execute swap with new balances
             let res = match execute_swaps(
                 deps, 
                 env, 
                 swap_info.swapper.clone(),
-                balances.clone(),
+                filtered_funds.clone(),
                 swap_info.token_out.clone(),
                 swap_info.max_slippage.clone(),
             ){
@@ -866,7 +874,7 @@ fn handle_swap_balances_reply(
 
             return Ok(res
             .add_attribute("swap_info", format!("{:?}", swap_info))
-            .add_attribute("tokens_received", format!("{:?}", balances)))
+            .add_attribute("tokens_received", format!("{:?}", filtered_funds)))
         } //We only reply on success
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }
@@ -876,27 +884,57 @@ fn handle_swap_reply(
     deps: DepsMut,
     env: Env,
     msg: Reply,
-) -> StdResult<Response> {
+) -> StdResult<Response<NeutronMsg>> {
     match msg.result.into_result() {
         Ok(_) => {
+            //Load config
+            let config = CONFIG.load(deps.storage)?;
             //Get swapper
-            let swapper = SWAP_INFO.load(deps.storage)?.swapper;
+            let swap_info = SWAP_INFO.load(deps.storage)?;
+            let swapper = swap_info.clone().swapper;
 
-            //Send all assets in the contract to the swapper
+
+            // Current balances
             let balances = deps.querier.query_all_balances(&env.contract.address)?;
 
-            let msg: CosmosMsg = CosmosMsg::Bank(BankMsg::Send {
+            // Filter out transmutation token_ins
+            let transmutation_token_ins: Vec<String> = config.transmutation_pairs.into_iter().map(|pair| pair.token_in).collect();
+
+            // Compute delta: only send newly received funds (current - previous), excluding token_ins
+            let mut new_funds: Vec<Coin> = Vec::new();
+            for coin in balances.iter() {
+                if transmutation_token_ins.contains(&coin.denom) {
+                    continue;
+                }
+                let prev_amount = swap_info
+                    .prev_balances
+                    .iter()
+                    .find(|c| c.denom == coin.denom)
+                    .map(|c| c.amount)
+                    .unwrap_or(Uint128::zero());
+                if coin.amount > prev_amount {
+                    new_funds.push(Coin { denom: coin.denom.clone(), amount: coin.amount - prev_amount });
+                }
+            }
+
+            // If no new funds were received, do not send anything
+            if new_funds.is_empty() {
+                return Err(StdError::GenericErr { msg:  format!("No new funds received. Old balances: {:?} --- New balances: {:?}", swap_info.prev_balances, balances) });
+            }
+
+            // Send only the newly received funds to the swapper
+            let msg: CosmosMsg<NeutronMsg> = CosmosMsg::Bank(BankMsg::Send {
                 to_address: swapper.clone().to_string(),
-                amount: balances.clone(),
+                amount: new_funds.clone(),
             });
 
             //Remove swapper
             // SWAP_INFO.remove(deps.storage);
             //Don't remove incase we have 2 swap replies due to a special exit
 
-            return Ok(Response::new()
-            .add_attribute("swapper", swapper)
-            .add_attribute("tokens_received", format!("{:?}", balances))
+            return Ok(Response::<NeutronMsg>::new()
+            .add_attribute("swap_info", format!("{:?}", swap_info))
+            .add_attribute("tokens_received", format!("{:?}", new_funds))
             .add_message(msg))
         } //We only reply on success
         Err(err) => return Err(StdError::GenericErr { msg: err }),
@@ -908,7 +946,7 @@ fn handle_create_denom_reply(
     deps: DepsMut,
     _env: Env,
     msg: Reply,
-) -> StdResult<Response> {
+) -> StdResult<Response<NeutronMsg>> {
     match msg.result.into_result() {
         Ok(result) => {
             //Load Pending TokenInfo
@@ -935,11 +973,11 @@ fn handle_create_denom_reply(
         } //We only reply on success
         Err(err) => return Err(StdError::GenericErr { msg: err }),
     }
-    Ok(Response::new())
+    Ok(Response::<NeutronMsg>::new())
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response<NeutronMsg>, TokenFactoryError> {
     //Query routes from the test OP
     // let routes: Vec<SwapRoute> = deps.querier.query_wasm_smart::<Vec<SwapRoute>>(
     //     "osmo1968gjpryrmvkydzw47dfdae0p9jzy43p4ckr9geswekm73j4ufkq5tz07q".to_string(),

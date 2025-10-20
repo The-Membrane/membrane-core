@@ -30,6 +30,7 @@ members = [
     "contracts/vol-earn-vault",
     "contracts/racing-revenue",
     "contracts/revenue-distributor",
+    "contracts/neutron-proxy",
     "contracts/transmuter",
 ]
 

@@ -29,7 +29,7 @@ use crate::liquidations::get_deployable_venues_user_repay_amount;
 use crate::query::{get_cAsset_ratios, get_avg_LTV, insolvency_check};
 use crate::rates::accrue;
 use crate::risk_engine::update_basket_tally;
-use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, CollateralVolatility, Timer, AFFILIATES, BASKET, CLOSE_POSITION, FREEZE_TIMER, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY, create_collateral_rate_assurance};
+use crate::state::{create_collateral_rate_assurance, get_target_position, update_cdt_supply, update_position, update_position_claims, ClosePositionPropagation, CollateralVolatility, Timer, AFFILIATES, BASKET, CLOSE_POSITION, FREEZE_TIMER, REDEMPTION_OPT_IN, STORED_PRICES, VOLATILITY};
 use crate::{
     state::{
         WithdrawPropagation, CONFIG, POSITIONS, LIQUIDATION, WITHDRAW, USER_INTENTS
@@ -775,6 +775,9 @@ pub fn repay(
     //Save updated repayment price and debts
     BASKET.save(storage, &basket)?;
 
+    //Update CDT Supply Growth Tracker
+    update_cdt_supply(storage, env.clone(), basket.credit_asset.amount)?;
+
     if !removed {
         //Check that state was saved correctly
         check_repay_state(
@@ -1344,7 +1347,7 @@ pub fn increase_debt(
                 }               
                 else if let Some(_) = deployment_intent.clone() {
                     //mint to the contract so it can send it to the Deployment Venue
-                    env.contract.address
+                    env.clone().contract.address
                 } else {
                     info.clone().sender
                 }
@@ -1410,6 +1413,9 @@ pub fn increase_debt(
     } else {
         return Err(ContractError::NoRepaymentPrice {});
     }
+
+    //Update CDT Supply Growth Tracker
+    update_cdt_supply(deps.storage, env.clone(), basket.credit_asset.amount)?;
 
     //Check state changes
     check_debt_increase_state(

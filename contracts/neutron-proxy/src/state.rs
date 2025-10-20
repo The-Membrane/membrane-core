@@ -1,10 +1,10 @@
 use cosmwasm_schema::cw_serde;
 
-use cosmwasm_std::{Uint128, Decimal, Addr};
+use cosmwasm_std::{Uint128, Decimal, Addr, Coin};
 use cw_storage_plus::{Item, Map};
 
-use membrane::osmosis_proxy::Config;
-use membrane::types::SwapRoute;
+use membrane::neutron_proxy::Config;
+use membrane::types::{SwapRoute, TransmutationPair};
 
 #[cw_serde]
 pub struct TokenInfo {
@@ -28,6 +28,7 @@ pub struct PendingTokenInfo {
 #[cw_serde]
 pub struct SwapInfo {
     pub swapper: Addr,
+    pub prev_balances: Vec<Coin>,
     pub token_out: String,
     pub max_slippage: Decimal,
 }

@@ -57,6 +57,9 @@ mod tests {
             positions_contract: Some(String::from("positions_contract")),
             liquidity_contract: Some(String::from("liquidity_contract")),
             oracle_contract: Some(String::from("oracle_contract")),
+            edit_routes: None,
+            transmutation_pairs: None,
+            restrict_mbrn_mints: None,
         };
         let info = mock_info("creator", &coins(2, "token"));
         execute(deps.as_mut(), mock_env(), info, msg).unwrap();       
@@ -89,6 +92,7 @@ mod tests {
             positions_contract: Some(Addr::unchecked("positions_contract")),
             liquidity_contract: Some(Addr::unchecked("liquidity_contract")),
             oracle_contract: Some(Addr::unchecked("oracle_contract")),
+            restrict_mbrn_mints: Some(false),
         };
 
         let response = query(deps.as_ref(), mock_env(), QueryMsg::Config {  }).unwrap();

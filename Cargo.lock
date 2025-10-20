@@ -1141,6 +1141,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 
 [[package]]
+name = "neutron-proxy"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cosmwasm-storage",
+ "cw-multi-test 1.2.0",
+ "cw-storage-plus 1.2.0",
+ "cw2 0.13.4",
+ "itertools 0.10.5",
+ "membrane",
+ "osmosis-std 0.16.2",
+ "prost 0.11.9",
+ "schemars",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "neutron-sdk"
 version = "0.10.0"
 source = "git+https://github.com/neutron-org/neutron-sdk?rev=98d81ea#98d81ea8dfdab87483eccf0acc22264263e789f8"

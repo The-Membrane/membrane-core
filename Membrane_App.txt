@@ -1,0 +1,10 @@
+App Notes:
+- Have the onboarding be like a low risk game tutorial where it goes step by step, nothing is signed until the end & walks thru collateral > minting > deployment
+- incorporate Euler's "pending actions" tab on the right hand side. It'll have position info & pending actions stacked, where opening one hides the other. On mobile we can make it a hamburger-type menu but likely a different icon to avoid confusion.
+
+
+
+
+
+MUST HAVE FIXES:
+Liquidations are failing to sim: "["simulate",null,"osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0","osmosis-1","protocol_liquidation_sim","[object Object]"] data is undefined"

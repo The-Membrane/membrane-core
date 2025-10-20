@@ -1,0 +1,124 @@
+REMOVE PERMA LIQUIDATION WHEN DONE TESTING
+
+TODO: 
+    SYSTEM DISCOUNTS
+    - Add logic to handle timed free sample periods (done)
+
+    CDP
+    - ClosePosition needs to exit thru deployments before selling collateral (done)
+
+    Osmosis Proxy 
+    - Disable new non-transmuter portal Mints (TEST AND FIX GLOBAL CONTRACT ERRORS)
+    - Disable supply tracking so discrepencies don't cause full closes to error (done)
+
+    Oracle
+    - basic functionality, won't launch without either TWAPs or circuit breakers (TWAPS)
+
+    Misc
+    - Create first deployment venue
+
+    CDP
+    - Create a post-liq check instead of a circuit breaker 
+
+- Test deployment venue fail logic (done)
+- Test active deployment venues (done)
+- Test fee to the transmuter for any usage that isn't from the CDP or a deployable venue. (done)
+-- We don't want this used as an LP.
+- Add state tracker for total deployed USDC (Asset A) (done)
+-- so instead of a ratio of assets, we can make sure we attract enough CDT back to fulfill recoveries (done)
+- Revenue contract needs to send as VT to the disco. (done)
+- Add revenue paid to repay attributes to make points easier (done)
+- Add LTV usage from LTV Disco to CDP (done)
+
+- CDP profit tracking (doneish ?)
+-- Tracking interesrt accrued on a position to track costs
+-- Track profits in a deployment venue to track profits
+
+- All deployment vaults (+ Disco) need profit tracking (done)
+
+
+
+
+Liquidations
+- No SP (done)
+- Have deployments saved per user in state to make recovery more efficient, instead of querying each possible location. (done)
+-- need to test deployment user repay (done)
+-- change the current user repay test to include deployments once that logic is done (done)
+
+- Make Neutron chain proxy for market sales and tokenfactory (done)
+-- we need to have MBRN mints in order for the debt_auction to work
+
+
+
+Risk Management
+- Collateral rate assurance (done)
+- Toggle PID & price based rates off (done)
+- Individualize all rates. (done)
+
+
+LTV Disco
+- Check how the CDP will send the bad debt, we'll likely have to make the bad debt fulfillment thru the LTVDisco async for cost savings. (done)
+-- uf async, we'll need a lgobal total deposit store that accounts for pending bad debt to make the decision to send bad debt to the disco low cost. Sync, we do balance. Async we do the GTD query.
+- Create a Disco queue on asset addition in the CDP (done)
+- The Disco needs to save a % of revenue to disperse over a time period once liquidations begin (done)
+-- the rest will be sent as it comes (this is so we are paying alpha seekers for risk parms & junior tranches for liq backstop without having to lock capital)
+-- Since we're adding liquidation history state, we will query and check the history in the DisperseRevenue call to determine if dispersal should be active if it isn't already
+
+
+Transmuter
+- make sure the Transmute VT can work with the LTV Disco (done)
+-- revenue contract can send any composition of deposit tokens to the Transmuter (done)
+-- Bad debt fulfillment in CDP needs to update to use the Disco first, before the auction (done)
+-- Have the auction send assets to the CDP using FulfillBadDebt (done)
+
+Collateral
+- Mars Collateral VT (done)
+
+
+Deployments 
+- Logic and ExecuteMsgs using SetUserIntent (done)
+
+- Create separate Intent contract that calls FulfillIntent from the deployment structs
+-- This will pull underlying assets (withdraw and exit) and fulfill the intent from them 
+-- Get the logic from the range bound lp vault (state, reply and exec fns)
+
+- Mars risk mirror for the Disco
+- Mars managed vaults
+- Mars USDC (use the VT)
+
+
+
+Config
+- Change osmosis_proxy to chain_proxy (done)
+
+
+SYSTEM DISCOUNTS
+- Add logic to handle timed free sample periods
+
+CDP
+- ClosePosition needs to exit thru deployments before selling collateral
+
+- Add profit tracking for individual deployments (to avoid storage limits, these need to be in a individual map for each Vec) (done)
+- Add a global profit since ___ storage  (struct with global tracker and then vec<> for time-based stats) (No, profits in deployments)
+- Liquidation stat tracker (an array that tracks time, assets and ID of liquidation so we can chart spikes & collateral makeup) (done)
+
+- Add a "referral" field to CDPs that direct a percent of revenue to them. (done, called affiliates)
+-- time_referred field that resets on position repayment 
+-- We want to incentivize product creators 
+-- How do we do this without just reducing global revenue as everyone sets referrals? (Reduce value capture for long term growth)
+
+Osmosis Proxy 
+- Disable new non-transmuter portal Mints
+- Disable supply tracking so discrepencies don't cause full closes to error
+
+
+********MIGRATION NOTES*********
+- Open the Osmosis portal of the transmutor by upgrading the Osmosis Proxy (needs a prop)
+- Only offer BTCs, NTRNs, USDC + mars VTs
+- Transmuter will start at 1:0 ratio for USDC:CDT so we aren't incentivizing CDT, just USDC
+- Set up the revenue_destinations in the revenue-distributor 
+
+Management NOTES:
+- Toggle PID off and remove price-based rates  (price-based rates = worst collateral concentration)(PID rates effect lower risk users less but added cost for everyone)
+-- For the future when we need to decouple from our peg asset BUT retain stability, we will peg to price or LTV.
+-- We'd want our peg to follow the global asset inflation. As asset prices increase due to our peg losing relative value, we want our peg price to increase, vice versa.

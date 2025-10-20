@@ -1,0 +1,37 @@
+
+***********V3***************
+Points system
+- abstract deployment venue points so they are simple adds
+
+Maze Runners
+- Remove energy, ensure tournaments are permissionless
+
+Transmuter
+- create a vault that acts as a yieldless transmuter product ( we can then do the Noble-esqe yield and incentive split)
+
+CDPs
+- Can we boost LTVs with the retrival guarantees? (Remember that certain scenarios may cause CDT liq to dry up, erroring the recovery)
+- Add more DeFi tokens as collateral past just Mars (Can also add these as Deployment venues for a Defi <> CDT <> DeFi setup)
+- NFTize all positions (v4)
+
+Intents
+- Can we make a CDP (loan) intent fulfillment contract to improve UX without packing the CDP contract?
+-- profitability repay/deploy intents 
+
+Deployments
+- MM-esqe LP vaults for all stablecoin pairs as deployment venues
+- PCL Vaults for all stable/vol pairs as deployment venues
+- Meta deployment contract (users pick collateral and asset risk (LTV) and let their yield be managed)
+
+DISCOUNTS
+- Give discounts for CDT denominated deployment venues
+
+Apple Migration Versioning
+- We’d need a versioning contract that holds all the addresses and details for new versions (name, GH link, notes).
+- And then also an “automatic download” path that is simply the status quo.
+- To migrate contracts with assets we’d need migrate fns, probably only works for CDP tho, bc if we had to migrate multiple LQ contracts the efficiencies would plummet. So we’ll need to figure out which contracts we can do this for, the CDP for sure though. CDP will likely mean any contract it uses directly as well so like oracle. LQ migrations need to be 1 contract or liquidators get friction.
+- Can get code_ids from cw2
+
+Revenue Distribution Contract (done)
+- This will handle revenue distro msgs async from the CDP so we don't have to worry about overloading msg calls
+- Distro to protocols, Neutron, affiliates and all internal contracts

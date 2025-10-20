@@ -595,7 +595,7 @@ pub fn execute_simulate_race(
     max_race_ticks: Option<u32>,
 ) -> Result<Response, ContractError> {
     let config = get_config(deps.storage)?;
-    let mut msgs = vec![];
+    // let mut msgs = vec![];
     
     // Validate input
     if car_ids.len() < MIN_CARS {
@@ -887,7 +887,7 @@ pub fn execute_simulate_race(
     // }
 
     response = response
-        .add_messages(msgs)
+        // .add_messages(msgs)
         .add_attribute("method", "simulate_race")
         .add_attribute("race_id", race_id)
         .add_attribute("car_count", car_ids.len().to_string())

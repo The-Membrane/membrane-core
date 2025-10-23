@@ -7,16 +7,20 @@ When welcoming new followers, give them a short pitch of:
 - What's on the way
 "Welcome within The Membrane ___🌐
 Home to the currency you deserve.
-
 Fueled by autonomous risk management and intimate connection with DeFi protocols, we enable automated, liquidation-protected yield boosting to proliferate CDT throughout all of DeFi.
-
 As we progress, you can stay up to date here. Happy to have you on this path to a truly decentralized reserve currency.
-
 Boost your yields here:
-
 Power our autonomous management here: "
 (May add educational thread pointer or roadmap pieces)
 
+- Marketing idea: “you are here” pointed at the mushroom inbetween 2 trees.
+- “We r stronger together”
+- *Beating Goliath as a collective david* 
+-- David built out of hexagons that showcase the realities of the unseen 
+- “The world runs based on ordinary actions of the collective, the unrecognized actions of the unseen”
+- “We stand on the shoulders of the systems we don’t have to think about run by our own people. Garbage. Plumbing. Electricity. Internet. You don’t know how any of it works yet your life wouldn’t work without it.”
+- “Stay connected”
+-- but stay connected doesn’t mean always on, but that we are better together. 
 
 (Points System): "Giving system operators stake as they make the stake valuable. Its common sense."
 - Operators must benefit from the growth of the system

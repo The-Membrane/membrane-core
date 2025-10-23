@@ -13,6 +13,7 @@ use crate::ContractError;
 use crate::risk_engine::update_basket_tally;
 
 const MAX_CDT_SUPPLY_ENTRIES: usize = 500;
+const MAX_ORACLE_ENTRIES: usize = 100;
 
 #[cw_serde]
 pub struct ContractVersion {
@@ -102,6 +103,12 @@ pub struct SupplyTimestamp {
     pub timestamp: u64,
 }
 
+#[cw_serde]
+pub struct PriceTimestamp {
+    pub price: String,
+    pub timestamp: u64,
+}
+
 pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
 pub const CONFIG: Item<Config> = Item::new("config");
@@ -139,8 +146,41 @@ pub const COLLATERAL_RATE_ASSURANCE: Map<String, CollateralRateAssurance> = Map:
 
 // CDT Supply Growth Tracker
 pub const CDT_SUPPLY: Item<Vec<SupplyTimestamp>> = Item::new("cdt_supply");
+/// Historical Oracle Price tracker
+pub const HISTORICAL_ORACLE_PRICES: Map<String, Vec<PriceTimestamp>> = Map::new("historical_oracle"); //asset, price
 
 //Helper functions
+
+/// Update CDT Supply Growth Tracker
+pub fn update_historical_oracle(
+    storage: &mut dyn Storage,
+    env: Env,
+    asset: String,
+    price: String,
+) -> StdResult<()> {
+    let mut historicale = HISTORICAL_ORACLE_PRICES.may_load(storage, asset.clone())?.unwrap_or_else(|| vec![]);
+
+    //If the price is the same as the last price, don't add it
+    if historicale.len() > 0 && historicale.last().unwrap().price == price {
+        return Ok(());
+    } else {
+        //Add new price
+        historicale.push(PriceTimestamp {
+            timestamp: env.block.time.seconds(),
+            price,
+        });
+    }
+
+    //Prune up to 100 .
+    //Basic remove bc we polish per addition.
+    if historicale.len() > MAX_ORACLE_ENTRIES {
+        historicale.remove(0);
+    }
+    println!("historicale: {:?}", historicale);
+    //Save new CDT Supply Growth Tracker
+    HISTORICAL_ORACLE_PRICES.save(storage, asset, &historicale)?;
+    Ok(())
+}
 /// Update CDT Supply Growth Tracker
 pub fn update_cdt_supply(
     storage: &mut dyn Storage,

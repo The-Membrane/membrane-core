@@ -280,6 +280,11 @@ pub enum QueryMsg {
         /// Response limiter
         limit: Option<u32>,
     },
+    /// Returns historical oracle prices for an asset
+    GetHistoricalOraclePrices {
+        /// Asset to query historical prices for
+        asset: String,
+    },
 }
 
 #[cw_serde]
@@ -704,5 +709,16 @@ pub struct InsolvencyResponse {
 pub struct UserIntentResponse {
     pub user: String,
     pub intent: UserDeploymentIntents
+}
+
+#[cw_serde]
+pub struct HistoricalOraclePricesResponse {
+    pub prices: Vec<PriceTimestamp>,
+}
+
+#[cw_serde]
+pub struct PriceTimestamp {
+    pub price: String,
+    pub timestamp: u64,
 }
 

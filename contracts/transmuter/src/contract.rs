@@ -108,7 +108,7 @@ pub fn instantiate(
         deposit_pair: msg.clone().deposit_pair,
         composition_leeway: msg.clone().composition_leeway,
         asset_a_to_b_rate: msg.clone().asset_a_to_b_rate,
-        target_ratio: msg.clone().target_ratio,
+        target_ratio: msg.clone().target_ratio,  
         usage_fee,
         swap_history_cap: msg.clone().swap_history_cap,
         volume_history_cap: msg.clone().volume_history_cap,

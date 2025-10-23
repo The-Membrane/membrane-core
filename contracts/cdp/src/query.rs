@@ -11,7 +11,7 @@ use cw_storage_plus::Bound;
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::cdp::{
     Config, CollateralInterestResponse, UserIntentResponse,
-    InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse, LiquidationStatResponse,
+    InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse, LiquidationStatResponse, HistoricalOraclePricesResponse
 };
 use membrane::ltv_disco::{QueryMsg as LTVDiscoQueryMsg, AverageLTVsResponse};
 
@@ -21,7 +21,7 @@ use membrane::types::{
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::positions::get_amount_from_LTV;
-use crate::state::{get_target_position, CollateralVolatility, ACTIVE_DEPLOYMENT_VENUES, BASKET, CONFIG, LIQUIDATION_STATS, POSITIONS, REDEMPTION_OPT_IN, STORED_PRICES, USER_INTENTS, VOLATILITY};
+use crate::state::{get_target_position, CollateralVolatility, ACTIVE_DEPLOYMENT_VENUES, BASKET, CONFIG, HISTORICAL_ORACLE_PRICES, LIQUIDATION_STATS, POSITIONS, REDEMPTION_OPT_IN, STORED_PRICES, USER_INTENTS, VOLATILITY, update_historical_oracle};
 
 const MAX_LIMIT: u32 = 31;
 pub const VOLATILITY_LIST_LIMIT: u32 = 48;
@@ -360,6 +360,15 @@ pub fn get_cAsset_ratios(
 
     //Loop through collateral assets to save prices & volatility
     for (i, cAsset) in collateral_assets.iter().enumerate() {
+
+        // Update historical oracle for this fresh price
+        let price_str = cAsset_prices[i].price.to_string();
+        let _ = update_historical_oracle(
+            storage,
+            env.clone(),
+            cAsset.asset.info.to_string(),
+            price_str,
+        );
         //Check if the querier used the stored price by asserting equality
         //This also skips any equal prices which should be fairly rare anyway
         let stored_price_res = STORED_PRICES.load(storage, cAsset.asset.info.to_string()); 
@@ -418,6 +427,7 @@ pub fn get_cAsset_ratios(
                 // volatility_store.index = Decimal::one().min(volatility_store.index);
                 //Save the new volatility store
                 VOLATILITY.save(storage, cAsset.asset.info.to_string(), &volatility_store)?;
+                
                 
                 //This index will be used to lower the Basket's supply caps on rate calculations & supply tallies
             }
@@ -950,4 +960,24 @@ pub fn insolvency_check_calc(
     };
 
     Ok((check, current_LTV, available_fee))
+}
+
+/// Returns historical oracle prices for an asset
+pub fn query_historical_oracle_prices(
+    deps: Deps,
+    asset: String,
+) -> StdResult<HistoricalOraclePricesResponse> {
+    let prices = HISTORICAL_ORACLE_PRICES.may_load(deps.storage, asset)?
+        .unwrap_or_else(|| vec![]);
+    
+    // Convert state::PriceTimestamp to membrane::cdp::PriceTimestamp
+    let converted_prices: Vec<membrane::cdp::PriceTimestamp> = prices
+        .into_iter()
+        .map(|pt| membrane::cdp::PriceTimestamp {
+            price: pt.price,
+            timestamp: pt.timestamp,
+        })
+        .collect();
+    
+    Ok(HistoricalOraclePricesResponse { prices: converted_prices })
 }

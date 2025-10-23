@@ -13,6 +13,9 @@ use cosmwasm_std::{Addr, Decimal, Timestamp, Uint128};
 /// is CDT -> USDC -> DeFi, this will be filled with CDT a lot.
 /// 
 /// So instead we'll add a whitelisting & rate-limiting mechanism to rate-limit any non-whitelisted addresses.
+/// And then add a global rate-limit threshold for all non-whitelisted addresses.
+/// 
+/// We also have no answer for if TVL gets pulled and deployed capital can't be transmuted back to CDT.
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -24,7 +27,7 @@ pub struct InstantiateMsg {
     pub deposit_pair: AssetPair,
     pub composition_leeway: Decimal,
     pub asset_a_to_b_rate: Decimal,
-    pub target_ratio: Decimal,
+    pub target_ratio: Decimal, //probably set to 0%, which means no CDT needed.
     pub usage_fee: Option<Decimal>,
     pub swap_history_cap: u32,
     pub volume_history_cap: u32,
@@ -108,6 +111,8 @@ pub struct Config {
     pub target_ratio: Decimal,
     /// Usage fee for any usage that isn't from the CDP or a deployable venue.
     /// This fee is set bc we don't want this to be used as an LP/arbitrage tool.
+    /// -- Issue with this is that without arb usage it won't be able to sustain itself.
+    /// -- But if we allow arbs, then CDT will track USDC's price. Is this bad?
     /// The fee creates a price floor though so if its set to 100% we'll just block any non-deployable venue usage.
     pub usage_fee: Decimal,
     pub swap_history_cap: u32,

@@ -26,7 +26,7 @@ use crate::positions::{
     BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQ_QUEUE_REPLY_ID, REVENUE_REPLY_ID, WITHDRAW_REPLY_ID, SELL_COLLATERAL_REPLY_ID, DEPLOYABLE_VENUE_REPLY_ID
 };
 use crate::query::{
-    query_active_deployment_venues, query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, query_liquidation_stats, query_user_intent_state, simulate_LTV_mint
+    query_active_deployment_venues, query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, query_liquidation_stats, query_user_intent_state, simulate_LTV_mint, query_historical_oracle_prices
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_close_position_reply, handle_liq_queue_reply, handle_revenue_reply, handle_sell_collateral_reply, handle_withdraw_reply, handle_deployable_venue_reply};
@@ -930,6 +930,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::GetActiveDeploymentVenues { venue, start_after, limit } => {
             to_json_binary(&query_active_deployment_venues(deps, venue, start_after, limit)?)
+        }
+        QueryMsg::GetHistoricalOraclePrices { asset } => {
+            to_json_binary(&query_historical_oracle_prices(deps, asset)?)
         }
     }
 }

@@ -5,10 +5,22 @@ use crate::types::DepositDenom;
 
 //NOTES: 
 // If the Transmuter is low on CDT, the bad debt fulfillment will error.
-// To prevent this from happening we need to keep the CDT balance of the Transmuter high enough.
+// To prevent this from happening we need to keep the CDT balance of the Transmuter high enough. 
+// (The transmuter helps do this by setting the target ratio to the mirror of deployed USDC)
 // The real problem with this erroring is that it'll block liquidations as well,
-//so if we can fix that without delaying the bad debt event, we should.
+// so if we can fix that without delaying the bad debt event, we should.
 // Solution: reply on error of the Transmuter's withdrawal to add errored VTs into account & then create a retry function for it.
+
+// HOW DO WE KEEP USERS FROM WITHDRAWING DURING ROCKY PERIODS?
+// Solution: We hold a portion of revenue to only disperse post-liquidation.
+
+// HOW DO WE PROTECT CDP USERS FROM BEING LIQUIDATED BY THE DYNAMIC LTVS CHANGING ?
+// As long as any capital is deployed, the LTVs will be dynamic 
+// but since the ratios can change based on the user withdrawing, there is no LTV param guaranteees.
+// Solution A: The CDP contract will slowly accrue the avg LTVs onto the config's base LTVS. (This protects CDP users from withdraws sinking LTV and liquidating users)
+// Solution B: If avg LTV or accrue step is going down, we change it once per period at a max of some % (say 5%)
+
+
 
 
 /// Instantiate message

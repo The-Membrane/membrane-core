@@ -32,6 +32,11 @@ Apple Migration Versioning
 - To migrate contracts with assets we’d need migrate fns, probably only works for CDP tho, bc if we had to migrate multiple LQ contracts the efficiencies would plummet. So we’ll need to figure out which contracts we can do this for, the CDP for sure though. CDP will likely mean any contract it uses directly as well so like oracle. LQ migrations need to be 1 contract or liquidators get friction.
 - Can get code_ids from cw2
 
+PRODUCT DISCOVERY
+(Create a drag and drop block like the track creator for strategies.
+This allows users to find new products for us. Or we can allow them to make it into a managed vault.
+It’d be best to track global Strats as a smart contract.)
+
 Revenue Distribution Contract (done)
 - This will handle revenue distro msgs async from the CDP so we don't have to worry about overloading msg calls
 - Distro to protocols, Neutron, affiliates and all internal contracts

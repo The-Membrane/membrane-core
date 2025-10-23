@@ -1,6 +1,10 @@
 REMOVE PERMA LIQUIDATION WHEN DONE TESTING
 
+CREATE GROWTH ROADMAP, HOW ARE WE GOING TO GET THERE.
+
 TODO: 
+    Transmuter
+    - global rate limit (make sure the rate limits include the accumulated swap amount to the total value so that the percentages are calculated correctly.)
     SYSTEM DISCOUNTS
     - Add logic to handle timed free sample periods (done)
 
@@ -15,10 +19,24 @@ TODO:
     - basic functionality, won't launch without either TWAPs or circuit breakers (TWAPS)
 
     Misc
-    - Create first deployment venue
+    - Create first deployment venue (Mars USDC)
+    - ensure (collateral) rate assurances are in place everywhere
 
     CDP
     - Create a post-liq check instead of a circuit breaker 
+    - Save on-deployment base collateral so we can create collateral growth graphs as well.
+
+
+    LTV Disco
+    - Historical bad debt per asset tracker 
+
+    Metrics
+    Profit metrics will be: (idk if these go in the deployment venue or the CDP)
+        - profit in deployment asset
+        - profit in collateral asset(s)
+        - current collateral prices 
+
+    Mars Risk Mirror contract 
 
 - Test deployment venue fail logic (done)
 - Test active deployment venues (done)

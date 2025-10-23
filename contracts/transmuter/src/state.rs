@@ -20,6 +20,9 @@ pub const RATE_LIMIT_FLOWS: Map<String, Vec<FlowEntry>> = Map::new("rate_limit_f
 // Tracks how much paired_asset is currently outstanding from allowlisted deployment venues
 pub const DEPLOYED_PAIRED_ASSET: Item<Uint128> = Item::new("deployed_paired_asset");
 
+// Global sliding window entries for all non-whitelisted addresses
+pub const GLOBAL_RATE_LIMIT_FLOWS: Item<Vec<FlowEntry>> = Item::new("global_rate_limit_flows");
+
 #[cw_serde]
 pub struct TransmuteSnapshot {
     pub offered_asset: String,

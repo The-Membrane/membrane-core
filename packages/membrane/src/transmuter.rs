@@ -13,9 +13,10 @@ use cosmwasm_std::{Addr, Decimal, Timestamp, Uint128};
 /// is CDT -> USDC -> DeFi, this will be filled with CDT a lot.
 /// 
 /// So instead we'll add a whitelisting & rate-limiting mechanism to rate-limit any non-whitelisted addresses.
-/// And then add a global rate-limit threshold for all non-whitelisted addresses.
+/// And then add a global rate-limit threshold for all non-whitelisted addresses to reduce CDTs price tracking of USDC.
 /// 
 /// We also have no answer for if TVL gets pulled and deployed capital can't be transmuted back to CDT.
+/// Solution: If TVL gets pulled while its used, there will be higher APRs for users.
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -39,6 +40,10 @@ pub struct InstantiateMsg {
     pub allowlist: Option<Vec<String>>, 
     /// Optional separate rate limit threshold for allowlisted addresses
     pub allowlist_rate_limit_threshold: Option<Decimal>,
+    /// Optional global rate limit window in seconds for all non-whitelisted addresses (default 24 hours)
+    pub global_rate_limit_window_secs: Option<u64>,
+    /// Optional global rate limit threshold as percentage of total deposits for all non-whitelisted addresses (default 20%)
+    pub global_rate_limit_threshold: Option<Decimal>,
 }
 
 #[cw_serde]
@@ -63,6 +68,10 @@ pub enum ExecuteMsg {
         allowlist: Option<Vec<crate::types::StringEntry>>, 
         /// Optional separate rate limit threshold for allowlisted addresses
         allowlist_rate_limit_threshold: Option<Decimal>,
+        /// Optional global rate limit window in seconds for all non-whitelisted addresses
+        global_rate_limit_window_secs: Option<u64>,
+        /// Optional global rate limit threshold as percentage of total deposits for all non-whitelisted addresses
+        global_rate_limit_threshold: Option<Decimal>,
     },
     EnterVault {
         recipient: Option<String>,
@@ -96,6 +105,8 @@ pub enum QueryMsg {
     EffectiveTarget {},
     /// Rate limit status for multiple addresses with optional pagination
     RateLimitMany { addresses: Option<Vec<String>>, start_after: Option<u64>, limit: Option<u32> },
+    /// Current global rate limit status for all non-whitelisted addresses
+    GlobalRateLimit {},
 }
 
 #[cw_serde]
@@ -123,6 +134,10 @@ pub struct Config {
     /// Allowlist of addresses (strings) with a separate threshold
     pub allowlist: Vec<String>,
     pub allowlist_rate_limit_threshold: Decimal,
+    /// Global rate limit window in seconds for all non-whitelisted addresses
+    pub global_rate_limit_window_secs: u64,
+    /// Global rate limit threshold as percentage of total deposits for all non-whitelisted addresses
+    pub global_rate_limit_threshold: Decimal,
 }
 
 
@@ -213,4 +228,12 @@ pub struct DeployedPairedAssetResponse {
 #[cw_serde]
 pub struct EffectiveTargetResponse {
     pub target: Decimal,
+}
+
+#[cw_serde]
+pub struct GlobalRateLimitResponse {
+    pub net_flow_base: i128,
+    pub threshold_base: Uint128,
+    pub remaining_base: Uint128,
+    pub entries_count: u64,
 }

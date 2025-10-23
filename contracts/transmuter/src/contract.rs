@@ -12,6 +12,7 @@ use membrane::tokenfactory::{burn_msg, create_denom_msg, mint_msg};
 use membrane::transmuter::{
     AssetPair, Config, ExecuteMsg, InstantiateMsg, QueryMsg, TransmuteHistoryResponse, SwapRecord,
     VaultInfoResponse, VolumeHistoryResponse, VolumeWindowResponse, RateLimitStatus, RateLimitStatusResponse, RateLimitManyResponse,
+    GlobalRateLimitResponse,
 };
 use membrane::types::StringEntry;
 use membrane::types::AssetInfo;
@@ -21,7 +22,7 @@ use crate::state::{
     append_transmute_snapshot, append_volume_window, apply_volume_update, history_slice,
     history_total, init_history, new_volume_window, CONFIG, TRANSMUTE_HISTORY, VOLUME_HISTORY,
     VOLUME_WINDOW, VAULT_TOKEN_SUPPLY, TransmuteSnapshot, RATE_LIMIT_FLOWS, FlowEntry, DEPLOYED_PAIRED_ASSET,
-    TOKEN_RATE_ASSURANCE, TokenRateAssurance,
+    TOKEN_RATE_ASSURANCE, TokenRateAssurance, GLOBAL_RATE_LIMIT_FLOWS,
 };
 
 const CONTRACT_NAME: &str = "membrane-transmuter";
@@ -99,6 +100,22 @@ pub fn instantiate(
         ));
     }
 
+    // Defaults for global rate limiting
+    let global_rate_limit_window_secs = msg.global_rate_limit_window_secs.unwrap_or(60 * 60 * 24); // 24 hours
+    if global_rate_limit_window_secs == 0 {
+        return Err(ContractError::Validation(
+            "global_rate_limit_window_secs must be greater than zero".into(),
+        ));
+    }
+    let global_rate_limit_threshold = msg
+        .global_rate_limit_threshold
+        .unwrap_or(Decimal::percent(20));
+    if global_rate_limit_threshold.is_zero() || global_rate_limit_threshold > Decimal::one() {
+        return Err(ContractError::Validation(
+            "global_rate_limit_threshold must be > 0 and <= 1".into(),
+        ));
+    }
+
     let config = Config {
         owner: owner.clone(),
         tokenfactory_contract: msg.clone().tokenfactory_contract,
@@ -116,6 +133,8 @@ pub fn instantiate(
         rate_limit_threshold,
         allowlist: msg.allowlist.unwrap_or_default(),
         allowlist_rate_limit_threshold: msg.allowlist_rate_limit_threshold.unwrap_or(rate_limit_threshold),
+        global_rate_limit_window_secs,
+        global_rate_limit_threshold,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -123,6 +142,7 @@ pub fn instantiate(
     init_history(deps.storage)?;
     VOLUME_WINDOW.save(deps.storage, &new_volume_window(env.block.time))?;
     DEPLOYED_PAIRED_ASSET.save(deps.storage, &Uint128::zero())?;
+    GLOBAL_RATE_LIMIT_FLOWS.save(deps.storage, &Vec::new())?;
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -165,6 +185,8 @@ pub fn execute(
             rate_limit_threshold,
             allowlist,
             allowlist_rate_limit_threshold,
+            global_rate_limit_window_secs,
+            global_rate_limit_threshold,
         } => execute_update_config(
             deps,
             env,
@@ -184,6 +206,8 @@ pub fn execute(
             rate_limit_threshold,
             allowlist,
             allowlist_rate_limit_threshold,
+            global_rate_limit_window_secs,
+            global_rate_limit_threshold,
         ),
         ExecuteMsg::EnterVault { recipient } => execute_enter_vault(deps, env, info, recipient),
         ExecuteMsg::DepositFee {} => execute_deposit_fee(deps, env, info),
@@ -216,6 +240,8 @@ fn execute_update_config(
     rate_limit_threshold: Option<Decimal>,
     allowlist: Option<Vec<StringEntry>>,
     allowlist_rate_limit_threshold: Option<Decimal>,
+    global_rate_limit_window_secs: Option<u64>,
+    global_rate_limit_threshold: Option<Decimal>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     ensure_owner(&config, &info.sender)?;
@@ -335,6 +361,24 @@ fn execute_update_config(
             ));
         }
         config.allowlist_rate_limit_threshold = wl_threshold;
+    }
+
+    if let Some(window) = global_rate_limit_window_secs {
+        if window == 0 {
+            return Err(ContractError::Validation(
+                "global_rate_limit_window_secs must be greater than zero".into(),
+            ));
+        }
+        config.global_rate_limit_window_secs = window;
+    }
+
+    if let Some(threshold) = global_rate_limit_threshold {
+        if threshold.is_zero() || threshold > Decimal::one() {
+            return Err(ContractError::Validation(
+                "global_rate_limit_threshold must be > 0 and <= 1".into(),
+            ));
+        }
+        config.global_rate_limit_threshold = threshold;
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -747,6 +791,38 @@ fn execute_transmute(
     entries.push(FlowEntry { amount_base: net_flow_signed, block_time: current_time });
     RATE_LIMIT_FLOWS.save(deps.storage, info.sender.to_string().clone(), &entries)?;
 
+    // Global rate limit check for non-whitelisted addresses
+    if !is_allowlisted {
+        // Load and prune global flows
+        let mut global_entries = GLOBAL_RATE_LIMIT_FLOWS.load(deps.storage).unwrap_or_default();
+        let global_start_secs = current_time.seconds().saturating_sub(config.global_rate_limit_window_secs);
+        let global_window_start = Timestamp::from_seconds(global_start_secs);
+        global_entries.retain(|e| e.block_time >= global_window_start);
+        
+        // Compute net total including current swap
+        let mut global_net_total: i128 = 0;
+        for e in &global_entries {
+            global_net_total = global_net_total.saturating_add(e.amount_base.i128());
+        }
+        global_net_total = global_net_total.saturating_add(net_flow_signed.i128());
+
+        let global_net_total_abs = if global_net_total < 0 { (-global_net_total) as u128 } else { global_net_total as u128 };
+
+        // Calculate global threshold (percentage of total deposits)
+        let global_threshold_amount = decimal_multiplication(
+            Decimal::from_ratio(total_deposits, Uint128::one()),
+            config.global_rate_limit_threshold,
+        )?.to_uint_floor();
+
+        if Uint128::from(global_net_total_abs) > global_threshold_amount {
+            return Err(ContractError::GlobalRateLimitExceeded {});
+        }
+
+        // Append current entry to global flows and persist
+        global_entries.push(FlowEntry { amount_base: net_flow_signed, block_time: current_time });
+        GLOBAL_RATE_LIMIT_FLOWS.save(deps.storage, &global_entries)?;
+    }
+
     // Update outstanding paired_asset for allowlisted flows
     if is_allowlisted && is_deployment_venue(&deps.querier, &info.sender, &config)? {
         let current = DEPLOYED_PAIRED_ASSET.load(deps.storage).unwrap_or_else(|_| Uint128::zero());
@@ -875,6 +951,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::RateLimitMany { addresses, start_after, limit } => {
             to_json_binary(&query_rate_limit_many(deps, env, addresses, start_after, limit)?)
+        }
+        QueryMsg::GlobalRateLimit {} => {
+            to_json_binary(&query_global_rate_limit(deps, env)?)
         }
     }
 }
@@ -1361,4 +1440,38 @@ fn execute_rate_assurance(
     //We're adding 1 to stop errors for rounding errors.
 
     Ok(Response::new())
+}
+
+fn query_global_rate_limit(
+    deps: Deps,
+    env: Env,
+) -> StdResult<GlobalRateLimitResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    let now = env.block.time;
+    let start_secs = now.seconds().saturating_sub(config.global_rate_limit_window_secs);
+    let window_start = Timestamp::from_seconds(start_secs);
+    let entries = GLOBAL_RATE_LIMIT_FLOWS
+        .load(deps.storage)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| e.block_time >= window_start)
+        .collect::<Vec<_>>();
+    let mut net_total: i128 = 0;
+    for e in &entries {
+        net_total = net_total.saturating_add(e.amount_base.i128());
+    }
+    let total_deposits = get_total_deposit_value(deps.querier, &env, &config)
+        .map_err(|_e| StdError::generic_err("Failed to query the contract for the total deposit value"))?;
+    let threshold_base = decimal_multiplication(
+        Decimal::from_ratio(total_deposits, Uint128::one()),
+        config.global_rate_limit_threshold,
+    )?.to_uint_floor();
+    let abs_net = if net_total < 0 { (-net_total) as u128 } else { net_total as u128 };
+    let remaining_base = if abs_net >= threshold_base.u128() { Uint128::zero() } else { Uint128::from(threshold_base.u128() - abs_net) };
+    Ok(GlobalRateLimitResponse {
+        net_flow_base: net_total,
+        threshold_base,
+        remaining_base,
+        entries_count: entries.len() as u64,
+    })
 }

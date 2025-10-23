@@ -4,7 +4,7 @@ CREATE GROWTH ROADMAP, HOW ARE WE GOING TO GET THERE.
 
 TODO: 
     Transmuter
-    - global rate limit (make sure the rate limits include the accumulated swap amount to the total value so that the percentages are calculated correctly.)
+    - global rate limit (done)
     SYSTEM DISCOUNTS
     - Add logic to handle timed free sample periods (done)
 

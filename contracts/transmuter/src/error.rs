@@ -29,4 +29,7 @@ pub enum ContractError {
 
     #[error("Rate limit exceeded for address {address}")]
     RateLimitExceeded { address: String },
+
+    #[error("Global rate limit exceeded for non-whitelisted addresses")]
+    GlobalRateLimitExceeded {},
 }

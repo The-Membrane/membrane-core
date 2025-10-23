@@ -31,6 +31,7 @@ use crate::query::{
 use crate::liquidations::liquidate;
 use crate::reply::{handle_close_position_reply, handle_liq_queue_reply, handle_revenue_reply, handle_sell_collateral_reply, handle_withdraw_reply, handle_deployable_venue_reply};
 use crate::state::{ get_target_position, update_position, update_position_claims, ContractVersion, ACTIVE_DEPLOYMENT_VENUES, AFFILIATES, BASKET, CLOSE_POSITION, COLLATERAL_RATE_ASSURANCE, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS, ClosePositionPropagation};
+use crate::ltv_updater::update_basket_ltvs;
 
 // use membrane::range_bound_lp_vault::{QueryMsg as RBLP_QueryMsg, UserIntentResponse};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
@@ -72,6 +73,9 @@ pub fn instantiate(
         affiliate_fee_max: Decimal::percent(5), //5%
         skip_credit_price_accrual: true,
         liquidation_stat_limit: 500,
+        ltv_upward_kp: Decimal::percent(5), // 5% of error per day
+        ltv_downward_period: 604800, // 1 week in seconds
+        ltv_max_downward_shift: Decimal::percent(5), // Max 5% shift per period
     };
 
     //Set optional config parameters
@@ -256,6 +260,7 @@ pub fn execute(
             send_to),
         ExecuteMsg::SetUserIntents { deployment_intent } => set_intents(deps, env, info, deployment_intent),
         ExecuteMsg::FulfillIntents { users } => fulfill_intents(deps, env, info, users),
+        ExecuteMsg::UpdateBasketLTVs {} => update_basket_ltvs(deps, env),
         ExecuteMsg::SetAffiliate { position_id, affiliate_address, affiliate_fee, label } => {
             set_affiliate(deps, env, info, position_id, affiliate_address, affiliate_fee, label)
         },

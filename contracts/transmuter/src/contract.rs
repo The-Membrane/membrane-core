@@ -109,7 +109,7 @@ pub fn instantiate(
     }
     let global_rate_limit_threshold = msg
         .global_rate_limit_threshold
-        .unwrap_or(Decimal::percent(20));
+        .unwrap_or(Decimal::percent(5));
     if global_rate_limit_threshold.is_zero() || global_rate_limit_threshold > Decimal::one() {
         return Err(ContractError::Validation(
             "global_rate_limit_threshold must be > 0 and <= 1".into(),

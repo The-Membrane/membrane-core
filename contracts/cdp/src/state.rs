@@ -109,6 +109,18 @@ pub struct PriceTimestamp {
     pub timestamp: u64,
 }
 
+#[cw_serde]
+pub struct LTVUpdateTracker {
+    /// Timestamp of last upward accrual
+    pub last_upward_update: u64,
+    /// Staged downward max_LTV (waiting to be applied)
+    pub staged_max_ltv: Option<Decimal>,
+    /// Staged downward max_borrow_LTV (waiting to be applied)
+    pub staged_max_borrow_ltv: Option<Decimal>,
+    /// Timestamp when downward values were staged (timer starts here)
+    pub staged_timestamp: Option<u64>,
+}
+
 pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
 pub const CONFIG: Item<Config> = Item::new("config");
@@ -148,6 +160,8 @@ pub const COLLATERAL_RATE_ASSURANCE: Map<String, CollateralRateAssurance> = Map:
 pub const CDT_SUPPLY: Item<Vec<SupplyTimestamp>> = Item::new("cdt_supply");
 /// Historical Oracle Price tracker
 pub const HISTORICAL_ORACLE_PRICES: Map<String, Vec<PriceTimestamp>> = Map::new("historical_oracle"); //asset, price
+/// LTV Update Trackers for dynamic LTV mechanism
+pub const LTV_UPDATE_TRACKERS: Map<String, LTVUpdateTracker> = Map::new("ltv_update_trackers"); //asset_denom, tracker
 
 //Helper functions
 

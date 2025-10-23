@@ -5,6 +5,9 @@ CREATE GROWTH ROADMAP, HOW ARE WE GOING TO GET THERE.
 TODO: 
     Transmuter
     - global rate limit (done)
+
+    - idle USDC sits in marsUSDC
+
     SYSTEM DISCOUNTS
     - Add logic to handle timed free sample periods (done)
 
@@ -23,12 +26,14 @@ TODO:
     - ensure (collateral) rate assurances are in place everywhere
 
     CDP
+    -- accrue positive growth to config LTV with the Disco's avg LTV
+    -- have downside per update limit & update stepwise to the downside 
+
     - Create a post-liq check instead of a circuit breaker 
     - Save on-deployment base collateral so we can create collateral growth graphs as well.
 
-
     LTV Disco
-    - Historical bad debt per asset tracker 
+    - Historical bad debt per asset tracker
 
     Metrics
     Profit metrics will be: (idk if these go in the deployment venue or the CDP)

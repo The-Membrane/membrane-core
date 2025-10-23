@@ -2217,6 +2217,9 @@ pub mod tests {
             skip_credit_price_accrual: None,
             liquidation_stat_limit: None,
             revenue_distributor: Some(revenue_distributor_contract_addr.to_string()),
+            ltv_upward_kp: None,
+            ltv_downward_period: None,
+            ltv_max_downward_shift: None,
         });
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
         app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2313,6 +2316,9 @@ pub mod tests {
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: Some("contract9".to_string()),
+            ltv_upward_kp: None,
+            ltv_downward_period: None,
+            ltv_max_downward_shift: None,
                 
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
@@ -4836,6 +4842,9 @@ pub mod tests {
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
+            ltv_upward_kp: None,
+            ltv_downward_period: None,
+            ltv_max_downward_shift: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7740,6 +7749,9 @@ pub mod tests {
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
+            ltv_upward_kp: None,
+            ltv_downward_period: None,
+            ltv_max_downward_shift: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7891,6 +7903,9 @@ pub mod tests {
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
+            ltv_upward_kp: None,
+            ltv_downward_period: None,
+            ltv_max_downward_shift: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8062,6 +8077,9 @@ pub mod tests {
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
+            ltv_upward_kp: None,
+            ltv_downward_period: None,
+            ltv_max_downward_shift: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10178,6 +10196,9 @@ pub mod tests {
                 skip_credit_price_accrual: Some(false),
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
+            ltv_upward_kp: None,
+            ltv_downward_period: None,
+            ltv_max_downward_shift: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10232,6 +10253,9 @@ pub mod tests {
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
+            ltv_upward_kp: None,
+            ltv_downward_period: None,
+            ltv_max_downward_shift: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
@@ -13180,6 +13204,9 @@ pub mod tests {
                 rate_hike_rate: None,
                 skip_credit_price_accrual: None,
                 revenue_distributor: None,
+            ltv_upward_kp: None,
+            ltv_downward_period: None,
+            ltv_max_downward_shift: None,
                 liquidation_stat_limit: None,
             });
             let cosmos_msg = cdp_contract.call(cfg, vec![]).unwrap();
@@ -13899,6 +13926,9 @@ pub mod tests {
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
+            ltv_upward_kp: None,
+            ltv_downward_period: None,
+            ltv_max_downward_shift: None,
             });
             let cosmos_msg = cdp_contract.call(cfg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -13982,6 +14012,9 @@ pub mod tests {
                 rate_slope_multiplier: None,
                 rate_hike_rate: None,
                 revenue_distributor: None,
+            ltv_upward_kp: None,
+            ltv_downward_period: None,
+            ltv_max_downward_shift: None,
                 affiliate_fee_max: None,
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: Some(2),

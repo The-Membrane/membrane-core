@@ -145,6 +145,9 @@ pub enum ExecuteMsg {
     },
     /// Fulfill minting intent
     FulfillIntents { users: Vec<String> },
+    /// Update basket LTVs based on Disco averages
+    /// Permissionless - can be called by anyone
+    UpdateBasketLTVs {},
     /// Edit the contract's Basket
     EditBasket(EditBasket),
     /// Edit a cAsset in the contract's Basket
@@ -346,6 +349,12 @@ pub struct Config {
     pub skip_credit_price_accrual: bool,
     /// Maximum number of liquidation stats stored
     pub liquidation_stat_limit: u64,
+    /// Proportional gain for upward LTV accrual (e.g., 0.05 = 5% of error per day)
+    pub ltv_upward_kp: Decimal,
+    /// Period for downward LTV shifts in seconds (e.g., 604800 = 1 week)
+    pub ltv_downward_period: u64,
+    /// Max downward shift per period as percentage (e.g., 0.05 = 5%)
+    pub ltv_max_downward_shift: Decimal,
 }
 
 
@@ -421,6 +430,12 @@ pub struct UpdateConfig {
     pub skip_credit_price_accrual: Option<bool>,
     /// Maximum number of liquidation stats stored
     pub liquidation_stat_limit: Option<u64>,
+    /// Proportional gain for upward LTV accrual
+    pub ltv_upward_kp: Option<Decimal>,
+    /// Period for downward LTV shifts in seconds
+    pub ltv_downward_period: Option<u64>,
+    /// Max downward shift per period as percentage
+    pub ltv_max_downward_shift: Option<Decimal>,
 }
 
 #[cw_serde]
@@ -530,6 +545,23 @@ impl UpdateConfig {
         }
         if let Some(liquidation_stat_limit) = self.liquidation_stat_limit {
             config.liquidation_stat_limit = liquidation_stat_limit;
+        }
+        if let Some(ltv_upward_kp) = self.ltv_upward_kp {
+            //Enforce 0-100% range (realistically should be much lower, like 0-20%)
+            if ltv_upward_kp > Decimal::percent(100) || ltv_upward_kp < Decimal::zero() {
+                return Err(StdError::GenericErr{ msg: String::from("LTV upward Kp must be between 0-100%") });
+            }
+            config.ltv_upward_kp = ltv_upward_kp;
+        }
+        if let Some(ltv_downward_period) = self.ltv_downward_period {
+            config.ltv_downward_period = ltv_downward_period;
+        }
+        if let Some(ltv_max_downward_shift) = self.ltv_max_downward_shift {
+            //Enforce 0-100% range
+            if ltv_max_downward_shift > Decimal::percent(100) || ltv_max_downward_shift < Decimal::zero() {
+                return Err(StdError::GenericErr{ msg: String::from("LTV max downward shift must be between 0-100%") });
+            }
+            config.ltv_max_downward_shift = ltv_max_downward_shift;
         }
         Ok(())
     }

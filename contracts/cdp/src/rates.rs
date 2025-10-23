@@ -27,8 +27,20 @@ pub fn external_accrue_call(
     position_owner: Option<String>,
     position_ids: Vec<Uint128>,
 ) -> Result<Response, ContractError>{
-    let mut basket = BASKET.load(storage)?;
     let config = CONFIG.load(storage)?;
+    
+    // Update basket LTVs before position accrual
+    // This ensures positions use the most up-to-date LTVs
+    let _ltv_response = crate::ltv_updater::update_basket_ltvs(
+        cosmwasm_std::DepsMut {
+            storage,
+            api,
+            querier,
+        },
+        env.clone(),
+    )?;
+    
+    let mut basket = BASKET.load(storage)?;
 
     //Validate position owner
     let valid_position_owner: Addr;

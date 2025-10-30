@@ -1,5 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Int128, StdError, StdResult, Storage, Timestamp, Uint128};
+use cosmwasm_std::{Addr, Decimal, Int128, StdError, StdResult, Storage, Timestamp, Uint128};
 use cw_storage_plus::{Item, Map};
 
 use membrane::transmuter::{Config, VolumeWindow};
@@ -25,6 +25,38 @@ pub const GLOBAL_RATE_LIMIT_FLOWS: Item<Vec<FlowEntry>> = Item::new("global_rate
 
 // Tracks accumulated fees (in paired_asset) that couldn't be converted to CDT yet
 pub const PENDING_REVENUE: Item<Uint128> = Item::new("pending_revenue");
+
+// ================= Incentives =================
+#[cw_serde]
+pub struct UserIncentives {
+    pub total_claimed: Uint128,
+    pub vault_tokens_in_contract: Uint128,
+    pub last_accrued: u64,
+}
+
+#[cw_serde]
+pub struct IncentiveSchedule {
+    pub last_accrued_time: u64,
+    pub start_time: u64,
+    pub total_monthly_emission: Uint128,
+}
+
+#[cw_serde]
+pub struct IncentiveEvent {
+    /// Amount per 1 vault token at the time of event
+    pub amount_per_vt: Decimal,
+    /// Event timestamp
+    pub time_of_event: u64,
+    /// Remaining total to be claimed from this event
+    pub amount_left_to_claim: Uint128,
+}
+
+/// User address -> UserIncentives
+pub const USER_INCENTIVES: Map<String, UserIncentives> = Map::new("user_incentives");
+/// Global incentive schedule
+pub const INCENTIVE_SCHEDULE: Item<IncentiveSchedule> = Item::new("incentive_schedule");
+/// Global list of incentive events
+pub const INCENTIVE_EVENTS: Item<Vec<IncentiveEvent>> = Item::new("incentive_events");
 
 #[cw_serde]
 pub struct TransmuteSnapshot {

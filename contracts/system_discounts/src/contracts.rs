@@ -9,7 +9,7 @@ use membrane::helpers::query_basket;
 use osmosis_std::shim::Duration;
 use osmosis_std::types::osmosis::lockup::{LockupQuerier, AccountLockedLongerDurationDenomResponse};
 
-use membrane::math::decimal_division;
+use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, UserDiscountResponse, UserBoostResponse, MigrateMsg};
 use membrane::stability_pool::QueryMsg as SP_QueryMsg;
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};

@@ -1,3 +1,4 @@
+
 use cosmwasm_std::{
     attr, coin, entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Int128, MessageInfo, QuerierWrapper, Response, StdError, StdResult, Storage, Timestamp, Uint128, WasmMsg
 };
@@ -14,6 +15,7 @@ use membrane::transmuter::{
     VaultInfoResponse, VolumeHistoryResponse, VolumeWindowResponse, RateLimitStatus, RateLimitStatusResponse, RateLimitManyResponse,
     GlobalRateLimitResponse,
 };
+use membrane::neutron_proxy::ExecuteMsg as NeutronProxyExecuteMsg;
 use membrane::types::StringEntry;
 use membrane::types::AssetInfo;
 use membrane::revenue_distributor::ExecuteMsg as RevenueDistributorExecuteMsg;
@@ -24,6 +26,7 @@ use crate::state::{
     history_total, init_history, new_volume_window, CONFIG, TRANSMUTE_HISTORY, VOLUME_HISTORY,
     VOLUME_WINDOW, VAULT_TOKEN_SUPPLY, TransmuteSnapshot, RATE_LIMIT_FLOWS, FlowEntry, DEPLOYED_PAIRED_ASSET,
     TOKEN_RATE_ASSURANCE, TokenRateAssurance, GLOBAL_RATE_LIMIT_FLOWS, PENDING_REVENUE,
+    USER_INCENTIVES, INCENTIVE_SCHEDULE, INCENTIVE_EVENTS, UserIncentives, IncentiveSchedule, IncentiveEvent
 };
 
 const CONTRACT_NAME: &str = "membrane-transmuter";
@@ -174,6 +177,8 @@ pub fn instantiate(
         global_rate_limit_threshold,
         revenue_distributor_addr,
         revenue_distributions,
+        incentive_denom: None,
+        neutron_proxy: None,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -185,6 +190,14 @@ pub fn instantiate(
     PENDING_REVENUE.save(deps.storage, &Uint128::zero())?;
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
+
+    // Initialize incentive schedule and events
+    INCENTIVE_SCHEDULE.save(deps.storage, &IncentiveSchedule {
+        last_accrued_time: env.block.time.seconds(),
+        start_time: env.block.time.seconds(),
+        total_monthly_emission: Uint128::zero(),
+    })?;
+    INCENTIVE_EVENTS.save(deps.storage, &Vec::new())?;
 
     let create_msg = create_denom_msg(
         config.tokenfactory_contract.clone(),
@@ -229,10 +242,13 @@ pub fn execute(
             global_rate_limit_threshold,
             revenue_distributor_addr,
             revenue_distributions,
+            monthly_incentive_max,
+            incentive_denom,
+            neutron_proxy,
         } => execute_update_config(
             deps,
             env,
-            info,
+            info.clone(),
             owner,
             deposit_pair,
             composition_leeway,
@@ -252,16 +268,22 @@ pub fn execute(
             global_rate_limit_threshold,
             revenue_distributor_addr,
             revenue_distributions,
+            monthly_incentive_max,
+            incentive_denom,
+            neutron_proxy,
         ),
-        ExecuteMsg::EnterVault { recipient } => execute_enter_vault(deps, env, info, recipient),
-        ExecuteMsg::DepositFee {} => execute_deposit_fee(deps, env, info),
+        ExecuteMsg::EnterVault { recipient, deposit_for_incentives } => execute_enter_vault(deps, env, info.clone(), recipient, deposit_for_incentives),
+        ExecuteMsg::DepositFee {} => execute_deposit_fee(deps, env, info.clone()),
         ExecuteMsg::ExitVault {
             recipient,
             withdraw_as,
-        } => execute_exit_vault(deps, env, info, recipient, withdraw_as),
-        ExecuteMsg::Transmute { recipient } => execute_transmute(deps, env, info, recipient),
+            use_incentive_deposits,
+        } => execute_exit_vault(deps, env, info.clone(), recipient, withdraw_as, use_incentive_deposits),
+        ExecuteMsg::Transmute { recipient } => execute_transmute(deps, env, info.clone(), recipient),
         ExecuteMsg::UpdateVolumeWindow {} => execute_update_volume_window(deps, env),
-        ExecuteMsg::RateAssurance {} => execute_rate_assurance(deps, env, info),
+        ExecuteMsg::DepositIncentives {} => execute_deposit_incentives(deps, env, info.clone()),
+        ExecuteMsg::RateAssurance {} => execute_rate_assurance(deps, env, info.clone()),
+        ExecuteMsg::ClaimIncentivesForUser { user, limit } => execute_claim_incentives(deps, env, user, limit),
     }
 }
 
@@ -288,6 +310,9 @@ fn execute_update_config(
     global_rate_limit_threshold: Option<Decimal>,
     revenue_distributor_addr: Option<String>,
     revenue_distributions: Option<Vec<membrane::types::DistributionEntry>>,
+    monthly_incentive_max: Option<Uint128>,
+    incentive_denom: Option<String>,
+    neutron_proxy: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     ensure_owner(&config, &info.sender)?;
@@ -458,6 +483,21 @@ fn execute_update_config(
         }
     }
 
+    if let Some(monthly) = monthly_incentive_max {
+        INCENTIVE_SCHEDULE.update(deps.storage, |mut s| -> StdResult<_> {
+            s.total_monthly_emission = monthly;
+            Ok(s)
+        })?;
+    }
+    if let Some(proxy) = neutron_proxy {
+        let addr = deps.api.addr_validate(&proxy)?;
+        config.neutron_proxy = Some(addr);
+    }
+    if let Some(denom) = incentive_denom {
+        config.incentive_denom = Some(denom);
+    }
+
+
     CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new().add_attribute("action", "update_config"))
@@ -468,6 +508,7 @@ fn execute_enter_vault(
     env: Env,
     info: MessageInfo,
     recipient: Option<String>,
+    deposit_for_incentives: Option<bool>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let total_deposits = get_total_deposit_value(deps.querier.clone(), &env, &config)?;
@@ -535,19 +576,42 @@ fn execute_enter_vault(
     let recipient_addr = recipient_addr.unwrap_or_else(|| info.sender.clone());
 
     let mut messages: Vec<CosmosMsg> = vec![];
-    //Mint vault tokens to the recipient 
+    // Mint VT to contract, then either keep for incentives or forward to recipient
     if !vault_tokens_to_mint.is_zero() {
-        let mint = mint_msg(
+        let mint_to_contract = mint_msg(
             config.tokenfactory_contract.clone(),
             env.contract.address.as_str(),
             &config.vault_token,
             vault_tokens_to_mint,
-            recipient_addr.as_str(),
-        )?
-        .into();
-        messages.push(mint);
+            env.contract.address.as_str(),
+        )?.into();
+        messages.push(mint_to_contract);
         //Update the total vault supply
         vault_supply = increment_vault_supply(deps.storage, vault_supply, vault_tokens_to_mint)?;
+
+        if deposit_for_incentives.unwrap_or(false) {
+            let now = env.block.time.seconds();
+            //Load state
+    let mut record = USER_INCENTIVES
+                .may_load(deps.storage, recipient_addr.to_string())?
+        .unwrap_or(UserIncentives {
+            total_claimed: Uint128::zero(),
+            vault_tokens_in_contract: Uint128::zero(),
+            last_accrued: now,
+        });
+                //Add minted tokens to user state
+            record.vault_tokens_in_contract = record.vault_tokens_in_contract
+                .checked_add(vault_tokens_to_mint)
+                .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+            //Save state
+            USER_INCENTIVES.save(deps.storage, recipient_addr.to_string(), &record)?;
+        } else {
+            //Send minted tokens to recipient if not depositing for incentives
+            messages.push(BankMsg::Send {
+                to_address: recipient_addr.to_string(),
+                amount: vec![coin(vault_tokens_to_mint.u128(), config.vault_token.clone())],
+            }.into());
+        }
     }
 // println!("vault_tokens_to_mint: {:?}", vault_tokens_to_mint);
     VAULT_TOKEN_SUPPLY.save(deps.storage, &vault_supply)?;
@@ -602,6 +666,7 @@ fn execute_exit_vault(
     info: MessageInfo,
     recipient: Option<String>,
     withdraw_as: Option<String>,
+    use_incentive_deposits: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let total_deposits = get_total_deposit_value(deps.querier, &env, &config)?;
@@ -612,11 +677,29 @@ fn execute_exit_vault(
     }
 
     //Get the amount of vault tokens sent
-    let vault_tokens = extract_coin_amount(&info, &config.vault_token)?;
+    let mut vault_tokens = extract_coin_amount(&info, &config.vault_token)?;
+    let incentive_held_tokens = use_incentive_deposits.unwrap_or(Uint128::zero());
+    // optionally include incentive-held VT
+    if !incentive_held_tokens.is_zero() || vault_tokens.is_zero() {
+        let key = info.sender.to_string();
+        if let Ok(mut user) = USER_INCENTIVES.load(deps.storage, key.clone()) {
+            if !user.vault_tokens_in_contract.is_zero() {
+                //Subtract the exiting vault_tokens from the incentive-held vault token state
+                user.vault_tokens_in_contract = user.vault_tokens_in_contract.checked_sub(incentive_held_tokens)
+                .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+
+                //Add the incentive-held vault tokens to the total vault tokens
+                vault_tokens = vault_tokens
+                    .checked_add(incentive_held_tokens)
+                    .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+
+                //Save state
+                USER_INCENTIVES.save(deps.storage, key, &user)?;
+            }
+        }
+    }
     if vault_tokens.is_zero() {
-        return Err(ContractError::InvalidFunds {
-            reason: "no vault tokens provided".into(),
-        });
+        return Err(ContractError::InvalidFunds { reason: "no vault tokens provided".into() });
     }
     if vault_tokens > vault_supply {
         return Err(ContractError::InvalidFunds {
@@ -1721,4 +1804,159 @@ fn query_global_rate_limit(
         remaining_base,
         entries_count: entries.len() as u64,
     })
+}
+
+// ================= Incentives =================
+pub(crate) fn accrue_incentive_event(
+    deps: DepsMut,
+    env: &Env,
+) -> Result<(), ContractError> {
+    //Load the config   
+    let config = CONFIG.load(deps.storage)?;
+    //Load the incentive schedule
+    let mut schedule = INCENTIVE_SCHEDULE.load(deps.storage)?;
+    //If the total monthly emission is zero, return
+    if schedule.total_monthly_emission.is_zero() { 
+        return Ok(()); 
+    }
+    //If the last accrued time is greater than the current time, return
+    let now = env.block.time.seconds();
+    if now <= schedule.last_accrued_time { 
+        return Ok(()); 
+    }
+    //Calculate the elapsed time since the last accrued time
+    let elapsed = now - schedule.last_accrued_time;
+    let month_secs: u64 = 30 * 24 * 60 * 60;
+    //Calculate the rate per second
+    let rate_per_sec = Decimal::from_ratio(schedule.total_monthly_emission, Uint128::from(month_secs));
+    let mut amount_to_emit = rate_per_sec * Uint128::from(elapsed as u128);
+    //If the amount to emit is not zero, calculate the amount per vault token
+    if !amount_to_emit.is_zero() {
+
+        //Query the vault token balance.
+        //Big assumtption that all VT tokens in the contaract are deposited by a user for incentives.
+        let vt_balance = deps.querier.query_balance(&env.contract.address, &config.vault_token)?.amount;
+        //If the vault token supply is not zero, calculate the amount per vault token
+        if !vt_balance.is_zero() {
+            //Calculate the amount per vault token
+            let amount_per_vt = Decimal::from_ratio(amount_to_emit, vt_balance);
+            //Create a new incentive event
+            let mut events = INCENTIVE_EVENTS.load(deps.storage).unwrap_or_default();
+            events.push(IncentiveEvent { amount_per_vt, time_of_event: now, amount_left_to_claim: amount_to_emit });
+            //Save the incentive events
+            INCENTIVE_EVENTS.save(deps.storage, &events)?;
+        }
+    }
+    //Set the last accrued time to the current time
+    schedule.last_accrued_time = now;
+    //Save the incentive schedule
+    INCENTIVE_SCHEDULE.save(deps.storage, &schedule)?;
+    //Return ok
+    Ok(())
+}
+
+fn execute_claim_incentives(
+    mut deps: DepsMut,
+    env: Env,
+    user: String,
+    limit: Option<u32>,
+) -> Result<Response, ContractError> {
+    accrue_incentive_event(deps.branch(), &env)?;
+    let mut events = INCENTIVE_EVENTS.load(deps.storage).unwrap_or_default();
+    //Load the user incentives
+    let mut record = USER_INCENTIVES
+        .may_load(deps.storage, user.clone())?
+        .unwrap_or(UserIncentives { total_claimed: Uint128::zero(), vault_tokens_in_contract: Uint128::zero(), last_accrued: 0 });
+    //Get the vault token balance for the user
+    let vt = record.vault_tokens_in_contract;
+    if vt.is_zero() {
+        //If the vault token balance is zero, return ok
+        return Ok(Response::new().add_attribute("action", "claim_incentives").add_attribute("user", user)); 
+    }
+    //Calculate the maximum number of events to process
+    let max_events = limit.unwrap_or(100).min(200) as usize;
+    //Initialize the processed counter
+    let mut processed = 0usize;
+    let mut total_claimed = Uint128::zero();
+    for ev in events.iter_mut() {
+        if processed >= max_events { break; }
+        //If the event time is less than (happened before) the last accrued time, continue
+        if ev.time_of_event <= record.last_accrued { continue; }
+        //If the amount left to claim is zero, continue
+        if ev.amount_left_to_claim.is_zero() { continue; }
+        //Calculate the share of the event
+        let mut share = ev.amount_per_vt * vt;
+        //If the user's share is zero, continue
+        if share.is_zero() { processed += 1; continue; }
+        //If the share is greater than the amount left to claim, set the share to the amount left to claim
+        if share > ev.amount_left_to_claim { share = ev.amount_left_to_claim; }
+        //Subtract the share from the amount left to claim
+        ev.amount_left_to_claim = ev.amount_left_to_claim.saturating_sub(share);
+        //Add the share to the total claimed
+        total_claimed = total_claimed.saturating_add(share);
+        //Increment the processed counter
+        processed += 1;
+    }
+    //Remove events that have no amount left to claim
+    events.retain(|e| !e.amount_left_to_claim.is_zero());
+    //Save the incentive events
+    INCENTIVE_EVENTS.save(deps.storage, &events)?;
+    //Add the total claimed to the user's total claimed
+    record.total_claimed = record.total_claimed.saturating_add(total_claimed);
+    //Set the last accrued time to the current time
+    record.last_accrued = env.block.time.seconds();
+    //Save the user incentives state
+    USER_INCENTIVES.save(deps.storage, user.clone(), &record)?;
+
+    let mut resp = Response::new().add_attribute("action", "claim_incentives").add_attribute("user", user.clone()).add_attribute("claimed", total_claimed.to_string());
+    //If the total claimed is not zero, mint the tokens
+    if !total_claimed.is_zero() {
+        let cfg = CONFIG.load(deps.storage)?;
+        if let (Some(proxy), Some(denom)) = (cfg.neutron_proxy, cfg.incentive_denom) {
+            //Create a mint tokens message
+            let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: proxy.to_string(),
+                msg: to_json_binary(&NeutronProxyExecuteMsg::MintTokens { denom, amount: total_claimed, mint_to_address: user })?,
+                funds: vec![]
+            });
+            //Add the mint tokens message to the response
+            resp = resp.add_message(mint_msg);
+        }
+    }
+    //Return the response
+    Ok(resp)
+}
+
+fn execute_deposit_incentives(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+    //Load the config
+    let config = CONFIG.load(deps.storage)?;
+    //Get the vault token amount
+    let vt_amount = extract_coin_amount(&info, &config.vault_token)?;
+    //If the vault token amount is zero, return an error
+    if vt_amount.is_zero() {
+        return Err(ContractError::InvalidFunds { reason: "no vault tokens provided".into() });
+    }
+    //Get the current time
+    let now = env.block.time.seconds();
+    //Load the user incentives
+    let mut record = USER_INCENTIVES
+        .may_load(deps.storage, info.sender.to_string())?
+        .unwrap_or(UserIncentives { total_claimed: Uint128::zero(), vault_tokens_in_contract: Uint128::zero(), last_accrued: now });
+    //Add the vault tokens to the user's vault tokens in contract
+    record.vault_tokens_in_contract = record.vault_tokens_in_contract
+        .checked_add(vt_amount)
+        .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+    //Save the user incentives
+    USER_INCENTIVES.save(deps.storage, info.sender.to_string(), &record)?;
+
+    //Return the response
+    Ok(Response::new()
+        .add_attribute("action", "deposit_incentives")
+        .add_attribute("amount", vt_amount.to_string())
+        .add_attribute("user", info.sender.to_string())
+    )
 }

@@ -25,9 +25,17 @@ pub struct TokenRateAssurance {
     pub pre_btokens_per_one: Uint128,
 }
 
+#[cw_serde]
+pub struct CostAccrual {
+    pub revenue_vault_tokens: Uint128,  // VT tokens representing accrued revenue
+    pub last_updated: u64,               // Last time cost was accrued
+    pub total_cost_collected: Uint128,  // Total USDC collected lifetime (tracking)
+}
+
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const VAULT_TOKEN: Item<Uint128> = Item::new("vault_token");
 pub const APR_TRACKER: Item<APRTracker> = Item::new("apr_tracker");
 pub const TOKEN_RATE_ASSURANCE: Item<TokenRateAssurance> = Item::new("token_rate_assurance");
+pub const COST_ACCRUAL: Item<CostAccrual> = Item::new("cost_accrual");
 
 pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");

@@ -1,22 +1,30 @@
 use cosmwasm_std::{
-    attr, to_json_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo, QueryRequest, Response, Storage, SubMsg, Uint128, WasmMsg, WasmQuery
+    attr, to_json_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo, QueryRequest, Response, Storage, SubMsg, Uint128, WasmMsg, WasmQuery, QuerierWrapper
 };
+use std::str::FromStr;
 use membrane::cdp::{LiquidationStatResponse, QueryMsg as CDP_QueryMsg};
 use membrane::ltv_disco::{
-    BackingDeposit, BackingDepositInput, BaseTokenTrackingEntry, Config, DecimalMinMax, Dispersal, ActiveDispersal, LTVQueue, MaxBorrowLTVGroup, MaxLTVSlot, ExecuteMsg
+    BackingDeposit, BackingDepositInput, RevenueTrackingEntry, RevenueEvent, UserLifetimeRevenueEntry, Config, DecimalMinMax, Dispersal, ActiveDispersal, LTVQueue, MaxBorrowLTVGroup, MaxLTVSlot, ExecuteMsg, TVLEntry
 };
 use membrane::math::{decimal_division, decimal_multiplication};
-use membrane::types::{Basket, DepositDenom};
+use membrane::types::{Basket, DepositDenom, AssetInfo};
 use membrane::stability_pool_vault::{calculate_base_tokens, calculate_vault_tokens};
-use membrane::transmuter::{ExecuteMsg as Transmuter_ExecuteMsg, QueryMsg as Transmuter_QueryMsg};
 use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
+use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
+use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxy_ExecuteMsg;
 
 use crate::error::ContractError;
-use crate::state::{BadDebtPropagation, BAD_DEBT_PROPAGATION, BASE_TOKEN_TRACKING, CONFIG, DISPERSAL, LTV_QUEUES, PENDING_BAD_DEBT};
-use crate::contract::TRANSMUTER_REPLY_ID;
+use crate::state::{SwapPropagation, SWAP_PROPAGATION, REVENUE_TRACKING, RATE_ASSURANCE, REVENUE_EVENTS, USER_LIFETIME_REVENUE, BACKING_DEPOSITS, USER_DEPOSITS, CONFIG, DISPERSAL, LTV_QUEUES, DAILY_TVL_TRACKER, USER_TOTAL_DEPOSITS};
 
-const MAX_LIMIT: u32 = 32;
-const BASE_TOKEN_TRACKING_LIMIT: usize = 100; // Limit for base token tracking vectors
+const REVENUE_TRACKING_LIMIT: usize = 100; // Limit for revenue tracking vectors
+const LIFETIME_REVENUE_LIMIT: usize = 100; // Limit for user lifetime revenue tracking
+const TVL_TRACKER_LIMIT: usize = 100; // Limit for TVL tracker entries
+const ONE_DAY_SECONDS: u64 = 86400; // 24 hours in seconds
+
+/// Helper to create composite key for BACKING_DEPOSITS map
+fn make_deposit_key(asset: &str, ltv: &str, max_borrow_ltv: &str, user: &str) -> String {
+    format!("{}:{}:{}:{}", asset, ltv, max_borrow_ltv, user)
+}
 
 /// Create a new LTV queue for an asset
 pub fn create_queue(
@@ -120,9 +128,9 @@ pub fn update_queue(
     queue.liquidation_ltv.min = new_min_liquidation_ltv;
     queue.liquidation_ltv.max = new_max_ltv;
 
-    // Remove empty deposit groups
+    // Remove empty deposit groups (no vault tokens)
     queue.slots.iter_mut().for_each(|slot| {
-        slot.deposit_groups.retain(|group| !group.backing_deposits.is_empty());
+        slot.deposit_groups.retain(|group| !group.total_vault_tokens.is_zero());
     });
 
     LTV_QUEUES.save(deps.storage, asset.clone(), &queue)?;
@@ -184,40 +192,62 @@ pub fn submit_deposit(
         group.total_vault_tokens,
     )?; 
 
-    let mut deposit_id = queue.current_deposit_id;
-    // Check if user already has a deposit in this group and add to it instead of creating new
-    if let Some(existing_deposit) = group.backing_deposits.iter_mut().find(|d| d.user == valid_owner_addr) {
-        // Add to existing deposit
-        existing_deposit.vault_tokens += vault_tokens;
-        //Set deposit id for attributes
-        deposit_id = existing_deposit.id;
-    } else {
+    // Event-based deposit storage key strings
+    let asset_str = deposit_input.asset.clone();
+    let ltv_str = slot.ltv.to_string();
+    let max_borrow_ltv_str = deposit_input.max_borrow_ltv.to_string();
+    let user_str = valid_owner_addr.to_string();
+    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str);
 
-        // Validate deposit amount
-        if info.funds[0].amount < config.minimum_deposit {
-            return Err(ContractError::InvalidDepositAmount {});
+    // Validate deposit amount
+    if info.funds[0].amount < config.minimum_deposit {
+        return Err(ContractError::InvalidDepositAmount {});
+    }
+
+    // If user already has a deposit in this group, auto-claim and top-up
+    if let Some(mut existing) = BACKING_DEPOSITS.may_load(deps.storage, deposit_key.clone())? {
+        // Claim revenues for existing deposit and send
+        let claimed = claim_revenue_for_deposit(
+            deps.storage,
+            &env,
+            &mut existing,
+            deposit_input.asset.clone(),
+            slot.ltv,
+            deposit_input.max_borrow_ltv,
+            None,
+        )?;
+        if !claimed.is_zero() {
+            msgs.push(BankMsg::Send {
+                to_address: valid_owner_addr.to_string(),
+                amount: vec![Coin { denom: config.cdt_denom.clone(), amount: claimed }],
+            }.into());
         }
-
-        // Create new backing deposit
+        // Add new vault tokens to existing deposit
+        existing.vault_tokens += vault_tokens.clone();
+        BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &existing)?;
+    } else {
+        // New deposit: initialize last_claimed to now
         let deposit = BackingDeposit {
             user: valid_owner_addr.clone(),
-            id: deposit_id.clone(),
             vault_tokens: vault_tokens.clone(),
             max_borrow_ltv: deposit_input.max_borrow_ltv,
             wait_end: Some(env.block.time.plus_seconds(config.waiting_period).seconds()),
+            last_claimed: env.block.time.seconds(),
         };
-
-        // Add deposit to group
-        group.backing_deposits.push(deposit.clone());
-
-        // Update queue
-        queue.current_deposit_id += Uint128::new(1u128);
-
+        BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &deposit)?;
+        // Add to USER_DEPOSITS index
+        let mut keys = USER_DEPOSITS
+            .may_load(deps.storage, (valid_owner_addr.clone(), deposit_input.asset.clone()))?
+            .unwrap_or_else(Vec::new);
+        //
+        keys.push(deposit_key);
+        //
+        USER_DEPOSITS.save(deps.storage, (valid_owner_addr.clone(), deposit_input.asset.clone()), &keys)?;
     }
 
 
     //Must do this before updating totals for Rate Assurance checks
-    add_base_token_tracking_entry(deps.storage, env.clone(), deposit_input.asset.clone(), deposit_input.ltv, deposit_input.max_borrow_ltv)?;
+    update_rate_assurance(deps.storage, deposit_input.asset.clone(), deposit_input.ltv, deposit_input.max_borrow_ltv, &group)?;
 
     //Add rate assurance callback msg
     if !group.total_deposit_tokens.is_zero() && !group.total_vault_tokens.is_zero() {
@@ -236,7 +266,8 @@ pub fn submit_deposit(
     group.total_deposit_tokens += deposit_amount;
     group.total_vault_tokens += vault_tokens.clone();
 
-    // Update slot totals, just for easier global tracking
+    // Update slot totals, just for easier global tracking.
+    // We use slot totals to distribute revenue more efficiently.
     slot.total_deposit_tokens += deposit_amount;
     // slot.total_vault_tokens += deposit.vault_tokens; //No need to update this bc VTS are per group
 
@@ -246,8 +277,15 @@ pub fn submit_deposit(
 
     LTV_QUEUES.save(deps.storage, deposit_input.asset.clone(), &queue)?;
 
-    // Track base token amounts
+    // Update daily TVL tracker
+    update_daily_tvl_tracker(deps.storage, &env, &deps.querier)?;
 
+    // Update user total deposits
+    let user_key = valid_owner_addr.to_string();
+    let current_total = USER_TOTAL_DEPOSITS
+        .may_load(deps.storage, user_key.clone())?
+        .unwrap_or(Uint128::zero());
+    USER_TOTAL_DEPOSITS.save(deps.storage, user_key, &(current_total + deposit_amount))?;
 
     Ok(Response::new()
         .add_messages(msgs)
@@ -257,10 +295,9 @@ pub fn submit_deposit(
             attr("asset", deposit_input.asset),
             attr("ltv", deposit_input.ltv.to_string()),
             attr("max_borrow_ltv", deposit_input.max_borrow_ltv.to_string()),
-            attr("deposit_id", deposit_id.to_string()),
             attr("amount", deposit_amount.to_string()),
             attr("vault_tokens", vault_tokens.to_string()),
-            attr("action", "created_new"),
+            attr("action", "submitted"),
         ]))
 }
 
@@ -269,28 +306,47 @@ pub fn withdraw_deposit(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    deposit_id: Uint128,
     asset: String,
+    ltv: Decimal,
+    max_borrow_ltv: Decimal,
     amount: Option<Uint128>, //Amount of base tokens to withdraw
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
     let mut queue = LTV_QUEUES.load(deps.storage, asset.clone())?;
     
-    let deposit = read_deposit(deps.storage, deposit_id, queue.clone())?;
+    //Create deposit key
+    let asset_str = asset.clone();
+    let ltv_str = ltv.to_string();
+    let max_borrow_ltv_str = max_borrow_ltv.to_string();
+    let user_str = info.sender.to_string(); //This gates withdrawals to the owner of the deposit
+    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str);
+    // Load deposit from BACKING_DEPOSITS map
+    let mut deposit = BACKING_DEPOSITS.load(deps.storage, deposit_key.clone())?;
 
-    // Only owner can withdraw
-    if deposit.user != info.sender {
-        return Err(ContractError::Unauthorized {});
-    }
+    // Claim revenue before withdrawal and send to user
+    let claimed_revenue = claim_revenue_for_deposit(
+        deps.storage,
+        &env,
+        &mut deposit,
+        asset.clone(),
+        ltv,
+        max_borrow_ltv,
+        None, //no limit = 100
+    )?;
 
-    //Get Slot
-    let slot_index = find_deposit_slot_index(&queue.slots, deposit_id)?;
+    // Get Slot
+    let slot_index = queue.slots.iter().position(|s| s.ltv == ltv)
+        .ok_or_else(|| ContractError::CustomError { val: "Slot not found".to_string() })?;
     let mut slot = queue.slots[slot_index].clone();
-    //Get Group
-    let group_index = find_or_create_borrow_group(&mut slot, deposit.max_borrow_ltv, false)?;
+    
+    // Get Group
+    let group_index = find_or_create_borrow_group(&mut slot, max_borrow_ltv, false)?;
     let mut group = slot.deposit_groups[group_index].clone();
 
-    //Calculate base tokens to withdraw
+    //Must do this before updating group totals for Rate Assurance checks
+    update_rate_assurance(deps.storage, asset.clone(), slot.ltv, max_borrow_ltv, &group)?;
+
+    // Calculate base tokens to withdraw
     let vault_tokens_to_withdraw = if let Some(amount) = amount {
         calculate_vault_tokens(
             amount,
@@ -310,39 +366,47 @@ pub fn withdraw_deposit(
         group.total_vault_tokens,
     )?;
 
-    // Update the deposit in the appropriate Group
-    if let Some(deposit_index) = group.backing_deposits.iter().position(|d| d.id == deposit_id) {
+    // Update group totals
+    group.total_deposit_tokens -= base_tokens_to_withdraw;
+    group.total_vault_tokens -= withdraw_vault_tokens;
 
-        // Update group totals
-        group.total_deposit_tokens -= base_tokens_to_withdraw;
-        group.total_vault_tokens -= withdraw_vault_tokens;
-
-        // Remove or update deposit
-        if withdraw_vault_tokens == deposit.vault_tokens {
-            // Remove deposit
-            group.backing_deposits.remove(deposit_index);
+    // Remove or update deposit
+    let fully_withdrawn = withdraw_vault_tokens == deposit.vault_tokens;
+    if fully_withdrawn {
+        // Remove deposit from BACKING_DEPOSITS
+        BACKING_DEPOSITS.remove(deps.storage, deposit_key.clone());
+        
+        // Remove from USER_DEPOSITS index
+        let mut user_keys = USER_DEPOSITS
+            .may_load(deps.storage, (info.sender.clone(), asset.clone()))?
+            .unwrap_or_else(Vec::new);
+        user_keys.retain(|k| k != &deposit_key);
+        if user_keys.is_empty() {
+            USER_DEPOSITS.remove(deps.storage, (info.sender.clone(), asset.clone()));
         } else {
-            // Update deposit
-            group.backing_deposits[deposit_index].vault_tokens -= withdraw_vault_tokens;
-
-            // Calculate remaining base tokens
-            let remaining_base_tokens = calculate_base_tokens(
-                group.backing_deposits[deposit_index].vault_tokens,
-                group.total_deposit_tokens,
-                group.total_vault_tokens,
-            )?;
-
-            // Validate withdrawal amount
-            if remaining_base_tokens < config.minimum_deposit {
-                return Err(ContractError::InvalidWithdrawal {
-                    minimum: config.minimum_deposit,
-                });
-            }
+            USER_DEPOSITS.save(deps.storage, (info.sender.clone(), asset.clone()), &user_keys)?;
         }
     } else {
-        return Err(ContractError::DepositNotFound {});
+        // Update deposit
+        deposit.vault_tokens -= withdraw_vault_tokens;
+
+        // Calculate remaining base tokens
+        let remaining_base_tokens = calculate_base_tokens(
+            deposit.vault_tokens,
+            group.total_deposit_tokens,
+            group.total_vault_tokens,
+        )?;
+
+        // Validate withdrawal amount
+        if remaining_base_tokens < config.minimum_deposit {
+            return Err(ContractError::InvalidWithdrawal {
+                minimum: config.minimum_deposit,
+            });
+        }
+        
+        // Save updated deposit
+        BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &deposit)?;
     }
-    
 
     // Update slot totals
     slot.total_deposit_tokens -= base_tokens_to_withdraw;
@@ -351,10 +415,22 @@ pub fn withdraw_deposit(
     queue.slots[slot_index] = slot.clone();
     LTV_QUEUES.save(deps.storage, asset.clone(), &queue)?;
 
-    // Track base token amounts
-    add_base_token_tracking_entry(deps.storage, env.clone(), asset.clone(), slot.ltv.clone(), deposit.max_borrow_ltv)?;
+    // Update daily TVL tracker
+    update_daily_tvl_tracker(deps.storage, &env, &deps.querier)?;
 
-    // Send tokens back to user
+    // Update user total deposits
+    let user_key = info.sender.to_string();
+    let current_total = USER_TOTAL_DEPOSITS
+        .may_load(deps.storage, user_key.clone())?
+        .unwrap_or(Uint128::zero());
+    let new_total = current_total.saturating_sub(base_tokens_to_withdraw);
+    if new_total.is_zero() {
+        USER_TOTAL_DEPOSITS.remove(deps.storage, user_key);
+    } else {
+        USER_TOTAL_DEPOSITS.save(deps.storage, user_key, &new_total)?;
+    }
+
+    // Send tokens back to user (base tokens + claimed revenue)
     let mut msgs: Vec<CosmosMsg> = vec![];
     if !base_tokens_to_withdraw.is_zero() {
         msgs.push(BankMsg::Send {
@@ -369,15 +445,26 @@ pub fn withdraw_deposit(
             minimum: Uint128::zero(),
         });
     }
+    
+    // Send claimed revenue
+    if !claimed_revenue.is_zero() {
+        msgs.push(BankMsg::Send {
+            to_address: info.sender.to_string(),
+            amount: vec![Coin {
+                denom: config.cdt_denom.clone(),
+                amount: claimed_revenue,
+            }],
+        }.into());
+    }
 
-    //Add rate assurance callback msg if remaining tokens are non-zero
+    // Add rate assurance callback msg if remaining tokens are non-zero
     if !group.total_deposit_tokens.is_zero() && !group.total_vault_tokens.is_zero() {
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
             msg: to_json_binary(&ExecuteMsg::RateAssurance {
                 asset: asset.clone(),
                 max_ltv: slot.ltv,
-                max_borrow_ltv: deposit.max_borrow_ltv,
+                max_borrow_ltv: max_borrow_ltv,
             })?,
             funds: vec![],
         }));
@@ -388,19 +475,21 @@ pub fn withdraw_deposit(
         .add_attributes(vec![
             attr("method", "withdraw_deposit"),
             attr("asset", asset),
-            attr("deposit_id", deposit_id.to_string()),
+            attr("ltv", ltv.to_string()),
+            attr("max_borrow_ltv", max_borrow_ltv.to_string()),
             attr("vault_tokens", withdraw_vault_tokens.to_string()),
             attr("base_tokens", base_tokens_to_withdraw.to_string()),
+            attr("claimed_revenue", claimed_revenue.to_string()),
         ]))
 }
 
 /// Add bad debt to an LTV queue (CDP contract only)
 pub fn add_bad_debt(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     asset: String,
-    mut amount: Uint128,
+    amount: Uint128,
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
     let mut msgs: Vec<SubMsg> = vec![];
@@ -410,116 +499,157 @@ pub fn add_bad_debt(
         return Err(ContractError::Unauthorized {});
     }
     /////if the deposit denom is the Transmuter's vault token///////
-    if let Some(vault_info) = config.deposit_denom.vault_info.clone(){
-        //1) Query how many vault tokens is the bad debt amount worth in the vault contract
-        let bad_debt_as_vault_tokens = deps.querier.query_wasm_smart::<Uint128>(
-            vault_info.vault_contract.clone(),
-            &Transmuter_QueryMsg::DepositTokenConversion { deposit_token_amount: amount },
-        )?;
-        //2) Update amount to denominate as vault tokens
-        amount = bad_debt_as_vault_tokens;
-        //3) Withdraw the vault tokens from the vault contract
-        msgs.push(SubMsg::reply_on_error(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: vault_info.vault_contract.clone(),
-            msg: to_json_binary(&Transmuter_ExecuteMsg::ExitVault { 
-                recipient: None, //set to none so we don't have to conditionally add the CDP_ExecuteMsg::FulfillBadDebt Msg at the end of this fn
-                withdraw_as: Some(vault_info.underlying_token.clone()),
-             })?,
-            funds: vec![
-                Coin {
-                    denom: config.deposit_denom.denom.clone(),
-                    amount: bad_debt_as_vault_tokens,
-                }
-            ],
-        }), TRANSMUTER_REPLY_ID));
-        //We reply on error, and add the errored amount to PENDING_BAD_DEBT using BAD_DEBT_PROPAGATION data 
-        BAD_DEBT_PROPAGATION.save(deps.storage, &BadDebtPropagation {
-            asset: asset.clone(),
-            amount: amount,
-        })?;
-    }
+    // DON'T DELETE.
+    // if let Some(vault_info) = config.deposit_denom.vault_info.clone(){
+    //     //1) Query how many vault tokens is the bad debt amount worth in the vault contract
+    //     let bad_debt_as_vault_tokens = deps.querier.query_wasm_smart::<Uint128>(
+    //         vault_info.vault_contract.clone(),
+    //         &Transmuter_QueryMsg::DepositTokenConversion { deposit_token_amount: amount },
+    //     )?;
+    //     //2) Update amount to denominate as vault tokens
+    //     amount = bad_debt_as_vault_tokens;
+    //     //3) Withdraw the vault tokens from the vault contract
+    //     msgs.push(SubMsg::reply_on_error(CosmosMsg::Wasm(WasmMsg::Execute {
+    //         contract_addr: vault_info.vault_contract.clone(),
+    //         msg: to_json_binary(&Transmuter_ExecuteMsg::ExitVault { 
+    //             recipient: None, //set to none so we don't have to conditionally add the CDP_ExecuteMsg::FulfillBadDebt Msg at the end of this fn
+    //             withdraw_as: Some(vault_info.underlying_token.clone()),
+    //          })?,
+    //         funds: vec![
+    //             Coin {
+    //                 denom: config.deposit_denom.denom.clone(),
+    //                 amount: bad_debt_as_vault_tokens,
+    //             }
+    //         ],
+    //     }), TRANSMUTER_REPLY_ID));
+    //     //We reply on error, and add the errored amount to PENDING_BAD_DEBT using BAD_DEBT_PROPAGATION data 
+    //     BAD_DEBT_PROPAGATION.save(deps.storage, &BadDebtPropagation {
+    //         asset: asset.clone(),
+    //         amount: amount,
+    //     })?;
+    // }
 
     //Bad debt is sent per asset
     let mut queue: LTVQueue = LTV_QUEUES.load(deps.storage, asset.clone())?;
 
-    // Apply bad debt waterfall from highest LTV to lowest
-    let mut remaining_bad_debt = amount;
+    // Step 1: Handle bad debt waterfall (dispersals → revenue events)
+    let (revenue_fulfilled, mut remaining_bad_debt) = handle_bad_debt_waterfall(
+        deps.storage,
+        &queue,
+        asset.clone(),
+        amount,
+    )?;
 
-    // Sort slots by LTV in descending order
-    let mut sorted_slots: Vec<(usize, MaxLTVSlot)> = queue.slots
-        .iter()
-        .enumerate()
-        .map(|(i, slot)| (i, slot.clone()))
-        .collect();
-    sorted_slots.sort_by(|a, b| b.1.ltv.cmp(&a.1.ltv));
+    // Step 2: If revenue was used to fulfill bad debt, send it to CDP
+    if !revenue_fulfilled.is_zero() {
+        msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.cdp_contract.to_string(),
+            msg: to_json_binary(&CDP_ExecuteMsg::FulfillBadDebt {})?,
+            funds: vec![Coin {
+                denom: config.cdt_denom.clone(),
+                amount: revenue_fulfilled,
+            }],
+        })));
+    }
 
-    for (slot_index, mut slot) in sorted_slots {
-        if remaining_bad_debt.is_zero() {
-            break;
-        }
+    // Step 3: If there's remaining bad debt, slash deposits
+    let mut total_slashed = Uint128::zero();
 
-        // Sort groups by max_borrow_ltv in descending order
-        slot.deposit_groups.sort_by(|a, b| b.max_borrow_ltv.cmp(&a.max_borrow_ltv));
+    if !remaining_bad_debt.is_zero() {
+        // Convert remaining CDT bad debt to equivalent collateral amount using oracle
+        let asset_info = AssetInfo::NativeToken { denom: asset.clone() };
+        let cdt_info = AssetInfo::NativeToken { denom: config.cdt_denom.clone() };
+        let asset_infos = vec![asset_info.clone(), cdt_info.clone()];
+        
+        let price_response: Vec<PriceResponse> = deps.querier.query_wasm_smart(
+            config.oracle_contract.to_string(),
+            &Oracle_QueryMsg::Prices {
+                asset_infos,
+                twap_timeframe: 0,
+                oracle_time_limit: 0,
+            },
+        )?;
 
-        for group in &mut slot.deposit_groups {
-            if remaining_bad_debt.is_zero() {
+        // Convert CDT bad debt to collateral amount
+        // CDT value -> asset value -> asset amount
+        let cdt_value = price_response[1].get_value(remaining_bad_debt)?; // CDT bad debt in USD value
+        let collateral_amount_needed = price_response[0].get_amount(cdt_value)?; // Convert USD value to collateral amount
+
+        let mut remaining_collateral_to_slash = collateral_amount_needed;
+
+        // Sort slots by LTV in descending order for deposit slashing
+        let mut sorted_slots: Vec<(usize, MaxLTVSlot)> = queue.slots
+            .iter()
+            .enumerate()
+            //Skip empty slots
+            .filter(|(_, slot)| !slot.total_deposit_tokens.is_zero())
+            .map(|(i, slot)| (i, slot.clone()))
+            .collect();
+        sorted_slots.sort_by(|a, b| b.1.ltv.cmp(&a.1.ltv));
+
+        for (slot_index, mut slot) in sorted_slots {
+            if remaining_collateral_to_slash.is_zero() {
                 break;
             }
 
-            // Calculate bad debt for this group
-            let group_bad_debt = std::cmp::min(remaining_bad_debt, group.total_deposit_tokens);
+            // Track deposits seen in this slot for early exit optimization
+            let mut total_deposits_seen_per_slot = Uint128::zero();
 
-            // Update Group
-            group.total_deposit_tokens -= group_bad_debt;
-            slot.bad_debt += group_bad_debt;
-            remaining_bad_debt -= group_bad_debt;
+            // Sort groups by max_borrow_ltv in descending order
+            slot.deposit_groups.sort_by(|a, b| b.max_borrow_ltv.cmp(&a.max_borrow_ltv));
+
+            for group in &mut slot.deposit_groups {
+                if remaining_collateral_to_slash.is_zero() {
+                    break;
+                }
+
+                //Skip empty groups
+                if group.total_deposit_tokens.is_zero() {
+                    continue;
+                }
+                // Track seen deposits for optimization
+                total_deposits_seen_per_slot += group.total_deposit_tokens;
+
+                // Calculate collateral to slash from this group
+                let group_slash_amount = std::cmp::min(remaining_collateral_to_slash, group.total_deposit_tokens);
+
+                // Update Group
+                group.total_deposit_tokens -= group_slash_amount;
+                slot.bad_debt += price_response[1].get_amount(price_response[0].get_value(group_slash_amount)?)?;
+                total_slashed += group_slash_amount;
+                remaining_collateral_to_slash -= group_slash_amount;
+
+                // Update remaining_bad_debt by converting slashed collateral to CDT.
+                // For attribute accuracy only.
+                if !total_slashed.is_zero() {
+                    let slashed_cdt_value = price_response[1].get_amount(price_response[0].get_value(group_slash_amount)?)?;
+                    remaining_bad_debt = remaining_bad_debt.saturating_sub(slashed_cdt_value);
+                }
+
+                
+
+                // Early exit if we've seen all deposits in this slot
+                if total_deposits_seen_per_slot >= slot.total_deposit_tokens {
+                    break;
+                }
+            }
+
+            queue.slots[slot_index] = slot;
         }
-
         
-        queue.slots[slot_index] = slot;
     }
 
-    //Calc bad debt fulfilled amount 
-    let bad_debt_fulfilled_amount = match amount.checked_sub(remaining_bad_debt){
-        Ok(amount) => amount,
-        Err(_) => return Err(ContractError::CustomError { val: "Bad debt subtraction underflow (should be impossible here)".to_string() }),
-    };
-
-    // Send bad debt to CDP contract
-    if !bad_debt_fulfilled_amount.is_zero() {
-        //If its a vault token
-        if let Some(vault_info) = config.deposit_denom.vault_info.clone(){
-            //Convert the fulfilled amount to base tokens through the query
-            let bad_debt_fulfilled_amount_as_base_tokens = deps.querier.query_wasm_smart::<Uint128>(
-                vault_info.vault_contract.clone(),
-                &Transmuter_QueryMsg::VaultTokenUnderlying { vault_token_amount: bad_debt_fulfilled_amount.clone() },
-            )?;
-
-            //Add msg
-            msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.cdp_contract.to_string(),
-                msg: to_json_binary(&CDP_ExecuteMsg::FulfillBadDebt {})?,
-                funds: vec![
-                    Coin {
-                        denom: vault_info.underlying_token.clone(),
-                        amount: bad_debt_fulfilled_amount_as_base_tokens,
-                    }
-                ],
-            })));
-        } else {
-
-            //Add msg
-            msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.cdp_contract.to_string(),
-                msg: to_json_binary(&CDP_ExecuteMsg::FulfillBadDebt {})?,
-                funds: vec![
-                    Coin {
-                        denom: config.deposit_denom.denom.clone(),
-                        amount: bad_debt_fulfilled_amount,
-                    }
-                ],
-            })));
-        }
+    // Step 4: If deposits were slashed, create liquidation swap message
+    if !total_slashed.is_zero() {
+        let swap_msg = create_liquidation_swap_msg(
+            deps.storage,
+            &deps.querier,
+            &env,
+            &config,
+            asset.clone(),
+            total_slashed,
+        )?;
+        msgs.push(swap_msg);
     }
 
     // Save queue
@@ -530,31 +660,40 @@ pub fn add_bad_debt(
         .add_attributes(vec![
             attr("method", "add_bad_debt"),
             attr("asset", asset),
-            attr("bad_debt_fulfilled_amount", bad_debt_fulfilled_amount.to_string()),
+            attr("total_bad_debt_cdt", amount.to_string()),
+            attr("fulfilled_from_revenue_cdt", revenue_fulfilled.to_string()),
+            attr("slashed_collateral_amount", total_slashed.to_string()),
+            attr("remaining_bad_debt_cdt", remaining_bad_debt.to_string()),
         ]))
 }
 
 /// Add revenue to an asset's LTV queue.
-/// 
+/// Distributes rewards to users based on their vault token holdings
 pub fn add_revenue(
     deps: DepsMut,
-    _env: Env,
+    env: Env,
     info: MessageInfo,
     asset: String,
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
 
-    // Validate that only the configured deposit denom is sent
-    if info.funds.len() != 1 || info.funds[0].denom != config.deposit_denom.denom {
+    // Validate that only the configured CDT token is sent
+    if info.funds.len() != 1 || info.funds[0].denom != config.cdt_denom {
         return Err(ContractError::CustomError {
-            val: "Invalid deposit denomination".to_string(),
+            val: "Invalid CDT token denomination".to_string(),
         });
     }
 
     let mut revenue_amount = info.funds[0].amount;
-    let mut queue: LTVQueue = LTV_QUEUES.load(deps.storage, asset.clone())?;
+    let queue: LTVQueue = LTV_QUEUES.load(deps.storage, asset.clone())?;
 
     let response = Response::new();
+
+    // Calculate total deposit tokens to check if any deposits exist
+    let total_deposit_tokens: Uint128 = queue.slots
+        .iter()
+        .map(|slot| slot.total_deposit_tokens)
+        .sum();
 
     let mut dispersal = match DISPERSAL.load(deps.storage, asset.clone()){
         Ok(dispersal) => dispersal,
@@ -569,7 +708,27 @@ pub fn add_revenue(
         },
     };
 
-    //Calculate portion to add to dispersal
+    // If no deposits exist, send all revenue to dispersal
+    if total_deposit_tokens.is_zero() {
+        if dispersal.active_dispersal.dispersal_start == 0 {
+            // When dispersal is not active, add to the total to disperse for the upcoming dispersal period
+            dispersal.total_to_disperse += revenue_amount;
+        } else {
+            // When dispersal is active, add to the pending dispersal for the next dispersal period
+            dispersal.pending_dispersal += revenue_amount;
+        }
+        DISPERSAL.save(deps.storage, asset.clone(), &dispersal)?;
+        
+        return Ok(response
+            .add_attributes(vec![
+                attr("method", "add_revenue"),
+                attr("asset", asset),
+                attr("amount", revenue_amount.to_string()),
+                attr("routed_to_dispersal", "all"),
+            ]));
+    }
+
+    // If deposits exist, calculate portion to add to dispersal
     let revenue_decimal = Decimal::from_ratio(revenue_amount, Uint128::one());
     let disperse_percent = decimal_multiplication(revenue_decimal, config.percent_to_disperse)?;
     let disperse_amount = disperse_percent.to_uint_floor();
@@ -584,10 +743,10 @@ pub fn add_revenue(
         dispersal.pending_dispersal += disperse_amount;
         DISPERSAL.save(deps.storage, asset.clone(), &dispersal)?;
     }
-    // Distribute revenue based on weighted pro-rata system
-    distribute_revenue(&mut queue, revenue_amount);
+    
+    // Distribute remaining revenue to users based on their vault token holdings
+    distribute_revenue_to_users(deps.storage, &env, &queue, asset.clone(), revenue_amount)?;
 
-    LTV_QUEUES.save(deps.storage, asset.clone(), &queue)?;
     Ok(response
         .add_attributes(vec![
             attr("method", "add_revenue"),
@@ -596,6 +755,318 @@ pub fn add_revenue(
         ]))
 }
 
+/// Distribute revenue to users based on their vault token holdings
+/// Creates RevenueEvent structs instead of immediately distributing to users
+fn distribute_revenue_to_users(
+    storage: &mut dyn Storage,
+    env: &Env,
+    queue: &LTVQueue,
+    asset: String,
+    revenue_amount: Uint128,
+) -> Result<(), ContractError> {
+    // Calculate total deposit tokens across all slots
+    let total_deposit_tokens: Uint128 = queue.slots
+        .iter()
+        .map(|slot| slot.total_deposit_tokens)
+        .sum();
+    
+    if total_deposit_tokens.is_zero() {
+        return Ok(());
+    }
+
+    // First tier: Distribute revenue to slots based on their deposit tokens
+    for slot in &queue.slots {
+        if slot.total_deposit_tokens.is_zero() {
+            continue;
+        }
+        
+        let slot_share_ratio = Decimal::from_ratio(
+            slot.total_deposit_tokens.u128(), 
+            total_deposit_tokens.u128()
+        );
+        let slot_revenue = revenue_amount * slot_share_ratio;
+        
+        if slot_revenue.is_zero() {
+            continue;
+        }
+        
+        // Second tier: Distribute slot revenue to groups based on their deposit tokens
+        for group in &slot.deposit_groups {
+            if group.total_deposit_tokens.is_zero() || group.total_vault_tokens.is_zero() {
+                continue;
+            }
+            
+            let group_share_ratio = Decimal::from_ratio(
+                group.total_deposit_tokens.u128(),
+                slot.total_deposit_tokens.u128()
+            );
+            let group_revenue = slot_revenue * group_share_ratio;
+            
+            if group_revenue.is_zero() {
+                continue;
+            }
+            
+            // Calculate amount per 1 vault token (as Decimal)
+            let amount_per_vt = Decimal::from_ratio(
+                group_revenue.u128(),
+                group.total_vault_tokens.u128()
+            );
+            
+            // Create revenue event
+            let event = RevenueEvent {
+                timestamp: env.block.time.seconds(),
+                amount_per_vt,  // Store as Decimal for direct multiplication
+                amount_to_be_claimed: group_revenue,
+            };
+            
+            // Store event
+            let key = (asset.clone(), slot.ltv.to_string(), group.max_borrow_ltv.to_string());
+            let mut events = REVENUE_EVENTS
+                .may_load(storage, key.clone())?
+                .unwrap_or_else(Vec::new);
+            events.push(event);
+            REVENUE_EVENTS.save(storage, key, &events)?;
+            
+            // Track cumulative revenue
+            add_revenue_tracking_entry(
+                storage,
+                env.clone(),
+                asset.clone(),
+                slot.ltv,
+                group.max_borrow_ltv,
+                group_revenue
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Add revenue tracking entry for a specific slot/group combination
+fn add_revenue_tracking_entry(
+    storage: &mut dyn Storage,
+    env: Env,
+    asset: String,
+    max_ltv: Decimal,
+    max_borrow_ltv: Decimal,
+    revenue_amount: Uint128,
+) -> Result<(), ContractError> {
+    let timestamp = env.block.time.seconds();
+    let key = (asset, max_ltv.to_string(), max_borrow_ltv.to_string());
+    
+    // Load existing entries
+    let mut entries = REVENUE_TRACKING
+        .may_load(storage, key.clone())?
+        .unwrap_or_else(Vec::new);
+    
+    // Calculate new total (add to previous total or start fresh)
+    let new_total = if let Some(last_entry) = entries.last() {
+        last_entry.total_revenue + revenue_amount
+    } else {
+        revenue_amount
+    };
+    
+    // Create new entry
+    let entry = RevenueTrackingEntry {
+        timestamp,
+        total_revenue: new_total,
+    };
+    
+    entries.push(entry);
+    
+    // Apply limit
+    if entries.len() > REVENUE_TRACKING_LIMIT {
+        entries.drain(0..entries.len() - REVENUE_TRACKING_LIMIT);
+    }
+    
+    REVENUE_TRACKING.save(storage, key, &entries)?;
+    Ok(())
+}
+
+/// Claim revenue for a specific deposit (internal helper)
+fn claim_revenue_for_deposit(
+    storage: &mut dyn Storage,
+    env: &Env,
+    deposit: &mut BackingDeposit,
+    asset: String,
+    max_ltv: Decimal,
+    max_borrow_ltv: Decimal,
+    limit: Option<u32>,
+) -> Result<Uint128, ContractError> {
+    let key = (asset.clone(), max_ltv.to_string(), max_borrow_ltv.to_string());
+    let mut events = REVENUE_EVENTS
+        .may_load(storage, key.clone())?
+        .unwrap_or_else(Vec::new);
+    
+    let mut total_claimed = Uint128::zero();
+    let mut events_processed = 0u32;
+    let max_events = limit.unwrap_or(100);
+    
+    for event in events.iter_mut() {
+        if events_processed >= max_events {
+            break;
+        }
+        
+        if event.timestamp <= deposit.last_claimed {
+            continue;
+        }
+        
+        if event.amount_to_be_claimed.is_zero() {
+            continue;
+        }
+        
+        // Direct multiplication: vault_tokens * amount_per_vt (Decimal) auto-floors the decimal
+        let mut user_share = event.amount_per_vt * deposit.vault_tokens;
+        
+        if !user_share.is_zero() {
+            //If the user share is greater than the amount to be claimed, set the user share to the amount to be claimed and set the amount to be claimed to zero
+            //This is to prevent overflow errors
+            if event.amount_to_be_claimed < user_share {
+                user_share = event.amount_to_be_claimed;
+                event.amount_to_be_claimed = Uint128::zero();
+            } else {
+                event.amount_to_be_claimed = event.amount_to_be_claimed.checked_sub(user_share)
+                    .map_err(|e| ContractError::CustomError { val: format!("Overflow subtracting user share: {}", e) })?;
+            }
+            //Add to total claimed
+            total_claimed = total_claimed.checked_add(user_share)
+                .map_err(|e| ContractError::CustomError { val: format!("Overflow adding user share: {}", e) })?;
+        }
+        //Increment events processed
+        events_processed += 1;
+    }
+    
+    deposit.last_claimed = env.block.time.seconds();
+    
+    // Trim events with zero amount_to_be_claimed
+    events.retain(|e| !e.amount_to_be_claimed.is_zero());
+    REVENUE_EVENTS.save(storage, key, &events)?;
+    
+    // Update user lifetime revenue
+    if !total_claimed.is_zero() {
+        update_user_lifetime_revenue(storage, deposit.user.clone(), asset.clone(), total_claimed, env.block.time.seconds())?;
+    }
+    
+    Ok(total_claimed)
+}
+
+/// Update user lifetime revenue tracking with limit
+fn update_user_lifetime_revenue(
+    storage: &mut dyn Storage,
+    user: Addr,
+    asset: String,
+    amount: Uint128,
+    timestamp: u64,
+) -> Result<(), ContractError> {
+    let mut entries = USER_LIFETIME_REVENUE
+        .may_load(storage, (user.clone(), asset.clone()))?
+        .unwrap_or_else(Vec::new);
+    
+    // Calculate new cumulative total
+    let new_total = if let Some(last_entry) = entries.last() {
+        last_entry.total_claimed.checked_add(amount)
+            .map_err(|e| ContractError::CustomError { val: format!("Overflow adding to lifetime revenue: {}", e) })?
+    } else {
+        amount
+    };
+    
+    // Create new entry
+    let entry = UserLifetimeRevenueEntry {
+        timestamp,
+        total_claimed: new_total,
+    };
+    
+    //Add to entries
+    entries.push(entry);
+    
+    // Apply limit
+    if entries.len() > LIFETIME_REVENUE_LIMIT {
+        entries.drain(0..entries.len() - LIFETIME_REVENUE_LIMIT);
+    }
+    
+    USER_LIFETIME_REVENUE.save(storage, (user, asset), &entries)?;
+    Ok(())
+}
+
+/// Claim accumulated revenue rewards for a user (public execute)
+/// Uses USER_DEPOSITS map to find all deposits for the user
+pub fn claim_revenue_for_user(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    user: String,
+    asset: String,
+    limit: Option<u32>,
+) -> Result<Response, ContractError> {
+    let config: Config = CONFIG.load(deps.storage)?;
+    let user_addr = deps.api.addr_validate(&user)?;
+    
+    // Load all deposit keys for this user and asset
+    let deposit_keys = USER_DEPOSITS
+        .may_load(deps.storage, (user_addr.clone(), asset.clone()))?
+        .unwrap_or_else(Vec::new);
+    
+    if deposit_keys.is_empty() {
+        return Err(ContractError::CustomError {
+            val: "No deposits found for user".to_string(),
+        });
+    }
+    
+    let mut total_claimed = Uint128::zero();
+    
+    // Iterate through all deposits and claim from each
+    for deposit_key_str in deposit_keys {
+        if let Ok(mut deposit) = BACKING_DEPOSITS.load(deps.storage, deposit_key_str.clone()) {
+            // Parse LTV values from the key string (format: "asset:ltv:max_borrow_ltv:user")
+            let parts: Vec<&str> = deposit_key_str.split(':').collect();
+            if parts.len() != 4 {
+                continue;
+            }
+            let max_ltv = Decimal::from_str(parts[1])
+                .map_err(|_| ContractError::CustomError { val: "Invalid LTV format".to_string() })?;
+            let max_borrow_ltv = Decimal::from_str(parts[2])
+                .map_err(|_| ContractError::CustomError { val: "Invalid max_borrow_ltv format".to_string() })?;
+            
+            let claimed = claim_revenue_for_deposit(
+                deps.storage,
+                &env,
+                &mut deposit,
+                asset.clone(),
+                max_ltv,
+                max_borrow_ltv,
+                limit,
+            )?;
+            
+            total_claimed = total_claimed.checked_add(claimed)
+                .map_err(|e| ContractError::CustomError { val: format!("Overflow adding claimed revenue: {}", e) })?;
+            
+            // Save updated deposit
+            BACKING_DEPOSITS.save(deps.storage, deposit_key_str, &deposit)?;
+        }
+    }
+    
+    // Send revenue to user
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    if !total_claimed.is_zero() {
+        msgs.push(BankMsg::Send {
+            to_address: user_addr.to_string(),
+            amount: vec![Coin {
+                denom: config.cdt_denom.clone(),
+                amount: total_claimed,
+            }],
+        }.into());
+    }
+    
+    Ok(Response::new()
+        .add_messages(msgs)
+        .add_attributes(vec![
+            attr("method", "claim_revenue_for_user"),
+            attr("caller", info.sender.to_string()),
+            attr("user", user_addr.to_string()),
+            attr("asset", asset),
+            attr("claimed_amount", total_claimed.to_string()),
+        ]))
+}
 
 /// Update contract configuration
 pub fn update_config(
@@ -604,11 +1075,14 @@ pub fn update_config(
     owner: Option<String>,
     cdp_contract: Option<String>,
     deposit_denom: Option<DepositDenom>,
+    cdt_denom: Option<String>,
     minimum_deposit: Option<Uint128>,
     waiting_period: Option<u64>,
     percent_to_disperse: Option<Decimal>,
     dispersal_window: Option<u64>,
-    activation_window: Option<u64>
+    activation_window: Option<u64>,
+    oracle_contract: Option<String>,
+    chain_proxy_contract: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut config: Config = CONFIG.load(deps.storage)?;
 
@@ -626,6 +1100,9 @@ pub fn update_config(
     if let Some(deposit_denom) = deposit_denom {
         config.deposit_denom = deposit_denom.clone();
     }
+    if let Some(cdt_denom) = cdt_denom {
+        config.cdt_denom = cdt_denom;
+    }
     if let Some(minimum_deposit) = minimum_deposit {
         config.minimum_deposit = minimum_deposit;
     }
@@ -641,6 +1118,12 @@ pub fn update_config(
     if let Some(activation_window) = activation_window {
         config.activation_window = activation_window;
     }
+    if let Some(oracle_contract) = oracle_contract {
+        config.oracle_contract = deps.api.addr_validate(&oracle_contract)?;
+    }
+    if let Some(chain_proxy_contract) = chain_proxy_contract {
+        config.chain_proxy_contract = deps.api.addr_validate(&chain_proxy_contract)?;
+    }
 
     CONFIG.save(deps.storage, &config)?;
 
@@ -648,55 +1131,6 @@ pub fn update_config(
         .add_attributes(vec![
             attr("method", "update_config"),
             attr("config", format!("{:?}", config)),
-        ]))
-}
-
-/// Activate dispersal for an asset (CDP contract only)
-/// REMOVE: Since we're adding liquidation history state, we will query and check the history in the DisperseRevenue call to determine if dispersal should be active if it isn't already
-pub fn activate_dispersal(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    asset: String,
-    dispersal_window: u64,
-) -> Result<Response, ContractError> {
-    let config: Config = CONFIG.load(deps.storage)?;
-
-    // Only CDP contract can activate dispersal
-    if info.sender != config.cdp_contract {
-        return Err(ContractError::Unauthorized {});
-    }
-
-    // Validate dispersal window (must be > 0)
-    if dispersal_window == 0 {
-        return Err(ContractError::InvalidDispersalWindow {});
-    }
-
-    // Check if dispersal already exists
-    if DISPERSAL.has(deps.storage, asset.clone()) {
-        return Err(ContractError::CustomError {
-            val: "Dispersal already active for this asset".to_string(),
-        });
-    }
-
-    // Create new dispersal
-    let dispersal = Dispersal {
-        total_to_disperse: Uint128::zero(),
-        dispersal_window,
-        active_dispersal: ActiveDispersal {
-            dispersal_start: env.block.time.seconds(),
-            amount_dispersed: Uint128::zero(),
-        },
-        pending_dispersal: Uint128::zero()
-    };
-
-    DISPERSAL.save(deps.storage, asset.clone(), &dispersal)?;
-
-    Ok(Response::new()
-        .add_attributes(vec![
-            attr("method", "activate_dispersal"),
-            attr("asset", asset),
-            attr("dispersal_window", dispersal_window.to_string()),
         ]))
 }
 
@@ -795,10 +1229,9 @@ pub fn disperse_revenue(
         DISPERSAL.save(deps.storage, asset.clone(), &dispersal)?;
     }
 
-    // Load queue and distribute the dispersed amount
-    let mut queue: LTVQueue = LTV_QUEUES.load(deps.storage, asset.clone())?;
-    distribute_revenue(&mut queue, final_disperse_amount);
-    LTV_QUEUES.save(deps.storage, asset.clone(), &queue)?;
+    // Load queue and distribute the dispersed amount to claimable revenue
+    let queue: LTVQueue = LTV_QUEUES.load(deps.storage, asset.clone())?;
+    distribute_revenue_to_users(deps.storage, &env, &queue, asset.clone(), final_disperse_amount)?;
 
     Ok(Response::new()
         .add_attributes(vec![
@@ -809,69 +1242,70 @@ pub fn disperse_revenue(
         ]))
 }
 
+//DONT DELETE.
 /// Retry failed bad debt, only necessary for the Transmuter's exit failures.
 /// Pull from the pending bad debt map & attempt to withdraw it from the Transmuter & send to the CDP contract as a FulfillBadDebt Msg.
 /// If the withdrawal errors, we don't update the pending bad debt map.
 /// If it succeeds, we update the pending bad debt map.
-pub fn retry_failed_bad_debt(
-    deps: DepsMut,
-    _env: Env,
-    _info: MessageInfo,
-    asset: String,
-) -> Result<Response, ContractError> {
-    let mut msgs: Vec<SubMsg> = vec![];
-    let config = CONFIG.load(deps.storage)?;
-    //Load the pending bad debt
-    let pending_bad_debt = PENDING_BAD_DEBT.load(deps.storage, asset.clone())?;
-    //Save the pending asset to the BAD_DEBT_PROPAGATION
-    BAD_DEBT_PROPAGATION.save(deps.storage, &BadDebtPropagation {
-        asset: asset.clone(),
-        amount: pending_bad_debt,
-    })?;
+// pub fn retry_failed_bad_debt(
+//     deps: DepsMut,
+//     _env: Env,
+//     _info: MessageInfo,
+//     asset: String,
+// ) -> Result<Response, ContractError> {
+//     let mut msgs: Vec<SubMsg> = vec![];
+//     let config = CONFIG.load(deps.storage)?;
+//     //Load the pending bad debt
+//     let pending_bad_debt = PENDING_BAD_DEBT.load(deps.storage, asset.clone())?;
+//     //Save the pending asset to the BAD_DEBT_PROPAGATION
+//     BAD_DEBT_PROPAGATION.save(deps.storage, &BadDebtPropagation {
+//         asset: asset.clone(),
+//         amount: pending_bad_debt,
+//     })?;
 
-    //Set the denom
-    let withdraw_as_denom = config.deposit_denom.vault_info.clone().unwrap().underlying_token.clone();
+//     //Set the denom
+//     let withdraw_as_denom = config.deposit_denom.vault_info.clone().unwrap().underlying_token.clone();
 
-    //Attempt to withdraw the pending bad debt from the Transmuter
-    msgs.push(SubMsg::reply_on_success(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.deposit_denom.vault_info.clone().unwrap().vault_contract.clone(),
-        msg: to_json_binary(&Transmuter_ExecuteMsg::ExitVault { 
-            recipient: None, //set to none so we don't have to conditionally add the CDP_ExecuteMsg::FulfillBadDebt Msg at the end of this fn
-            withdraw_as: Some(withdraw_as_denom.clone()),
-         })?,
-        funds: vec![
-            Coin {
-                denom: config.deposit_denom.denom.clone(),
-                amount: pending_bad_debt,
-            }
-        ],
-    }), TRANSMUTER_REPLY_ID));
+//     //Attempt to withdraw the pending bad debt from the Transmuter
+//     msgs.push(SubMsg::reply_on_success(CosmosMsg::Wasm(WasmMsg::Execute {
+//         contract_addr: config.deposit_denom.vault_info.clone().unwrap().vault_contract.clone(),
+//         msg: to_json_binary(&Transmuter_ExecuteMsg::ExitVault { 
+//             recipient: None, //set to none so we don't have to conditionally add the CDP_ExecuteMsg::FulfillBadDebt Msg at the end of this fn
+//             withdraw_as: Some(withdraw_as_denom.clone()),
+//          })?,
+//         funds: vec![
+//             Coin {
+//                 denom: config.deposit_denom.denom.clone(),
+//                 amount: pending_bad_debt,
+//             }
+//         ],
+//     }), TRANSMUTER_REPLY_ID));
 
-    //convert the pending bad debt to the underlying token
-    let pending_bad_debt_as_underlying = deps.querier.query_wasm_smart::<Uint128>(
-        config.deposit_denom.vault_info.clone().unwrap().vault_contract.clone(),
-        &Transmuter_QueryMsg::VaultTokenUnderlying { vault_token_amount: pending_bad_debt },
-    )?;
+//     //convert the pending bad debt to the underlying token
+//     let pending_bad_debt_as_underlying = deps.querier.query_wasm_smart::<Uint128>(
+//         config.deposit_denom.vault_info.clone().unwrap().vault_contract.clone(),
+//         &Transmuter_QueryMsg::VaultTokenUnderlying { vault_token_amount: pending_bad_debt },
+//     )?;
 
-    //Add the CDP_ExecuteMsg::FulfillBadDebt Msg 
-    msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.cdp_contract.to_string(),
-        msg: to_json_binary(&CDP_ExecuteMsg::FulfillBadDebt {})?,
-        funds: vec![
-            Coin {
-                denom: withdraw_as_denom,
-                amount: pending_bad_debt_as_underlying,
-            }
-        ],
-    })));
+//     //Add the CDP_ExecuteMsg::FulfillBadDebt Msg 
+//     msgs.push(SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
+//         contract_addr: config.cdp_contract.to_string(),
+//         msg: to_json_binary(&CDP_ExecuteMsg::FulfillBadDebt {})?,
+//         funds: vec![
+//             Coin {
+//                 denom: withdraw_as_denom,
+//                 amount: pending_bad_debt_as_underlying,
+//             }
+//         ],
+//     })));
 
-    Ok(Response::new()
-        .add_submessages(msgs)
-        .add_attributes(vec![
-            attr("method", "retry_failed_bad_debt"),
-            attr("asset", asset),
-        ]))
-}
+//     Ok(Response::new()
+//         .add_submessages(msgs)
+//         .add_attributes(vec![
+//             attr("method", "retry_failed_bad_debt"),
+//             attr("asset", asset),
+//         ]))
+// }
 
 
 /// Find or create LTV slot for a given LTV (1% increments)
@@ -909,7 +1343,6 @@ fn find_or_create_borrow_group(slot: &mut MaxLTVSlot, max_borrow_ltv: Decimal, c
         // Create new group
         let new_group = MaxBorrowLTVGroup {
             max_borrow_ltv,
-            backing_deposits: Vec::new(),
             total_deposit_tokens: Uint128::zero(),
             total_vault_tokens: Uint128::zero(),
         };
@@ -923,53 +1356,6 @@ fn find_or_create_borrow_group(slot: &mut MaxLTVSlot, max_borrow_ltv: Decimal, c
             val: "Group not found".to_string(),
         })
     }
-}
-
-/// Find the slot index containing a specific deposit
-fn find_deposit_slot_index(slots: &[MaxLTVSlot], deposit_id: Uint128) -> Result<usize, ContractError> {
-    slots.iter()
-        .position(|slot| slot.deposit_groups.iter().any(|group| group.backing_deposits.iter().any(|d| d.id == deposit_id)))
-        .ok_or_else(|| ContractError::DepositNotFound {})
-}
-
-/// Read a deposit by ID
-fn read_deposit(_deps: &dyn Storage, deposit_id: Uint128, queue: LTVQueue) -> Result<BackingDeposit, ContractError> {
-    for slot in queue.slots {
-        for group in slot.deposit_groups {
-            if let Some(deposit) = group.backing_deposits.into_iter().find(|d| d.id == deposit_id) {
-                return Ok(deposit);
-            }
-        }
-    }
-    Err(ContractError::DepositNotFound {})
-}
-
-/// Read deposits by user
-fn read_deposits_by_user(
-    _deps: &dyn Storage,
-    queue: LTVQueue,
-    user: Addr,
-    limit: Option<u32>,
-    start_after: Option<Uint128>,
-) -> Result<Vec<BackingDeposit>, ContractError> {
-    let mut deposits = Vec::new();
-    let limit = limit.unwrap_or(MAX_LIMIT) as usize;
-    let start = start_after.unwrap_or_else(Uint128::zero);
-
-    for slot in queue.slots {
-        for group in slot.deposit_groups {
-            deposits.extend(
-                group.backing_deposits
-                    .into_iter()
-                    .filter(|deposit| deposit.id > start)
-                    .filter(|deposit| deposit.user == user)
-                    .collect::<Vec<_>>(),
-            );
-        }
-    }
-
-    deposits.truncate(limit);
-    Ok(deposits)
 }
 
 /// Validate deposit input
@@ -1001,166 +1387,61 @@ fn validate_deposit_owner(
     }
 }
 
-/// Distribute revenue based on weighted pro-rata system
-fn distribute_revenue(queue: &mut LTVQueue, revenue_amount: Uint128) {
-    // Calculate total weight (sum of LTV * total_deposit_tokens for each slot)
-    let total_weight: Uint128 = queue.slots
-        .iter()
-        .map(|slot| {
-            slot.ltv * slot.total_deposit_tokens
-        })
-        .sum();
-
-    if total_weight.is_zero() {
-        return;
-    }
-
-    // Distribute revenue to each slot
-    for slot in &mut queue.slots {
-        if slot.total_deposit_tokens.is_zero() {
-            continue;
-        }
-
-        let slot_weight = slot.ltv * slot.total_deposit_tokens;
-        let slot_revenue = if total_weight.is_zero() {
-            Uint128::zero()
-        } else {
-            // Use proper decimal arithmetic to avoid integer division issues
-            let weight_ratio = Decimal::from_ratio(slot_weight.u128(), total_weight.u128());
-            revenue_amount * weight_ratio
-        };
-
-        // Split slot revenue pro-rata among deposits based on maxBorrowLTV
-        distribute_slot_revenue(slot, slot_revenue);
-    }
-}
-
-/// Distribute revenue within a slot based on maxBorrowLTV weights
-fn distribute_slot_revenue(slot: &mut MaxLTVSlot, slot_revenue: Uint128) {
-    if slot.deposit_groups.is_empty() {
-        return;
-    }
-
-    // Calculate total maxBorrowLTV weight for this slot
-    let total_borrow_weight: Uint128 = slot.deposit_groups
-        .iter()
-        .map(|group| {
-            group.max_borrow_ltv * group.total_vault_tokens
-        })
-        .sum();
-
-    if total_borrow_weight.is_zero() {
-        return;
-    }
-
-    // Distribute revenue to each group based on their maxBorrowLTV weight
-    for group in &mut slot.deposit_groups {
-        let group_weight = group.max_borrow_ltv * group.total_vault_tokens;
-        let group_revenue = if total_borrow_weight.is_zero() {
-            Uint128::zero()
-        } else {
-            // Use proper decimal arithmetic to avoid integer division issues
-            let weight_ratio = Decimal::from_ratio(group_weight.u128(), total_borrow_weight.u128());
-            slot_revenue * weight_ratio
-        };
-
-        // Add revenue to group's total deposit tokens (this increases the value of all vault tokens in the group)
-        group.total_deposit_tokens += group_revenue;
-        slot.total_deposit_tokens += group_revenue;
-    }
-}
-
-/// Track base token amounts for vault tokens for a specific slot and group
-/// This function calculates and stores underlying base token amounts for 1,000,000 vault tokens
-/// Stores data per (asset, max LTV, max borrow LTV) combination
-fn add_base_token_tracking_entry(
+/// Update rate assurance for a specific slot/group combination
+fn update_rate_assurance(
     storage: &mut dyn Storage,
-    env: Env,
     asset: String,
     max_ltv: Decimal,
     max_borrow_ltv: Decimal,
+    group: &MaxBorrowLTVGroup,
 ) -> Result<(), ContractError> {
-    let timestamp = env.block.time.seconds();
-    
-    // Load the queue to find the specific slot and group
-    let queue: LTVQueue = LTV_QUEUES.load(storage, asset.clone())?;
-    
-    // Find the specific slot and group
-    if let Some(slot) = queue.slots.iter().find(|s| s.ltv == max_ltv) {
-        if let Some(group) = slot.deposit_groups.iter().find(|g| g.max_borrow_ltv == max_borrow_ltv) {
-            if !group.total_vault_tokens.is_zero() {
-                // Calculate base tokens for 1,000,000,000,000 vault tokens
-                let base_tokens_for_million = calculate_base_tokens(
-                    Uint128::new(1_000_000_000_000),
-                    group.total_deposit_tokens,
-                    group.total_vault_tokens,
-                )?;
-                
-                // Create tracking entry
-                let tracking_entry = BaseTokenTrackingEntry {
-                    timestamp,
-                    base_token_amount: base_tokens_for_million,
-                };
-                
-                // Load existing entries for this (asset, max LTV, max borrow LTV) combination
-                let mut existing_entries = BASE_TOKEN_TRACKING
-                    .may_load(storage, (asset.clone(), max_ltv.to_string(), max_borrow_ltv.to_string()))?
-                    .unwrap_or_else(Vec::new);
-                
-
-                //If the new entry is the same base token amount as the last entry, don't add it
-                if existing_entries.len() > 0 && existing_entries.last().unwrap().base_token_amount == tracking_entry.base_token_amount {
-                    return Ok(());
-                }
-                
-                // Add new entry
-                existing_entries.push(tracking_entry);
-                
-                // Apply size limit
-                if existing_entries.len() > BASE_TOKEN_TRACKING_LIMIT {
-                    existing_entries.drain(0..existing_entries.len() - BASE_TOKEN_TRACKING_LIMIT);
-                }
-                
-                // Save updated entries
-                BASE_TOKEN_TRACKING.save(
-                    storage, 
-                    (asset, max_ltv.to_string(), max_borrow_ltv.to_string()), 
-                    &existing_entries
-                )?;
-            }
-        }
+    if !group.total_vault_tokens.is_zero() {
+        let base_tokens_for_trillion = calculate_base_tokens(
+            Uint128::new(1_000_000_000_000),
+            group.total_deposit_tokens,
+            group.total_vault_tokens,
+        )?;
+        
+        RATE_ASSURANCE.save(
+            storage,
+            (asset, max_ltv.to_string(), max_borrow_ltv.to_string()),
+            &base_tokens_for_trillion
+        )?;
     }
-    
     Ok(())
 }
 
 /// Post a deposit tracker entry for base token tracking
-pub fn post_deposit_tracker_entry(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    asset: String,
-    max_ltv: Decimal,
-    max_borrow_ltv: Decimal,
-) -> Result<Response, ContractError> {
-    let config: Config = CONFIG.load(deps.storage)?;
+// pub fn post_deposit_tracker_entry(
+//     deps: DepsMut,
+//     _env: Env,
+//     _info: MessageInfo,
+//     asset: String,
+//     max_ltv: Decimal,
+//     max_borrow_ltv: Decimal,
+// ) -> Result<Response, ContractError> {
+//     // Only owner or CDP contract can post tracker entries
+//     // if info.sender != config.owner && info.sender != config.cdp_contract {
+//     //     return Err(ContractError::Unauthorized {});
+//     // }
 
-    // Only owner or CDP contract can post tracker entries
-    // if info.sender != config.owner && info.sender != config.cdp_contract {
-    //     return Err(ContractError::Unauthorized {});
-    // }
+//     // Call the base token tracking function
+//     // Load the group first
+//     let queue: LTVQueue = LTV_QUEUES.load(deps.storage, asset.clone())?;
+//     if let Some(slot) = queue.slots.iter().find(|s| s.ltv == max_ltv) {
+//         if let Some(group) = slot.deposit_groups.iter().find(|g| g.max_borrow_ltv == max_borrow_ltv) {
+//             update_rate_assurance(deps.storage, asset.clone(), max_ltv, max_borrow_ltv, group)?;
+//         }
+//     }
 
-    // Call the base token tracking function
-    add_base_token_tracking_entry(deps.storage, env, asset.clone(), max_ltv, max_borrow_ltv)?;
-
-    Ok(Response::new()
-        .add_attributes(vec![
-            attr("method", "post_deposit_tracker_entry"),
-            attr("asset", asset),
-            attr("max_ltv", max_ltv.to_string()),
-            attr("max_borrow_ltv", max_borrow_ltv.to_string()),
-        ]))
-}
+//     Ok(Response::new()
+//         .add_attributes(vec![
+//             attr("method", "post_deposit_tracker_entry"),
+//             attr("asset", asset),
+//             attr("max_ltv", max_ltv.to_string()),
+//             attr("max_borrow_ltv", max_borrow_ltv.to_string()),
+//         ]))
+// }
 
 /// Rate assurance
 /// Ensures that the conversion rate is static for deposits & withdrawals
@@ -1193,32 +1474,281 @@ pub fn execute_rate_assurance(
             val: "Group not found".to_string(),
         })?;
 
-    //Get last entry from BASE_TOKEN_TRACKING for this (asset, max_ltv, max_borrow_ltv)
-    let tracking_entries = BASE_TOKEN_TRACKING
-        .may_load(deps.storage, (asset.clone(), max_ltv.to_string(), max_borrow_ltv.to_string()))?
-        .unwrap_or_else(Vec::new);
+    // Load last rate
+    let last_rate = RATE_ASSURANCE
+        .may_load(deps.storage, (asset.clone(), max_ltv.to_string(), max_borrow_ltv.to_string()))?;
 
-    if tracking_entries.is_empty() {
-        // If no previous entries, this is the first deposit - allow it
-        return Ok(Response::new());
-    }
+    if let Some(last_rate) = last_rate {
+        let current_rate = calculate_base_tokens(
+            Uint128::new(1_000_000_000_000),
+            group.total_deposit_tokens,
+            group.total_vault_tokens,
+        )?;
 
-    let last_entry = tracking_entries.last().unwrap();
-
-    //Calculate current rate: btokens_per_one = calculate_base_tokens(1_000_000_000_000, group.total_deposit_tokens, group.total_vault_tokens)
-    let current_btokens_per_one = calculate_base_tokens(
-        Uint128::new(1_000_000_000_000),
-        group.total_deposit_tokens,
-        group.total_vault_tokens,
-    )?;
-
-    //Compare with previous entry's base_token_amount, allowing +/- tolerance
-    if !(current_btokens_per_one + Uint128::one() >= last_entry.base_token_amount) {
-        return Err(ContractError::CustomError { 
-            val: format!("Rate assurance failed for asset {} (max_ltv: {}, max_borrow_ltv: {}). Previous rate: {:?}, current rate: {:?}", 
-                asset, max_ltv, max_borrow_ltv, last_entry.base_token_amount, current_btokens_per_one) 
-        });
+        if !(current_rate + Uint128::one() >= last_rate) {
+            return Err(ContractError::CustomError { 
+                val: format!("Rate assurance failed for asset {} (max_ltv: {}, max_borrow_ltv: {}). Previous rate: {:?}, current rate: {:?}", 
+                    asset, max_ltv, max_borrow_ltv, last_rate, current_rate) 
+            });
+        }
     }
 
     Ok(Response::new())
+}
+
+/// Reduce dispersals (active and pending) to fulfill bad debt
+fn reduce_dispersals(
+    storage: &mut dyn Storage,
+    asset: String,
+    mut needed_amount: Uint128,
+) -> Result<Uint128, ContractError> {
+    let mut dispersal = match DISPERSAL.may_load(storage, asset.clone())? {
+        Some(d) => d,
+        None => return Ok(Uint128::zero()),
+    };
+
+    let mut fulfilled_amount = Uint128::zero();
+
+    // First take from active dispersal (remaining allocation not yet dispersed)
+    if dispersal.active_dispersal.dispersal_start != 0 && !needed_amount.is_zero() {
+        let available_in_active = dispersal.total_to_disperse
+            .checked_sub(dispersal.active_dispersal.amount_dispersed)
+            .unwrap_or(Uint128::zero());
+        
+        let take_from_active = std::cmp::min(needed_amount, available_in_active);
+        
+        if !take_from_active.is_zero() {
+            dispersal.total_to_disperse -= take_from_active;
+            fulfilled_amount += take_from_active;
+            needed_amount -= take_from_active;
+        }
+    }
+
+    // Then take from pending dispersal
+    if !dispersal.pending_dispersal.is_zero() && !needed_amount.is_zero() {
+        let take_from_pending = std::cmp::min(needed_amount, dispersal.pending_dispersal);
+        
+        dispersal.pending_dispersal -= take_from_pending;
+        fulfilled_amount += take_from_pending;
+        needed_amount -= take_from_pending;
+    }
+
+    // Save updated dispersal
+    DISPERSAL.save(storage, asset, &dispersal)?;
+    
+    Ok(fulfilled_amount)
+}
+
+/// Reduce revenue events to fulfill bad debt, following waterfall order
+// fn reduce_revenue_events(
+//     storage: &mut dyn Storage,
+//     queue: &LTVQueue,
+//     asset: String,
+//     mut needed_amount: Uint128,
+// ) -> Result<Uint128, ContractError> {
+//     let mut fulfilled_amount = Uint128::zero();
+
+//     // Sort slots by LTV in descending order (highest first)
+//     let mut sorted_slots: Vec<&MaxLTVSlot> = queue.slots.iter().collect();
+//     sorted_slots.sort_by(|a, b| b.ltv.cmp(&a.ltv));
+
+//     for slot in sorted_slots {
+//         if needed_amount.is_zero() {
+//             break;
+//         }
+
+//         // Sort groups by max_borrow_ltv in descending order
+//         let mut sorted_groups: Vec<&MaxBorrowLTVGroup> = slot.deposit_groups.iter().collect();
+//         sorted_groups.sort_by(|a, b| b.max_borrow_ltv.cmp(&a.max_borrow_ltv));
+
+//         for group in sorted_groups {
+//             if needed_amount.is_zero() {
+//                 break;
+//             }
+
+//             let key = (asset.clone(), slot.ltv.to_string(), group.max_borrow_ltv.to_string());
+//             let mut events = REVENUE_EVENTS
+//                 .may_load(storage, key.clone())?
+//                 .unwrap_or_else(Vec::new);
+
+//             for event in events.iter_mut() {
+//                 if needed_amount.is_zero() {
+//                     break;
+//                 }
+
+//                 let take_from_event = std::cmp::min(needed_amount, event.amount_to_be_claimed);
+                
+//                 if !take_from_event.is_zero() {
+//                     event.amount_to_be_claimed -= take_from_event;
+//                     fulfilled_amount += take_from_event;
+//                     needed_amount -= take_from_event;
+//                 }
+//             }
+
+//             // Remove fully depleted events
+//             events.retain(|e| !e.amount_to_be_claimed.is_zero());
+//             REVENUE_EVENTS.save(storage, key, &events)?;
+//         }
+//     }
+
+//     Ok(fulfilled_amount)
+// }
+
+/// Handle bad debt waterfall: dispersals → revenue events
+/// Returns (amount_fulfilled_from_revenue, remaining_bad_debt)
+fn handle_bad_debt_waterfall(
+    storage: &mut dyn Storage,
+    _queue: &LTVQueue,
+    asset: String,
+    bad_debt_amount: Uint128,
+) -> Result<(Uint128, Uint128), ContractError> {
+    let mut remaining = bad_debt_amount;
+    let mut total_fulfilled = Uint128::zero();
+
+    // 1. Take from dispersals first
+    let from_dispersals = reduce_dispersals(storage, asset.clone(), remaining)?;
+    total_fulfilled += from_dispersals;
+    remaining = remaining.checked_sub(from_dispersals).unwrap_or(Uint128::zero());
+
+    // 2. Take from revenue events
+    // if !remaining.is_zero() {
+    //     let from_events = reduce_revenue_events(storage, queue, asset, remaining)?;
+    //     total_fulfilled += from_events;
+    //     remaining = remaining.checked_sub(from_events).unwrap_or(Uint128::zero());
+    // }
+    // We won't do this because:
+    // - This is revenue that should've been claimed already in the best case UX
+    // - This increases runtime for a small benefit. We need liquidations to be gas efficient & bad debt flow is added to the end of liquidations.
+
+    Ok((total_fulfilled, remaining))
+}
+
+/// Query asset price from oracle and convert to CDT amount
+fn query_asset_price(
+    querier: &QuerierWrapper,
+    oracle_contract: Addr,
+    asset_info: AssetInfo,
+    cdt_denom: String,
+    amount: Uint128,
+) -> Result<Uint128, ContractError> {
+ 
+    let cdt_info = AssetInfo::NativeToken { 
+        denom: cdt_denom.clone()
+    };
+    let asset_infos = vec![asset_info.clone(), cdt_info.clone()];
+    let price_response: Vec<PriceResponse> = querier.query_wasm_smart(
+        oracle_contract.to_string(),
+        &Oracle_QueryMsg::Prices {
+            asset_infos,
+            twap_timeframe: 0, // (No TWAPs)
+            oracle_time_limit: 0,
+        },
+    )?;
+
+    // Use PriceResponse helper functions to convert amount to value
+    let value = price_response[0].get_value(amount)?; //Base token value
+
+    // Value is already in CDT terms (USD), now we need to get CDT amount
+    // Since CDT is also USD par, 1 USD value = 1 CDT
+    // We need to query CDT's decimals to convert properly
+
+    // Convert value back to CDT amount using CDT's price and decimals
+    let cdt_amount = price_response[1].get_amount(value)?;
+
+    Ok(cdt_amount)
+}
+
+/// Create liquidation swap message for slashed deposits
+fn create_liquidation_swap_msg(
+    storage: &mut dyn Storage,
+    querier: &QuerierWrapper,
+    env: &Env,
+    config: &Config,
+    asset_denom: String,
+    amount: Uint128,
+) -> Result<SubMsg, ContractError> {
+    // Query oracle for CDT equivalent (for validation)
+    let asset_info = AssetInfo::NativeToken { denom: asset_denom.clone() };
+    let _cdt_equivalent = query_asset_price(
+        querier,
+        config.oracle_contract.clone(),
+        asset_info.clone(),
+        config.cdt_denom.clone(),
+        amount,
+    )?;
+
+    // Query current CDT balance and save to SWAP_PROPAGATION
+    let cdt_balance: Coin = querier.query_balance(
+        env.contract.address.clone(),
+        config.cdt_denom.clone(),
+    )?;
+
+    SWAP_PROPAGATION.save(storage, &SwapPropagation {
+        cdt_balance_before: cdt_balance.amount,
+    })?;
+
+    // Create swap message via chain proxy using ExecuteSwaps
+    let swap_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.chain_proxy_contract.to_string(),
+        msg: to_json_binary(&OsmosisProxy_ExecuteMsg::ExecuteSwaps {
+            token_out: config.cdt_denom.clone(),
+            max_slippage: Decimal::percent(90), // 90% max slippage
+        })?,
+        funds: vec![Coin {
+            denom: asset_denom,
+            amount,
+        }],
+    });
+
+    Ok(SubMsg::reply_on_success(swap_msg, crate::contract::LIQUIDATION_SWAP_REPLY_ID))
+}
+
+/// Update daily TVL tracker with current total deposit tokens
+/// Only updates if it's been at least 1 day since last entry AND total has changed
+fn update_daily_tvl_tracker(
+    storage: &mut dyn Storage,
+    env: &Env,
+    querier: &QuerierWrapper,
+) -> Result<(), ContractError> {
+    // Load config to get deposit denomination
+    let config = CONFIG.load(storage)?;
+    
+    // Query contract balance of deposit token
+    let balance: Coin = querier.query_balance(
+        env.contract.address.clone(),
+        config.deposit_denom.denom,
+    )?;
+    
+    let global_total = balance.amount;
+    
+    // Load existing entries
+    let mut entries = DAILY_TVL_TRACKER.may_load(storage)?.unwrap_or_else(Vec::new);
+    
+    // Check if we should add a new entry
+    let should_add = if let Some(last_entry) = entries.last() {
+        // Check if at least 1 day has passed
+        let time_elapsed = env.block.time.seconds().saturating_sub(last_entry.timestamp);
+        time_elapsed >= ONE_DAY_SECONDS && last_entry.total_deposit_tokens != global_total
+    } else {
+        // First entry
+        true
+    };
+    
+    if should_add {
+        let new_entry = TVLEntry {
+            timestamp: env.block.time.seconds(),
+            total_deposit_tokens: global_total,
+        };
+        
+        entries.push(new_entry);
+        
+        // Apply limit
+        if entries.len() > TVL_TRACKER_LIMIT {
+            entries.drain(0..entries.len() - TVL_TRACKER_LIMIT);
+        }
+        
+        DAILY_TVL_TRACKER.save(storage, &entries)?;
+    }
+    
+    Ok(())
 }

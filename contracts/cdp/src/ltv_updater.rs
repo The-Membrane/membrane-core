@@ -135,7 +135,7 @@ fn update_asset_ltv(
 /// Process a single LTV value (either max_LTV or max_borrow_LTV)
 /// Returns (new_value, was_updated)
 #[allow(clippy::too_many_arguments)]
-fn process_ltv_update(
+pub fn process_ltv_update(
     current_ltv: Decimal,
     disco_ltv: Decimal,
     staged_ltv: &mut Option<Decimal>,

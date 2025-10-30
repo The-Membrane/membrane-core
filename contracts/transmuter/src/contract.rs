@@ -16,13 +16,14 @@ use membrane::transmuter::{
 };
 use membrane::types::StringEntry;
 use membrane::types::AssetInfo;
+use membrane::revenue_distributor::ExecuteMsg as RevenueDistributorExecuteMsg;
 
 use crate::error::ContractError;
 use crate::state::{
     append_transmute_snapshot, append_volume_window, apply_volume_update, history_slice,
     history_total, init_history, new_volume_window, CONFIG, TRANSMUTE_HISTORY, VOLUME_HISTORY,
     VOLUME_WINDOW, VAULT_TOKEN_SUPPLY, TransmuteSnapshot, RATE_LIMIT_FLOWS, FlowEntry, DEPLOYED_PAIRED_ASSET,
-    TOKEN_RATE_ASSURANCE, TokenRateAssurance, GLOBAL_RATE_LIMIT_FLOWS,
+    TOKEN_RATE_ASSURANCE, TokenRateAssurance, GLOBAL_RATE_LIMIT_FLOWS, PENDING_REVENUE,
 };
 
 const CONTRACT_NAME: &str = "membrane-transmuter";
@@ -70,9 +71,20 @@ pub fn instantiate(
         msg.vault_subdenom
     );
 
+    //Save revenue_distributions early to avoid partial move
+    let revenue_distributions = msg.revenue_distributions.clone();
+
+    //Save values early to avoid partial move issues
+    let revenue_contract = msg.revenue_contract.clone();
+    let cdp_contract = msg.cdp_contract.clone();
+    let swap_history_cap = msg.swap_history_cap;
+    let volume_history_cap = msg.volume_history_cap;
+    let vault_subdenom = msg.vault_subdenom.clone();
+    let tokenfactory_contract = msg.tokenfactory_contract.clone();
+    
     //Validate the revenue and cdp contract addresses
-    let _ = deps.api.addr_validate(&msg.clone().revenue_contract)?;
-    let _ = deps.api.addr_validate(&msg.clone().cdp_contract)?;
+    let _ = deps.api.addr_validate(&revenue_contract)?;
+    let _ = deps.api.addr_validate(&cdp_contract)?;
 
     // Default usage_fee to 1%
     let usage_fee = msg
@@ -116,25 +128,52 @@ pub fn instantiate(
         ));
     }
 
+    // Save and validate revenue distributor address if provided
+    let revenue_distributor_addr_val = msg.revenue_distributor_addr.clone();
+    let revenue_distributor_addr = revenue_distributor_addr_val
+        .map(|addr| deps.api.addr_validate(&addr))
+        .transpose()?;
+    
+    // Validate revenue distributions if provided
+    let revenue_distributions = revenue_distributions.unwrap_or_default();
+    if !revenue_distributions.is_empty() {
+        // Validate that ratios sum to 1.0
+        let total_ratio: Decimal = revenue_distributions.iter()
+            .map(|liq| liq.amount)
+            .fold(Decimal::zero(), |acc, x| acc + x);
+        let diff = if total_ratio > Decimal::one() {
+            total_ratio - Decimal::one()
+        } else {
+            Decimal::one() - total_ratio
+        };
+        if diff > Decimal::percent(1) {
+            return Err(ContractError::Validation(
+                "revenue_distributions ratios must sum to approximately 1.0".into(),
+            ));
+        }
+    }
+
     let config = Config {
         owner: owner.clone(),
-        tokenfactory_contract: msg.clone().tokenfactory_contract,
-        revenue_contract: msg.clone().revenue_contract,
-        cdp_contract: msg.clone().cdp_contract,
+        tokenfactory_contract,
+        revenue_contract,
+        cdp_contract,
         vault_token: vault_token.clone(),
-        deposit_pair: msg.clone().deposit_pair,
-        composition_leeway: msg.clone().composition_leeway,
-        asset_a_to_b_rate: msg.clone().asset_a_to_b_rate,
-        target_ratio: msg.clone().target_ratio,  
+        deposit_pair: msg.deposit_pair,
+        composition_leeway: msg.composition_leeway,
+        asset_a_to_b_rate: msg.asset_a_to_b_rate,
+        target_ratio: msg.target_ratio,  
         usage_fee,
-        swap_history_cap: msg.clone().swap_history_cap,
-        volume_history_cap: msg.clone().volume_history_cap,
+        swap_history_cap,
+        volume_history_cap,
         rate_limit_window_secs,
         rate_limit_threshold,
         allowlist: msg.allowlist.unwrap_or_default(),
         allowlist_rate_limit_threshold: msg.allowlist_rate_limit_threshold.unwrap_or(rate_limit_threshold),
         global_rate_limit_window_secs,
         global_rate_limit_threshold,
+        revenue_distributor_addr,
+        revenue_distributions,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -143,13 +182,14 @@ pub fn instantiate(
     VOLUME_WINDOW.save(deps.storage, &new_volume_window(env.block.time))?;
     DEPLOYED_PAIRED_ASSET.save(deps.storage, &Uint128::zero())?;
     GLOBAL_RATE_LIMIT_FLOWS.save(deps.storage, &Vec::new())?;
+    PENDING_REVENUE.save(deps.storage, &Uint128::zero())?;
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
     let create_msg = create_denom_msg(
-        msg.tokenfactory_contract,
+        config.tokenfactory_contract.clone(),
         env.contract.address.as_str(),
-        &msg.vault_subdenom,
+        &vault_subdenom,
     )?;
 
     Ok(Response::new()
@@ -187,6 +227,8 @@ pub fn execute(
             allowlist_rate_limit_threshold,
             global_rate_limit_window_secs,
             global_rate_limit_threshold,
+            revenue_distributor_addr,
+            revenue_distributions,
         } => execute_update_config(
             deps,
             env,
@@ -208,6 +250,8 @@ pub fn execute(
             allowlist_rate_limit_threshold,
             global_rate_limit_window_secs,
             global_rate_limit_threshold,
+            revenue_distributor_addr,
+            revenue_distributions,
         ),
         ExecuteMsg::EnterVault { recipient } => execute_enter_vault(deps, env, info, recipient),
         ExecuteMsg::DepositFee {} => execute_deposit_fee(deps, env, info),
@@ -242,6 +286,8 @@ fn execute_update_config(
     allowlist_rate_limit_threshold: Option<Decimal>,
     global_rate_limit_window_secs: Option<u64>,
     global_rate_limit_threshold: Option<Decimal>,
+    revenue_distributor_addr: Option<String>,
+    revenue_distributions: Option<Vec<membrane::types::DistributionEntry>>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     ensure_owner(&config, &info.sender)?;
@@ -379,6 +425,37 @@ fn execute_update_config(
             ));
         }
         config.global_rate_limit_threshold = threshold;
+    }
+
+    if let Some(rd_addr) = revenue_distributor_addr {
+        config.revenue_distributor_addr = Some(deps.api.addr_validate(&rd_addr)?);
+    }
+
+    if let Some(distributions) = revenue_distributions {
+        // Apply add/remove distribution routes
+        for entry in distributions {
+            if entry.remove {
+                config.revenue_distributions.retain(|liq_asset| liq_asset.info != entry.asset.info);
+            } else {
+                // Add or update distribution entry
+                config.revenue_distributions.retain(|liq_asset| liq_asset.info != entry.asset.info);
+                config.revenue_distributions.push(entry.asset);
+            }
+        }
+        // Validate that ratios sum to 1.0
+        let total_ratio: Decimal = config.revenue_distributions.iter()
+            .map(|liq| liq.amount)
+            .fold(Decimal::zero(), |acc, x| acc + x);
+        let diff = if total_ratio > Decimal::one() {
+            total_ratio - Decimal::one()
+        } else {
+            Decimal::one() - total_ratio
+        };
+        if diff > Decimal::percent(1) {
+            return Err(ContractError::Validation(
+                "revenue_distributions ratios must sum to approximately 1.0".into(),
+            ));
+        }
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -689,22 +766,38 @@ fn execute_transmute(
             reason: "only one asset may be sent for transmute".into(),
         });
     }
-
+    
     // Determine allowlist status
     let is_allowlisted = is_allowlisted_sender(&deps.querier, &info.sender, &config)?;
 
-
-
-    //Calc user value sent, denominated in asset A
+    //Calc user value sent BEFORE fee deduction, denominated in asset A
     let user_value_sent = sum_base_value(funds_a, funds_b, config.asset_a_to_b_rate)?;
     
-    //If the sender isn't the cdp_contract or a deployable venue, add fee by reducing the amount of the asset sent
-    if !is_allowlisted {
+    //Calculate fee amount before applying deduction
+    let fee_info: Option<(Uint128, String)> = if !is_allowlisted && info.sender != env.contract.address {
         if config.usage_fee == Decimal::one() {
             return Err(ContractError::InvalidFunds {
                 reason: "Blocking non-CDP & non-deployable venue usage".into(),
             });
         } else {
+            //Calculate fee (original - post-fee)
+            let fee_rate = config.usage_fee;
+            let fee_amount_a = decimal_multiplication(
+                Decimal::from_ratio(funds_a, Uint128::one()),
+                fee_rate
+            )?.to_uint_floor();
+            let fee_amount_b = decimal_multiplication(
+                Decimal::from_ratio(funds_b, Uint128::one()),
+                fee_rate
+            )?.to_uint_floor();
+            
+            //Determine which asset the fee is in
+            let (fee_amount_val, fee_denom_val) = if !funds_a.is_zero() {
+                (fee_amount_a, pair.cdt.clone())
+            } else {
+                (fee_amount_b, pair.paired_asset.clone())
+            };
+            
             //Set the usage fee
             let usage_fee = decimal_subtraction(Decimal::one(), config.usage_fee)?;
             //Subtract the usage fee from the amount of the asset A sent
@@ -717,8 +810,12 @@ fn execute_transmute(
                 Decimal::from_ratio(funds_b, Uint128::one()), 
                 usage_fee
             )?.to_uint_floor();
+            
+            Some((fee_amount_val, fee_denom_val))
         }
-    }
+    } else {
+        None
+    };
     
     let (offered_asset, offered_amount, received_asset, received_amount) = if !funds_a.is_zero() {
         let receive_amount = convert_asset_a_to_b(funds_a, config.asset_a_to_b_rate)?;
@@ -895,6 +992,24 @@ fn execute_transmute(
             to_address: recipient_addr.to_string(),
             amount: send_coins,
         });
+    }
+
+    //Collect and distribute fees if any - pass storage access correctly
+    if let Some((fee_amount_val, fee_denom)) = fee_info {
+        if let Some(rd_addr) = &config.revenue_distributor_addr {
+            let messages = collect_and_distribute_fees(
+                deps.storage,
+                &deps.querier,
+                &env,
+                &config,
+                fee_amount_val,
+                fee_denom,
+                rd_addr.clone()
+            )?;
+            for msg in messages {
+                response = response.add_message(msg);
+            }
+        }
     }
 
     Ok(response)
@@ -1440,6 +1555,138 @@ fn execute_rate_assurance(
     //We're adding 1 to stop errors for rounding errors.
 
     Ok(Response::new())
+}
+
+/// Collect and distribute fees to revenue distributor
+/// Returns messages to add to response
+/// Never errors - always continues silently (returns empty Vec on any error). 
+/// SIKE, errors if total distribution amount is greater than total fee amount. This is a sanity check since ratio total is capped on config update.
+fn collect_and_distribute_fees(
+    storage: &mut dyn Storage,
+    querier: &QuerierWrapper,
+    env: &Env,
+    config: &Config,
+    current_fee_amount: Uint128,
+    current_fee_denom: String,
+    rd_addr: Addr,
+) -> Result<Vec<CosmosMsg>, ContractError> {
+    let mut messages = Vec::new();
+    // Only proceed if there's a revenue distributor configured and fee is non-zero
+    if current_fee_amount.is_zero() {
+        return Ok(messages);
+    }
+    
+    // Load pending revenue
+    let pending_revenue = PENDING_REVENUE.load(storage).unwrap_or_else(|_| Uint128::zero());
+    
+    // If this fee is in the same denomination as pending (paired asset), add them together
+    let (total_fee_amount, total_fee_denom) = if current_fee_denom == config.deposit_pair.paired_asset {
+        // Fee is in paired_asset, add to pending
+        let new_pending = pending_revenue.checked_add(current_fee_amount)
+            .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+        (new_pending, config.deposit_pair.paired_asset.clone())
+    } else {
+        // Fee is in CDT
+        (current_fee_amount, current_fee_denom)
+    };
+    
+    // If the total fee is in CDT, send it directly to revenue distributor
+    if total_fee_denom == config.deposit_pair.cdt {
+        // Convert revenue_distributions ratios to Asset amounts
+        let mut ltv_disco_distribution = Vec::new();
+        for liq_asset in &config.revenue_distributions {
+            let amount: Uint128 = decimal_multiplication(
+                Decimal::from_ratio(total_fee_amount, Uint128::one()),
+                liq_asset.amount
+            )?.to_uint_floor();
+            if !amount.is_zero() {
+                ltv_disco_distribution.push(membrane::types::Asset {
+                    info: liq_asset.info.clone(),
+                    amount,
+                });
+            }
+        }
+
+        //Ensure the total distribution amount is less than the total fee amount
+        let total_distribution_amount = ltv_disco_distribution.iter().map(|asset| asset.amount).sum::<Uint128>();
+        if total_distribution_amount > total_fee_amount {
+            return Err(ContractError::Std(StdError::generic_err("Total distribution amount is greater than total fee amount")));
+        }
+        
+        // Send CDT to revenue distributor via SetPromises
+        let set_promises_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: rd_addr.to_string(),
+            msg: to_json_binary(&RevenueDistributorExecuteMsg::SetPromises {
+                promises: vec![],
+                ltv_disco_distribution: Some(ltv_disco_distribution),
+            })?,
+            funds: vec![coin(total_fee_amount.u128(), config.deposit_pair.cdt.clone())],
+        });
+        messages.push(set_promises_msg);
+        
+        return Ok(messages);
+    }
+    
+    // If total fee is in paired_asset, need to transmute to CDT first
+    // Query contract CDT balance
+    let cdt_balance = querier.query_balance(&env.contract.address, &config.deposit_pair.cdt)?.amount;
+    
+    // Calculate how much CDT we can transmute from the paired_asset balance
+    // Use the exchange rate to figure out max transmutable
+    if cdt_balance.is_zero() {
+        // No CDT available, total_fee_amount already includes any previous pending + current fee
+        // We've already added current_fee to pending in the logic above (lines 1583-1591)
+        // So we just save the updated total_fee_amount which is the new pending
+        PENDING_REVENUE.save(storage, &total_fee_amount)?;
+        return Ok(messages);
+    }
+    
+    // Calculate how much paired_asset we can transmute based on CDT available
+    // We want to transmute min(total_fee_amount, amount_that_can_be_covered_by_cdt_balance)
+    let max_paired_asset_transmutable = convert_asset_b_to_a(cdt_balance, config.asset_a_to_b_rate)?;
+    let amount_to_transmute = if total_fee_amount <= max_paired_asset_transmutable {
+        total_fee_amount
+    } else {
+        max_paired_asset_transmutable
+    };
+    
+    // Calculate how much CDT we'll get from this transmutation
+    let cdt_received = convert_asset_a_to_b(amount_to_transmute, config.asset_a_to_b_rate)?;
+    
+    // Update pending revenue with remaining amount that couldn't be transmuted
+    let remaining_pending = total_fee_amount.checked_sub(amount_to_transmute)
+        .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+    PENDING_REVENUE.save(storage, &remaining_pending)?;
+    
+    // Convert revenue_distributions ratios to Asset amounts for the CDT received
+    let mut ltv_disco_distribution = Vec::new();
+    for liq_asset in &config.revenue_distributions {
+        let amount = decimal_multiplication(
+            Decimal::from_ratio(cdt_received, Uint128::one()),
+            liq_asset.amount
+        )?.to_uint_floor();
+        if !amount.is_zero() {
+            ltv_disco_distribution.push(membrane::types::Asset {
+                info: liq_asset.info.clone(),
+                amount,
+            });
+        }
+    }
+    
+    // Send CDT to revenue distributor via SetPromises
+    if !cdt_received.is_zero() {
+        let set_promises_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: rd_addr.to_string(),
+            msg: to_json_binary(&RevenueDistributorExecuteMsg::SetPromises {
+                promises: vec![],
+                ltv_disco_distribution: Some(ltv_disco_distribution),
+            })?,
+            funds: vec![coin(cdt_received.u128(), config.deposit_pair.cdt.clone())],
+        });
+        messages.push(set_promises_msg);
+    }
+    
+    Ok(messages)
 }
 
 fn query_global_rate_limit(

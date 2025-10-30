@@ -5,7 +5,7 @@ use cosmwasm_std::{attr, Addr, Api, Decimal, DepsMut, Env, MessageInfo, Order, Q
 
 use membrane::cdp::Config;
 use membrane::system_discounts::{QueryMsg as DiscountQueryMsg, UserDiscountResponse};
-use membrane::types::{cAsset, Asset, Basket, Position, Rate, SupplyCap};
+use membrane::types::{cAsset, Asset, Basket, IndividualCost, Position, Rate, SupplyCap};
 use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_multiplication, decimal_division, decimal_subtraction};
 
@@ -216,7 +216,9 @@ pub fn get_interest_rates(
         //ex: 2% * 110% = 2.2%
         //Higher rates for more volatile assets
 
-        if config.rate_hike_rate.is_some() && asset.hike_rates.is_some() && asset.hike_rates.unwrap() {
+        if asset.individual_cost.is_some() {
+            rates.push( asset.individual_cost.clone().unwrap().rate )
+        } else if config.rate_hike_rate.is_some() && asset.hike_rates.is_some() && asset.hike_rates.unwrap() {
             rates.push( config.rate_hike_rate.unwrap() )
         } else {
             //base * (1/max_LTV) - using queried LTV from ltv_disco
@@ -483,6 +485,10 @@ pub fn accrue(
         pool_info: None,
         rate_index: Decimal::one(),
         hike_rates: Some(false),
+        individual_cost: Some(IndividualCost {
+            rate: Decimal::zero(),
+            updater_address: None,
+        }),
     };
 
     let credit_TWAP_price = match get_asset_values(

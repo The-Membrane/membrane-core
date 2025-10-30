@@ -21,7 +21,7 @@ use membrane::stability_pool::ExecuteMsg as SP_ExecuteMsg;
 use membrane::deployable_venue::{ExecuteMsg as DeploymentVenue_ExecuteMsg};
 use membrane::math::{decimal_division, decimal_multiplication, Uint256, decimal_subtraction};
 use membrane::types::{
-    cAsset, AffiliateData, Asset, AssetInfo, AssetOracleInfo, Basket, DeploymentIntent, DeploymentVenue, LPAssetInfo, LeaveTokens, LiquidityInfo, PendingRevenue, PoolInfo, PoolStateResponse, PoolType, Position, PositionRedemption, PurchaseIntent, RangeBoundUserIntents, RedemptionInfo, StringEntry, SupplyCap, UserDeploymentIntents, UserInfo
+    cAsset, AffiliateData, Asset, AssetInfo, AssetOracleInfo, Basket, DeploymentIntent, DeploymentVenue, IndividualCost, LPAssetInfo, LeaveTokens, LiquidityInfo, PendingRevenue, PoolInfo, PoolStateResponse, PoolType, Position, PositionRedemption, PurchaseIntent, RangeBoundUserIntents, RedemptionInfo, StringEntry, SupplyCap, UserDeploymentIntents, UserInfo
 };
 
 use crate::contract::set_active_deployment_venues;
@@ -1481,7 +1481,7 @@ pub fn close_position(
     //Set close_amount
     let close_amount = target_position.credit_amount * close_percentage;
 
-    println!("close_amount: {}", close_amount);
+    // println!("close_amount: {}", close_amount);
 
     //Try to repay debt from deployable venues first
     let mut credit_repay_amount = Decimal::from_ratio(close_amount, Uint128::one());
@@ -1521,9 +1521,9 @@ pub fn close_position(
 
     let mut router_messages = vec![];
     let mut withdrawn_assets = vec![];
-    println!("credit_repay_amount: {}", credit_repay_amount);
+    // println!("credit_repay_amount: {}", credit_repay_amount);
 
-    println!("remaining_close_amount: {}", remaining_close_amount);
+    // println!("remaining_close_amount: {}", remaining_close_amount);
 
     //Only sell collateral if there's remaining debt to repay
     if !remaining_close_amount.is_zero() {
@@ -2440,6 +2440,23 @@ pub fn redeem_for_collateral(
     //Set Basket fields
     let base_interest_rate = base_interest_rate.unwrap_or(Decimal::zero());
 
+    //Initialize individual_cost for each asset only if it already exists
+    for (i, asset) in collateral_types.iter().enumerate() {
+        if let Some(ref mut cost) = new_assets[i].individual_cost {
+            // If individual_cost exists, initialize the rate
+            let initial_rate = if config.rate_hike_rate.is_some() && asset.hike_rates.is_some() && asset.hike_rates.unwrap() {
+                config.rate_hike_rate.unwrap()
+            } else {
+                decimal_multiplication(
+                    base_interest_rate,
+                    decimal_division(Decimal::one(), asset.max_LTV)?,
+                )?
+            };
+            cost.rate = initial_rate;
+        }
+        // Otherwise leave it as None
+    }
+
     let new_basket: Basket = Basket {
         basket_id,
         current_position_id: Uint128::from(1u128),
@@ -2546,6 +2563,10 @@ pub fn edit_basket(
         pool_info: None,
         rate_index: Decimal::one(),
         hike_rates: Some(false),
+        individual_cost: Some(IndividualCost {
+            rate: Decimal::zero(),
+            updater_address: None,
+        }),
     };
 
     let mut msgs: Vec<CosmosMsg> = vec![];    
@@ -2579,6 +2600,25 @@ pub fn edit_basket(
         
         //..and index at 1
         new_cAsset.rate_index = Decimal::one();
+
+        //Initialize individual_cost with base formula: base_interest_rate * (1/max_LTV)
+        let initial_rate = if config.rate_hike_rate.is_some() && new_cAsset.hike_rates.is_some() && new_cAsset.hike_rates.unwrap() {
+            config.rate_hike_rate.unwrap()
+        } else {
+            decimal_multiplication(
+                basket.base_interest_rate,
+                decimal_division(Decimal::one(), new_cAsset.max_LTV)?,
+            )?
+        };
+        
+        //Initialize individual_cost if not already set
+        if new_cAsset.individual_cost.is_none() {
+            // No individual_cost set, so we don't initialize it
+            new_cAsset.individual_cost = None;
+        } else if let Some(ref mut cost) = new_cAsset.individual_cost {
+            // If individual_cost exists, initialize the rate
+            cost.rate = initial_rate;
+        }
 
         //No duplicates
         if let Some(_duplicate) = basket
@@ -2907,6 +2947,96 @@ pub fn edit_basket(
         }
     }
 
+    //Handle individual_costs updates
+    if let Some(individual_costs) = editable_parameters.clone().individual_costs {
+        for (asset_string, new_rate) in individual_costs {
+            // Find the asset in basket
+            if let Some((_index, c_asset)) = basket.collateral_types.iter_mut().enumerate()
+                .find(|(_, asset)| asset.asset.info.to_string() == asset_string) {
+                // Check authority
+                if let Some(ref cost) = c_asset.individual_cost {
+                    if let Some(ref updater_addr) = cost.updater_address {
+                        // Updater address is set, must match sender
+                        if info.sender != *updater_addr {
+                            return Err(ContractError::Unauthorized { owner: updater_addr.to_string() });
+                        }
+                    } else {
+                        // No updater_address set, only owner can update
+                        if info.sender != config.owner {
+                            return Err(ContractError::Unauthorized { owner: config.owner.to_string() });
+                        }
+                    }
+                } else {
+                    // No individual_cost set, only owner can update
+                    if info.sender != config.owner {
+                        return Err(ContractError::Unauthorized { owner: config.owner.to_string() });
+                    }
+                }
+                
+                // Update or create the individual_cost
+                if let Some(ref mut cost) = c_asset.individual_cost {
+                    cost.rate = new_rate;
+                } else {
+                    // Create new individual_cost with the rate
+                    c_asset.individual_cost = Some(IndividualCost {
+                        rate: new_rate,
+                        updater_address: None,
+                    });
+                }
+            } else {
+                return Err(ContractError::CustomError { 
+                    val: format!("Asset {} not found in basket", asset_string) 
+                });
+            }
+        }
+        // Save updated basket
+        BASKET.save(deps.storage, &basket)?;
+    }
+
+    //Handle individual_cost_updaters updates
+    if let Some(individual_cost_updaters) = editable_parameters.clone().individual_cost_updaters {
+        // Only owner can set or change updater addresses
+        if info.sender != config.owner {
+            return Err(ContractError::Unauthorized { owner: config.owner.to_string() });
+        }
+        
+        for (asset_string, new_updater_address) in individual_cost_updaters {
+            // Find the asset in basket
+            if let Some((_index, c_asset)) = basket.collateral_types.iter_mut().enumerate()
+                .find(|(_, asset)| asset.asset.info.to_string() == asset_string) {
+                
+                // Update the updater_address
+                c_asset.individual_cost = match (new_updater_address, c_asset.individual_cost.clone()) {
+                    (Some(addr_string), Some(mut existing_cost)) => {
+                        // Update existing individual_cost with new updater address
+                        existing_cost.updater_address = Some(deps.api.addr_validate(&addr_string)?);
+                        Some(existing_cost)
+                    },
+                    (Some(addr_string), None) => {
+                        // Create new individual_cost
+                        Some(IndividualCost {
+                            rate: Decimal::zero(),
+                            updater_address: Some(deps.api.addr_validate(&addr_string)?),
+                        })
+                    },
+                    (None, Some(existing_cost)) => {
+                        // Clear the updater_address but keep the cost with the rate
+                        Some(IndividualCost {
+                            rate: existing_cost.rate,
+                            updater_address: None,
+                        })
+                    },
+                    (None, None) => None, // No change
+                };
+            } else {
+                return Err(ContractError::CustomError { 
+                    val: format!("Asset {} not found in basket", asset_string) 
+                });
+            }
+        }
+        // Save updated basket
+        BASKET.save(deps.storage, &basket)?;
+    }
 
     //Update Basket
     BASKET.update(deps.storage, |mut basket| -> Result<Basket, ContractError> {

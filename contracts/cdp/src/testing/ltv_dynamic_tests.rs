@@ -311,6 +311,141 @@ mod tests {
     }
 
     #[test]
+    fn test_downward_shift_timer_and_reset() {
+        // Test that downward shifts only happen after period elapses
+        // and timer resets when new lower LTV is detected
+        use crate::ltv_updater::process_ltv_update;
+        
+        let current_ltv = Decimal::percent(80);
+        let disco_ltv_initial = Decimal::percent(75); // First downward detection
+        let disco_ltv_lower = Decimal::percent(70);   // Even lower later
+        let kp = Decimal::percent(5);
+        let downward_period = 604800; // 1 week
+        let max_downward_shift = Decimal::percent(5);
+        
+        let mut staged_ltv = None;
+        let mut staged_timestamp = None;
+        let last_upward_update = 1000u64;
+        
+        // First downward detection - should stage and start timer
+        let current_time = 2000u64;
+        let (new_ltv, updated) = process_ltv_update(
+            current_ltv,
+            disco_ltv_initial,
+            &mut staged_ltv,
+            &mut staged_timestamp,
+            last_upward_update,
+            current_time,
+            kp,
+            downward_period,
+            max_downward_shift,
+        ).unwrap();
+        
+        // Should not update yet (still in waiting period)
+        assert!(!updated);
+        assert_eq!(new_ltv, current_ltv);
+        assert_eq!(staged_ltv, Some(disco_ltv_initial));
+        assert_eq!(staged_timestamp, Some(current_time));
+        
+        // Try to apply before period elapses - should still not update
+        let before_period_time = current_time + downward_period - 1;
+        let (new_ltv, updated) = process_ltv_update(
+            current_ltv,
+            disco_ltv_initial,
+            &mut staged_ltv,
+            &mut staged_timestamp,
+            last_upward_update,
+            before_period_time,
+            kp,
+            downward_period,
+            max_downward_shift,
+        ).unwrap();
+        
+        assert!(!updated);
+        assert_eq!(new_ltv, current_ltv);
+        assert_eq!(staged_ltv, Some(disco_ltv_initial));
+        assert_eq!(staged_timestamp, Some(current_time)); // Timer unchanged
+        
+        // Now detect even lower LTV - should update staged value but NOT reset timer
+        let lower_detection_time = before_period_time - 1000; // Before period elapses
+        let (new_ltv, updated) = process_ltv_update(
+            current_ltv,
+            disco_ltv_lower,
+            &mut staged_ltv,
+            &mut staged_timestamp,
+            last_upward_update,
+            lower_detection_time,
+            kp,
+            downward_period,
+            max_downward_shift,
+        ).unwrap();
+        
+        assert!(!updated); // Still not time to apply
+        assert_eq!(new_ltv, current_ltv);
+        assert_eq!(staged_ltv, Some(disco_ltv_lower)); // Updated to lower value
+        assert_eq!(staged_timestamp, Some(current_time)); // Timer NOT reset!
+        
+        // Now period has elapsed - should apply the shift
+        let after_period_time = current_time + downward_period;
+        let (new_ltv, updated) = process_ltv_update(
+            current_ltv,
+            disco_ltv_lower,
+            &mut staged_ltv,
+            &mut staged_timestamp,
+            last_upward_update,
+            after_period_time,
+            kp,
+            downward_period,
+            max_downward_shift,
+        ).unwrap();
+        
+        assert!(updated);
+        // Should apply capped shift: max 5% of 80% = 4%, so 80% - 4% = 76%
+        assert_eq!(new_ltv, Decimal::percent(76));
+        assert_eq!(staged_ltv, None); // Cleared after application
+        assert_eq!(staged_timestamp, None); // Cleared after application
+        
+        // Now detect another downward shift - should start NEW timer
+        let new_current_ltv = new_ltv; // 76%
+        let new_disco_ltv = Decimal::percent(70); // Want to go to 70%
+        let new_detection_time = after_period_time + 1000;
+        
+        let (new_ltv, updated) = process_ltv_update(
+            new_current_ltv,
+            new_disco_ltv,
+            &mut staged_ltv,
+            &mut staged_timestamp,
+            last_upward_update,
+            new_detection_time,
+            kp,
+            downward_period,
+            max_downward_shift,
+        ).unwrap();
+        
+        assert!(!updated); // Not time yet
+        assert_eq!(new_ltv, new_current_ltv);
+        assert_eq!(staged_ltv, Some(new_disco_ltv));
+        assert_eq!(staged_timestamp, Some(new_detection_time)); // NEW timer started
+        
+        // Verify we need to wait another full period
+        let before_new_period = new_detection_time + downward_period - 1;
+        let (new_ltv, updated) = process_ltv_update(
+            new_current_ltv,
+            new_disco_ltv,
+            &mut staged_ltv,
+            &mut staged_timestamp,
+            last_upward_update,
+            before_new_period,
+            kp,
+            downward_period,
+            max_downward_shift,
+        ).unwrap();
+        
+        assert!(!updated); // Still waiting
+        assert_eq!(staged_timestamp, Some(new_detection_time)); // Timer unchanged
+    }
+
+    #[test]
     fn test_cap_ltv_values_over_100() {
         use crate::ltv_updater::cap_ltv_values;
         

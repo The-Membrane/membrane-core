@@ -44,3 +44,4 @@ pub mod neutron_proxy;
 pub mod neutron_oracle;
 pub mod ltv_disco;
 pub mod transmuter;
+pub mod yield_arb;

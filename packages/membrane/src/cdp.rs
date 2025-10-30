@@ -602,6 +602,10 @@ pub struct EditBasket {
     pub distribute_revenue: Option<bool>,
     /// Take revenue, used as a way to distribute revenue
     pub take_revenue: Option<Uint128>,
+    /// Update individual costs for specific assets (asset_string, rate)
+    pub individual_costs: Option<Vec<(String, Decimal)>>,
+    /// Update individual cost updater addresses (asset_string, updater_address or None to clear)
+    pub individual_cost_updaters: Option<Vec<(String, Option<String>)>>,
 }
 
 impl EditBasket {    

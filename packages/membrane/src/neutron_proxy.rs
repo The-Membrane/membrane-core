@@ -1,10 +1,15 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Coin, Decimal, Env, QuerierWrapper, StdError, Uint128, Uint256, StdResult};
 
-use crate::types::{NeutronOwner, TransmutationPairEntry, TransmutationPair};
+use crate::types::{NeutronOwner, TransmutationPairEntry, TransmutationPair, VaultInfo, VaultEntry};
 
 #[cw_serde]
-pub struct InstantiateMsg {}
+pub struct InstantiateMsg {
+    /// Optional transmuter contract address for USDC<>CDT swaps
+    pub transmuter_contract: Option<String>,
+    /// Optional list of vaults for automatic exit on swaps
+    pub vaults: Option<Vec<VaultInfo>>,
+}
 
 #[cw_serde]
 pub enum ExecuteMsg {
@@ -77,6 +82,10 @@ pub enum ExecuteMsg {
         transmutation_pairs: Option<Vec<TransmutationPairEntry>>,
         /// Debt auction contract address
         debt_auction: Option<String>,
+        /// Transmuter contract for USDC<>CDT swaps
+        transmuter_contract: Option<String>,
+        /// List of vaults for automatic exit on swaps
+        vaults: Option<Vec<VaultEntry>>,
     },
 }
 
@@ -150,6 +159,14 @@ pub struct Config {
     pub debt_auction: Option<Addr>,
     /// List of valid transmutation pairs
     pub transmutation_pairs: Vec<TransmutationPair>,
+    /// Transmuter contract for USDC<>CDT swaps
+    pub transmuter_contract: Option<Addr>,
+    /// CDT denom from transmuter
+    pub cdt_denom: Option<String>,
+    /// USDC denom from transmuter
+    pub usdc_denom: Option<String>,
+    /// List of vaults for automatic exit on swaps
+    pub vaults: Vec<VaultInfo>,
 }
 
 

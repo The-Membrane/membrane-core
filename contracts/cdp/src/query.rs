@@ -16,7 +16,7 @@ use membrane::cdp::{
 use membrane::ltv_disco::{QueryMsg as LTVDiscoQueryMsg, AverageLTVsResponse};
 
 use membrane::types::{
-    cAsset, AssetInfo, Basket, DebtCap, Position, PremiumInfo, RedemptionInfo, StoredPrice, UserInfo
+    cAsset, AssetInfo, Basket, DebtCap, IndividualCost, Position, PremiumInfo, RedemptionInfo, StoredPrice, UserInfo
 };
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
@@ -276,6 +276,10 @@ pub fn query_basket_credit_interest(
             pool_info: None,
             rate_index: Decimal::one(),
             hike_rates: Some(false),
+            individual_cost: Some(IndividualCost {
+                rate: Decimal::zero(),
+                updater_address: None,
+            }),
         };
 
         let credit_TWAP_price = match  get_asset_values(

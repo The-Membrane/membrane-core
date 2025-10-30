@@ -19,15 +19,15 @@ TODO:
     - Disable supply tracking so discrepencies don't cause full closes to error (done)
 
     Oracle
-    - basic functionality, won't launch without either TWAPs or circuit breakers (TWAPS)
+    - basic functionality, won't launch without either TWAPs or circuit breakers
 
     Misc
     - Create first deployment venue (Mars USDC)
     - ensure (collateral) rate assurances are in place everywhere
 
     CDP
-    -- accrue positive growth to config LTV with the Disco's avg LTV
-    -- have downside per update limit & update stepwise to the downside 
+    -- accrue positive growth to config LTV with the Disco's avg LTV (done)
+    -- have downside per update limit & update stepwise to the downside (done)
 
     - Create a post-liq check instead of a circuit breaker 
     - Save on-deployment base collateral so we can create collateral growth graphs as well.
@@ -139,7 +139,8 @@ Osmosis Proxy
 - Open the Osmosis portal of the transmutor by upgrading the Osmosis Proxy (needs a prop)
 - Only offer BTCs, NTRNs, USDC + mars VTs
 - Transmuter will start at 1:0 ratio for USDC:CDT so we aren't incentivizing CDT, just USDC
-- Set up the revenue_destinations in the revenue-distributor 
+- Set up the revenue_destinations in the revenue-distributor
+- Disco slashing needs oracles and LPs for MBRN and CDT
 
 Management NOTES:
 - Toggle PID off and remove price-based rates  (price-based rates = worst collateral concentration)(PID rates effect lower risk users less but added cost for everyone)

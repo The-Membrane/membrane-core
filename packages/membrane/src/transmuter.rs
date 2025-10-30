@@ -1,5 +1,6 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, Timestamp, Uint128};
+use crate::types::LiqAsset;
 
 
 ///This follows PSM risk insofar as if USDC depegs, this transmuter will become USDC only.
@@ -36,6 +37,10 @@ pub struct InstantiateMsg {
     pub rate_limit_window_secs: Option<u64>,
     /// Optional percent of total deposit value allowed per address within window (default 5%)
     pub rate_limit_threshold: Option<Decimal>,
+    /// Optional revenue distributor contract address
+    pub revenue_distributor_addr: Option<String>,
+    /// Optional revenue distribution ratios (Vec<LiqAsset>)
+    pub revenue_distributions: Option<Vec<LiqAsset>>,
     /// Optional allowlist set at instantiate
     pub allowlist: Option<Vec<String>>, 
     /// Optional separate rate limit threshold for allowlisted addresses
@@ -72,6 +77,10 @@ pub enum ExecuteMsg {
         global_rate_limit_window_secs: Option<u64>,
         /// Optional global rate limit threshold as percentage of total deposits for all non-whitelisted addresses
         global_rate_limit_threshold: Option<Decimal>,
+        /// Optional revenue distributor contract address
+        revenue_distributor_addr: Option<String>,
+        /// Optional revenue distribution ratios (Vec<LiqAsset>)
+        revenue_distributions: Option<Vec<crate::types::DistributionEntry>>,
     },
     EnterVault {
         recipient: Option<String>,
@@ -138,6 +147,10 @@ pub struct Config {
     pub global_rate_limit_window_secs: u64,
     /// Global rate limit threshold as percentage of total deposits for all non-whitelisted addresses
     pub global_rate_limit_threshold: Decimal,
+    /// Revenue distributor contract address (optional)
+    pub revenue_distributor_addr: Option<Addr>,
+    /// Revenue distribution ratios (Vec<LiqAsset>)
+    pub revenue_distributions: Vec<LiqAsset>,
 }
 
 

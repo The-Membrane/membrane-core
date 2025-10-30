@@ -2107,7 +2107,11 @@ pub mod tests {
                 max_LTV: Decimal::percent(70),
                 pool_info: None,
                 rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                hike_rates: Some(false),
+                individual_cost: membrane::types::IndividualCost {
+                    rate: Decimal::zero(),
+                    updater_address: None,
+                },
             }],
             credit_asset: Asset {
                 info: AssetInfo::NativeToken {
@@ -14059,5 +14063,202 @@ pub mod tests {
             let page: Vec<LiquidationStatResponse> = app.wrap().query_wasm_smart(cdp_contract.addr(), &q).unwrap();
             assert_eq!(page.len(), 1);
             assert!(page[0].block_time > stats[0].block_time);
+        }
+
+        #[test]
+        fn test_individual_cost_initialization() {
+            let (mut app, cdp_contract, _lq_contract) = proper_instantiate(false, false, false, false);
+
+            // Query basket to check individual_cost initialization
+            let q = QueryMsg::GetBasket {};
+            let basket: Basket = app.wrap().query_wasm_smart(cdp_contract.addr(), &q).unwrap();
+
+            // Check that individual_cost was initialized for the asset
+            assert_eq!(basket.collateral_types.len(), 1);
+            let c_asset = &basket.collateral_types[0];
+            
+            // individual_cost should be None initially (no updater set)
+            assert_eq!(c_asset.individual_cost, None);
+        }
+
+        #[test]
+        fn test_set_updater_address() {
+            let (mut app, cdp_contract, _lq_contract) = proper_instantiate(false, false, false, false);
+
+            let updater = "updater";
+
+            // Owner sets updater address for an asset
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                multi_asset_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                distribute_revenue: None,
+                take_revenue: None,
+                individual_costs: None,
+                individual_cost_updaters: Some(vec![(
+                    "denom".to_string(),
+                    Some(updater.to_string()),
+                )]),
+            });
+            
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            // Query basket to verify updater was set
+            let q = QueryMsg::GetBasket {};
+            let basket: Basket = app.wrap().query_wasm_smart(cdp_contract.addr(), &q).unwrap();
+            let c_asset = &basket.collateral_types[0];
+            
+            assert!(c_asset.individual_cost.is_some());
+            let cost = c_asset.individual_cost.as_ref().unwrap();
+            assert!(cost.updater_address.is_some());
+            assert_eq!(
+                cost.updater_address.as_ref().unwrap(),
+                &Addr::unchecked(updater)
+            );
+        }
+
+        #[test]
+        fn test_set_individual_cost_as_updater() {
+            let (mut app, cdp_contract, _lq_contract) = proper_instantiate(false, false, false, false);
+
+            let updater = "updater";
+
+            // Owner sets updater address
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                multi_asset_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                distribute_revenue: None,
+                take_revenue: None,
+                individual_costs: None,
+                individual_cost_updaters: Some(vec![(
+                    "denom".to_string(),
+                    Some(updater.to_string()),
+                )]),
+            });
+            
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            // Updater sets individual cost rate
+            let new_rate = Decimal::from_str("0.05").unwrap();
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                multi_asset_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                distribute_revenue: None,
+                take_revenue: None,
+                individual_costs: Some(vec![(
+                    "denom".to_string(),
+                    new_rate,
+                )]),
+                individual_cost_updaters: None,
+            });
+            
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(updater), cosmos_msg).unwrap();
+
+            // Verify rate was updated
+            let q = QueryMsg::GetBasket {};
+            let basket: Basket = app.wrap().query_wasm_smart(cdp_contract.addr(), &q).unwrap();
+            let c_asset = &basket.collateral_types[0];
+            assert!(c_asset.individual_cost.is_some());
+            let cost = c_asset.individual_cost.as_ref().unwrap();
+            assert_eq!(cost.rate, new_rate);
+        }
+
+        #[test]
+        fn test_set_individual_cost_unauthorized() {
+            let (mut app, cdp_contract, _lq_contract) = proper_instantiate(false, false, false, false);
+
+            let unauthorized = "unauthorized";
+
+            // Attempt to set individual cost without being updater or owner
+            let new_rate = Decimal::from_str("0.05").unwrap();
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                multi_asset_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                distribute_revenue: None,
+                take_revenue: None,
+                individual_costs: Some(vec![(
+                    "denom".to_string(),
+                    new_rate,
+                )]),
+                individual_cost_updaters: None,
+            });
+            
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            let res = app.execute(Addr::unchecked(unauthorized), cosmos_msg);
+            
+            // Should fail with Unauthorized
+            assert!(res.is_err());
+        }
+
+        #[test]
+        fn test_set_individual_cost_as_owner() {
+            let (mut app, cdp_contract, _lq_contract) = proper_instantiate(false, false, false, false);
+
+            // Owner can set individual cost without being updater
+            let new_rate = Decimal::from_str("0.05").unwrap();
+            let msg = ExecuteMsg::EditBasket(EditBasket {
+                added_cAsset: None,
+                liq_queue: None,
+                credit_pool_infos: None,
+                collateral_supply_caps: None,
+                multi_asset_supply_caps: None,
+                base_interest_rate: None,
+                credit_asset_twap_price_source: None,
+                negative_rates: None,
+                cpc_margin_of_error: None,
+                frozen: None,
+                distribute_revenue: None,
+                take_revenue: None,
+                individual_costs: Some(vec![(
+                    "denom".to_string(),
+                    new_rate,
+                )]),
+                individual_cost_updaters: None,
+            });
+            
+            let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            // Verify rate was updated
+            let q = QueryMsg::GetBasket {};
+            let basket: Basket = app.wrap().query_wasm_smart(cdp_contract.addr(), &q).unwrap();
+            let c_asset = &basket.collateral_types[0];
+            assert!(c_asset.individual_cost.is_some());
+            let cost = c_asset.individual_cost.as_ref().unwrap();
+            assert_eq!(cost.rate, new_rate);
         }
     }

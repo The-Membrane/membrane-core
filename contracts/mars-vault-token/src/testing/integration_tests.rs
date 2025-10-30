@@ -485,6 +485,11 @@ mod tests {
             vault_subdenom: String::from("mars-usdc-vault"), 
             deposit_token: String::from("uusdc"),
             mars_redbank_addr: redbank_contract_zero_addr.to_string(),
+            transmuter_addr: "transmuter".to_string(),
+            revenue_distributor_addr: "revenue_distributor".to_string(),
+            cdt_denom: "ucdt".to_string(),
+            cdp_contract_addr: "cdp_contract".to_string(),
+            revenue_distributions: vec![],
         };
         let vault_contract_addr = app
             .instantiate_contract(vault_id, Addr::unchecked(ADMIN), &msg, &[], "test", None)
@@ -512,7 +517,7 @@ mod tests {
         use std::str::FromStr;
 
         use cosmwasm_std::{coin, coins, BlockInfo, Uint128};
-        use membrane::stability_pool_vault::APRResponse;
+        use membrane::mars_vault_token::APRResponse;
 
         use super::*;
 
@@ -600,6 +605,12 @@ mod tests {
             let msg = ExecuteMsg::UpdateConfig {
                 owner: None,
                 mars_redbank_addr: Some("contract1".to_string()),
+                transmuter_addr: None,
+                revenue_distributor_addr: None,
+                vault_cost: None,
+                cdt_denom: None,
+                cdp_contract_addr: None,
+                revenue_distributions: None,
             };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -621,6 +632,12 @@ mod tests {
             let msg = ExecuteMsg::UpdateConfig {
                 owner: None,
                 mars_redbank_addr: Some("contract2".to_string()),
+                transmuter_addr: None,
+                revenue_distributor_addr: None,
+                vault_cost: None,
+                cdt_denom: None,
+                cdp_contract_addr: None,
+                revenue_distributions: None,
             };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -636,6 +653,12 @@ mod tests {
             let msg = ExecuteMsg::UpdateConfig {
                 owner: None,
                 mars_redbank_addr: Some("contract3".to_string()),
+                transmuter_addr: None,
+                revenue_distributor_addr: None,
+                vault_cost: None,
+                cdt_denom: None,
+                cdp_contract_addr: None,
+                revenue_distributions: None,
             };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -672,6 +695,12 @@ mod tests {
             let msg = ExecuteMsg::UpdateConfig {
                 owner: None,
                 mars_redbank_addr: Some("contract4".to_string()),
+                transmuter_addr: None,
+                revenue_distributor_addr: None,
+                vault_cost: None,
+                cdt_denom: None,
+                cdp_contract_addr: None,
+                revenue_distributions: None,
             };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -698,6 +727,12 @@ mod tests {
             let msg = ExecuteMsg::UpdateConfig {
                 owner: None,
                 mars_redbank_addr: Some("contract6".to_string()),
+                transmuter_addr: None,
+                revenue_distributor_addr: None,
+                vault_cost: None,
+                cdt_denom: None,
+                cdp_contract_addr: None,
+                revenue_distributions: None,
             };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -743,6 +778,12 @@ mod tests {
             let msg = ExecuteMsg::UpdateConfig {
                 owner: None,
                 mars_redbank_addr: Some("contract2".to_string()),
+                transmuter_addr: None,
+                revenue_distributor_addr: None,
+                vault_cost: None,
+                cdt_denom: None,
+                cdp_contract_addr: None,
+                revenue_distributions: None,
             };
             let cosmos_msg = vault_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();

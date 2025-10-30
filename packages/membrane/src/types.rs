@@ -34,6 +34,15 @@ impl fmt::Display for LiqAsset {
     }
 }
 
+/// Distribution entry for revenue distributions
+#[cw_serde]
+pub struct DistributionEntry {
+    /// The asset and ratio for this distribution
+    pub asset: LiqAsset,
+    /// If true, remove this distribution entry; if false, add/update it
+    pub remove: bool,
+}
+
 #[cw_serde]
 pub struct UserRatio {
     /// Address
@@ -400,6 +409,15 @@ pub struct PriceInfo {
     pub price: Decimal,
 }
 
+/// Individual cost tracking for an asset
+#[cw_serde]
+pub struct IndividualCost {
+    /// The cost rate for this asset
+    pub rate: Decimal,
+    /// Address authorized to update this asset's cost
+    pub updater_address: Option<Addr>,
+}
+
 /// CDP
 #[cw_serde]
 pub struct cAsset {
@@ -416,6 +434,8 @@ pub struct cAsset {
     pub pool_info: Option<PoolInfo>,
     /// Is this subject to rate hikes?
     pub hike_rates: Option<bool>,
+    /// Individual cost tracking for this asset
+    pub individual_cost: Option<IndividualCost>,
 }
 
 //intent state
@@ -1146,6 +1166,13 @@ pub struct VaultInfo {
     pub vault_addr: Addr,
     pub deposit_token: String,
     pub vault_token: String
+}
+
+/// Entry for adding/updating/removing vault info
+#[cw_serde]
+pub struct VaultEntry {
+    pub vault_info: VaultInfo,
+    pub remove: bool,
 }
 
 /// Range Bound LP Vault

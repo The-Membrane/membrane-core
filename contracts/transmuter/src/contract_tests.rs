@@ -159,6 +159,8 @@ fn instantiate_transmuter(app: &mut App) -> Addr {
         allowlist_rate_limit_threshold: Some(Decimal::percent(10)),
         global_rate_limit_window_secs: Some(60 * 60 * 24), // 24 hours
         global_rate_limit_threshold: Some(Decimal::percent(20)), // 20%
+        revenue_distributor_addr: None,
+        revenue_distributions: None,
     };
 
     app.instantiate_contract(
@@ -264,6 +266,8 @@ fn allowlist_uses_higher_threshold() {
             allowlist_rate_limit_threshold: Some(Decimal::percent(20)),
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
         },
         &[],
     ).unwrap();
@@ -315,6 +319,8 @@ fn rate_limit_many_paginates() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: None,
+        revenue_distributor_addr: None,
+        revenue_distributions: None,
         },
         &[],
     ).unwrap();
@@ -352,6 +358,8 @@ fn window_expiry_unblocks_usage() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
         },
         &[],
     ).unwrap();
@@ -417,6 +425,8 @@ fn usage_fee_applied_for_non_cdp_and_non_deployable() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
         },
         &[],
     ).unwrap();
@@ -504,6 +514,8 @@ fn paired_asset_outstanding_tracks_allowlisted_flows() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
         },
         &[],
     ).unwrap();
@@ -596,6 +608,8 @@ fn effective_target_reflects_deployed_value_and_bounds() {
             allowlist_rate_limit_threshold: Some(Decimal::one()),
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
         },
         &[],
     ).unwrap();
@@ -647,6 +661,8 @@ fn effective_target_reflects_deployed_value_and_bounds() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
         },
         &[],
     ).unwrap();
@@ -873,6 +889,8 @@ fn update_config_changes_owner_and_ratio() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
         },
         &[],
     )
@@ -1054,6 +1072,8 @@ fn global_rate_limit_whitelisted_addresses_bypass() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
         },
         &[],
     ).unwrap();
@@ -1114,6 +1134,8 @@ fn global_rate_limit_separate_window_from_per_address() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: Some(60 * 60 * 2), // 2 hours
             global_rate_limit_threshold: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
         },
         &[],
     ).unwrap();
@@ -1190,6 +1212,8 @@ fn global_rate_limit_configuration_updates() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: Some(60 * 60 * 12), // 12 hours
             global_rate_limit_threshold: Some(Decimal::percent(15)), // 15%
+        revenue_distributor_addr: None,
+        revenue_distributions: None,
         },
         &[],
     ).unwrap();
@@ -1231,6 +1255,8 @@ fn global_rate_limit_validation_errors() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: Some(0), // Invalid
             global_rate_limit_threshold: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
         },
         &[],
     );
@@ -1261,6 +1287,8 @@ fn global_rate_limit_validation_errors() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: Some(Decimal::zero()), // Invalid
+        revenue_distributor_addr: None,
+        revenue_distributions: None,
         },
         &[],
     );
@@ -1289,6 +1317,8 @@ fn global_rate_limit_validation_errors() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: Some(Decimal::percent(101)), // Invalid (> 1)
+        revenue_distributor_addr: None,
+        revenue_distributions: None,
         },
         &[],
     );

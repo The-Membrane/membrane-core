@@ -6,7 +6,7 @@ use cw_storage_plus::{Item, Map};
 use membrane::helpers::get_contract_balances;
 use membrane::stability_pool_vault::calculate_base_tokens;
 
-use membrane::types::{AffiliateData, cAsset, Asset, AssetInfo, Basket, UserDeploymentIntents, Position, RedemptionInfo, StoredPrice, UserInfo};
+use membrane::types::{AffiliateData, cAsset, Asset, AssetInfo, Basket, IndividualCost, UserDeploymentIntents, Position, RedemptionInfo, StoredPrice, UserInfo};
 use membrane::cdp::{Config, ExecuteMsg};
 
 use crate::ContractError;
@@ -284,6 +284,10 @@ pub fn update_position_claims(
         pool_info: None,
         rate_index: Decimal::one(),
         hike_rates: Some(false),
+        individual_cost: Some(IndividualCost {
+            rate: Decimal::zero(),
+            updater_address: None,
+        }),
     }];
 
     //If there is no credit, basket tallies were updated in the repay function

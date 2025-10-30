@@ -9,5 +9,8 @@ DISCO
 - Add deposit strats (average, mirror Mars, etc)
 - "Panics at the Disco: 0" = bad debt event tracker
 
+MANIC
+- Amber's fee recovery design to showcase how long until the fees are recovered and pure profits are being made (pic in phone)
+
 MUST HAVE FIXES:
 Liquidations are failing to sim: "["simulate",null,"osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0","osmosis-1","protocol_liquidation_sim","[object Object]"] data is undefined"

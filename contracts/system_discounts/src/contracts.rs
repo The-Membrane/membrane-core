@@ -10,12 +10,13 @@ use osmosis_std::shim::Duration;
 use osmosis_std::types::osmosis::lockup::{LockupQuerier, AccountLockedLongerDurationDenomResponse};
 
 use membrane::math::decimal_division;
-use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, UserDiscountResponse, MigrateMsg};
+use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, UserDiscountResponse, UserBoostResponse, MigrateMsg};
 use membrane::stability_pool::QueryMsg as SP_QueryMsg;
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
 use membrane::cdp::{BasketPositionsResponse, QueryMsg as CDP_QueryMsg};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
+use membrane::ltv_disco::{QueryMsg as LTVDisco_QueryMsg, UserTotalDepositsResponse};
 use membrane::types::{AssetInfo, AssetPool, Basket, Deposit, TimedDiscountPeriod};
 
 use crate::error::ContractError;
@@ -53,6 +54,18 @@ pub fn instantiate(
     }))?
     .mbrn_denom;
 
+    // Validate max_discount and max_boost if provided
+    let max_discount = msg.max_discount.unwrap_or(Decimal::one());
+    let max_boost = msg.max_boost.unwrap_or(Decimal::percent(9));
+    let mbrn_at_max_discount = msg.mbrn_at_max_discount.unwrap_or(Uint128::new(100_000_000_000u128));
+    
+    // Validate max_discount <= 1.0
+    if max_discount > Decimal::one() {
+        return Err(ContractError::CustomError { 
+            val: "max_discount cannot exceed 1.0 (100%)".to_string() 
+        });
+    }
+
     config = Config {
         owner,
         mbrn_denom,
@@ -62,7 +75,11 @@ pub fn instantiate(
         stability_pool_contract: deps.api.addr_validate(&msg.stability_pool_contract)?,
         lockdrop_contract: None,
         discount_vault_contract: vec![],
+        ltv_disco_contract: None,
         minimum_time_in_network: msg.minimum_time_in_network,
+        max_discount,
+        mbrn_at_max_discount,
+        max_boost,
     };
     //Store optionals
     if let Some(lockdrop_contract) = msg.lockdrop_contract{
@@ -70,6 +87,9 @@ pub fn instantiate(
     }
     if let Some(discount_vault_contract) = msg.discount_vault_contract{
         config.discount_vault_contract.push(deps.api.addr_validate(&discount_vault_contract)?);
+    }
+    if let Some(ltv_disco_contract) = msg.ltv_disco_contract {
+        config.ltv_disco_contract = Some(deps.api.addr_validate(&ltv_disco_contract)?);
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -154,8 +174,25 @@ fn update_config(
             config.discount_vault_contract.retain(|x| x != &addr);
         }
     }
+    if let Some(addr) = update.ltv_disco_contract {
+        config.ltv_disco_contract = Some(deps.api.addr_validate(&addr)?);
+    }
     if let Some(time) = update.minimum_time_in_network {
         config.minimum_time_in_network = time;
+    }
+    if let Some(discount) = update.max_discount {
+        if discount > Decimal::one() {
+            return Err(ContractError::CustomError { 
+                val: "max_discount cannot exceed 1.0 (100%)".to_string() 
+            });
+        }
+        config.max_discount = discount;
+    }
+    if let Some(mbrn_amount) = update.mbrn_at_max_discount {
+        config.mbrn_at_max_discount = mbrn_amount;
+    }
+    if let Some(boost) = update.max_boost {
+        config.max_boost = boost;
     }
     if let Some(mut new_discount) = update.static_discount {
         //Load static discounts
@@ -186,6 +223,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::UserDiscount { user } => to_binary(&get_discount(deps, env, user)?),
+        QueryMsg::UserBoost { user } => to_binary(&get_boost(deps, user)?),
     }
 }
 
@@ -221,104 +259,107 @@ fn get_discount(
     //Load Config
     let config = CONFIG.load(deps.storage)?;
 
-    //Get the value of the user's capital in..
-    //Stake, SP & Queriable LPs
-    let user_value_in_network = get_user_value_in_network(deps.querier, env, config.clone(), user.clone())?;
+    // Get user's total MBRN (staked + deposited in LTV Disco)
+    let user_total_mbrn = get_user_total_mbrn(deps.querier, config.clone(), user.clone())?;
 
-    //Get User's outstanding debt
-    let user_positions: Vec<BasketPositionsResponse> = deps.querier.query::<Vec<BasketPositionsResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().positions_contract.to_string(),
-        msg: to_binary(&CDP_QueryMsg::GetBasketPositions {
-            start_after: None,
-            user_info: None,
-            user: Some(user.clone()),
-            limit: None,
-        })?,
-    }))?;
-
-    let user_outstanding_debt: Uint128 = user_positions[0].clone().positions
-        .into_iter()    
-        .map(|position| position.credit_amount)
-        .collect::<Vec<Uint128>>()
-        .into_iter()
-        .sum();
-    let user_outstanding_debt = Decimal::from_ratio(user_outstanding_debt, Uint128::one());
-    
-    //Calculate discount
-    let percent_discount = {
-        if user_value_in_network >= user_outstanding_debt {
+    // Calculate discount based on MBRN amount
+    let discount = if config.mbrn_at_max_discount.is_zero() {
+        // Avoid division by zero - if threshold is 0, return max discount
+        config.max_discount
+    } else {
+        // Calculate ratio: min(user_total_mbrn / mbrn_at_max_discount, 1.0)
+        let ratio = Decimal::from_ratio(user_total_mbrn, config.mbrn_at_max_discount);
+        let capped_ratio = if ratio > Decimal::one() {
             Decimal::one()
         } else {
-            decimal_division(user_value_in_network, user_outstanding_debt)?
-        }
+            ratio
+        };
+        
+        // Calculate discount: ratio * max_discount
+        decimal_multiplication(capped_ratio, config.max_discount)?
     };
 
     Ok(UserDiscountResponse {
         user,
-        discount: percent_discount,
+        discount,
     })
 }
 
-/// Get the value of the user's capital in
-/// the Stability Pool, Discount Vault LPs & staking
-fn get_user_value_in_network(
+/// Returns % boost for user based on MBRN amount
+fn get_boost(
+    deps: Deps,
+    user: String, 
+)-> StdResult<UserBoostResponse>{
+    
+    //Load Config
+    let config = CONFIG.load(deps.storage)?;
+
+    // Get user's total MBRN (staked + deposited in LTV Disco)
+    let user_total_mbrn = get_user_total_mbrn(deps.querier, config.clone(), user.clone())?;
+
+    // Calculate boost based on MBRN amount
+    let boost = if config.mbrn_at_max_discount.is_zero() {
+        // Avoid division by zero - if threshold is 0, return max boost
+        config.max_boost
+    } else {
+        // Calculate ratio: min(user_total_mbrn / mbrn_at_max_discount, 1.0)
+        let ratio = Decimal::from_ratio(user_total_mbrn, config.mbrn_at_max_discount);
+        let capped_ratio = if ratio > Decimal::one() {
+            Decimal::one()
+        } else {
+            ratio
+        };
+        
+        // Calculate boost: ratio * max_boost
+        decimal_multiplication(capped_ratio, config.max_boost)?
+    };
+
+    Ok(UserBoostResponse {
+        user,
+        boost,
+    })
+}
+
+/// Get user's total MBRN: staked in staking contract + deposited in LTV Disco
+fn get_user_total_mbrn(
     querier: QuerierWrapper,
-    env: Env,
     config: Config,
     user: String,
-)-> StdResult<Decimal>{
-
-    let basket: Basket = match query_basket(querier, config.clone().positions_contract.to_string()){
-        Ok(basket) => basket,
-        Err(_) => {
-            querier.query_wasm_smart::<Basket>(
-            config.clone().positions_contract,
-            &CDP_QueryMsg::GetBasket {}
-            )?
-        },
-    };
-    let credit_price = basket.clone().credit_price;
-
-    let mbrn_price_res = match querier.query::<Vec<PriceResponse>>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().oracle_contract.to_string(),
-        msg: to_json_binary(&Oracle_QueryMsg::Price {
-            asset_info: AssetInfo::NativeToken { denom: config.clone().mbrn_denom },
-            twap_timeframe: 60,
-            oracle_time_limit: 600,
-            basket_id: None,
+) -> StdResult<Uint128> {
+    // Query staking contract for user's staked MBRN
+    let user_stake = querier.query::<StakerResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.staking_contract.to_string(),
+        msg: to_binary(&Staking_QueryMsg::UserStake {
+            staker: user.clone(),
         })?,
-    })){
-        Ok(price_res) => {
-            // if price_res[0].price > credit_price.price {
-                price_res[0].clone()
-            // } else {
-            //     credit_price.clone()
-            // }
-        },
-        //Default to CDT price
-        Err(_) => credit_price.clone()
-    };
+    }))?
+    .total_staked;
 
-    //Initialize variables
-    let mut total_value = Decimal::zero();
+    // Query rewards and add accrued interest
+    let rewards = querier.query::<RewardsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.staking_contract.to_string(),
+        msg: to_binary(&Staking_QueryMsg::UserRewards {
+            user: user.clone(),
+        })?,
+    }))?;
 
-    //Handle Discount Vault
-    // for vault in config.clone().discount_vault_contract {
-    //     //Add DV value
-    //     total_value += get_discounts_vault_value(querier.clone(), vault.clone(), user.clone(), config.clone().minimum_time_in_network)?;
-    //     //Get denoms to query for gauges
-    //     let dv_config: DV_Config = get_discount_vault_config(querier, vault.to_string())?;
-    //     let accepted_lps: Vec<AssetInfo> = dv_config.clone().accepted_LPs.into_iter().map(|lp| lp.share_token).collect();
-    //     //Add gauge vaule
-    //     total_value += get_incentive_gauge_value(querier, config.clone(), accepted_lps, user.clone(), config.clone().minimum_time_in_network)?;
-    // }
+    let mut total_mbrn = user_stake + rewards.accrued_interest;
 
-    // total_value += get_sp_value(querier, config.clone(), env.clone().block.time.seconds(), user.clone())?;
-    total_value += get_staked_MBRN_value(querier, config.clone(), user.clone(), mbrn_price_res.clone(), credit_price.clone().price)?;
-    
-    
-    Ok( total_value )
+    // Query LTV Disco contract if configured
+    if let Some(ltv_disco_contract) = config.ltv_disco_contract {
+        let ltv_deposits = querier.query::<UserTotalDepositsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: ltv_disco_contract.to_string(),
+            msg: to_binary(&LTVDisco_QueryMsg::UserTotalDeposits {
+                user: user.clone(),
+            })?,
+        }))?;
+        
+        total_mbrn += ltv_deposits.total_deposits;
+    }
+
+    Ok(total_mbrn)
 }
+
 
 /// Set current timed discount period
 fn set_timed_discount_period(
@@ -442,38 +483,6 @@ fn clear_timed_discount_period(
 
 // }
 
-// Return value of staked MBRN & pending rewards
-fn get_staked_MBRN_value(
-    querier: QuerierWrapper,
-    config: Config,
-    user: String,
-    mbrn_price_res: PriceResponse,
-    credit_price: Decimal,
-) -> StdResult<Decimal>{
-
-    let mut user_stake = querier.query::<StakerResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().staking_contract.to_string(),
-        msg: to_binary(&Staking_QueryMsg::UserStake {
-            staker: user.clone(),
-        })?,
-    }))?
-    .total_staked;
-
-    let rewards = querier.query::<RewardsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-        contract_addr: config.clone().staking_contract.to_string(),
-        msg: to_binary(&Staking_QueryMsg::UserRewards {
-            user: user.clone(),
-        })?,
-    }))?;
-
-    //Add accrued interest to user_stake
-    user_stake += rewards.accrued_interest;
-
-    //Add MBRN value to staked_value
-    let value = mbrn_price_res.get_value(user_stake)?;
-    
-    Ok( value )
-}
 
 /// Return user's total Stability Pool value from credit & MBRN incentives 
 // fn get_sp_value(

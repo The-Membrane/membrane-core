@@ -6,12 +6,13 @@ use std::convert::TryInto;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_json_binary, BankMsg, Addr, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, Reply, Response, StdError, StdResult, SubMsg, Uint128
+    attr, to_json_binary, BankMsg, Addr, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg
 };
 use membrane::neutron_proxy::{
     Config, ContractDenomsResponse, DualityRoute, ExecuteMsg, GetDenomResponse, InstantiateMsg, MigrateMsg, QueryMsg, TokenInfoResponse, NeutronOwnerEntry, NeutronMsg
 };
-use membrane::types::{AssetInfo, NeutronOwner, TransmutationPairEntry};
+use membrane::{mars_vault_token, transmuter};
+use membrane::types::{AssetInfo, NeutronOwner, TransmutationPairEntry, VaultEntry};
 use membrane::helpers::get_contract_balances;
 use cw2::set_contract_version;
 
@@ -27,22 +28,47 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const MAX_LIMIT: u32 = 64;
 
 const CREATE_DENOM_REPLY_ID: u64 = 1u64;
+const SWAP_REPLY_ID: u64 = 2u64;
+const USE_BALANCE_SWAP_REPLY_ID: u64 = 3u64;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    _msg: InstantiateMsg,
+    msg: InstantiateMsg,
 ) -> Result<Response<NeutronMsg>, TokenFactoryError> {
+    // Query transmuter config if provided
+    let (transmuter_contract, cdt_denom, usdc_denom) = if let Some(transmuter_addr) = msg.transmuter_contract {
+        let transmuter_addr = deps.api.addr_validate(&transmuter_addr)?;
+        
+        // Query the transmuter config
+        let transmuter_config: transmuter::Config = deps.querier.query_wasm_smart(
+            transmuter_addr.clone(),
+            &transmuter::QueryMsg::Config {}
+        )?;
+        
+        (
+            Some(transmuter_addr),
+            Some(transmuter_config.deposit_pair.cdt),
+            Some(transmuter_config.deposit_pair.paired_asset),
+        )
+    } else {
+        (None, None, None)
+    };
+
     let config = Config {
         owners: vec![
             NeutronOwner {
                 owner: info.sender.clone(),
                 non_token_contract_auth: true, 
             }],
-            debt_auction: None,
-            transmutation_pairs: vec![],
+        debt_auction: None,
+        transmutation_pairs: vec![],
+        transmuter_contract,
+        cdt_denom,
+        usdc_denom,
+        vaults: msg.vaults.unwrap_or_default(),
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
@@ -99,7 +125,9 @@ pub fn execute(
             owners,
             debt_auction,
             transmutation_pairs,
-        } => update_config(deps, info, owners, debt_auction, transmutation_pairs),
+            transmuter_contract,
+            vaults,
+        } => update_config(deps, info, owners, debt_auction, transmutation_pairs, transmuter_contract, vaults),
         ExecuteMsg::TransmuteTokens { } => transmute_tokens(deps, env, info),
     }
 }
@@ -183,7 +211,7 @@ fn transmute_tokens(
 fn execute_swaps(
     deps: DepsMut,
     env: Env,
-    _swapper: Addr,
+    swapper: Addr,
     funds: Vec<Coin>,
     token_out: String,
     max_slippage: Decimal,
@@ -208,33 +236,76 @@ fn execute_swaps(
 
     //create swap msgs for each asset sent
     for coin in filtered_funds.clone().into_iter() {
-        // Create a simple DualityRoute for direct swap
-        let route = DualityRoute {
-            from: coin.denom.clone(),
-            to: token_out.clone(),
-            swap_denoms: vec![coin.denom.clone(), token_out.clone()],
+        // Check if this is a vault token that needs to be exited first
+        let vault_for_token = config.vaults
+            .iter()
+            .find(|v| v.vault_token == coin.denom);
+        
+        if let Some(vault) = vault_for_token {
+            // Exit vault token to get underlying asset, then swap the result
+            let exit_vault_msg: CosmosMsg<NeutronMsg> = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: vault.vault_addr.to_string(),
+                msg: to_json_binary(&mars_vault_token::ExecuteMsg::ExitVault {})?,
+                funds: vec![coin.clone()],
+            });
+
+            // Use reply to swap the exited vault tokens
+            msgs.push(SubMsg::reply_on_success(exit_vault_msg, USE_BALANCE_SWAP_REPLY_ID));
+            continue;
+        }
+
+        // Check if this is a USDC<>CDT swap that should use the transmuter contract (Different than the transmutation pairs)
+        let is_transmuter_swap = if let (Some(_), Some(ref cdt), Some(ref usdc)) = 
+            (&config.transmuter_contract, &config.cdt_denom, &config.usdc_denom) {
+            // Check if we're swapping USDC->CDT or CDT->USDC
+            (coin.denom == *usdc && token_out == *cdt) || (coin.denom == *cdt && token_out == *usdc)
+        } else {
+            false
         };
 
-        // Validate the route
-        route.validate(&deps.querier, &coin.denom, &token_out)?;
+        if is_transmuter_swap {
+            // Use transmuter for USDC<>CDT swaps
+            let transmuter_addr = config.transmuter_contract.as_ref().unwrap();
+            
+            let transmute_msg: CosmosMsg<NeutronMsg> = CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: transmuter_addr.to_string(),
+                msg: to_json_binary(&transmuter::ExecuteMsg::Transmute {
+                    recipient: Some(swapper.to_string()),
+                })?,
+                funds: vec![coin.clone()],
+            });
 
-        // Calculate minimum amount out with slippage protection
-        let min_receive = coin.amount * (Decimal::one() - max_slippage);
+            msgs.push(SubMsg::new(transmute_msg));
+        } else {
+            // Use regular DEX swap for other pairs
+            // Create a simple DualityRoute for direct swap
+            let route = DualityRoute {
+                from: coin.denom.clone(),
+                to: token_out.clone(),
+                swap_denoms: vec![coin.denom.clone(), token_out.clone()],
+            };
 
-        // Build the swap message using Neutron DEX
-        let swap_msg: CosmosMsg<NeutronMsg> = route.build_exact_in_swap_msg(
-            &deps.querier,
-            &env,
-            &coin,
-            min_receive,
-        )?;
+            // Validate the route
+            route.validate(&deps.querier, &coin.denom, &token_out)?;
 
-        msgs.push(SubMsg::new(swap_msg));
+            // Calculate minimum amount out with slippage protection
+            let min_receive = coin.amount * (Decimal::one() - max_slippage);
+
+            // Build the swap message using Neutron DEX
+            let swap_msg: CosmosMsg<NeutronMsg> = route.build_exact_in_swap_msg(
+                &deps.querier,
+                &env,
+                &coin,
+                min_receive,
+            )?;
+
+            msgs.push(SubMsg::reply_on_success(swap_msg, SWAP_REPLY_ID));
+        }
     }
 
     //Save SwapInfo
     SWAP_INFO.save(deps.storage, &SwapInfo {
-        swapper: _swapper,
+        swapper: swapper,
         prev_balances: filtered_funds.clone(),
         token_out: token_out.clone(),
         max_slippage: max_slippage.clone(),
@@ -257,6 +328,8 @@ fn update_config(
     owners: Option<Vec<NeutronOwnerEntry>>,
     debt_auction: Option<String>,
     transmutation_pairs: Option<Vec<TransmutationPairEntry>>,
+    transmuter_contract: Option<String>,
+    vaults: Option<Vec<VaultEntry>>,
 ) -> Result<Response<NeutronMsg>, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -305,6 +378,43 @@ fn update_config(
                     config.transmutation_pairs[index].mint_ratio = pair.transmutation_pair.mint_ratio;
                 } else {
                     config.transmutation_pairs.push(pair.transmutation_pair);
+                }
+            }
+        }
+    }
+
+    //Edit Transmuter Contract
+    if let Some(transmuter_addr) = transmuter_contract {
+        let transmuter_addr = deps.api.addr_validate(&transmuter_addr)?;
+        
+        // Query the transmuter config to update denoms
+        let transmuter_config: transmuter::Config = deps.querier.query_wasm_smart(
+            transmuter_addr.clone(),
+            &transmuter::QueryMsg::Config {}
+        )?;
+        
+        config.transmuter_contract = Some(transmuter_addr);
+        config.cdt_denom = Some(transmuter_config.deposit_pair.cdt);
+        config.usdc_denom = Some(transmuter_config.deposit_pair.paired_asset);
+    }
+
+    //Edit Vaults
+    if let Some(vaults) = vaults {
+        for vault_entry in vaults {
+            if vault_entry.remove {
+                // Remove vault by vault_token
+                config.vaults.retain(|v| v.vault_token != vault_entry.vault_info.vault_token);
+            } else {
+                // Validate vault address
+                deps.api.addr_validate(&vault_entry.vault_info.vault_addr.to_string())?;
+
+                // Add new vault or update existing vault
+                if let Some(index) = config.vaults.iter().position(|v| v.vault_token == vault_entry.vault_info.vault_token) {
+                    // Update existing vault
+                    config.vaults[index] = vault_entry.vault_info;
+                } else {
+                    // Add new vault
+                    config.vaults.push(vault_entry.vault_info);
                 }
             }
         }
@@ -831,7 +941,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response<NeutronM
     match msg.id {
         CREATE_DENOM_REPLY_ID => handle_create_denom_reply(deps, env, msg),
         SWAP_REPLY_ID => handle_swap_reply(deps, env, msg),
-        _USE_BALANCE_SWAP_REPLY_ID => handle_swap_balances_reply(deps, env, msg),
+        USE_BALANCE_SWAP_REPLY_ID => handle_swap_balances_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }

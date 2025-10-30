@@ -3,15 +3,17 @@ use cosmwasm_std::entry_point;
 use cosmwasm_std::{
     attr, to_json_binary, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, Reply, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg
 };
-use core::time;
 use std::cmp::max;
 use cw2::set_contract_version;
 use membrane::math::{decimal_multiplication, decimal_division};
 
 use crate::error::TokenFactoryError;
-use crate::state::{APRInstance, APRTracker, APR_TRACKER, TOKEN_RATE_ASSURANCE, TokenRateAssurance, CONFIG, OWNERSHIP_TRANSFER, VAULT_TOKEN};
+use crate::state::{APRInstance, APRTracker, APR_TRACKER, TOKEN_RATE_ASSURANCE, TokenRateAssurance, CONFIG, OWNERSHIP_TRANSFER, VAULT_TOKEN, COST_ACCRUAL, CostAccrual};
 use membrane::mars_vault_token::{Config, ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg, APRResponse};
 use membrane::mars_redbank::{QueryMsg as Mars_QueryMsg, ExecuteMsg as Mars_ExecuteMsg, UserCollateralResponse, Market, MarketV2Response};
+use membrane::cdp::{QueryMsg as CDPQueryMsg, BasketPositionsResponse, CollateralInterestResponse};
+use membrane::types::{AssetInfo, Basket, LiqAsset, Asset, DistributionEntry};
+use membrane::revenue_distributor::{ExecuteMsg as RevenueDistributorExecuteMsg, RevenuePromise};
 use membrane::stability_pool_vault::{
     calculate_base_tokens, calculate_vault_tokens
 };
@@ -30,6 +32,10 @@ const SECONDS_PER_MONTH: u64 = SECONDS_PER_DAY * 30;
 const SECONDS_PER_THREE_MONTHS: u64 = SECONDS_PER_DAY * 90;
 const SECONDS_PER_YEAR: u64 = SECONDS_PER_DAY * 365;
 
+//Reply IDs for cost collection
+const COLLECT_COST_EXIT_REPLY_ID: u64 = 1;
+const COLLECT_COST_TRANSMUTE_REPLY_ID: u64 = 2;
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
@@ -37,12 +43,43 @@ pub fn instantiate(
     info: MessageInfo,
     msg: InstantiateMsg,
 ) -> Result<Response, TokenFactoryError> {
+    // Query CDP basket to find vault token index
+    let cdp_contract_addr = deps.api.addr_validate(&msg.cdp_contract_addr)?;
+    let basket_query = CDPQueryMsg::GetBasket {};
+    let basket: Basket = deps.querier.query_wasm_smart(
+        cdp_contract_addr.clone(),
+        &basket_query,
+    )?;
+    
+    // Find vault token index by matching with mars vault token denom
+    let mars_vault_addr = deps.api.addr_validate(&msg.mars_redbank_addr)?;
+    let vault_token_denom = String::from("factory/".to_owned() + env.contract.address.as_str() + "/" + msg.clone().vault_subdenom.as_str());
+    
+    let vault_cost_index = basket.collateral_types.iter()
+        .position(|c_asset| {
+            match &c_asset.asset.info {
+                AssetInfo::Token { address } => address == &mars_vault_addr,
+                AssetInfo::NativeToken { denom } => denom == &vault_token_denom,
+            }
+        })
+        .unwrap_or(0); // Default to 0 if not found
+
     let config = Config {
         owner: info.sender.clone(),
-        mars_redbank_addr: deps.api.addr_validate(&msg.mars_redbank_addr)?,
-        vault_token: String::from("factory/".to_owned() + env.contract.address.as_str() + "/" + msg.clone().vault_subdenom.as_str()),
+        mars_redbank_addr: mars_vault_addr,
+        vault_token: vault_token_denom,
         deposit_token: msg.clone().deposit_token,
         total_deposit_tokens: Uint128::zero(),
+        vault_cost: membrane::mars_vault_token::VaultCost {
+            static_cost: None,
+            yield_ceiling: None,
+        },
+        transmuter_addr: deps.api.addr_validate(&msg.transmuter_addr)?,
+        revenue_distributor_addr: deps.api.addr_validate(&msg.revenue_distributor_addr)?,
+        cdt_denom: msg.cdt_denom.clone(),
+        cdp_contract_addr,
+        vault_cost_index,
+        revenue_distributions: msg.revenue_distributions.clone(),
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     //Save initial state
@@ -53,6 +90,11 @@ pub fn instantiate(
         last_updated: env.block.time.seconds(),
     })?;
     VAULT_TOKEN.save(deps.storage, &Uint128::zero())?;  
+    COST_ACCRUAL.save(deps.storage, &CostAccrual {
+        revenue_vault_tokens: Uint128::zero(),
+        last_updated: 0u64,
+        total_cost_collected: Uint128::zero(),
+    })?;
     //Create Msg
     let denom_msg = TokenFactory::MsgCreateDenom { sender: env.contract.address.to_string(), subdenom: msg.vault_subdenom.clone() };
     
@@ -62,9 +104,10 @@ pub fn instantiate(
         .add_attribute("config", format!("{:?}", config))
         .add_attribute("contract_address", env.contract.address)
         .add_attribute("sub_denom", msg.clone().vault_subdenom)
+        .add_attribute("vault_cost_index", vault_cost_index.to_string())
     //UNCOMMENT
-        .add_message(denom_msg);
-    Ok(res)
+    .add_message(denom_msg);
+           Ok(res)
 }
 
 
@@ -76,12 +119,96 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, TokenFactoryError> {
     match msg {
-        ExecuteMsg::UpdateConfig { owner, mars_redbank_addr } => update_config(deps, info, owner, mars_redbank_addr),
+        ExecuteMsg::UpdateConfig { owner, mars_redbank_addr, transmuter_addr, revenue_distributor_addr, vault_cost, cdt_denom, cdp_contract_addr, revenue_distributions } => update_config(deps, info, owner, mars_redbank_addr, transmuter_addr, revenue_distributor_addr, vault_cost, cdt_denom, cdp_contract_addr, revenue_distributions),
         ExecuteMsg::EnterVault { } => enter_vault(deps, env, info),
         ExecuteMsg::ExitVault {  } => exit_vault(deps, env, info),
         ExecuteMsg::CrankAPR {  } => crank_apr(deps, env, info),
+        ExecuteMsg::CollectCost { } => collect_cost(deps, env, info),
         ExecuteMsg::RateAssurance {  } => rate_assurance(deps, env, info),
+        ExecuteMsg::UpdateCDPCosts { } => update_cdp_costs(deps, env, info),
     }
+}
+
+/// Get the current vault cost rate
+pub fn get_vault_cost_rate(
+    deps: Deps,
+    config: &Config,
+) -> StdResult<Decimal> {
+    let mut base_cost = Decimal::zero();
+    
+    // If static_cost is set, use it
+    if let Some(static_cost) = config.vault_cost.static_cost {
+        base_cost = static_cost;
+    }
+    // If yield_ceiling is set, calculate mars_apr - yield_ceiling
+    else if let Some(yield_ceiling) = config.vault_cost.yield_ceiling {
+        // Query Mars market for liquidity_rate (APR)
+        let market: Market = deps.querier.query_wasm_smart(
+            config.mars_redbank_addr.to_string(),
+            &Mars_QueryMsg::Market {
+                denom: config.deposit_token.clone(),
+            },
+        )?;
+        let mars_apr = market.liquidity_rate;
+        
+        // Calculate max(mars_apr - yield_ceiling, 0)
+        if mars_apr > yield_ceiling {
+            base_cost = mars_apr - yield_ceiling;
+        }
+    }
+    
+    Ok(base_cost)
+}
+
+/// Update CDP with calculated vault cost
+pub fn update_cdp_costs(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, TokenFactoryError> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    // Only contract itself can call this
+    // if info.sender != env.contract.address {
+    //     return Err(TokenFactoryError::Unauthorized {});
+    // }
+    
+    // Get the current vault cost rate
+    let vault_cost_rate = get_vault_cost_rate(deps.as_ref(), &config)?;
+    
+    // Get vault token asset string
+    let vault_token_asset_string = config.vault_token;
+    
+    // Create EditBasket message with individual_costs
+    let edit_basket_msg = membrane::cdp::ExecuteMsg::EditBasket(
+        membrane::cdp::EditBasket {
+            added_cAsset: None,
+            liq_queue: None,
+            credit_pool_infos: None,
+            collateral_supply_caps: None,
+            multi_asset_supply_caps: None,
+            base_interest_rate: None,
+            credit_asset_twap_price_source: None,
+            negative_rates: None,
+            cpc_margin_of_error: None,
+            frozen: None,
+            distribute_revenue: None,
+            take_revenue: None,
+            individual_costs: Some(vec![(vault_token_asset_string, vault_cost_rate)]),
+        }
+    );
+    
+    // Send message to CDP
+    let cdp_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.cdp_contract_addr.to_string(),
+        msg: to_json_binary(&edit_basket_msg)?,
+        funds: vec![],
+    });
+    
+    Ok(Response::new()
+        .add_message(cdp_msg)
+        .add_attribute("method", "update_cdp_costs")
+        .add_attribute("vault_cost_rate", vault_cost_rate.to_string()))
 }
 
 /// Query and save new info for the APRs of the contract
@@ -137,7 +264,7 @@ fn get_apr_instance(
     querier: QuerierWrapper,
     config: Config,
     apr_tracker: APRTracker,
-    total_deposit_tokens: Uint128,
+    _total_deposit_tokens: Uint128,
     block_time: u64
 ) -> StdResult<APRInstance> {
     //Query APR from Mars
@@ -201,13 +328,16 @@ fn rate_assurance(
 ///Deposit the deposit_token to the vault & receive vault tokens in return
 /// Send the deposit tokens to the yield strategy.
 fn enter_vault(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
 ) -> Result<Response, TokenFactoryError> {
     //Load State
     let apr_tracker = APR_TRACKER.load(deps.storage)?;
     let config = CONFIG.load(deps.storage)?;
+    
+    // Accrue costs first - REMOVED: Costs now tracked in CDP
+    // let _cost_accrued = accrue_cost(&mut deps, env.clone(), &config)?;
  
     //Assert the only token sent is the deposit token
     if info.funds.len() != 1 {
@@ -259,7 +389,7 @@ fn enter_vault(
         }), 
         mint_to_address: info.sender.to_string(),
     }.into();
-    //UNCOMMENT
+    //UNCOMMENT FOR PRODUCTION
     msgs.push(mint_vault_tokens_msg);
 
     //Update the total vault tokens
@@ -306,12 +436,16 @@ fn enter_vault(
 /// User sends vault_tokens to withdraw the deposit_token from the vault
 /// We burn vault tokens & unstake whatever was withdrawn
 fn exit_vault(
-    deps: DepsMut,
+    mut deps: DepsMut,
     env: Env,
     info: MessageInfo,
 ) -> Result<Response, TokenFactoryError> {
     let config = CONFIG.load(deps.storage)?;
     let apr_tracker = APR_TRACKER.load(deps.storage)?;
+    
+    // Accrue costs first - REMOVED: Costs now tracked in CDP
+    // let _cost_accrued = accrue_cost(&mut deps, env.clone(), &config)?;
+    
     let mut msgs: Vec<CosmosMsg> = vec![];
     
     //Assert the only token sent is the vault token
@@ -409,6 +543,171 @@ fn exit_vault(
     Ok(res)
 }
  
+/// Collect accrued vault costs by burning revenue vault tokens and swapping to CDT
+fn collect_cost(
+    mut deps: DepsMut,
+    env: Env,
+    _info: MessageInfo,
+) -> Result<Response, TokenFactoryError> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    // Accrue costs first to update state - REMOVED: Costs now tracked in CDP
+    // let _cost_accrued = accrue_cost(&mut deps, env.clone(), &config)?;
+    
+    // Get revenue vault tokens amount
+    let cost_accrual = COST_ACCRUAL.load(deps.storage)?;
+    let revenue_vault_tokens = cost_accrual.revenue_vault_tokens;
+    
+    // If zero or below minimum threshold, return early
+    if revenue_vault_tokens.is_zero() {
+        return Ok(Response::new()
+            .add_attribute("method", "collect_cost")
+            .add_attribute("revenue_vault_tokens", "0")
+            .add_attribute("message", "No revenue to collect"));
+    }
+    
+    // Calculate expected USDC using current exchange rate
+    let total_deposit_tokens = get_total_deposit_tokens(deps.as_ref(), env.clone(), config.clone())?;
+    let total_vault_tokens = VAULT_TOKEN.load(deps.storage)?;
+    let expected_usdc = calculate_base_tokens(
+        revenue_vault_tokens,
+        total_deposit_tokens,
+        total_vault_tokens
+    )?;
+    
+    // Update total cost collected tracking
+    let mut cost_accrual = COST_ACCRUAL.load(deps.storage)?;
+    cost_accrual.total_cost_collected += expected_usdc;
+    cost_accrual.revenue_vault_tokens = Uint128::zero(); // Reset to zero
+    COST_ACCRUAL.save(deps.storage, &cost_accrual)?;
+    
+    // Create messages
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    
+    // 1. Mint revenue vault tokens to contract address
+    let mint_msg: CosmosMsg = TokenFactory::MsgMint {
+        sender: env.contract.address.to_string(),
+        amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
+            denom: config.vault_token.clone(),
+            amount: revenue_vault_tokens.to_string(),
+        }),
+        mint_to_address: env.contract.address.to_string(),
+    }.into();
+    //UNCOMMENT FOR PRODUCTION
+    msgs.push(mint_msg);
+    
+    // 2. Execute ExitVault on self with revenue vault tokens as funds (SubMsg)
+    let exit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: env.contract.address.to_string(),
+        msg: to_json_binary(&ExecuteMsg::ExitVault {})?,
+        funds: vec![Coin {
+            denom: config.vault_token.clone(),
+            amount: revenue_vault_tokens,
+        }],
+    });
+    
+    Ok(Response::new()
+        .add_attribute("method", "collect_cost")
+        .add_attribute("revenue_vault_tokens", revenue_vault_tokens)
+        .add_attribute("expected_usdc", expected_usdc)
+        .add_messages(msgs)
+        .add_submessage(SubMsg::reply_on_success(exit_msg, COLLECT_COST_EXIT_REPLY_ID)))
+}
+
+#[cfg_attr(not(feature = "library"), entry_point)]
+pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, TokenFactoryError> {
+    match msg.id {
+        COLLECT_COST_EXIT_REPLY_ID => handle_collect_cost_exit_reply(deps, env),
+        COLLECT_COST_TRANSMUTE_REPLY_ID => handle_collect_cost_transmute_reply(deps, env),
+        _ => Err(TokenFactoryError::CustomError { val: format!("Unknown reply ID: {}", msg.id) }),
+    }
+}
+
+/// Handle reply from exit_vault during cost collection
+fn handle_collect_cost_exit_reply(
+    deps: DepsMut,
+    env: Env,
+) -> Result<Response, TokenFactoryError> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    // Contract now has USDC from exit_vault
+    // Query contract's USDC balance
+    let usdc_balance = deps.querier.query_balance(&env.contract.address, &config.deposit_token)?;
+    
+    if usdc_balance.amount.is_zero() {
+        return Ok(Response::new()
+            .add_attribute("method", "handle_collect_cost_exit_reply")
+            .add_attribute("message", "No USDC received from exit"));
+    }
+    
+    // Create submessage to transmuter
+    let transmute_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.transmuter_addr.to_string(),
+        msg: to_json_binary(&membrane::transmuter::ExecuteMsg::Transmute {
+            recipient: Some(env.contract.address.to_string()),
+        })?,
+        funds: vec![Coin {
+            denom: config.deposit_token.clone(),
+            amount: usdc_balance.amount,
+        }],
+    });
+    
+    Ok(Response::new()
+        .add_attribute("method", "handle_collect_cost_exit_reply")
+        .add_attribute("usdc_amount", usdc_balance.amount)
+        .add_submessage(SubMsg::reply_on_success(transmute_msg, COLLECT_COST_TRANSMUTE_REPLY_ID)))
+}
+
+/// Handle reply from transmuter during cost collection
+fn handle_collect_cost_transmute_reply(
+    deps: DepsMut,
+    env: Env,
+) -> Result<Response, TokenFactoryError> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    let cdt_balance = deps.querier.query_balance(&env.contract.address, config.cdt_denom.clone())?;
+    
+    if cdt_balance.amount.is_zero() {
+        return Ok(Response::new()
+            .add_attribute("method", "handle_collect_cost_transmute_reply")
+            .add_attribute("message", "No CDT received from transmute"));
+    }
+    
+    // Convert LiqAsset to Asset for ltv_disco_distribution
+    let ltv_disco_distributions: Vec<Asset> = config.revenue_distributions.iter()
+        .map(|liq_asset| {
+            // Calculate amount based on ratio: cdt_amount * ratio
+            let amount = cdt_balance.amount * liq_asset.amount;
+            Asset {
+                info: liq_asset.info.clone(),
+                amount,
+            }
+        })
+        .collect();
+    
+    // Create empty promises (we're only setting ltv_disco_distribution)
+    let promises: Vec<RevenuePromise> = vec![];
+    
+    // Call SetPromises on revenue distributor
+    let set_promises_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.revenue_distributor_addr.to_string(),
+        msg: to_json_binary(&RevenueDistributorExecuteMsg::SetPromises {
+            promises,
+            ltv_disco_distribution: Some(ltv_disco_distributions),
+        })?,
+        funds: vec![Coin {
+            denom: config.cdt_denom.clone(),
+            amount: cdt_balance.amount,
+        }],
+    });
+    
+    Ok(Response::new()
+        .add_attribute("method", "handle_collect_cost_transmute_reply")
+        .add_attribute("cdt_amount", cdt_balance.amount)
+        .add_attribute("revenue_distributor", config.revenue_distributor_addr)
+        .add_message(set_promises_msg))
+}
+
 /// Update contract configuration
 /// This function is only callable by an owner with non_token_contract_auth set to true
 fn update_config(
@@ -416,6 +715,12 @@ fn update_config(
     info: MessageInfo,
     owner: Option<String>,
     mars_redbank_addr: Option<String>,
+    transmuter_addr: Option<String>,
+    revenue_distributor_addr: Option<String>,
+    vault_cost: Option<membrane::mars_vault_token::VaultCost>,
+    cdt_denom: Option<String>,
+    cdp_contract_addr: Option<String>,
+    revenue_distributions: Option<Vec<DistributionEntry>>,
 ) -> Result<Response, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -442,6 +747,41 @@ fn update_config(
         config.mars_redbank_addr = deps.api.addr_validate(&addr)?;
         attrs.push(attr("updated_mars_redbank_addr", addr));
     }
+    if let Some(addr) = transmuter_addr {
+        config.transmuter_addr = deps.api.addr_validate(&addr)?;
+        attrs.push(attr("updated_transmuter_addr", addr));
+    }
+    if let Some(addr) = revenue_distributor_addr {
+        config.revenue_distributor_addr = deps.api.addr_validate(&addr)?;
+        attrs.push(attr("updated_revenue_distributor_addr", addr));
+    }
+    if let Some(cost) = vault_cost {
+        config.vault_cost = cost;
+        attrs.push(attr("updated_vault_cost", "true"));
+    }
+    if let Some(denom) = cdt_denom {
+        config.cdt_denom = denom.clone();
+        attrs.push(attr("updated_cdt_denom", denom));
+    }
+    if let Some(addr) = cdp_contract_addr {
+        config.cdp_contract_addr = deps.api.addr_validate(&addr)?;
+        attrs.push(attr("updated_cdp_contract_addr", addr));
+    }
+    if let Some(distributions) = revenue_distributions {
+        for entry in distributions {
+            if entry.remove {
+                // Remove distribution entry that matches the asset info
+                config.revenue_distributions.retain(|liq_asset| liq_asset.info != entry.asset.info);
+            } else {
+                // Add or update distribution entry
+                // First remove any existing entry with the same asset info
+                config.revenue_distributions.retain(|liq_asset| liq_asset.info != entry.asset.info);
+                // Then add the new entry
+                config.revenue_distributions.push(entry.asset);
+            }
+        }
+        attrs.push(attr("updated_revenue_distributions", "true"));
+    }
     CONFIG.save(deps.storage, &config)?;
     attrs.push(attr("updated_config", format!("{:?}", config)));
 
@@ -455,7 +795,16 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::VaultTokenUnderlying { vault_token_amount } => to_json_binary(&query_vault_token_underlying(deps, env, vault_token_amount)?),
         QueryMsg::DepositTokenConversion { deposit_token_amount } => to_json_binary(&query_deposit_token_conversion(deps, env, deposit_token_amount)?),
         QueryMsg::APR {} => to_json_binary(&query_apr(deps, env)?),
+        QueryMsg::Cost {} => to_json_binary(&query_cost(deps)?),
     }
+}
+
+/// Return current vault cost rate
+fn query_cost(
+    deps: Deps,
+) -> StdResult<Decimal> {
+    let config = CONFIG.load(deps.storage)?;
+    get_vault_cost_rate(deps, &config)
 }
 
 /// Return APR for the valid durations 7, 30, 90, 365 days
@@ -644,7 +993,7 @@ fn get_total_deposit_tokens(
 
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
+pub fn migrate(_deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, TokenFactoryError> {
     // // Load APR tracker
     // let mut apr_tracker = APR_TRACKER.load(deps.storage)?;
     // apr_tracker.aprs = vec![];

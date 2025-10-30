@@ -32,6 +32,7 @@ members = [
     "contracts/revenue-distributor",
     "contracts/neutron-proxy",
     "contracts/transmuter",
+    "contracts/yield-arb",
 ]
 
 exclude = [

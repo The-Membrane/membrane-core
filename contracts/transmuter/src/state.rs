@@ -23,6 +23,9 @@ pub const DEPLOYED_PAIRED_ASSET: Item<Uint128> = Item::new("deployed_paired_asse
 // Global sliding window entries for all non-whitelisted addresses
 pub const GLOBAL_RATE_LIMIT_FLOWS: Item<Vec<FlowEntry>> = Item::new("global_rate_limit_flows");
 
+// Tracks accumulated fees (in paired_asset) that couldn't be converted to CDT yet
+pub const PENDING_REVENUE: Item<Uint128> = Item::new("pending_revenue");
+
 #[cw_serde]
 pub struct TransmuteSnapshot {
     pub offered_asset: String,

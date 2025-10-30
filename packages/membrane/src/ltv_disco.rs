@@ -34,6 +34,10 @@ pub struct InstantiateMsg {
     /// This is made to be either CDT or the Transmuter's vault token.
     /// The Transmuter's vault info will have CDT as the underlying token.
     pub deposit_denom: DepositDenom,
+    /// CDT token denomination for revenue distribution and bad debt fulfillment.
+    /// CRITICAL: This MUST be the CDT token. Bad debt fulfillment assumes this is CDT.
+    /// If this is not the CDT token, bad debt fulfillment will be broken and may lose funds/break state.
+    pub cdt_denom: String,
     /// Minimum deposit amount
     pub minimum_deposit: Uint128,
     /// Waiting period for deposits (in seconds)
@@ -46,6 +50,10 @@ pub struct InstantiateMsg {
     pub dispersal_window: u64,
     /// Window for liquidations to activate dispersals (in hours)
     pub activation_window: u64,
+    /// Oracle contract for querying asset prices
+    pub oracle_contract: String,
+    /// Chain proxy contract for executing swaps
+    pub chain_proxy_contract: String,
 }
 
 /// Execute messages
@@ -65,10 +73,11 @@ pub enum ExecuteMsg {
         deposit_input: BackingDepositInput,
         deposit_owner: Option<String>,
     },
-    /// Withdraw a backing deposit
+    /// Withdraw a backing deposit (by group)
     WithdrawDeposit {
-        deposit_id: Uint128,
         asset: String,
+        ltv: Decimal,
+        max_borrow_ltv: Decimal,
         amount: Option<Uint128>,
     },
     /// Add bad debt to an LTV queue (CDP contract only)
@@ -77,17 +86,20 @@ pub enum ExecuteMsg {
         amount: Uint128,
     },
     /// Retry failed bad debt fulfillments
-    RetryFailedBadDebt {
-        asset: String,
-    },
+    // RetryFailedBadDebt {
+    //     asset: String,
+    // },
     /// Add revenue to an asset's LTV queue
     AddRevenue {
         asset: String,
     },
-    /// Activate a dispersal window for an asset
-    ActivateDispersal {
+    /// Claim accumulated revenue rewards for a specific user and group
+    ClaimRevenueForUser {
+        user: String,
         asset: String,
-        dispersal_window: u64,
+        max_ltv: Decimal,
+        max_borrow_ltv: Decimal,
+        limit: Option<u32>,
     },
     /// Disperse revenue linearly over the active window
     DisperseRevenue {
@@ -98,18 +110,21 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         cdp_contract: Option<String>,
         deposit_denom: Option<DepositDenom>,
+        cdt_denom: Option<String>,
         minimum_deposit: Option<Uint128>,
         waiting_period: Option<u64>,
         percent_to_disperse: Option<Decimal>,
         dispersal_window: Option<u64>,
-        activation_window: Option<u64>
+        activation_window: Option<u64>,
+        oracle_contract: Option<String>,
+        chain_proxy_contract: Option<String>,
     },
-    /// Post a deposit tracker entry for base token tracking
-    PostDepositTrackerEntry {
-        asset: String,
-        max_ltv: Decimal,
-        max_borrow_ltv: Decimal,
-    },
+    // /// Post a deposit tracker entry for base token tracking
+    // PostDepositTrackerEntry {
+    //     asset: String,
+    //     max_ltv: Decimal,
+    //     max_borrow_ltv: Decimal,
+    // },
     /// Assures that for deposits & withdrawals the conversion rate is static
     /// Only callable by the contract
     RateAssurance {
@@ -126,8 +141,13 @@ pub enum QueryMsg {
     Config {},
     /// Get LTV queue for an asset
     GetLTVQueue { asset: String },
-    /// Get backing deposit by ID
-    GetBackingDeposit { deposit_id: Uint128, asset: String },
+    /// Get backing deposit by group (single deposit per user per group)
+    GetBackingDeposit { 
+        user: String, 
+        asset: String, 
+        ltv: Decimal, 
+        max_borrow_ltv: Decimal
+    },
     /// Get backing deposits by user
     GetBackingDepositsByUser {
         user: String,
@@ -142,12 +162,24 @@ pub enum QueryMsg {
         asset: String,
         amount: Uint128,
     },
-    /// Deposit Growth queries
-    GetDepositGrowth {
+    /// Cumulative Revenue queries
+    GetCumulativeRevenue {
         asset: String,
-        max_ltv: Decimal,
-        max_borrow_ltv: Decimal,
+        max_ltv: Option<Decimal>,
+        max_borrow_ltv: Option<Decimal>,
     },
+    /// Get pending claims for a user across their deposits
+    PendingClaims { user: String, asset: String },
+    /// Get user lifetime revenue summary
+    GetUserLifetimeRevenue { user: String, asset: String },
+    /// Get revenue events for a group
+    GetRevenueEvents { asset: String, max_ltv: Decimal, max_borrow_ltv: Decimal },
+    /// Get all assets that have LTV queues
+    GetAssets {},
+    /// Get daily TVL tracker history
+    GetDailyTVL {},
+    /// Get user's total deposits
+    UserTotalDeposits { user: String },
 }
 
 /// Response for LTV queue query
@@ -181,6 +213,27 @@ pub struct VTGrowthResponse {
     pub amount: Uint128,
 }
 
+/// Pending claims aggregate response
+#[cw_serde]
+pub struct PendingClaimsResponse {
+    pub user: String,
+    pub asset: String,
+    pub claims: Vec<DepositPendingClaim>,
+}
+
+/// Response for claimable revenue query (deprecated, use PendingClaims instead)
+#[cw_serde]
+pub struct ClaimableRevenueResponse {
+    pub amount: Uint128,
+}
+
+#[cw_serde]
+pub struct DepositPendingClaim {
+    pub max_ltv: Decimal,
+    pub max_borrow_ltv: Decimal,
+    pub pending_amount: Uint128,
+}
+
 /// Migrate message
 #[cw_serde]
 pub struct MigrateMsg {}
@@ -197,6 +250,10 @@ pub struct Config {
     /// This is made to be either CDT or the Transmuter's vault token.
     /// The Transmuter's vault info will have CDT as the underlying token.
     pub deposit_denom: DepositDenom,
+    /// CDT token denomination for revenue distribution and bad debt fulfillment.
+    /// CRITICAL: This MUST be the CDT token. Bad debt fulfillment assumes this is CDT.
+    /// If this is not the CDT token, bad debt fulfillment will be broken and may lose funds/break state.
+    pub cdt_denom: String,
     /// Minimum deposit amount
     pub minimum_deposit: Uint128,
     /// Waiting period for deposits (in seconds)
@@ -214,6 +271,10 @@ pub struct Config {
     /// Window for liquidations to activate dispersals (in hours)
     /// When querying for liquidations we need to know how far back we'll accept a liquidation to activate dispersal.
     pub activation_window: u64,
+    /// Oracle contract for querying asset prices
+    pub oracle_contract: Addr,
+    /// Chain proxy contract for executing swaps to convert collateral to CDT
+    pub chain_proxy_contract: Addr,
 }
 
 #[cw_serde]
@@ -268,8 +329,6 @@ pub struct MaxLTVSlot {
 pub struct MaxBorrowLTVGroup {
     /// Max borrow LTV for this group
     pub max_borrow_ltv: Decimal,
-    /// Backing deposits in this group
-    pub backing_deposits: Vec<BackingDeposit>,
     /// Total deposit tokens for this group
     pub total_deposit_tokens: Uint128,
     /// Total vault tokens for this group
@@ -281,14 +340,14 @@ pub struct MaxBorrowLTVGroup {
 pub struct BackingDeposit {
     /// User address
     pub user: Addr,
-    /// Deposit ID
-    pub id: Uint128,
     /// Deposit amount (vault tokens)
     pub vault_tokens: Uint128,
     /// Chosen max borrow LTV for sorting within slot
     pub max_borrow_ltv: Decimal,
     /// Wait end time (if any)
     pub wait_end: Option<u64>,
+    /// Last timestamp the user claimed revenue for this deposit
+    pub last_claimed: u64,
 }
 
 /// Input for creating a backing deposit
@@ -302,11 +361,53 @@ pub struct BackingDepositInput {
     pub max_borrow_ltv: Decimal,
 }
 
-/// Base token tracking entry with timestamp
+/// Revenue tracking entry with timestamp
 #[cw_serde]
-pub struct BaseTokenTrackingEntry {
+pub struct RevenueTrackingEntry {
     /// Timestamp when this entry was created
     pub timestamp: u64,
-    /// Base token amount for 1,000,000 vault tokens
-    pub base_token_amount: Uint128,
+    /// Total cumulative revenue at this timestamp
+    pub total_revenue: Uint128,
+}
+
+// Event-based revenue tracking per group
+#[cw_serde]
+pub struct RevenueEvent {
+    pub timestamp: u64,
+    // Revenue per 1 vault token
+    pub amount_per_vt: Decimal,
+    // Remaining total to be claimed from this event
+    pub amount_to_be_claimed: Uint128,
+}
+
+/// User lifetime revenue entry
+#[cw_serde]
+pub struct UserLifetimeRevenueEntry {
+    pub timestamp: u64,
+    pub total_claimed: Uint128,
+}
+
+/// TVL tracking entry
+#[cw_serde]
+pub struct TVLEntry {
+    pub timestamp: u64,
+    pub total_deposit_tokens: Uint128,
+}
+
+/// Response for assets query
+#[cw_serde]
+pub struct AssetsResponse {
+    pub assets: Vec<String>,
+}
+
+/// Response for daily TVL query
+#[cw_serde]
+pub struct DailyTVLResponse {
+    pub entries: Vec<TVLEntry>,
+}
+
+/// Response for user total deposits query
+#[cw_serde]
+pub struct UserTotalDepositsResponse {
+    pub total_deposits: Uint128,
 }

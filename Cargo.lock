@@ -2347,6 +2347,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 
 [[package]]
+name = "yield_arb"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cosmwasm-storage",
+ "cw-multi-test 1.2.0",
+ "cw-storage-plus 1.2.0",
+ "cw2 0.13.4",
+ "membrane",
+ "osmosis-std 0.16.2",
+ "schemars",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "zeroize"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

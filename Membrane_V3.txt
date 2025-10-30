@@ -32,6 +32,10 @@ Apple Migration Versioning
 - To migrate contracts with assets we’d need migrate fns, probably only works for CDP tho, bc if we had to migrate multiple LQ contracts the efficiencies would plummet. So we’ll need to figure out which contracts we can do this for, the CDP for sure though. CDP will likely mean any contract it uses directly as well so like oracle. LQ migrations need to be 1 contract or liquidators get friction.
 - Can get code_ids from cw2
 
+GOVERNANCE
+- Create a VP contract so we can edit VP calcs outside of governance upgrades since it needs to be immutable
+- Add Disco TVL & potentially locked boosts to discounts
+
 PRODUCT DISCOVERY
 (Create a drag and drop block like the track creator for strategies.
 This allows users to find new products for us. Or we can allow them to make it into a managed vault.

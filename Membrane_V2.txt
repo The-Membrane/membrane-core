@@ -1,12 +1,23 @@
 REMOVE PERMA LIQUIDATION WHEN DONE TESTING
+CREATE PUBLIC GROWTH ROADMAP, HOW ARE WE GOING TO GET THERE.
 
-CREATE GROWTH ROADMAP, HOW ARE WE GOING TO GET THERE.
+FUZZ AND AI AUDITS. 
+
+
+TODO:
+    Points
+    - Everything in the flywheel (like swap fees, but since we may toggle swap fees off if there aren't other point sources we can skip this)
+    - CDP revenue using the revenue attribute add in the Responses
+    - Use the boost tier to boost points (extra points for status tiers and loyalty levels)
+
+- faq and protocol walkthrough in ditto
+- execution querys
+- points and lockdrop emissions voting 
+
 
 TODO: 
     Transmuter
     - global rate limit (done)
-
-    - idle USDC sits in marsUSDC
 
     SYSTEM DISCOUNTS
     - Add logic to handle timed free sample periods (done)
@@ -22,15 +33,17 @@ TODO:
     - basic functionality, won't launch without either TWAPs or circuit breakers
 
     Misc
-    - Create first deployment venue (Mars USDC)
+    - Create first deployment venue (Mars USDC) (doneish)
     - ensure (collateral) rate assurances are in place everywhere
 
     CDP
     -- accrue positive growth to config LTV with the Disco's avg LTV (done)
     -- have downside per update limit & update stepwise to the downside (done)
 
-    - Create a post-liq check instead of a circuit breaker 
-    - Save on-deployment base collateral so we can create collateral growth graphs as well.
+    - Create a post-liq check instead of a circuit breaker  (We simulate a swap w/ the position total assets to check price) 
+    -- (We can add a callback that sims the swap so we can reply_on_always to the callback while the msg the callback sends replys_on success as well to invert the outcome. If the swap works, we error to revert & then catch the error to continue. If the swap fails, we error)
+    -- Add a post-mint check as well that acts as a circuit breaker for overpricing. 
+    - Save on-deployment base collateral so we can create collateral growth graphs as well. (done in individual deployment venues)
 
     LTV Disco
     - Historical bad debt per asset tracker
@@ -41,8 +54,7 @@ TODO:
         - profit in collateral asset(s)
         - current collateral prices 
 
-    Mars Risk Mirror contract 
-
+- Mars Risk Mirror contract (done)
 - Test deployment venue fail logic (done)
 - Test active deployment venues (done)
 - Test fee to the transmuter for any usage that isn't from the CDP or a deployable venue. (done)
@@ -141,6 +153,8 @@ Osmosis Proxy
 - Transmuter will start at 1:0 ratio for USDC:CDT so we aren't incentivizing CDT, just USDC
 - Set up the revenue_destinations in the revenue-distributor
 - Disco slashing needs oracles and LPs for MBRN and CDT
+- Create MBRN denom and set its max supply to 80_000_000_000_000 in the neutron-proxy to 
+- Change marsUSDC max_LTV to 96 in the disco using updae queue in the launch contract
 
 Management NOTES:
 - Toggle PID off and remove price-based rates  (price-based rates = worst collateral concentration)(PID rates effect lower risk users less but added cost for everyone)

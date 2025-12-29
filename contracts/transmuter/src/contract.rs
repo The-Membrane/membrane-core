@@ -13,20 +13,19 @@ use membrane::tokenfactory::{burn_msg, create_denom_msg, mint_msg};
 use membrane::transmuter::{
     AssetPair, Config, ExecuteMsg, InstantiateMsg, QueryMsg, TransmuteHistoryResponse, SwapRecord,
     VaultInfoResponse, VolumeHistoryResponse, VolumeWindowResponse, RateLimitStatus, RateLimitStatusResponse, RateLimitManyResponse,
-    GlobalRateLimitResponse,
+    GlobalRateLimitResponse, RateHistoryResponse, RateHistoryEntry,
 };
-use membrane::neutron_proxy::ExecuteMsg as NeutronProxyExecuteMsg;
 use membrane::types::StringEntry;
 use membrane::types::AssetInfo;
 use membrane::revenue_distributor::ExecuteMsg as RevenueDistributorExecuteMsg;
 
 use crate::error::ContractError;
 use crate::state::{
-    append_transmute_snapshot, append_volume_window, apply_volume_update, history_slice,
+    append_transmute_snapshot, append_volume_window, append_rate_history_entry, apply_volume_update, history_slice,
     history_total, init_history, new_volume_window, CONFIG, TRANSMUTE_HISTORY, VOLUME_HISTORY,
     VOLUME_WINDOW, VAULT_TOKEN_SUPPLY, TransmuteSnapshot, RATE_LIMIT_FLOWS, FlowEntry, DEPLOYED_PAIRED_ASSET,
-    TOKEN_RATE_ASSURANCE, TokenRateAssurance, GLOBAL_RATE_LIMIT_FLOWS, PENDING_REVENUE,
-    USER_INCENTIVES, INCENTIVE_SCHEDULE, INCENTIVE_EVENTS, UserIncentives, IncentiveSchedule, IncentiveEvent
+    TOKEN_RATE_ASSURANCE, TokenRateAssurance, GLOBAL_RATE_LIMIT_FLOWS, PENDING_REVENUE, CUMULATIVE_VOLUME,
+    RATE_HISTORY, LAST_RATE_UPDATE,
 };
 
 const CONTRACT_NAME: &str = "membrane-transmuter";
@@ -62,9 +61,9 @@ pub fn instantiate(
             "asset_a_to_b_rate must be greater than zero".into(),
         ));
     }
-    if msg.target_ratio > Decimal::one() {
+    if msg.cdt_target_ratio > Decimal::one() {
         return Err(ContractError::Validation(
-            "target_ratio must be less than or equal to 1".into(),
+            "cdt_target_ratio must be less than or equal to 1".into(),
         ));
     }
 
@@ -78,16 +77,21 @@ pub fn instantiate(
     let revenue_distributions = msg.revenue_distributions.clone();
 
     //Save values early to avoid partial move issues
-    let revenue_contract = msg.revenue_contract.clone();
     let cdp_contract = msg.cdp_contract.clone();
+    let discounts_contract = msg.discounts_contract.clone();
     let swap_history_cap = msg.swap_history_cap;
     let volume_history_cap = msg.volume_history_cap;
     let vault_subdenom = msg.vault_subdenom.clone();
     let tokenfactory_contract = msg.tokenfactory_contract.clone();
-    
-    //Validate the revenue and cdp contract addresses
-    let _ = deps.api.addr_validate(&revenue_contract)?;
+
+    //Validate the revenue distributor, cdp, and discounts contract addresses
+    let revenue_distributor_addr = if let Some(addr_str) = msg.revenue_distributor_addr {
+        Some(deps.api.addr_validate(&addr_str)?)
+    } else {
+        None
+    };
     let _ = deps.api.addr_validate(&cdp_contract)?;
+    let _ = deps.api.addr_validate(&discounts_contract)?;
 
     // Default usage_fee to 1%
     let usage_fee = msg
@@ -96,6 +100,22 @@ pub fn instantiate(
     if usage_fee > Decimal::one() {
         return Err(ContractError::Validation(
             "usage_fee must be less than or equal to 1".into(),
+        ));
+    }
+
+    // Validate affiliate_fee (required, no default)
+    let affiliate_fee = msg.affiliate_fee;
+    if affiliate_fee > Decimal::one() {
+        return Err(ContractError::Validation(
+            "affiliate_fee must be less than or equal to 1".into(),
+        ));
+    }
+
+    // Validate lock_ceiling
+    let lock_ceiling = msg.lock_ceiling;
+    if lock_ceiling == 0 {
+        return Err(ContractError::Validation(
+            "lock_ceiling must be greater than zero".into(),
         ));
     }
 
@@ -131,15 +151,15 @@ pub fn instantiate(
         ));
     }
 
-    // Save and validate revenue distributor address if provided
-    let revenue_distributor_addr_val = msg.revenue_distributor_addr.clone();
-    let revenue_distributor_addr = revenue_distributor_addr_val
-        .map(|addr| deps.api.addr_validate(&addr))
-        .transpose()?;
-    
     // Validate revenue distributions if provided
     let revenue_distributions = revenue_distributions.unwrap_or_default();
     if !revenue_distributions.is_empty() {
+        // If revenue distributions are provided, revenue distributor address must also be provided
+        if revenue_distributor_addr.is_none() {
+            return Err(ContractError::Validation(
+                "revenue_distributor_addr must be provided when revenue_distributions are specified".into(),
+            ));
+        }
         // Validate that ratios sum to 1.0
         let total_ratio: Decimal = revenue_distributions.iter()
             .map(|liq| liq.amount)
@@ -156,16 +176,19 @@ pub fn instantiate(
         }
     }
 
+    // Default send_swap_fee to true (send fees to revenue distributor)
+    let send_swap_fee = msg.send_swap_fee.unwrap_or(true);
+
     let config = Config {
         owner: owner.clone(),
         tokenfactory_contract,
-        revenue_contract,
         cdp_contract,
+        discounts_contract, 
         vault_token: vault_token.clone(),
         deposit_pair: msg.deposit_pair,
         composition_leeway: msg.composition_leeway,
         asset_a_to_b_rate: msg.asset_a_to_b_rate,
-        target_ratio: msg.target_ratio,  
+        cdt_target_ratio: msg.cdt_target_ratio,  
         usage_fee,
         swap_history_cap,
         volume_history_cap,
@@ -177,27 +200,24 @@ pub fn instantiate(
         global_rate_limit_threshold,
         revenue_distributor_addr,
         revenue_distributions,
-        incentive_denom: None,
-        neutron_proxy: None,
+        lock_ceiling,
+        affiliate_fee,
+        send_swap_fee,
     };
 
     CONFIG.save(deps.storage, &config)?;
     VAULT_TOKEN_SUPPLY.save(deps.storage, &Uint128::zero())?;
     init_history(deps.storage)?;
-    VOLUME_WINDOW.save(deps.storage, &new_volume_window(env.block.time))?;
+    CUMULATIVE_VOLUME.save(deps.storage, &Uint128::zero())?;
+    let cumulative_volume = CUMULATIVE_VOLUME.load(deps.storage)?;
+    VOLUME_WINDOW.save(deps.storage, &new_volume_window(env.block.time, cumulative_volume))?;
     DEPLOYED_PAIRED_ASSET.save(deps.storage, &Uint128::zero())?;
     GLOBAL_RATE_LIMIT_FLOWS.save(deps.storage, &Vec::new())?;
     PENDING_REVENUE.save(deps.storage, &Uint128::zero())?;
+    RATE_HISTORY.save(deps.storage, &Vec::new())?;
+    LAST_RATE_UPDATE.save(deps.storage, &Timestamp::from_seconds(0))?;
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
-
-    // Initialize incentive schedule and events
-    INCENTIVE_SCHEDULE.save(deps.storage, &IncentiveSchedule {
-        last_accrued_time: env.block.time.seconds(),
-        start_time: env.block.time.seconds(),
-        total_monthly_emission: Uint128::zero(),
-    })?;
-    INCENTIVE_EVENTS.save(deps.storage, &Vec::new())?;
 
     let create_msg = create_denom_msg(
         config.tokenfactory_contract.clone(),
@@ -227,10 +247,10 @@ pub fn execute(
             deposit_pair,
             composition_leeway,
             asset_a_to_b_rate,
-            target_ratio,
+            cdt_target_ratio,
             tokenfactory_contract,
+            discounts_contract,
             cdp_contract,
-            revenue_contract,
             usage_fee,
             swap_history_cap,
             volume_history_cap,
@@ -242,9 +262,9 @@ pub fn execute(
             global_rate_limit_threshold,
             revenue_distributor_addr,
             revenue_distributions,
-            monthly_incentive_max,
-            incentive_denom,
-            neutron_proxy,
+            lock_ceiling,
+            affiliate_fee,
+            send_swap_fee,
         } => execute_update_config(
             deps,
             env,
@@ -253,10 +273,10 @@ pub fn execute(
             deposit_pair,
             composition_leeway,
             asset_a_to_b_rate,
-            target_ratio,
+            cdt_target_ratio,
             tokenfactory_contract,
+            discounts_contract,
             cdp_contract,
-            revenue_contract,
             usage_fee,
             swap_history_cap,
             volume_history_cap,
@@ -268,22 +288,21 @@ pub fn execute(
             global_rate_limit_threshold,
             revenue_distributor_addr,
             revenue_distributions,
-            monthly_incentive_max,
-            incentive_denom,
-            neutron_proxy,
+            lock_ceiling,
+            affiliate_fee,
+            send_swap_fee,
         ),
-        ExecuteMsg::EnterVault { recipient, deposit_for_incentives } => execute_enter_vault(deps, env, info.clone(), recipient, deposit_for_incentives),
+        ExecuteMsg::EnterVault { recipient, lock_days, affiliate_address } => execute_enter_vault(deps, env, info.clone(), recipient, lock_days, affiliate_address),
         ExecuteMsg::DepositFee {} => execute_deposit_fee(deps, env, info.clone()),
         ExecuteMsg::ExitVault {
             recipient,
             withdraw_as,
-            use_incentive_deposits,
-        } => execute_exit_vault(deps, env, info.clone(), recipient, withdraw_as, use_incentive_deposits),
+        } => execute_exit_vault(deps, env, info.clone(), recipient, withdraw_as),
         ExecuteMsg::Transmute { recipient } => execute_transmute(deps, env, info.clone(), recipient),
         ExecuteMsg::UpdateVolumeWindow {} => execute_update_volume_window(deps, env),
-        ExecuteMsg::DepositIncentives {} => execute_deposit_incentives(deps, env, info.clone()),
         ExecuteMsg::RateAssurance {} => execute_rate_assurance(deps, env, info.clone()),
-        ExecuteMsg::ClaimIncentivesForUser { user, limit } => execute_claim_incentives(deps, env, user, limit),
+        ExecuteMsg::SetAffiliate { user, affiliate_address, label } => execute_set_affiliate(deps, env, info, user, affiliate_address, label),
+        ExecuteMsg::AddToRateHistory {} => execute_add_to_rate_history(deps, env),
     }
 }
 
@@ -295,10 +314,10 @@ fn execute_update_config(
     deposit_pair: Option<AssetPair>,
     composition_leeway: Option<Decimal>,
     asset_a_to_b_rate: Option<Decimal>,
-    target_ratio: Option<Decimal>,
+    cdt_target_ratio: Option<Decimal>,
     tokenfactory_contract: Option<Addr>,
+    discounts_contract: Option<String>,
     cdp_contract: Option<String>,
-    revenue_contract: Option<String>,
     usage_fee: Option<Decimal>,
     swap_history_cap: Option<u32>,
     volume_history_cap: Option<u32>,
@@ -310,9 +329,9 @@ fn execute_update_config(
     global_rate_limit_threshold: Option<Decimal>,
     revenue_distributor_addr: Option<String>,
     revenue_distributions: Option<Vec<membrane::types::DistributionEntry>>,
-    monthly_incentive_max: Option<Uint128>,
-    incentive_denom: Option<String>,
-    neutron_proxy: Option<String>,
+    lock_ceiling: Option<u64>,
+    affiliate_fee: Decimal,
+    send_swap_fee: Option<bool>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     ensure_owner(&config, &info.sender)?;
@@ -344,29 +363,31 @@ fn execute_update_config(
         config.asset_a_to_b_rate = rate;
     }
 
-    if let Some(target) = target_ratio {
+    if let Some(target) = cdt_target_ratio {
         if target > Decimal::one() {
             return Err(ContractError::Validation(
                 "target ratio must be less than or equal to 1".into(),
             ));
         }
-        config.target_ratio = target;
+        config.cdt_target_ratio = target;
     }
 
     if let Some(tf_addr) = tokenfactory_contract {
         config.tokenfactory_contract = Some(tf_addr);
     }
 
+
+    if let Some(disss) = discounts_contract {
+        //Validate the address
+        deps.api.addr_validate(&disss)?;
+        config.discounts_contract = disss;
+    }
+
+
     if let Some(cdp) = cdp_contract {
         //Validate the address
         deps.api.addr_validate(&cdp)?;
         config.cdp_contract = cdp;
-    }
-
-    if let Some(rc) = revenue_contract {
-        //Validate the address
-        deps.api.addr_validate(&rc)?;
-        config.revenue_contract = rc;
     }
 
     if let Some(fee) = usage_fee {
@@ -452,8 +473,9 @@ fn execute_update_config(
         config.global_rate_limit_threshold = threshold;
     }
 
-    if let Some(rd_addr) = revenue_distributor_addr {
-        config.revenue_distributor_addr = Some(deps.api.addr_validate(&rd_addr)?);
+    if let Some(rd_addr_str) = revenue_distributor_addr {
+        let validated_addr = deps.api.addr_validate(&rd_addr_str)?;
+        config.revenue_distributor_addr = Some(validated_addr);
     }
 
     if let Some(distributions) = revenue_distributions {
@@ -483,20 +505,26 @@ fn execute_update_config(
         }
     }
 
-    if let Some(monthly) = monthly_incentive_max {
-        INCENTIVE_SCHEDULE.update(deps.storage, |mut s| -> StdResult<_> {
-            s.total_monthly_emission = monthly;
-            Ok(s)
-        })?;
-    }
-    if let Some(proxy) = neutron_proxy {
-        let addr = deps.api.addr_validate(&proxy)?;
-        config.neutron_proxy = Some(addr);
-    }
-    if let Some(denom) = incentive_denom {
-        config.incentive_denom = Some(denom);
+    if let Some(ceiling) = lock_ceiling {
+        if ceiling == 0 {
+            return Err(ContractError::Validation(
+                "lock_ceiling must be greater than zero".into(),
+            ));
+        }
+        config.lock_ceiling = ceiling;
     }
 
+    // Validate and update affiliate_fee (required)
+    if affiliate_fee > Decimal::one() {
+        return Err(ContractError::Validation(
+            "affiliate_fee must be less than or equal to 1".into(),
+        ));
+    }
+    config.affiliate_fee = affiliate_fee;
+
+    if let Some(send_fee) = send_swap_fee {
+        config.send_swap_fee = send_fee;
+    }
 
     CONFIG.save(deps.storage, &config)?;
 
@@ -508,11 +536,14 @@ fn execute_enter_vault(
     env: Env,
     info: MessageInfo,
     recipient: Option<String>,
-    deposit_for_incentives: Option<bool>,
+    lock_days: Option<u64>,
+    affiliate_address: Option<String>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let total_deposits = get_total_deposit_value(deps.querier.clone(), &env, &config)?;
     let mut vault_supply = VAULT_TOKEN_SUPPLY.load(deps.storage)?;
+    let mut messages: Vec<CosmosMsg> = vec![];
+
 
     //Split the funds into the two assets
     let (deposit_a, deposit_b) = segregate_funds(&config.deposit_pair, &info)?;
@@ -524,12 +555,15 @@ fn execute_enter_vault(
 
     // println!("deposit_a: {:?}", deposit_a);
     // println!("deposit_b: {:?}", deposit_b);
-    //If the sender is not the revenue contract, ensure the deposit is aligned with the deposit pair
-    //Revenue contract can deposit any ratio into the contract.
+    //If the sender is not the revenue distributor, ensure the deposit is aligned with the deposit pair
+    //Revenue distributor can deposit any ratio into the contract.
     //Which will tend to be 100% CDT.
-    if info.clone().sender.to_string() != config.revenue_contract {
+    let is_revenue_distributor = config.revenue_distributor_addr.as_ref()
+        .map(|rd_addr| info.sender == *rd_addr)
+        .unwrap_or(false);
+    if !is_revenue_distributor && !vault_supply.is_zero() {
         // Compute effective CDT target ratio considering deployed paired asset
-        let effective_target = compute_effective_cdt_target_ratio(deps.as_ref(), &env, &config)?;
+        let effective_target = compute_effective_cdt_cdt_target_ratio(deps.as_ref(), &env, &config)?;
         // Ensure the deposit is aligned with the effective target
         ensure_deposit_alignment(
             deps.querier,
@@ -562,6 +596,17 @@ fn execute_enter_vault(
         pre_btokens_per_one,
     })?;
 
+    //Add rate assurance callback msg
+    if !total_deposits.is_zero() && !vault_supply.is_zero() {
+        println!("adding rate assurance callback msg");
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: env.contract.address.to_string(),
+            msg: to_json_binary(&ExecuteMsg::RateAssurance {})?,
+            funds: vec![],
+        }));
+    }
+
+
     //Calc the amount of vault tokens to mint
     let vault_tokens_to_mint = calculate_vault_tokens(
         user_deposit_value,
@@ -575,55 +620,76 @@ fn execute_enter_vault(
         .transpose()?;
     let recipient_addr = recipient_addr.unwrap_or_else(|| info.sender.clone());
 
-    let mut messages: Vec<CosmosMsg> = vec![];
-    // Mint VT to contract, then either keep for incentives or forward to recipient
-    if !vault_tokens_to_mint.is_zero() {
-        let mint_to_contract = mint_msg(
-            config.tokenfactory_contract.clone(),
-            env.contract.address.as_str(),
-            &config.vault_token,
-            vault_tokens_to_mint,
-            env.contract.address.as_str(),
-        )?.into();
-        messages.push(mint_to_contract);
-        //Update the total vault supply
-        vault_supply = increment_vault_supply(deps.storage, vault_supply, vault_tokens_to_mint)?;
+    // Validate lock_days if provided
+    if let Some(lock_days) = lock_days {
+        if lock_days > config.lock_ceiling {
+            return Err(ContractError::Validation(
+                format!("lock_days ({}) exceeds lock_ceiling ({})", lock_days, config.lock_ceiling),
+            ));
+        }
+        if lock_days == 0 {
+            return Err(ContractError::Validation(
+                "lock_days must be greater than zero".into(),
+            ));
+        }
+    }
 
-        if deposit_for_incentives.unwrap_or(false) {
-            let now = env.block.time.seconds();
-            //Load state
-    let mut record = USER_INCENTIVES
-                .may_load(deps.storage, recipient_addr.to_string())?
-        .unwrap_or(UserIncentives {
-            total_claimed: Uint128::zero(),
-            vault_tokens_in_contract: Uint128::zero(),
-            last_accrued: now,
-        });
-                //Add minted tokens to user state
-            record.vault_tokens_in_contract = record.vault_tokens_in_contract
-                .checked_add(vault_tokens_to_mint)
-                .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-            //Save state
-            USER_INCENTIVES.save(deps.storage, recipient_addr.to_string(), &record)?;
+    // Mint VT to recipient
+    if !vault_tokens_to_mint.is_zero() {
+        // If locking, mint to contract first, otherwise mint directly to recipient
+        if lock_days.is_some() {
+            let mint_to_contract = mint_msg(
+                config.tokenfactory_contract.clone(),
+                env.contract.address.as_str(),
+                &config.vault_token,
+                vault_tokens_to_mint,
+                env.contract.address.as_str(),
+            )?.into();
+            messages.push(mint_to_contract);
+            
+            // Store locked vault token entry
+            if let Some(lock_days) = lock_days {
+                const SECONDS_PER_DAY: u64 = 86_400;
+                let locked_until = env.block.time.seconds()
+                    .checked_add(lock_days.checked_mul(SECONDS_PER_DAY).ok_or_else(|| {
+                        ContractError::Validation("lock_days overflow when calculating seconds".into())
+                    })?)
+                    .ok_or_else(|| ContractError::Validation("locked_until timestamp overflow".into()))?;
+                
+                let mut locked_tokens = crate::state::LOCKED_VAULT_TOKENS
+                    .may_load(deps.storage, recipient_addr.to_string())?
+                    .unwrap_or_default();
+                locked_tokens.push(crate::state::LockedVaultToken {
+                    amount: vault_tokens_to_mint,
+                    locked_until,
+                });
+                crate::state::LOCKED_VAULT_TOKENS.save(deps.storage, recipient_addr.to_string(), &locked_tokens)?;
+            }
         } else {
-            //Send minted tokens to recipient if not depositing for incentives
+            // Send minted tokens directly to recipient
             messages.push(BankMsg::Send {
                 to_address: recipient_addr.to_string(),
                 amount: vec![coin(vault_tokens_to_mint.u128(), config.vault_token.clone())],
             }.into());
         }
+        
+        //Update the total vault supply
+        vault_supply = increment_vault_supply(deps.storage, vault_supply, vault_tokens_to_mint)?;
     }
-// println!("vault_tokens_to_mint: {:?}", vault_tokens_to_mint);
-    VAULT_TOKEN_SUPPLY.save(deps.storage, &vault_supply)?;
+    // Handle affiliate if provided
+    if let Some(affiliate_addr) = affiliate_address {
+        add_affiliate_from_deposit(
+            deps.storage,
+            deps.api,
+            recipient_addr.to_string(),
+            affiliate_addr,
+            config.affiliate_fee,
+            env.block.time.seconds(),
+        )?;
+    }
 
-    //Add rate assurance callback msg
-    if !total_deposits.is_zero() && !vault_supply.is_zero() {
-        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: env.contract.address.to_string(),
-            msg: to_json_binary(&ExecuteMsg::RateAssurance {})?,
-            funds: vec![],
-        }));
-    }
+    // println!("vault_tokens_to_mint: {:?}", vault_tokens_to_mint);
+    VAULT_TOKEN_SUPPLY.save(deps.storage, &vault_supply)?;
 
     Ok(Response::new()
         .add_messages(messages)
@@ -666,38 +732,18 @@ fn execute_exit_vault(
     info: MessageInfo,
     recipient: Option<String>,
     withdraw_as: Option<String>,
-    use_incentive_deposits: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let total_deposits = get_total_deposit_value(deps.querier, &env, &config)?;
     let mut vault_supply = VAULT_TOKEN_SUPPLY.load(deps.storage)?;
+    let mut messages: Vec<CosmosMsg> = vec![];
 
     if vault_supply.is_zero() {
         return Err(ContractError::Validation("no vault tokens in circulation".into()));
     }
 
     //Get the amount of vault tokens sent
-    let mut vault_tokens = extract_coin_amount(&info, &config.vault_token)?;
-    let incentive_held_tokens = use_incentive_deposits.unwrap_or(Uint128::zero());
-    // optionally include incentive-held VT
-    if !incentive_held_tokens.is_zero() || vault_tokens.is_zero() {
-        let key = info.sender.to_string();
-        if let Ok(mut user) = USER_INCENTIVES.load(deps.storage, key.clone()) {
-            if !user.vault_tokens_in_contract.is_zero() {
-                //Subtract the exiting vault_tokens from the incentive-held vault token state
-                user.vault_tokens_in_contract = user.vault_tokens_in_contract.checked_sub(incentive_held_tokens)
-                .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-
-                //Add the incentive-held vault tokens to the total vault tokens
-                vault_tokens = vault_tokens
-                    .checked_add(incentive_held_tokens)
-                    .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-
-                //Save state
-                USER_INCENTIVES.save(deps.storage, key, &user)?;
-            }
-        }
-    }
+    let vault_tokens = extract_coin_amount(&info, &config.vault_token)?;
     if vault_tokens.is_zero() {
         return Err(ContractError::InvalidFunds { reason: "no vault tokens provided".into() });
     }
@@ -705,6 +751,86 @@ fn execute_exit_vault(
         return Err(ContractError::InvalidFunds {
             reason: "vault token amount exceeds supply".into(),
         });
+    }
+
+    // Check for locked vault tokens
+    let user_key = info.sender.to_string();
+    let mut locked_tokens = crate::state::LOCKED_VAULT_TOKENS
+        .may_load(deps.storage, user_key.clone())?
+        .unwrap_or_default();
+    
+    // Calculate total locked amount (tokens that are still locked)
+    let current_time = env.block.time.seconds();
+    let mut total_locked: Uint128 = Uint128::zero();
+    let mut expired_locked: Uint128 = Uint128::zero();
+    
+    // Separate expired and still-locked tokens
+    let mut still_locked = Vec::new();
+    for locked in locked_tokens.iter() {
+        if locked.locked_until > current_time {
+            total_locked = total_locked.checked_add(locked.amount)
+                .unwrap_or(total_locked);
+            still_locked.push(locked.clone());
+        } else {
+            // Lock has expired - these can be exited
+            expired_locked = expired_locked.checked_add(locked.amount)
+                .unwrap_or(expired_locked);
+        }
+    }
+    
+    // Update locked tokens list to only include still-locked ones
+    crate::state::LOCKED_VAULT_TOKENS.save(deps.storage, user_key.clone(), &still_locked)?;
+    
+    // Get user's vault token balance
+    let user_balance = deps.querier.query_balance(
+        &deps.api.addr_validate(&user_key)?,
+        &config.vault_token
+    )?.amount;
+    
+    // Get contract's vault token balance (for expired locked tokens)
+    let contract_balance = deps.querier.query_balance(
+        &env.contract.address,
+        &config.vault_token
+    )?.amount;
+    
+    // Available balance = user balance + expired locked tokens in contract
+    // (still-locked tokens are not available)
+    let available_balance = user_balance
+        .checked_add(expired_locked)
+        .unwrap_or(user_balance);
+    
+    // Check if user is trying to exit more than available
+    if vault_tokens > available_balance {
+        return Err(ContractError::Validation(
+            format!("Cannot exit {} vault tokens: only {} available ({} still locked until expiration)", 
+                vault_tokens, available_balance, total_locked)
+        ));
+    }
+    
+    // If user needs expired locked tokens from contract, transfer them first
+    if vault_tokens > user_balance {
+        let needed_from_contract = vault_tokens.checked_sub(user_balance)
+            .unwrap_or(Uint128::zero());
+        
+        if needed_from_contract > expired_locked {
+            return Err(ContractError::Validation(
+                format!("Cannot exit {} vault tokens: insufficient expired locked tokens available", 
+                    vault_tokens)
+            ));
+        }
+        
+        if needed_from_contract > contract_balance {
+            return Err(ContractError::Validation(
+                format!("Cannot exit {} vault tokens: contract balance insufficient", 
+                    vault_tokens)
+            ));
+        }
+        
+        // Transfer expired locked tokens from contract to user before exit
+        messages.push(BankMsg::Send {
+            to_address: user_key.clone(),
+            amount: vec![coin(needed_from_contract.u128(), config.vault_token.clone())],
+        }.into());
     }
 
     //Calc & save base token rates for rate assurance
@@ -799,6 +925,7 @@ fn execute_exit_vault(
     VAULT_TOKEN_SUPPLY.save(deps.storage, &vault_supply)?;
 
     let mut response = Response::new()
+        .add_messages(messages)
         .add_message(burn)
         .add_attribute("action", "exit_vault")
         .add_attribute("base_amount", base_amount.to_string())
@@ -1033,32 +1160,32 @@ fn execute_transmute(
         },
     )?;
 
-    VOLUME_WINDOW.update(deps.storage, |mut window| -> StdResult<_> {
-        apply_volume_update(
-            &mut window,
-            if offered_asset == pair.cdt {
-                offered_amount
-            } else {
-                Uint128::zero()
-            },
-            if received_asset == pair.cdt {
-                received_amount
-            } else {
-                Uint128::zero()
-            },
-            if offered_asset == pair.paired_asset {
-                offered_amount
-            } else {
-                Uint128::zero()
-            },
-            if received_asset == pair.paired_asset {
-                received_amount
-            } else {
-                Uint128::zero()
-            },
-        );
-        Ok(window)
-    })?;
+    let mut window = VOLUME_WINDOW.load(deps.storage)?;
+    apply_volume_update(
+        deps.storage,
+        &mut window,
+        if offered_asset == pair.cdt {
+            offered_amount
+        } else {
+            Uint128::zero()
+        },
+        if received_asset == pair.cdt {
+            received_amount
+        } else {
+            Uint128::zero()
+        },
+        if offered_asset == pair.paired_asset {
+            offered_amount
+        } else {
+            Uint128::zero()
+        },
+        if received_asset == pair.paired_asset {
+            received_amount
+        } else {
+            Uint128::zero()
+        },
+    )?;
+    VOLUME_WINDOW.save(deps.storage, &window)?;
 
     // println!("window: {:?}", VOLUME_WINDOW.load(deps.storage)?);
 
@@ -1070,6 +1197,17 @@ fn execute_transmute(
         .add_attribute("received_amount", received_amount.to_string())
         .add_attribute("recipient", recipient_addr.as_str());
 
+    // Add swap fee attributes (even if zero for tracking purposes)
+    if let Some((fee_amount_val, fee_denom)) = fee_info.clone() {
+        response = response
+            .add_attribute("swap_fee", fee_amount_val)
+            .add_attribute("swap_fee_denom", fee_denom.clone());
+    } else {
+        response = response
+            .add_attribute("swap_fee", Uint128::zero())
+            .add_attribute("swap_fee_denom", "");
+    }
+
     if !send_coins.is_empty() {
         response = response.add_message(BankMsg::Send {
             to_address: recipient_addr.to_string(),
@@ -1079,20 +1217,24 @@ fn execute_transmute(
 
     //Collect and distribute fees if any - pass storage access correctly
     if let Some((fee_amount_val, fee_denom)) = fee_info {
-        if let Some(rd_addr) = &config.revenue_distributor_addr {
-            let messages = collect_and_distribute_fees(
-                deps.storage,
-                &deps.querier,
-                &env,
-                &config,
-                fee_amount_val,
-                fee_denom,
-                rd_addr.clone()
-            )?;
-            for msg in messages {
-                response = response.add_message(msg);
+        // Only send fees if send_swap_fee is true and revenue distributor is configured, otherwise fees stay in contract
+        if config.send_swap_fee {
+            if let Some(rd_addr) = &config.revenue_distributor_addr {
+                let messages = collect_and_distribute_fees(
+                    deps.storage,
+                    &deps.querier,
+                    &env,
+                    &config,
+                    fee_amount_val,
+                    fee_denom,
+                    rd_addr.clone()
+                )?;
+                for msg in messages {
+                    response = response.add_message(msg);
+                }
             }
         }
+        // If send_swap_fee is false or revenue distributor not configured, fees remain in the contract balance
     }
 
     Ok(response)
@@ -1109,9 +1251,58 @@ fn execute_update_volume_window(deps: DepsMut, env: Env) -> Result<Response, Con
     )
     .map_err(|err| ContractError::Std(err.into()))?;
 
-    VOLUME_WINDOW.save(deps.storage, &new_volume_window(env.block.time))?;
+    let cumulative_volume = CUMULATIVE_VOLUME.load(deps.storage)?;
+    VOLUME_WINDOW.save(deps.storage, &new_volume_window(env.block.time, cumulative_volume))?;
 
     Ok(Response::new().add_attribute("action", "update_volume_window"))
+}
+
+fn execute_add_to_rate_history(deps: DepsMut, env: Env) -> Result<Response, ContractError> {
+    // Check if at least 24 hours have passed since last update
+    let last_update = LAST_RATE_UPDATE.may_load(deps.storage)?.unwrap_or(Timestamp::from_seconds(0));
+    let current_time = env.block.time;
+    let seconds_since_last_update = current_time.seconds().saturating_sub(last_update.seconds());
+    const SECONDS_PER_DAY: u64 = 86400;
+    
+    if seconds_since_last_update < SECONDS_PER_DAY {
+        return Err(ContractError::Validation(
+            format!("Rate history can only be updated once per day. Last update was {} seconds ago", seconds_since_last_update)
+        ));
+    }
+
+    // Get current conversion rate
+    let config = CONFIG.load(deps.storage)?;
+    let total_deposit_tokens = get_total_deposit_value(deps.querier, &env, &config)?;
+    let vault_token_supply = VAULT_TOKEN_SUPPLY.load(deps.storage)?;
+
+    // Calculate conversion rate: base tokens per 1_000_000_000_000 vault tokens (1 VT)
+    let conversion_rate = calculate_base_tokens(
+        Uint128::new(1_000_000_000_000),
+        total_deposit_tokens,
+        vault_token_supply,
+    )?;
+
+    // Create rate history entry
+    let entry = RateHistoryEntry {
+        conversion_rate,
+        timestamp: current_time,
+    };
+
+    // Append to history (capped at 365 entries)
+    append_rate_history_entry(
+        deps.storage,
+        365,
+        entry,
+    )
+    .map_err(|err| ContractError::Std(err.into()))?;
+
+    // Update last update timestamp
+    LAST_RATE_UPDATE.save(deps.storage, &current_time)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "add_to_rate_history")
+        .add_attribute("conversion_rate", conversion_rate.to_string())
+        .add_attribute("timestamp", current_time.seconds().to_string()))
 }
 
 #[entry_point]
@@ -1135,6 +1326,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::VolumeHistory { start_after, limit } => {
             to_json_binary(&query_volume_history(deps, start_after, limit)?)
         }
+        QueryMsg::RateHistory { start_after, limit } => {
+            to_json_binary(&query_rate_history(deps, start_after, limit)?)
+        }
         QueryMsg::VolumeWindow {} => {
             let window = VOLUME_WINDOW.load(deps.storage)?;
             to_json_binary(&VolumeWindowResponse { window })
@@ -1144,7 +1338,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             to_json_binary(&membrane::transmuter::DeployedPairedAssetResponse { amount })
         }
         QueryMsg::EffectiveTarget {} => {
-            let target = compute_effective_cdt_target_ratio(deps, &env, &CONFIG.load(deps.storage)?)?;
+            let target = compute_effective_cdt_cdt_target_ratio(deps, &env, &CONFIG.load(deps.storage)?)?;
             to_json_binary(&membrane::transmuter::EffectiveTargetResponse { target })
         }
         QueryMsg::RateLimitMany { addresses, start_after, limit } => {
@@ -1152,6 +1346,20 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::GlobalRateLimit {} => {
             to_json_binary(&query_global_rate_limit(deps, env)?)
+        }
+        QueryMsg::LockedVaultTokens { user } => {
+            let locked_tokens = crate::state::LOCKED_VAULT_TOKENS
+                .may_load(deps.storage, user)?
+                .unwrap_or_default();
+            to_json_binary(&membrane::transmuter::LockedVaultTokensResponse { 
+                locked_tokens: locked_tokens.into_iter().map(|t| membrane::transmuter::LockedVaultToken {
+                    amount: t.amount,
+                    locked_until: t.locked_until,
+                }).collect()
+            })
+        }
+        QueryMsg::GetAffiliates { user } => {
+            to_json_binary(&crate::state::AFFILIATES.load(deps.storage, user).unwrap_or_else(|_| vec![]))
         }
     }
 }
@@ -1306,6 +1514,33 @@ fn query_volume_history(
     })
 }
 
+fn query_rate_history(
+    deps: Deps,
+    start_after: Option<u64>,
+    limit: Option<u32>,
+) -> StdResult<RateHistoryResponse> {
+    let history = RATE_HISTORY.load(deps.storage)?;
+    let total = history_total(&history);
+    let (records, start_index) = history_slice(&history, start_after, limit);
+
+    let next_start_after = if records.is_empty() {
+        None
+    } else {
+        let last_index = start_index + records.len() - 1;
+        if (last_index as u64) + 1 < total {
+            Some(last_index as u64)
+        } else {
+            None
+        }
+    };
+
+    Ok(RateHistoryResponse {
+        records,
+        total,
+        next_start_after,
+    })
+}
+
 fn validate_asset_pair(pair: &AssetPair) -> Result<(), ContractError> {
     if pair.cdt.is_empty() || pair.paired_asset.is_empty() {
         return Err(ContractError::Validation(
@@ -1409,12 +1644,12 @@ fn sum_base_value(
         .map_err(|err| ContractError::Std(err.into()))
 }
 
-fn compute_effective_cdt_target_ratio(deps: Deps, env: &Env, config: &Config) -> StdResult<Decimal> {
+fn compute_effective_cdt_cdt_target_ratio(deps: Deps, env: &Env, config: &Config) -> StdResult<Decimal> {
     // total deposits in base A (cdt) units
     let total_deposits = get_total_deposit_value(deps.querier.clone(), env, config)
         .map_err(|e| StdError::generic_err(format!("{e}")))?;
     if total_deposits.is_zero() {
-        return Ok(config.target_ratio);
+        return Ok(config.cdt_target_ratio);
     }
     // value of deployed paired asset converted to base A
     let deployed_paired = DEPLOYED_PAIRED_ASSET
@@ -1423,7 +1658,7 @@ fn compute_effective_cdt_target_ratio(deps: Deps, env: &Env, config: &Config) ->
     let deployed_value_in_a = convert_asset_b_to_a(deployed_paired, config.asset_a_to_b_rate)
         .map_err(|e| StdError::generic_err(format!("{e}")))?;
     let min_target = Decimal::from_ratio(deployed_value_in_a, total_deposits);
-    Ok(if min_target > config.target_ratio { min_target } else { config.target_ratio })
+    Ok(if min_target > config.cdt_target_ratio { min_target } else { config.cdt_target_ratio })
 }
 
 fn convert_asset_a_to_b(amount: Uint128, rate: Decimal) -> Result<Uint128, ContractError> {
@@ -1484,8 +1719,8 @@ fn ensure_deposit_alignment(
     //If the total contract value before the deposit is zero,
     //...we need to ensure the user deposit value is within the leeway
     if total_before.is_zero() {
-        let deposit_ratio = Decimal::from_ratio(deposit_a, deposit_value);
-        ensure_within_leeway(deposit_ratio, target, leeway)?;
+        // let deposit_ratio = Decimal::from_ratio(deposit_a, deposit_value);
+        // ensure_within_leeway(deposit_ratio, target, leeway)?;
         return Ok(());
     }
 
@@ -1673,7 +1908,8 @@ fn collect_and_distribute_fees(
         (current_fee_amount, current_fee_denom)
     };
     
-    // If the total fee is in CDT, send it directly to revenue distributor
+    // If the total fee is in CDT, send it directly to revenue distributor.
+    //THIS IS SAYING, FOR THE TRANSMUTER'S REVENUE, WHICH DISCO DO WE WANT TO DISTRIBUTE IT TO?
     if total_fee_denom == config.deposit_pair.cdt {
         // Convert revenue_distributions ratios to Asset amounts
         let mut ltv_disco_distribution = Vec::new();
@@ -1806,157 +2042,192 @@ fn query_global_rate_limit(
     })
 }
 
-// ================= Incentives =================
-pub(crate) fn accrue_incentive_event(
-    deps: DepsMut,
-    env: &Env,
-) -> Result<(), ContractError> {
-    //Load the config   
-    let config = CONFIG.load(deps.storage)?;
-    //Load the incentive schedule
-    let mut schedule = INCENTIVE_SCHEDULE.load(deps.storage)?;
-    //If the total monthly emission is zero, return
-    if schedule.total_monthly_emission.is_zero() { 
-        return Ok(()); 
-    }
-    //If the last accrued time is greater than the current time, return
-    let now = env.block.time.seconds();
-    if now <= schedule.last_accrued_time { 
-        return Ok(()); 
-    }
-    //Calculate the elapsed time since the last accrued time
-    let elapsed = now - schedule.last_accrued_time;
-    let month_secs: u64 = 30 * 24 * 60 * 60;
-    //Calculate the rate per second
-    let rate_per_sec = Decimal::from_ratio(schedule.total_monthly_emission, Uint128::from(month_secs));
-    let mut amount_to_emit = rate_per_sec * Uint128::from(elapsed as u128);
-    //If the amount to emit is not zero, calculate the amount per vault token
-    if !amount_to_emit.is_zero() {
+// ================= Affiliate Helper Functions =================
 
-        //Query the vault token balance.
-        //Big assumtption that all VT tokens in the contaract are deposited by a user for incentives.
-        let vt_balance = deps.querier.query_balance(&env.contract.address, &config.vault_token)?.amount;
-        //If the vault token supply is not zero, calculate the amount per vault token
-        if !vt_balance.is_zero() {
-            //Calculate the amount per vault token
-            let amount_per_vt = Decimal::from_ratio(amount_to_emit, vt_balance);
-            //Create a new incentive event
-            let mut events = INCENTIVE_EVENTS.load(deps.storage).unwrap_or_default();
-            events.push(IncentiveEvent { amount_per_vt, time_of_event: now, amount_left_to_claim: amount_to_emit });
-            //Save the incentive events
-            INCENTIVE_EVENTS.save(deps.storage, &events)?;
-        }
+/// Add affiliate from deposit
+fn add_affiliate_from_deposit(
+    storage: &mut dyn Storage,
+    api: &dyn cosmwasm_std::Api,
+    user: String,
+    affiliate_address: String,
+    affiliate_fee: Decimal,
+    current_time: u64,
+) -> Result<(), ContractError> {
+    // Validate affiliate address
+    let _valid_addr = api.addr_validate(&affiliate_address)?;
+    
+    // Load existing affiliates
+    let mut affiliations = crate::state::AFFILIATES.load(storage, user.clone()).unwrap_or_else(|_| vec![]);
+    
+    // Check if affiliate already exists
+    if affiliations.iter().any(|a| a.affiliate_address == affiliate_address) {
+        // Affiliate already exists, no need to add
+        return Ok(());
     }
-    //Set the last accrued time to the current time
-    schedule.last_accrued_time = now;
-    //Save the incentive schedule
-    INCENTIVE_SCHEDULE.save(deps.storage, &schedule)?;
-    //Return ok
+    
+    // Check limit
+    if affiliations.len() >= crate::state::AFFILIATE_LIMIT {
+        return Err(ContractError::Std(StdError::generic_err(
+            format!("Can't add more than {} affiliations", crate::state::AFFILIATE_LIMIT)
+        )));
+    }
+    
+    // Add new affiliate
+    affiliations.push(membrane::types::AffiliateData {
+        affiliate_address: affiliate_address.clone(),
+        affiliate_fee,
+        time_affiliated: current_time,
+        label: None,
+    });
+    
+    // Save
+    crate::state::AFFILIATES.save(storage, user, &affiliations)?;
+    
     Ok(())
 }
 
-fn execute_claim_incentives(
-    mut deps: DepsMut,
-    env: Env,
-    user: String,
-    limit: Option<u32>,
-) -> Result<Response, ContractError> {
-    accrue_incentive_event(deps.branch(), &env)?;
-    let mut events = INCENTIVE_EVENTS.load(deps.storage).unwrap_or_default();
-    //Load the user incentives
-    let mut record = USER_INCENTIVES
-        .may_load(deps.storage, user.clone())?
-        .unwrap_or(UserIncentives { total_claimed: Uint128::zero(), vault_tokens_in_contract: Uint128::zero(), last_accrued: 0 });
-    //Get the vault token balance for the user
-    let vt = record.vault_tokens_in_contract;
-    if vt.is_zero() {
-        //If the vault token balance is zero, return ok
-        return Ok(Response::new().add_attribute("action", "claim_incentives").add_attribute("user", user)); 
-    }
-    //Calculate the maximum number of events to process
-    let max_events = limit.unwrap_or(100).min(200) as usize;
-    //Initialize the processed counter
-    let mut processed = 0usize;
-    let mut total_claimed = Uint128::zero();
-    for ev in events.iter_mut() {
-        if processed >= max_events { break; }
-        //If the event time is less than (happened before) the last accrued time, continue
-        if ev.time_of_event <= record.last_accrued { continue; }
-        //If the amount left to claim is zero, continue
-        if ev.amount_left_to_claim.is_zero() { continue; }
-        //Calculate the share of the event
-        let mut share = ev.amount_per_vt * vt;
-        //If the user's share is zero, continue
-        if share.is_zero() { processed += 1; continue; }
-        //If the share is greater than the amount left to claim, set the share to the amount left to claim
-        if share > ev.amount_left_to_claim { share = ev.amount_left_to_claim; }
-        //Subtract the share from the amount left to claim
-        ev.amount_left_to_claim = ev.amount_left_to_claim.saturating_sub(share);
-        //Add the share to the total claimed
-        total_claimed = total_claimed.saturating_add(share);
-        //Increment the processed counter
-        processed += 1;
-    }
-    //Remove events that have no amount left to claim
-    events.retain(|e| !e.amount_left_to_claim.is_zero());
-    //Save the incentive events
-    INCENTIVE_EVENTS.save(deps.storage, &events)?;
-    //Add the total claimed to the user's total claimed
-    record.total_claimed = record.total_claimed.saturating_add(total_claimed);
-    //Set the last accrued time to the current time
-    record.last_accrued = env.block.time.seconds();
-    //Save the user incentives state
-    USER_INCENTIVES.save(deps.storage, user.clone(), &record)?;
-
-    let mut resp = Response::new().add_attribute("action", "claim_incentives").add_attribute("user", user.clone()).add_attribute("claimed", total_claimed.to_string());
-    //If the total claimed is not zero, mint the tokens
-    if !total_claimed.is_zero() {
-        let cfg = CONFIG.load(deps.storage)?;
-        if let (Some(proxy), Some(denom)) = (cfg.neutron_proxy, cfg.incentive_denom) {
-            //Create a mint tokens message
-            let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: proxy.to_string(),
-                msg: to_json_binary(&NeutronProxyExecuteMsg::MintTokens { denom, amount: total_claimed, mint_to_address: user })?,
-                funds: vec![]
-            });
-            //Add the mint tokens message to the response
-            resp = resp.add_message(mint_msg);
-        }
-    }
-    //Return the response
-    Ok(resp)
-}
-
-fn execute_deposit_incentives(
+/// Set affiliate for a user
+fn execute_set_affiliate(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
+    user: String,
+    affiliate_address: String,
+    label: Option<String>,
 ) -> Result<Response, ContractError> {
-    //Load the config
     let config = CONFIG.load(deps.storage)?;
-    //Get the vault token amount
-    let vt_amount = extract_coin_amount(&info, &config.vault_token)?;
-    //If the vault token amount is zero, return an error
-    if vt_amount.is_zero() {
-        return Err(ContractError::InvalidFunds { reason: "no vault tokens provided".into() });
+    
+    // Validate affiliate address
+    let _valid_addr = deps.api.addr_validate(&affiliate_address)?;
+    
+    // Load existing affiliates
+    let mut affiliations = crate::state::AFFILIATES.load(deps.storage, user.clone()).unwrap_or_else(|_| vec![]);
+    
+    // Check if affiliate already exists
+    if let Some(existing) = affiliations.iter().find(|a| a.affiliate_address == affiliate_address) {
+        // Can only update if caller is the affiliate themselves
+        if info.sender.to_string() != existing.affiliate_address {
+            return Err(ContractError::Unauthorized {});
+        }
+        // Update existing affiliate (though fee is from config, so no change needed)
+        // Just update label if provided
+        for aff in affiliations.iter_mut() {
+            if aff.affiliate_address == affiliate_address {
+                if let Some(ref l) = label {
+                    aff.label = Some(l.clone());
+                }
+            }
+        }
+    } else {
+        // Check limit
+        if affiliations.len() >= crate::state::AFFILIATE_LIMIT {
+            return Err(ContractError::Std(StdError::generic_err(
+                format!("Can't add more than {} affiliations", crate::state::AFFILIATE_LIMIT)
+            )));
+        }
+        
+        // Add new affiliate
+        affiliations.push(membrane::types::AffiliateData {
+            affiliate_address: affiliate_address.clone(),
+            affiliate_fee: config.affiliate_fee,
+            time_affiliated: env.block.time.seconds(),
+            label,
+        });
     }
-    //Get the current time
-    let now = env.block.time.seconds();
-    //Load the user incentives
-    let mut record = USER_INCENTIVES
-        .may_load(deps.storage, info.sender.to_string())?
-        .unwrap_or(UserIncentives { total_claimed: Uint128::zero(), vault_tokens_in_contract: Uint128::zero(), last_accrued: now });
-    //Add the vault tokens to the user's vault tokens in contract
-    record.vault_tokens_in_contract = record.vault_tokens_in_contract
-        .checked_add(vt_amount)
-        .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-    //Save the user incentives
-    USER_INCENTIVES.save(deps.storage, info.sender.to_string(), &record)?;
-
-    //Return the response
+    
+    // Save
+    crate::state::AFFILIATES.save(deps.storage, user.clone(), &affiliations)?;
+    
     Ok(Response::new()
-        .add_attribute("action", "deposit_incentives")
-        .add_attribute("amount", vt_amount.to_string())
-        .add_attribute("user", info.sender.to_string())
-    )
+        .add_attribute("method", "set_affiliate")
+        .add_attribute("user", user)
+        .add_attribute("affiliate_address", affiliate_address))
+}
+
+/// Split affiliate fee % between affiliates based on time affiliated
+fn split_affiliate_fee(
+    affiliates: Vec<membrane::types::AffiliateData>,
+    affiliate_fee: Decimal,
+    current_time: u64,
+) -> StdResult<Vec<Decimal>> {
+    if affiliates.is_empty() {
+        return Ok(vec![]);
+    }
+    
+    // Calculate total time affiliated since last claim/repayment
+    let time_since_last_claim = current_time - affiliates[0].time_affiliated;
+    
+    if time_since_last_claim == 0 {
+        // If no time has passed, split equally
+        let fee_per_affiliate = decimal_multiplication(
+            affiliate_fee,
+            Decimal::from_ratio(1u128, affiliates.len() as u128)
+        )?;
+        return Ok(vec![fee_per_affiliate; affiliates.len()]);
+    }
+    
+    let mut affiliate_fees = vec![];
+    
+    // Calculate time affiliated for each affiliate
+    for i in 0..affiliates.len() {
+        let time_affiliated = if i == affiliates.len() - 1 {
+            // Last affiliate: time from their affiliation to now
+            current_time - affiliates[i].time_affiliated
+        } else {
+            // Other affiliates: time from their affiliation to next affiliate's affiliation
+            affiliates[i + 1].time_affiliated - affiliates[i].time_affiliated
+        };
+        
+        let ratio_affiliated = Decimal::from_ratio(time_affiliated, time_since_last_claim);
+        // All affiliates use the same fee from config
+        let per_affiliate_fee = decimal_multiplication(affiliate_fee, ratio_affiliated)?;
+        affiliate_fees.push(per_affiliate_fee);
+    }
+    
+    // Assert that the sum of the affiliate fees is equal or less than the affiliate fee
+    let sum_of_affiliate_fees = affiliate_fees.iter().sum::<Decimal>();
+    if sum_of_affiliate_fees > affiliate_fee {
+        return Err(StdError::GenericErr { 
+            msg: format!("Sum of affiliate fees is greater than the affiliate fee: {} > {}", sum_of_affiliate_fees, affiliate_fee) 
+        });
+    }
+    
+    Ok(affiliate_fees)
+}
+
+/// Updates the affiliates for a user.
+/// Used during claim to reset the time affiliated & preserve historic affiliate flows (up to 10).
+fn update_affiliates(
+    storage: &mut dyn Storage,
+    affiliates: Vec<membrane::types::AffiliateData>,
+    user: String,
+    current_time: u64,
+) -> StdResult<()> {
+    if affiliates.is_empty() {
+        return Ok(());
+    }
+    // Keep all affiliates (up to 10), limit to last 10 if more exist
+    let mut updated_affiliates = affiliates;
+    if updated_affiliates.len() > 10 {
+        // Remove from the front, keep last 10
+        let start_idx = updated_affiliates.len() - 10;
+        updated_affiliates = updated_affiliates.into_iter().skip(start_idx).collect();
+    }
+    
+    // Reset time_affiliated: set to 0 for all except the last one, set to current_time for the last one
+    let len = updated_affiliates.len();
+    for (i, aff) in updated_affiliates.iter_mut().enumerate() {
+        if i == len - 1 {
+            // Last affiliate: set to current time
+            aff.time_affiliated = current_time;
+        } else {
+            // All others: reset to 0 (wipe time spent)
+            aff.time_affiliated = 0;
+        }
+    }
+    
+    // Update affiliates
+    crate::state::AFFILIATES.save(storage, user, &updated_affiliates)?;
+    
+    Ok(())
 }

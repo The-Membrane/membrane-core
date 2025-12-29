@@ -15,7 +15,7 @@ use membrane::staking::{
     Config, ExecuteMsg, InstantiateMsg, QueryMsg, 
     StakedResponse, TotalStakedResponse, StakerResponse, DelegationResponse, RewardsResponse,
 };
-use membrane::types::{Delegate, OldDelegation, OldDelegationInfo, OldStakeDeposit, StakeDistribution};
+use membrane::types::{Delegate, OldDelegation, OldDelegationInfo, OldStakeDeposit, StakeDeposit, StakeDistribution};
 
 #[test]
 fn update_config(){
@@ -84,6 +84,7 @@ fn update_config(){
             mbrn_denom: String::from("new_denom"), 
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
+            lock_duration_ceiling: 365u64,
             max_commission_rate: Decimal::percent(11),
             keep_raw_cdt: false,
             vesting_rev_multiplier: Decimal::percent(20),      
@@ -161,6 +162,7 @@ fn update_config(){
             mbrn_denom: String::from("new_denom"), 
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
+            lock_duration_ceiling: 365u64,
             max_commission_rate: Decimal::percent(11),  
             keep_raw_cdt: false,
             vesting_rev_multiplier: Decimal::percent(20),
@@ -189,7 +191,7 @@ fn stake() {
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Stake non-MBRN asset
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("sender88", &[coin(10_000_000, "not-mbrn")]);
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(
@@ -198,7 +200,7 @@ fn stake() {
     );
 
     //Successful Stake
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("sender88", &[coin(10_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
@@ -211,7 +213,7 @@ fn stake() {
     );
 
     //Successful Stake from vesting contract
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("vesting_contract", &[coin(11_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
@@ -239,17 +241,21 @@ fn stake() {
     assert_eq!(
         resp.stakers,
         vec![
-            OldStakeDeposit {
+            StakeDeposit {
                 staker: Addr::unchecked("sender88"),
                 amount: Uint128::new(10_000_000u128),
                 stake_time: mock_env().block.time.seconds(),
                 unstake_start_time: None,
+                locked: None,
+                last_accrued: None,
             },
-            OldStakeDeposit {
+            StakeDeposit {
                 staker: Addr::unchecked("vesting_contract"),
                 amount: Uint128::new(11000000u128),
                 stake_time: mock_env().block.time.seconds(),
                 unstake_start_time: None,
+                locked: None,
+                last_accrued: None,
             },
         ]
     );
@@ -275,11 +281,13 @@ fn stake() {
             staker: String::from("sender88"),
             total_staked: Uint128::new(10_000_000),
             deposit_list: vec![
-                OldStakeDeposit {
+                StakeDeposit {
+                    staker: Addr::unchecked("sender88"),
                     amount: Uint128::new(10_000_000),
                     stake_time: mock_env().block.time.seconds(),
                     unstake_start_time: None,
-                    staker: Addr::unchecked("sender88"),
+                    locked: None,
+                    last_accrued: None,
                 }
             ],
         }
@@ -310,12 +318,12 @@ fn delegate() {
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Stake MBRN: sender88
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("sender88", &[coin(10_000_000, "mbrn_denom")]);
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Stake MBRN: placeholder99
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("placeholder99", &[coin(10_000_000, "mbrn_denom")]);
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -545,7 +553,7 @@ fn commissions() {
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Stake MBRN: sender88
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("sender88", &[coin(10_000000, "mbrn_denom")]);
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -617,7 +625,7 @@ fn fluid_delegations() {
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Stake MBRN: sender88
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("sender88", &[coin(10_000_000, "mbrn_denom")]);
     let _res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
@@ -843,7 +851,7 @@ fn unstake() {
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful Stake
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("sender88", &[coin(10_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
@@ -855,7 +863,7 @@ fn unstake() {
         ]
     );
     //Successful Stake
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("first_delegate", &[coin(2_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
@@ -902,7 +910,7 @@ fn unstake() {
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful Stake from vesting contract
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("vesting_contract", &[coin(11_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
@@ -1021,11 +1029,13 @@ fn unstake() {
     assert_eq!(resp.total_staked, Uint128::new(10016438));
     //to check that accrued interest was staked
     assert_eq!(resp.deposit_list[2], 
-        OldStakeDeposit {
+        StakeDeposit {
+            staker: Addr::unchecked("sender88"),
             amount: Uint128::new(16438),
             stake_time: 1572575019,
             unstake_start_time: None,
-            staker: Addr::unchecked("sender88"),
+            locked: None,
+            last_accrued: None,
         });
     
     env.block.time = env.block.time.plus_seconds(86400 * 2); //2 days
@@ -1195,23 +1205,23 @@ fn unstake_v2() {
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Successful Stake
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("sender88", &[coin(2_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("sender88", &[coin(2_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("sender88", &[coin(2_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("sender88", &[coin(2_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("sender88", &[coin(2_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     //Fake interest
-    let msg = ExecuteMsg::Stake { user: None };
+    let msg = ExecuteMsg::Stake { user: None, locked: None };
     let info = mock_info("sender88", &[coin(1_000_000, "mbrn_denom")]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 

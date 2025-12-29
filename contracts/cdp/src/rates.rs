@@ -218,8 +218,6 @@ pub fn get_interest_rates(
 
         if asset.individual_cost.is_some() {
             rates.push( asset.individual_cost.clone().unwrap().rate )
-        } else if config.rate_hike_rate.is_some() && asset.hike_rates.is_some() && asset.hike_rates.unwrap() {
-            rates.push( config.rate_hike_rate.unwrap() )
         } else {
             //base * (1/max_LTV) - using queried LTV from ltv_disco
             rates.push(decimal_multiplication(
@@ -276,21 +274,12 @@ pub fn get_interest_rates(
 
             //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
             //// rate = 3.6%
-            //If its a rate hiked rate we add, not multiply
-            if config.rate_hike_rate.is_some() && rates[i] == config.rate_hike_rate.unwrap() {
-                two_slope_pro_rata_rates.push(
-                    min(
-                        decimal_multiplication(rates[i], supply_proportions[i])? + decimal_division(multiplier, Decimal::percent(100_00))?,
-                    Decimal::one())
-                );
-            } else {
-                two_slope_pro_rata_rates.push(
-                    min(decimal_multiplication(
-                        decimal_multiplication(rates[i], supply_proportions[i])?,
+            two_slope_pro_rata_rates.push(
+                min(decimal_multiplication(
+                    decimal_multiplication(rates[i], supply_proportions[i])?,
                         multiplier,
                     )?, Decimal::one())
                 );
-            }
         } else {
             //Base Rate
             two_slope_pro_rata_rates.push(rates[i]);
@@ -484,7 +473,6 @@ pub fn accrue(
         max_LTV: Decimal::zero(),
         pool_info: None,
         rate_index: Decimal::one(),
-        hike_rates: Some(false),
         individual_cost: Some(IndividualCost {
             rate: Decimal::zero(),
             updater_address: None,

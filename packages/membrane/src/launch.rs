@@ -10,30 +10,38 @@ pub struct InstantiateMsg {
     pub pre_launch_community: Vec<String>,
     /// Apollo router address
     pub apollo_router: String,
-    /// Osmosis Proxy contract id
-    pub osmosis_proxy_id: u64,
-    /// Oracle contract id
-    pub oracle_id: u64,
+    /// Neutron Proxy contract id
+    pub neutron_proxy_id: u64,
+    /// Neutron Oracle contract id
+    pub neutron_oracle_id: u64,
     /// Staking contract id
     pub staking_id: u64,
     /// Vesting contract id
     pub vesting_id: u64,
-    /// Governance contract id
-    pub governance_id: u64,
     /// Positions contract id
     pub positions_id: u64,
-    /// Stability Pool contract id
-    pub stability_pool_id: u64,
     /// Liquidity Queue contract id
     pub liq_queue_id: u64,
-    /// Liquidity Check contract id
-    pub liquidity_check_id: u64,
     /// MBRN Auction contract id
     pub mbrn_auction_id: u64,
     /// System Discounts contract id
     pub system_discounts_id: u64,
     /// Discount Vault contract id
     pub discount_vault_id: u64,
+    /// LTV Disco contract id
+    pub ltv_disco_id: u64,
+    /// Transmuter contract id
+    pub transmuter_id: u64,
+    /// Revenue Distributor contract id
+    pub revenue_distributor_id: u64,
+    /// Transmuter Lockdrop contract id
+    pub transmuter_lockdrop_id: u64,
+    /// Yield Arb contract id
+    pub yield_arb_id: u64,
+    /// Mars Vault Token contract id
+    pub mars_vault_token_id: u64,
+    /// Points System contract id
+    pub points_system_id: u64,
 }
 
 #[cw_serde]
@@ -93,6 +101,8 @@ pub enum QueryMsg {
 
 #[cw_serde]
 pub struct Config {
+    /// Contract owner
+    pub owner: Addr,
     /// MBRN token denom
     pub mbrn_denom: String,
     /// Basket credit asset denom
@@ -115,30 +125,38 @@ pub struct Config {
     pub atomosmo_pool_id: u64,
     /// USDC/OSMO pool id
     pub osmousdc_pool_id: u64,
-    /// Osmosis Proxy contract id
-    pub osmosis_proxy_id: u64,
-    /// Oracle contract id
-    pub oracle_id: u64,
+    /// Neutron Proxy contract id
+    pub neutron_proxy_id: u64,
+    /// Neutron Oracle contract id
+    pub neutron_oracle_id: u64,
     /// Staking contract id
     pub staking_id: u64,
     /// Vesting contract id
     pub vesting_id: u64,
-    /// Governance contract id
-    pub governance_id: u64,
     /// Positions contract id
     pub positions_id: u64,
-    /// Stability Pool contract id
-    pub stability_pool_id: u64,
     /// Liquidity Queue contract id
     pub liq_queue_id: u64,
-    /// Liquidity Check contract id
-    pub liquidity_check_id: u64,
     /// MBRN Auction contract id
     pub mbrn_auction_id: u64,   
     /// System Discounts contract id
     pub system_discounts_id: u64,
     /// Discount Vault contract id
     pub discount_vault_id: u64, 
+    /// LTV Disco contract id
+    pub ltv_disco_id: u64,
+    /// Transmuter contract id
+    pub transmuter_id: u64,
+    /// Revenue Distributor contract id
+    pub revenue_distributor_id: u64,
+    /// Transmuter Lockdrop contract id
+    pub transmuter_lockdrop_id: u64,
+    /// Yield Arb contract id
+    pub yield_arb_id: u64,
+    /// Mars Vault Token contract id
+    pub mars_vault_token_id: u64,
+    /// Points System contract id
+    pub points_system_id: u64,
 }
 
 #[cw_serde]

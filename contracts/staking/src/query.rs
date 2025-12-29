@@ -34,15 +34,15 @@ pub fn query_user_stake(deps: Deps, staker: String) -> StdResult<StakerResponse>
         .sum();
 
     //Convert staker_deposits to OldStakeDeposit so Governance can parse it
-    let staker_deposits: Vec<membrane::types::OldStakeDeposit> = staker_deposits
-        .into_iter()
-        .map(|deposit| membrane::types::OldStakeDeposit {
-            staker: deposit.staker,
-            amount: deposit.amount,
-            stake_time: deposit.stake_time,
-            unstake_start_time: deposit.unstake_start_time,
-        })
-        .collect();
+    // let staker_deposits: Vec<membrane::types::OldStakeDeposit> = staker_deposits
+    //     .into_iter()
+    //     .map(|deposit| membrane::types::OldStakeDeposit {
+    //         staker: deposit.staker,
+    //         amount: deposit.amount,
+    //         stake_time: deposit.stake_time,
+    //         unstake_start_time: deposit.unstake_start_time,
+    //     })
+    //     .collect();
 
     Ok(StakerResponse {
         staker: valid_addr.to_string(),
@@ -143,6 +143,7 @@ pub fn query_user_rewards(deps: Deps, env: Env, user: String) -> StdResult<Rewar
             stake_time: VESTING_STAKE_TIME.load(deps.storage)?,
             unstake_start_time: None,
             last_accrued: None,
+            locked: None,
         };
 
         let (claims, _) = get_deposit_claimables(
@@ -227,15 +228,15 @@ pub fn query_staked(
 
     
     //Convert stakers to OldStakeDeposit so Governance can parse it
-    let stakers: Vec<membrane::types::OldStakeDeposit> = stakers
-        .into_iter()
-        .map(|deposit| membrane::types::OldStakeDeposit {
-            staker: deposit.staker,
-            amount: deposit.amount,
-            stake_time: deposit.stake_time,
-            unstake_start_time: deposit.unstake_start_time,
-        })
-        .collect();
+    // let stakers: Vec<membrane::types::OldStakeDeposit> = stakers
+    //     .into_iter()
+    //     .map(|deposit| membrane::types::OldStakeDeposit {
+    //         staker: deposit.staker,
+    //         amount: deposit.amount,
+    //         stake_time: deposit.stake_time,
+    //         unstake_start_time: deposit.unstake_start_time,
+    //     })
+    //     .collect();
 
     Ok(StakedResponse { stakers })
 }

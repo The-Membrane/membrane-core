@@ -5,17 +5,14 @@ use cosmwasm_std::{
 use membrane::revenue_distributor::{Config, RevenueDestination, RevenuePromise, ExecuteMsg, InstantiateMsg, QueryMsg, RDVaultInfoMessage};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::math::decimal_multiplication;
-use membrane::transmuter::ExecuteMsg as TransmuterExecuteMsg;
 use membrane::types::Asset;
 
 use crate::error::ContractError;
 use crate::reply::{
     DISTRIBUTION_REPLY_ID,
     REVENUE_DESTINATION_REPLY_ID,
-    ENTER_VAULT_REPLY_ID,
     handle_distribution_reply,
     handle_revenue_destination_reply,
-    handle_enter_vault_reply,
 };
 use crate::state::{
     CONFIG,
@@ -23,7 +20,6 @@ use crate::state::{
     FAILED_DISTRIBUTIONS,
     PROMISES,
     LTV_DISCO_DISTRIBUTION,
-    VAULT_PROPOGATION,
 };
 
 use cw2::set_contract_version;
@@ -59,7 +55,6 @@ pub fn instantiate(
     CONFIG.save(deps.storage, &config)?;
     PROMISES.save(deps.storage, &vec![])?;
     DISTRIBUTION_PROP.save(deps.storage, &vec![])?;
-    VAULT_PROPOGATION.save(deps.storage, &vec![])?;
     
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
@@ -175,9 +170,9 @@ pub fn distribute_promises(
     let config = CONFIG.load(deps.storage)?;
     // Load current promises
     let promises = PROMISES.load(deps.storage)?;
-    if promises.is_empty() {
-        return Err(ContractError::NoPromisesSet {});
-    }
+    // if promises.is_empty() {
+    //     return Err(ContractError::NoPromisesSet {});
+    // }
 
     let limit = limit.unwrap_or(promises.len() as u32);
     let mut messages: Vec<SubMsg> = vec![];
@@ -234,6 +229,9 @@ pub fn distribute_promises(
     // Save only non-LTV pending promises for distribution replies
     DISTRIBUTION_PROP.save(deps.storage, &non_ltv_promises)?;
 
+    // Store promises count before potential move
+    let promises_count = promises.len();
+
     // Remove LTV Disco promises that were enqueued fully
     if !ltv_promises_to_remove.is_empty() {
         let mut all_promises = PROMISES.load(deps.storage)?;
@@ -267,14 +265,24 @@ pub fn distribute_promises(
 
                 // LTV Disco special path for destination handling
                 if destination.destination == config.ltv_disco {
-                    // Queue EnterVault for all assets
+                    // Directly send CDT to LTV Disco via AddRevenue (no vault entry needed)
                     let fake_promise = RevenuePromise { address: destination.destination.to_string(), amount: asset_coin.amount };
-                    let ltv_msgs = ltv_disco_enter_vault_msgs(
+                    let ltv_msgs = ltv_disco_add_revenue_msgs(
                         &mut deps, 
                         &config, 
                         &fake_promise
                     )?;
-                    messages.extend(ltv_msgs);
+                    for msg in ltv_msgs {
+                        messages.push(SubMsg::reply_always(msg, REVENUE_DESTINATION_REPLY_ID));
+                    }
+                    // Clear LTV_DISCO_DISTRIBUTION state after sending
+                    let all_assets: Vec<String> = LTV_DISCO_DISTRIBUTION
+                        .keys(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+                        .map(|kv| kv.unwrap())
+                        .collect();
+                    for asset_key in all_assets {
+                        LTV_DISCO_DISTRIBUTION.remove(deps.storage, asset_key);
+                    }
                 } else {
                     let msg = CosmosMsg::Wasm(WasmMsg::Execute {
                         contract_addr: destination.destination.to_string(),
@@ -292,7 +300,7 @@ pub fn distribute_promises(
     Ok(Response::new()
         .add_submessages(messages)
         .add_attribute("method", "distribute_promises")
-        .add_attribute("promises_distributed", promises.len().to_string())
+        .add_attribute("promises_distributed", promises_count.to_string())
         .add_attribute("total_distributed", total_distributed.to_string())
         .add_attribute("remaining_distributed", remaining_amount.to_string()))
 }
@@ -463,11 +471,12 @@ pub fn retry_failed_distribute(
 }
 
 
-fn ltv_disco_enter_vault_msgs(
+/// Directly send CDT to LTV Disco via AddRevenue (no vault entry needed)
+fn ltv_disco_add_revenue_msgs(
     deps: &mut DepsMut,
     config: &Config,
     promise: &RevenuePromise,
-) -> Result<Vec<SubMsg>, ContractError> {
+) -> Result<Vec<CosmosMsg>, ContractError> {
     // Read current map and compute total
     let all_assets: Vec<(String, Uint128)> = LTV_DISCO_DISTRIBUTION
         .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
@@ -481,21 +490,27 @@ fn ltv_disco_enter_vault_msgs(
         }));
     }
 
-    // Set asset order in propagation queue for reply handling
-    let asset_denoms: Vec<String> = all_assets.iter().map(|(k, _)| k.clone()).collect();
-    VAULT_PROPOGATION.save(deps.storage, &asset_denoms)?;
-
-    // Build EnterVault messages for each asset in order
-    let mut msgs: Vec<SubMsg> = vec![];
-    for (_asset, asset_total) in all_assets {
-        let portion = promise.amount.multiply_ratio(asset_total, total);
+    // Build AddRevenue messages for each asset, sending CDT directly
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    for (asset_denom, asset_total) in all_assets {
+        //Add the proportional split for any excess revenue not sent to promises
+        let portion: Uint128 = decimal_multiplication(
+            Decimal::from_ratio(promise.amount, Uint128::one()), 
+            Decimal::from_ratio(asset_total, total)
+        )?.to_uint_floor();
         if portion.is_zero() { continue; }
-        let enter = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.transmuter_vault.vault_addr.to_string(),
-            msg: to_json_binary(&TransmuterExecuteMsg::EnterVault { recipient: None })?,
-            funds: vec![Coin { denom: config.canonical_asset.info.to_string(), amount: portion }],
+
+        let add_revenue = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.ltv_disco.to_string(),
+            msg: to_json_binary(&membrane::ltv_disco::ExecuteMsg::AddRevenue { 
+                asset: asset_denom.clone(),
+            })?,
+            funds: vec![Coin { 
+                denom: config.canonical_asset.info.to_string(), 
+                amount: portion 
+            }],
         });
-        msgs.push(SubMsg::reply_always(enter, ENTER_VAULT_REPLY_ID));
+        msgs.push(add_revenue);
     }
 
     Ok(msgs)
@@ -528,7 +543,6 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractEr
     match msg.id {
         DISTRIBUTION_REPLY_ID => handle_distribution_reply(deps, env, msg),
         REVENUE_DESTINATION_REPLY_ID => handle_revenue_destination_reply(deps, env, msg),
-        ENTER_VAULT_REPLY_ID => handle_enter_vault_reply(deps, env, msg),
         _ => Err(ContractError::Std(cosmwasm_std::StdError::GenericErr {
             msg: "Unknown reply ID".to_string(),
         })),

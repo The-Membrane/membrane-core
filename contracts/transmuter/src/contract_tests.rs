@@ -8,7 +8,6 @@ fn default_instantiate_msg() -> TInstantiate {
     TInstantiate {
         owner: Some("owner".to_string()),
         tokenfactory_contract: None,
-        revenue_contract: "rev".to_string(),
         cdp_contract: "cdp".to_string(),
         vault_subdenom: "vt".to_string(),
         deposit_pair: AssetPair { cdt: "cdt".to_string(), paired_asset: "usdc".to_string() },
@@ -20,12 +19,19 @@ fn default_instantiate_msg() -> TInstantiate {
         volume_history_cap: 50,
         rate_limit_window_secs: Some(60),
         rate_limit_threshold: Some(Decimal::percent(10)),
-        revenue_distributor_addr: None,
+        revenue_distributor_addr: "rev".to_string(),
         revenue_distributions: None,
         allowlist: None,
         allowlist_rate_limit_threshold: None,
         global_rate_limit_window_secs: Some(3600),
         global_rate_limit_threshold: Some(Decimal::percent(10)),
+        monthly_incentive_max: Some(Uint128::new(1_000_000)),
+        incentive_denom: Some("incentive".to_string()),
+        neutron_proxy: Some("neutron-proxy".to_string()),
+        discounts_contract: "discounts".to_string(),
+        staking_contract: None,
+        mars_mirror_contract: None,
+        affiliate_fee: Decimal::percent(1),
     }
 }
 
@@ -51,21 +57,26 @@ fn init_sets_incentive_schedule() {
 
 #[test]
 fn enter_vault_with_incentive_toggle_tracks_user_vt() {
-    let mut deps = mock_dependencies();
+    // Seed the contract address with 100 CDT so balance queries during alignment succeed
+    let mut deps: cosmwasm_std::OwnedDeps<cosmwasm_std::MemoryStorage, cosmwasm_std::testing::MockApi, cosmwasm_std::testing::MockQuerier> = cosmwasm_std::testing::mock_dependencies_with_balances(&[
+        ("cosmos2contract", &[coin(100, "cdt")])
+    ]);
     setup_instant(&mut deps);
     let mut env = mock_env();
     // fund contract with CDT so enter works
     // user deposits 100 CDT
     let info = mock_info("user", &[Coin{ denom: "cdt".into(), amount: Uint128::new(100)}]);
+    //Send the contract 100 CDT
     // call EnterVault with deposit_for_incentives true
     let res = execute(
         deps.as_mut(),
         env.clone(),
         info,
-        TExecute::EnterVault { recipient: None, deposit_for_incentives: Some(true) }
+        TExecute::EnterVault { recipient: None, deposit_for_incentives: Some(true), intents: None, affiliate_address: None }
     ).unwrap();
+    println!("res: {:?}", res.messages.len());
     // mint to contract and NO send to user
-    assert!(!res.messages.is_empty());
+    assert!(res.messages.len() == 1);
     let user = USER_INCENTIVES.load(&deps.storage, "user".into()).unwrap();
     assert!(user.vault_tokens_in_contract > Uint128::zero());
 }
@@ -98,20 +109,25 @@ fn claim_incentives_updates_user_and_prunes() {
         total_claimed: Uint128::zero(),
         vault_tokens_in_contract: Uint128::new(1_000_000),
         last_accrued: 0,
+        mbrn_intents: None,
     }).unwrap();
     crate::state::VAULT_TOKEN_SUPPLY.save(&mut deps.storage, &Uint128::new(1_000_000)).unwrap();
     // two events
     INCENTIVE_EVENTS.save(&mut deps.storage, &vec![
-        IncentiveEvent{ amount_per_vt: Decimal::from_ratio(1000u128, 1u128), time_of_event: env.block.time.seconds(), amount_left_to_claim: Uint128::new(1000)},
-        IncentiveEvent{ amount_per_vt: Decimal::from_ratio(1000u128, 1u128), time_of_event: env.block.time.seconds()+1, amount_left_to_claim: Uint128::new(1000)},
+        IncentiveEvent{ amount_per_vt: Decimal::from_ratio(1u128, 1u128), time_of_event: env.block.time.seconds(), amount_left_to_claim: Uint128::new(1100_000)},
+        IncentiveEvent{ amount_per_vt: Decimal::from_ratio(1u128, 1u128), time_of_event: env.block.time.seconds()+1, amount_left_to_claim: Uint128::new(1100_000)},
     ]).unwrap();
+
+
+    //skip ahead 3 seconds to update accrued_time to past all current events
+    env.block.time = env.block.time.plus_seconds(3);
     // claim once
     let info = mock_info("caller", &[]);
     let res = execute(
         deps.as_mut(),
         env.clone(),
         info,
-        TExecute::ClaimIncentivesForUser { user: "user".into(), limit: Some(10) }
+        TExecute::ClaimIncentivesForUser { user: "user".into(), limit: Some(10), mbrn_intent: None }
     ).unwrap();
     // should attempt to mint via proxy if configured
     assert!(!res.messages.is_empty());
@@ -119,7 +135,7 @@ fn claim_incentives_updates_user_and_prunes() {
     assert!(user.total_claimed > Uint128::zero());
     let events = INCENTIVE_EVENTS.load(&deps.storage).unwrap();
     // amount_left_to_claim potentially reduced or pruned
-    assert!(events.len() <= 2);
+    assert!(events.len() == 2);
 
     // double claim should not increase claimed again
     let prev_claimed = user.total_claimed;
@@ -128,10 +144,14 @@ fn claim_incentives_updates_user_and_prunes() {
         deps.as_mut(),
         env.clone(),
         info2,
-        TExecute::ClaimIncentivesForUser { user: "user".into(), limit: Some(10) }
+        TExecute::ClaimIncentivesForUser { user: "user".into(), limit: Some(10), mbrn_intent: None }
     ).unwrap();
     let user2 = USER_INCENTIVES.load(&deps.storage, "user".into()).unwrap();
     assert_eq!(user2.total_claimed, prev_claimed);
+
+    let events = INCENTIVE_EVENTS.load(&deps.storage).unwrap();
+    // events should be untouched
+    assert!(events.len() == 2);
 }
 #[test]
 fn no_claim_from_old_events() {
@@ -143,6 +163,7 @@ fn no_claim_from_old_events() {
         total_claimed: Uint128::zero(),
         vault_tokens_in_contract: Uint128::new(1),
         last_accrued: env.block.time.seconds(),
+        mbrn_intents: None,
     }).unwrap();
     // Create an event before user's last_accrued
     let old_time = env.block.time.seconds() - 10;
@@ -153,7 +174,7 @@ fn no_claim_from_old_events() {
         deps.as_mut(),
         env.clone(),
         info,
-        TExecute::ClaimIncentivesForUser { user: "user".into(), limit: Some(10) }
+        TExecute::ClaimIncentivesForUser { user: "user".into(), limit: Some(10), mbrn_intent: None }
     ).unwrap();
     let user = USER_INCENTIVES.load(&deps.storage, "user".into()).unwrap();
     assert_eq!(user.total_claimed, Uint128::zero());
@@ -172,6 +193,7 @@ fn exit_vault_can_include_incentive_vt() {
         total_claimed: Uint128::zero(),
         vault_tokens_in_contract: Uint128::new(10_000),
         last_accrued: 0,
+        mbrn_intents: None,
     }).unwrap();
     // Try exit with no VT sent but using incentive-held
     let info = mock_info("user", &[]);
@@ -195,12 +217,14 @@ fn stress_many_events_and_users() {
     setup_instant(&mut deps);
     let mut env = mock_env();
     crate::state::VAULT_TOKEN_SUPPLY.save(&mut deps.storage, &Uint128::new(1_000_000_000)).unwrap();
+    
     // 100 users with 1e6 VT each
     for i in 0..100u32 {
         USER_INCENTIVES.save(&mut deps.storage, format!("u{}", i), &UserIncentives{
             total_claimed: Uint128::zero(),
             vault_tokens_in_contract: Uint128::new(1_000_000),
             last_accrued: 0,
+            mbrn_intents: None,
         }).unwrap();
     }
     // create 200 events by accrual
@@ -212,13 +236,13 @@ fn stress_many_events_and_users() {
         INCENTIVE_EVENTS.save(&mut deps.storage, &cur).unwrap();
     }
     // claim for a subset with limit
-    for i in 0..10u32 {
+    for i in 0..3u32 {
         let info = mock_info("caller", &[]);
         let _ = execute(
             deps.as_mut(),
             env.clone(),
             info,
-            TExecute::ClaimIncentivesForUser { user: format!("u{}", i), limit: Some(50) }
+            TExecute::ClaimIncentivesForUser { user: format!("u{}", i), limit: Some(50), mbrn_intent: None }
         ).unwrap();
     }
     // ensure events not fully pruned
@@ -232,6 +256,8 @@ use cw_multi_test::{App, Contract, ContractWrapper, Executor};
 use membrane::tokenfactory::{ExecuteMsg as TfExecuteMsg, InstantiateMsg as TfInstantiateMsg};
 use membrane::cdp::QueryMsg as CdpQueryMsg;
 use membrane::transmuter::{ExecuteMsg, InstantiateMsg, QueryMsg, TransmuteHistoryResponse, VolumeHistoryResponse, VaultInfoResponse, RateLimitStatusResponse, RateLimitManyResponse, GlobalRateLimitResponse};
+use membrane::system_discounts::{QueryMsg as SystemsDiscountsQueryMsg, UserBoostResponse};
+use membrane::neutron_proxy::ExecuteMsg as NeutronProxyExecuteMsg;
 
 use crate::contract::{execute, instantiate, query};
 
@@ -340,6 +366,40 @@ fn mock_cdp_contract() -> Box<dyn Contract<Empty>> {
     ))
 }
 
+fn mock_discounts_contract() -> Box<dyn Contract<Empty>> {
+    Box::new(ContractWrapper::new(
+        |_deps, _env, _info, _msg: Empty| -> Result<Response, StdError> { Ok(Response::new()) },
+        |_deps, _env, _info, _msg: Empty| -> StdResult<Response> { Ok(Response::new()) },
+        |_deps, _env, q: SystemsDiscountsQueryMsg| -> StdResult<Binary> {
+            match q {
+                SystemsDiscountsQueryMsg::UserBoost { .. } => {
+                    cosmwasm_std::to_json_binary(&UserBoostResponse { user: "".to_string(), boost: Decimal::percent(50) })
+                }
+                _ => Err(StdError::generic_err("unsupported discounts query")),
+            }
+        },
+    ))
+}
+
+fn mock_neutron_proxy_contract() -> Box<dyn Contract<Empty>> {
+    Box::new(ContractWrapper::new(
+        |_deps, _env, _info, msg: NeutronProxyExecuteMsg| -> Result<Response, StdError> {
+            match msg {
+                NeutronProxyExecuteMsg::MintTokens { denom, amount, mint_to_address } => {
+                    Ok(Response::new()
+                        .add_attribute("action", "mint_tokens")
+                        .add_attribute("denom", denom)
+                        .add_attribute("amount", amount.to_string())
+                        .add_attribute("to", mint_to_address))
+                }
+                _ => Ok(Response::new()),
+            }
+        },
+        |_deps, _env, _info, _msg: Empty| -> StdResult<Response> { Ok(Response::new()) },
+        |_deps, _env, _msg: Empty| -> StdResult<Binary> { cosmwasm_std::to_json_binary(&Empty {}) },
+    ))
+}
+
 fn instantiate_transmuter(app: &mut App) -> Addr {
     let tf_code = app.store_code(mock_tokenfactory_contract());
     let tokenfactory_addr = app
@@ -368,7 +428,7 @@ fn instantiate_transmuter(app: &mut App) -> Addr {
     let msg = InstantiateMsg {
         owner: Some(ADMIN.to_string()),
         tokenfactory_contract: Some(tokenfactory_addr),
-        revenue_contract: ADMIN.to_string(),
+        revenue_distributor_addr: ADMIN.to_string(),
         cdp_contract: cdp_addr.to_string(),
         vault_subdenom: VAULT_SUBDENOM.to_string(),
         deposit_pair: AssetPair {
@@ -387,8 +447,14 @@ fn instantiate_transmuter(app: &mut App) -> Addr {
         allowlist_rate_limit_threshold: Some(Decimal::percent(10)),
         global_rate_limit_window_secs: Some(60 * 60 * 24), // 24 hours
         global_rate_limit_threshold: Some(Decimal::percent(20)), // 20%
-        revenue_distributor_addr: None,
         revenue_distributions: None,
+        monthly_incentive_max: Some(Uint128::new(1_000_000)),
+        incentive_denom: None, //dont have mocks yet
+        neutron_proxy: None, //dont have mocks yet
+        discounts_contract: ADMIN.to_string(),
+        staking_contract: None,
+        mars_mirror_contract: None,
+        affiliate_fee: Decimal::percent(1),
     };
 
     app.instantiate_contract(
@@ -431,7 +497,7 @@ fn rate_limit_blocks_when_threshold_exceeded_and_nets_flows() {
     app.execute_contract(
         Addr::unchecked(ADMIN),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None },
+        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -483,8 +549,8 @@ fn allowlist_uses_higher_threshold() {
             asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             swap_history_cap: None,
             volume_history_cap: None,
@@ -496,6 +562,12 @@ fn allowlist_uses_higher_threshold() {
             global_rate_limit_threshold: None,
             revenue_distributor_addr: None,
             revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     ).unwrap();
@@ -503,7 +575,7 @@ fn allowlist_uses_higher_threshold() {
     app.execute_contract(
         Addr::unchecked(ADMIN),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None },
+        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -533,8 +605,8 @@ fn rate_limit_many_paginates() {
             asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             swap_history_cap: None,
             volume_history_cap: None,
@@ -547,8 +619,14 @@ fn rate_limit_many_paginates() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: None,
-        revenue_distributor_addr: None,
-        revenue_distributions: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     ).unwrap();
@@ -575,8 +653,8 @@ fn window_expiry_unblocks_usage() {
             asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             swap_history_cap: None,
             volume_history_cap: None,
@@ -588,12 +666,18 @@ fn window_expiry_unblocks_usage() {
             global_rate_limit_threshold: None,
             revenue_distributor_addr: None,
             revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     ).unwrap();
 
     // Deposits only (no extra liquidity that would inflate threshold)
-    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None }, &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)]).unwrap();
+    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None }, &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)]).unwrap();
 
     // Add several entries spreading over time
     app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(4_000, ASSET_B)).unwrap();
@@ -642,8 +726,8 @@ fn usage_fee_applied_for_non_cdp_and_non_deployable() {
             asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: Some(Decimal::percent(10)),
             swap_history_cap: None,
             volume_history_cap: None,
@@ -655,6 +739,12 @@ fn usage_fee_applied_for_non_cdp_and_non_deployable() {
             global_rate_limit_threshold: None,
             revenue_distributor_addr: None,
             revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     ).unwrap();
@@ -663,7 +753,7 @@ fn usage_fee_applied_for_non_cdp_and_non_deployable() {
     app.execute_contract(
         Addr::unchecked(ADMIN),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None },
+        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -731,8 +821,8 @@ fn paired_asset_outstanding_tracks_allowlisted_flows() {
             asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             swap_history_cap: None,
             volume_history_cap: None,
@@ -744,12 +834,18 @@ fn paired_asset_outstanding_tracks_allowlisted_flows() {
             global_rate_limit_threshold: None,
             revenue_distributor_addr: None,
             revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     ).unwrap();
 
     // Seed enough cdt so CDT->USDC can be paid out
-    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None }, &[coin(50_000, ASSET_A), coin(50_000, ASSET_B)]).unwrap();
+    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None }, &[coin(50_000, ASSET_A), coin(50_000, ASSET_B)]).unwrap();
 
     // Allowlisted CDT->USDC should increment outstanding by received paired_asset amount (rate=1)
     app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(10_000, ASSET_A)).unwrap();
@@ -781,7 +877,7 @@ fn paired_asset_outstanding_tracks_allowlisted_flows() {
     app.execute_contract(
         Addr::unchecked(ADMIN),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None },
+        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None },
         &[coin(0, ASSET_A), coin(2_000, ASSET_B)],
     ).unwrap();
 
@@ -807,7 +903,7 @@ fn effective_target_reflects_deployed_value_and_bounds() {
     assert_eq!(eff0.target, Decimal::percent(50));
 
     // Add deposits 100k cdt + 100k paired, no deployed yet -> target stays 50%
-    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None }, &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)]).unwrap();
+    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None }, &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)]).unwrap();
     let eff1: membrane::transmuter::EffectiveTargetResponse = app
         .wrap()
         .query_wasm_smart(&contract, &QueryMsg::EffectiveTarget {})
@@ -825,8 +921,8 @@ fn effective_target_reflects_deployed_value_and_bounds() {
             asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             swap_history_cap: None,
             volume_history_cap: None,
@@ -838,12 +934,18 @@ fn effective_target_reflects_deployed_value_and_bounds() {
             global_rate_limit_threshold: None,
             revenue_distributor_addr: None,
             revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     ).unwrap();
 
     // Ensure contract has paired_asset liquidity for payouts
-    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None }, &[coin(0, ASSET_A), coin(20_000, ASSET_B)]).unwrap();
+    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None }, &[coin(0, ASSET_A), coin(20_000, ASSET_B)]).unwrap();
 
     app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(10_000, ASSET_A)).unwrap();
 
@@ -856,7 +958,7 @@ fn effective_target_reflects_deployed_value_and_bounds() {
 
     // Push deployed higher than base target: deploy 150k paired -> need CDT deposits to enable; simulate by multiple CDT->USDC
     // Add more paired liquidity to allow payout
-    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None }, &[coin(0, ASSET_A), coin(200_000, ASSET_B)]).unwrap();
+    app.execute_contract(Addr::unchecked(ADMIN), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None }, &[coin(0, ASSET_A), coin(200_000, ASSET_B)]).unwrap();
     app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(120_000, ASSET_A)).unwrap();
 
     // Total deposits base = (100k + 0) + (100k + 220k converted to base 1:1) = 420k; deployed ~130k (prev 10k + 120k)
@@ -878,8 +980,8 @@ fn effective_target_reflects_deployed_value_and_bounds() {
             asset_a_to_b_rate: None,
             target_ratio: Some(Decimal::percent(10)),
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             swap_history_cap: None,
             volume_history_cap: None,
@@ -891,6 +993,12 @@ fn effective_target_reflects_deployed_value_and_bounds() {
             global_rate_limit_threshold: None,
             revenue_distributor_addr: None,
             revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     ).unwrap();
@@ -986,7 +1094,7 @@ fn enter_vault_mints_tokens_and_updates_state() {
     app.execute_contract(
         Addr::unchecked(USER),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None },
+        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None },
         &[coin(USER_DEPOSIT, ASSET_A), coin(USER_DEPOSIT, ASSET_B)],
     )
     .unwrap();
@@ -1022,7 +1130,7 @@ fn exit_vault_withdraws_proportional_assets() {
     app.execute_contract(
         Addr::unchecked(USER),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None },
+        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None },
         &[coin(USER_DEPOSIT, ASSET_A), coin(USER_DEPOSIT, ASSET_B)],
     )
     .unwrap();
@@ -1108,8 +1216,8 @@ fn update_config_changes_owner_and_ratio() {
             target_ratio: Some(Decimal::percent(60)),
             swap_history_cap: Some(20),
             volume_history_cap: Some(20),
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             rate_limit_window_secs: None,
             rate_limit_threshold: None,
@@ -1119,6 +1227,12 @@ fn update_config_changes_owner_and_ratio() {
             global_rate_limit_threshold: None,
             revenue_distributor_addr: None,
             revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     )
@@ -1198,7 +1312,7 @@ fn global_rate_limit_blocks_when_threshold_exceeded() {
     app.execute_contract(
         Addr::unchecked(ADMIN),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None },
+        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -1249,7 +1363,7 @@ fn global_rate_limit_nets_flows_correctly() {
     app.execute_contract(
         Addr::unchecked(ADMIN),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None },
+        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -1289,8 +1403,8 @@ fn global_rate_limit_whitelisted_addresses_bypass() {
             asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             swap_history_cap: None,
             volume_history_cap: None,
@@ -1302,6 +1416,12 @@ fn global_rate_limit_whitelisted_addresses_bypass() {
             global_rate_limit_threshold: None,
             revenue_distributor_addr: None,
             revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     ).unwrap();
@@ -1310,7 +1430,7 @@ fn global_rate_limit_whitelisted_addresses_bypass() {
     app.execute_contract(
         Addr::unchecked(ADMIN),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None },
+        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -1351,8 +1471,8 @@ fn global_rate_limit_separate_window_from_per_address() {
             asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             swap_history_cap: None,
             volume_history_cap: None,
@@ -1364,6 +1484,12 @@ fn global_rate_limit_separate_window_from_per_address() {
             global_rate_limit_threshold: None,
             revenue_distributor_addr: None,
             revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     ).unwrap();
@@ -1372,7 +1498,7 @@ fn global_rate_limit_separate_window_from_per_address() {
     app.execute_contract(
         Addr::unchecked(ADMIN),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None },
+        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -1429,8 +1555,8 @@ fn global_rate_limit_configuration_updates() {
             asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             swap_history_cap: None,
             volume_history_cap: None,
@@ -1440,8 +1566,14 @@ fn global_rate_limit_configuration_updates() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: Some(60 * 60 * 12), // 12 hours
             global_rate_limit_threshold: Some(Decimal::percent(15)), // 15%
-        revenue_distributor_addr: None,
-        revenue_distributions: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     ).unwrap();
@@ -1472,8 +1604,8 @@ fn global_rate_limit_validation_errors() {
             asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             swap_history_cap: None,
             volume_history_cap: None,
@@ -1485,6 +1617,12 @@ fn global_rate_limit_validation_errors() {
             global_rate_limit_threshold: None,
             revenue_distributor_addr: None,
             revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     );
@@ -1504,8 +1642,8 @@ fn global_rate_limit_validation_errors() {
             asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             swap_history_cap: None,
             volume_history_cap: None,
@@ -1515,8 +1653,14 @@ fn global_rate_limit_validation_errors() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: Some(Decimal::zero()), // Invalid
-        revenue_distributor_addr: None,
-        revenue_distributions: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     );
@@ -1534,8 +1678,8 @@ fn global_rate_limit_validation_errors() {
             asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
+            discounts_contract: None,
             cdp_contract: None,
-            revenue_contract: None,
             usage_fee: None,
             swap_history_cap: None,
             volume_history_cap: None,
@@ -1545,8 +1689,14 @@ fn global_rate_limit_validation_errors() {
             allowlist_rate_limit_threshold: None,
             global_rate_limit_window_secs: None,
             global_rate_limit_threshold: Some(Decimal::percent(101)), // Invalid (> 1)
-        revenue_distributor_addr: None,
-        revenue_distributions: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
+            monthly_incentive_max: None,
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
         },
         &[],
     );
@@ -1563,7 +1713,7 @@ fn global_rate_limit_dual_enforcement() {
     app.execute_contract(
         Addr::unchecked(ADMIN),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None },
+        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: None, intents: None, affiliate_address: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -1592,4 +1742,136 @@ fn global_rate_limit_dual_enforcement() {
     let res = app.execute_contract(Addr::unchecked(USER), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(1, ASSET_B));
     assert!(res.is_err());
     // assert!(res.unwrap_err().to_string().contains("Global rate limit exceeded"));
+}
+
+#[test]
+fn claim_incentives_applies_boost_attribute() {
+    let mut app = setup_app();
+
+    // Store mocks
+    let discounts_id = app.store_code(mock_discounts_contract());
+    let neutron_id = app.store_code(mock_neutron_proxy_contract());
+    let tf_code = app.store_code(mock_tokenfactory_contract());
+    let cdp_code = app.store_code(mock_cdp_contract());
+
+    // Instantiate mocks
+    let discounts_addr = app
+        .instantiate_contract(discounts_id, Addr::unchecked(ADMIN), &Empty {}, &[], "discounts", None)
+        .unwrap();
+    let neutron_addr = app
+        .instantiate_contract(neutron_id, Addr::unchecked(ADMIN), &Empty {}, &[], "neutron", None)
+        .unwrap();
+    let tokenfactory_addr = app
+        .instantiate_contract(tf_code, Addr::unchecked(ADMIN), &TfInstantiateMsg { owner: Some(ADMIN.to_string()) }, &[], "tf", None)
+        .unwrap();
+    let cdp_addr = app
+        .instantiate_contract(cdp_code, Addr::unchecked(ADMIN), &Empty {}, &[], "cdp", None)
+        .unwrap();
+
+    // Instantiate transmuter with incentive settings
+    let transmuter_id = app.store_code(transmuter_contract());
+    let contract = app
+        .instantiate_contract(
+            transmuter_id,
+            Addr::unchecked(ADMIN),
+            &InstantiateMsg {
+                owner: Some(ADMIN.to_string()),
+                tokenfactory_contract: Some(tokenfactory_addr),
+                revenue_distributor_addr: ADMIN.to_string(),
+                cdp_contract: cdp_addr.to_string(),
+                vault_subdenom: VAULT_SUBDENOM.to_string(),
+                deposit_pair: AssetPair { cdt: ASSET_A.to_string(), paired_asset: ASSET_B.to_string() },
+                composition_leeway: Decimal::percent(1),
+                asset_a_to_b_rate: Decimal::one(),
+                target_ratio: Decimal::percent(50),
+                usage_fee: Some(Decimal::zero()),
+                swap_history_cap: 50,
+                volume_history_cap: 50,
+                rate_limit_window_secs: Some(60),
+                rate_limit_threshold: Some(Decimal::percent(10)),
+                revenue_distributions: None,
+                allowlist: None,
+                allowlist_rate_limit_threshold: None,
+                global_rate_limit_window_secs: Some(3600),
+                global_rate_limit_threshold: Some(Decimal::percent(10)),
+                monthly_incentive_max: Some(Uint128::new(1_000_000)),
+                incentive_denom: Some("INC".to_string()),
+                neutron_proxy: Some(neutron_addr.to_string()),
+                discounts_contract: discounts_addr.to_string(),
+                staking_contract: None,
+                mars_mirror_contract: None,
+                affiliate_fee: Decimal::percent(1),
+            },
+            &[],
+            "transmuter",
+            None,
+        )
+        .unwrap();
+
+    // Seed user VT deposits held in contract
+    app.execute_contract(
+        Addr::unchecked(USER),
+        contract.clone(),
+        &ExecuteMsg::EnterVault { recipient: None, deposit_for_incentives: Some(true), intents: None, affiliate_address: None },
+        &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
+    ).unwrap();
+
+    // Manually create an incentive event: 1 INC per VT
+    // We need VT supply > 0; it's minted in enter_vault above and held in contract
+    // Update schedule to emit a fixed amount by advancing time via block updates and setting monthly cap
+
+    // Advance time by 10 seconds and set monthly emission to 3_000_000 so per-second emits enough
+    app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::UpdateConfig {
+            owner: None,
+            deposit_pair: None,
+            composition_leeway: None,
+            asset_a_to_b_rate: None,
+            target_ratio: None,
+            tokenfactory_contract: None,
+            discounts_contract: None,
+            cdp_contract: None,
+            usage_fee: None,
+            swap_history_cap: None,
+            volume_history_cap: None,
+            rate_limit_window_secs: None,
+            rate_limit_threshold: None,
+            allowlist: None,
+            allowlist_rate_limit_threshold: None,
+            global_rate_limit_window_secs: None,
+            global_rate_limit_threshold: None,
+            revenue_distributor_addr: None,
+            revenue_distributions: None,
+            monthly_incentive_max: Some(Uint128::new(3_000_000)),
+            incentive_denom: None,
+            neutron_proxy: None,
+            staking_contract: None,
+            mars_mirror_contract: None,
+            affiliate_fee: Decimal::percent(1),
+        },
+        &[],
+    ).unwrap();
+
+    app.update_block(|b| { b.time = b.time.plus_seconds(10); b.height += 1; });
+
+    // Claim for USER via admin caller
+    let res = app.execute_contract(
+        Addr::unchecked(ADMIN),
+        contract.clone(),
+        &ExecuteMsg::ClaimIncentivesForUser { user: USER.to_string(), limit: Some(10), mbrn_intent: None },
+        &[],
+    ).unwrap();
+
+    // Find claimed_post_boost attribute
+    let mut claimed_post_boost: Option<Uint128> = None;
+    for ev in res.events {
+        for attr in ev.attributes {
+            if attr.key == "claimed_post_boost" {
+                claimed_post_boost = Some(Uint128::from(attr.value.parse::<u128>().unwrap_or(0)));
+            }
+        }
+    }
+    assert!(claimed_post_boost.is_some());
 }

@@ -14,3 +14,37 @@ MANIC
 
 MUST HAVE FIXES:
 Liquidations are failing to sim: "["simulate",null,"osmo1hfv5gzmpjpgc2ml0qf87j9lrwu9dayq24m33r0","osmosis-1","protocol_liquidation_sim","[object Object]"] data is undefined"
+
+
+STRUCTURE:
+About Page
+    Welcome within the earths membrane.
+    WHY: where we take the first step towards world
+    Peace OR removing parental guidance from our money
+
+    HOW (do we do this)
+    - how does indestructible money reduce war 
+    HOW (do we implement)
+    - how do we become indestructible (insurance + unblacklistable) = always solvent 
+    WHAT (do we implement)
+    - what do we do to become indestructible = flywheel + liquidatible USDC
+
+Use onboarding and marketing to attract the 3 groups of early adopters.
+
+WHY: belief in the mission
+HOW: belief in the system 
+WHAT: utility maximizes (yield chasers)
+
+MBRN and CDT start with lacking liquidity which causes UX friction 
+- we must explain the expected experience for these early adopters 
+- Place it right under the reward amount  
+- OUR GOAL IS TO ATTRACT USERS HAPPY TO DEAL WITH EARLY ADOPTION FRICTION
+
+
+The elevator is going down into a bunker.
+Users take quizzes to get to new complexity levels.
+
+Feedback form/Suggestion Box, use a plugin.
+- Also submit what page/URL they are on.
+
+Add hotjar or plugin for page analytics/user behavior tracking

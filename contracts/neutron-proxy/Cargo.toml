@@ -43,6 +43,9 @@ anyhow = "1.0"
 serde = { version = "1.0.137", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0.31" }
 itertools = "0.10"
+astroport = "5.9.0"
+astroport-factory = "1"
+astroport-router = "1"
 
 [dev-dependencies]
 cosmwasm-schema = "1.0.0"

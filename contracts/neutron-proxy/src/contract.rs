@@ -17,7 +17,7 @@ use membrane::helpers::get_contract_balances;
 use cw2::set_contract_version;
 
 use crate::error::TokenFactoryError;
-use crate::state::{PendingTokenInfo, TokenInfo, SwapInfo, CONFIG, PENDING, TOKENS, SWAP_ROUTES, SWAP_INFO};
+use crate::state::{PendingTokenInfo, TokenInfo, SwapInfo, CONFIG, PENDING, TOKENS, SWAP_ROUTES, SWAP_INFO, SWAP_ROUTE_CONFIG};
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse, MsgCreateDenomResponse};
 
 // version info for migration info
@@ -57,6 +57,18 @@ pub fn instantiate(
         (None, None, None)
     };
 
+    let astroport_factory = if let Some(factory_addr) = msg.astroport_factory {
+        Some(deps.api.addr_validate(&factory_addr)?)
+    } else {
+        None
+    };
+
+    let astroport_router = if let Some(router_addr) = msg.astroport_router {
+        Some(deps.api.addr_validate(&router_addr)?)
+    } else {
+        None
+    };
+
     let config = Config {
         owners: vec![
             NeutronOwner {
@@ -69,6 +81,9 @@ pub fn instantiate(
         cdt_denom,
         usdc_denom,
         vaults: msg.vaults.unwrap_or_default(),
+        astroport_factory,
+        astroport_router,
+        enable_dynamic_routing: msg.enable_dynamic_routing.unwrap_or(false),
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
@@ -127,7 +142,19 @@ pub fn execute(
             transmutation_pairs,
             transmuter_contract,
             vaults,
-        } => update_config(deps, info, owners, debt_auction, transmutation_pairs, transmuter_contract, vaults),
+            astroport_factory,
+            astroport_router,
+            enable_dynamic_routing,
+        } => update_config(deps, info, owners, debt_auction, transmutation_pairs, transmuter_contract, vaults, astroport_factory, astroport_router, enable_dynamic_routing),
+        // ExecuteMsg::CreatePclPair { asset_infos, params } => {
+        //     execute_create_pcl_pair(deps, env, info, asset_infos, params)
+        // },
+        ExecuteMsg::UpdateSwapRoute { route } => {
+            execute_update_swap_route(deps, info, route)
+        },
+        ExecuteMsg::UpdateSwapRoutes { routes } => {
+            execute_update_swap_routes(deps, info, routes)
+        },
         ExecuteMsg::TransmuteTokens { } => transmute_tokens(deps, env, info),
     }
 }
@@ -277,29 +304,172 @@ fn execute_swaps(
 
             msgs.push(SubMsg::new(transmute_msg));
         } else {
-            // Use regular DEX swap for other pairs
-            // Create a simple DualityRoute for direct swap
-            let route = DualityRoute {
-                from: coin.denom.clone(),
-                to: token_out.clone(),
-                swap_denoms: vec![coin.denom.clone(), token_out.clone()],
-            };
-
-            // Validate the route
-            route.validate(&deps.querier, &coin.denom, &token_out)?;
+            // Check route configuration for this pair
+            let route_pref = SWAP_ROUTE_CONFIG.may_load(
+                deps.storage,
+                (coin.denom.clone(), token_out.clone()),
+            )?;
 
             // Calculate minimum amount out with slippage protection
             let min_receive = coin.amount * (Decimal::one() - max_slippage);
 
-            // Build the swap message using Neutron DEX
-            let swap_msg: CosmosMsg<NeutronMsg> = route.build_exact_in_swap_msg(
-                &deps.querier,
-                &env,
-                &coin,
-                min_receive,
-            )?;
+            match route_pref {
+                Some(membrane::neutron_proxy::DexPreference::Best) => {
+                    // Dynamic routing: query both DEXes and choose best
+                    if !config.enable_dynamic_routing {
+                        return Err(TokenFactoryError::DynamicRoutingDisabled {});
+                    }
 
-            msgs.push(SubMsg::reply_on_success(swap_msg, SWAP_REPLY_ID));
+                    // Query Duality output (simulate)
+                    // Note: Duality doesn't have a simulation query, so we return None
+                    // In production, you might want to implement a price oracle or use a different method
+                    let duality_output: Option<Uint128> = None;
+
+                    // Query Astroport output (if factory configured and pair exists)
+                    let astroport_output = if let Some(ref factory) = config.astroport_factory {
+                        let asset_in = membrane::types::AssetInfo::NativeToken {
+                            denom: coin.denom.clone(),
+                        };
+                        let asset_out = membrane::types::AssetInfo::NativeToken {
+                            denom: token_out.clone(),
+                        };
+                        
+                        match crate::astroport_helpers::resolve_astroport_pair(
+                            &deps.querier,
+                            factory,
+                            &[asset_in.clone(), asset_out.clone()],
+                        ) {
+                            Ok(pair_addr) => {
+                                crate::astroport_helpers::query_astroport_swap_output(
+                                    &deps.querier,
+                                    &pair_addr,
+                                    &coin,
+                                    &asset_out,
+                                ).ok()
+                            }
+                            Err(_) => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                    // Choose best DEX
+                    let best_dex = crate::astroport_helpers::choose_best_dex(
+                        duality_output,
+                        astroport_output,
+                    )?;
+
+                    match best_dex {
+                        membrane::neutron_proxy::DexChoice::Duality => {
+                            // Use Duality
+                            let route = DualityRoute {
+                                from: coin.denom.clone(),
+                                to: token_out.clone(),
+                                swap_denoms: vec![coin.denom.clone(), token_out.clone()],
+                            };
+                            route.validate(&deps.querier, &coin.denom, &token_out)?;
+                            let swap_msg = route.build_exact_in_swap_msg(
+                                &deps.querier,
+                                &env,
+                                &coin,
+                                min_receive,
+                            )?;
+                            msgs.push(SubMsg::reply_on_success(swap_msg, SWAP_REPLY_ID));
+                        }
+                        membrane::neutron_proxy::DexChoice::Astroport => {
+                            // Use Astroport
+                            let factory = config.astroport_factory.as_ref().ok_or(
+                                TokenFactoryError::RouterNotConfigured {}
+                            )?;
+                            let asset_in = membrane::types::AssetInfo::NativeToken {
+                                denom: coin.denom.clone(),
+                            };
+                            let asset_out = membrane::types::AssetInfo::NativeToken {
+                                denom: token_out.clone(),
+                            };
+                            let pair_addr = crate::astroport_helpers::resolve_astroport_pair(
+                                &deps.querier,
+                                factory,
+                                &[asset_in, asset_out.clone()],
+                            )?;
+                            let swap_msg = crate::astroport_helpers::build_astroport_swap_msg(
+                                &pair_addr,
+                                &coin,
+                                &asset_out,
+                                min_receive,
+                                Some(max_slippage),
+                                Some(env.contract.address.clone()),
+                            )?;
+                            msgs.push(SubMsg::reply_on_success(swap_msg, SWAP_REPLY_ID));
+                        }
+                    }
+                }
+                Some(membrane::neutron_proxy::DexPreference::Astroport) => {
+                    // Use Astroport
+                    let factory = config.astroport_factory.as_ref().ok_or(
+                        TokenFactoryError::RouterNotConfigured {}
+                    )?;
+                    let asset_in = membrane::types::AssetInfo::NativeToken {
+                        denom: coin.denom.clone(),
+                    };
+                    let asset_out = membrane::types::AssetInfo::NativeToken {
+                        denom: token_out.clone(),
+                    };
+                    let pair_addr = crate::astroport_helpers::resolve_astroport_pair(
+                        &deps.querier,
+                        factory,
+                        &[asset_in, asset_out.clone()],
+                    )?;
+                    let swap_msg = crate::astroport_helpers::build_astroport_swap_msg(
+                        &pair_addr,
+                        &coin,
+                        &asset_out,
+                        min_receive,
+                        Some(max_slippage),
+                        Some(env.contract.address.clone()),
+                    )?;
+                    msgs.push(SubMsg::reply_on_success(swap_msg, SWAP_REPLY_ID));
+                }
+                Some(membrane::neutron_proxy::DexPreference::Duality) => {
+                    // Use Duality (explicit)
+                    let route = DualityRoute {
+                        from: coin.denom.clone(),
+                        to: token_out.clone(),
+                        swap_denoms: vec![coin.denom.clone(), token_out.clone()],
+                    };
+                    route.validate(&deps.querier, &coin.denom, &token_out)?;
+                    let swap_msg = route.build_exact_in_swap_msg(
+                        &deps.querier,
+                        &env,
+                        &coin,
+                        min_receive,
+                    )?;
+                    msgs.push(SubMsg::reply_on_success(swap_msg, SWAP_REPLY_ID));
+                }
+                Some(membrane::neutron_proxy::DexPreference::MultiHop(_hops)) => {
+                    // Multi-hop routing - for now, fall back to simple route
+                    // TODO: Implement multi-hop with per-hop DEX selection
+                    return Err(TokenFactoryError::InvalidRouteConfig {
+                        reason: "Multi-hop routing not yet implemented".to_string(),
+                    });
+                }
+                None => {
+                    // No route config - default to Duality (backward compatible)
+                    let route = DualityRoute {
+                        from: coin.denom.clone(),
+                        to: token_out.clone(),
+                        swap_denoms: vec![coin.denom.clone(), token_out.clone()],
+                    };
+                    route.validate(&deps.querier, &coin.denom, &token_out)?;
+                    let swap_msg = route.build_exact_in_swap_msg(
+                        &deps.querier,
+                        &env,
+                        &coin,
+                        min_receive,
+                    )?;
+                    msgs.push(SubMsg::reply_on_success(swap_msg, SWAP_REPLY_ID));
+                }
+            }
         }
     }
 
@@ -330,6 +500,9 @@ fn update_config(
     transmutation_pairs: Option<Vec<TransmutationPairEntry>>,
     transmuter_contract: Option<String>,
     vaults: Option<Vec<VaultEntry>>,
+    astroport_factory: Option<String>,
+    astroport_router: Option<String>,
+    enable_dynamic_routing: Option<bool>,
 ) -> Result<Response<NeutronMsg>, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -420,6 +593,21 @@ fn update_config(
         }
     }
 
+    //Edit Astroport Factory
+    if let Some(factory_addr) = astroport_factory {
+        config.astroport_factory = Some(deps.api.addr_validate(&factory_addr)?);
+    }
+
+    //Edit Astroport Router
+    if let Some(router_addr) = astroport_router {
+        config.astroport_router = Some(deps.api.addr_validate(&router_addr)?);
+    }
+
+    //Edit Dynamic Routing
+    if let Some(enabled) = enable_dynamic_routing {
+        config.enable_dynamic_routing = enabled;
+    }
+
     //Save Config
     CONFIG.save(deps.storage, &config)?;
 
@@ -427,6 +615,131 @@ fn update_config(
         attr("method", "update_config"),
         attr("updated_config", format!("{:?}", config)),
         ]))
+}
+
+// /// Create Astroport PCL pair
+// fn execute_create_pcl_pair(
+//     deps: DepsMut,
+//     env: Env,
+//     info: MessageInfo,
+//     asset_infos: Vec<AssetInfo>,
+//     params: membrane::neutron_proxy::PclInitParams,
+// ) -> Result<Response<NeutronMsg>, TokenFactoryError> {
+//     let config = CONFIG.load(deps.storage)?;
+
+//     // Assert authority
+//     let (authorized, _) = validate_authority(config.clone(), info.clone());
+//     if !authorized {
+//         return Err(TokenFactoryError::Unauthorized {});
+//     }
+
+//     // Validate exactly 2 assets
+//     if asset_infos.len() != 2 {
+//         return Err(TokenFactoryError::InvalidRouteConfig {
+//             reason: "Pair must have exactly 2 assets".to_string(),
+//         });
+//     }
+
+//     // Check for duplicates
+//     if asset_infos[0].equal(&asset_infos[1]) {
+//         return Err(TokenFactoryError::DuplicateAssets {});
+//     }
+
+//     // Validate PCL params
+//     crate::astroport_helpers::validate_pcl_params(&params)?;
+
+//     // Canonicalize asset infos
+//     let mut canonical_assets = asset_infos.clone();
+//     crate::astroport_helpers::canonicalize_asset_infos(&mut canonical_assets)?;
+
+//     // Get factory address
+//     let factory = config.astroport_factory.ok_or(
+//         TokenFactoryError::RouterNotConfigured {}
+//     )?;
+
+//     // Encode PCL init params
+//     let init_params = crate::astroport_helpers::encode_pcl_init_params(&params)?;
+
+//     // Convert to astroport AssetInfo
+//     let astroport_assets: Vec<astroport::asset::AssetInfo> = canonical_assets
+//         .iter()
+//         .map(|a| crate::astroport_helpers::asset_info_to_astroport(a.clone()))
+//         .collect();
+
+//     // Build create pair message
+//     // For PCL (Passive Concentrated Liquidity) pairs, use Custom variant
+//     let create_pair_msg = astroport::factory::ExecuteMsg::CreatePair {
+//         pair_type: astroport::factory::PairType::Custom("concentrated".to_string()),
+//         asset_infos: astroport_assets,
+//         init_params: Some(init_params),
+//     };
+
+//     Ok(Response::<NeutronMsg>::new()
+//         .add_message(CosmosMsg::Wasm(WasmMsg::Execute {
+//             contract_addr: factory.to_string(),
+//             msg: to_json_binary(&create_pair_msg)?,
+//             funds: vec![],
+//         }))
+//         .add_attribute("method", "create_pcl_pair")
+//         .add_attribute("assets", format!("{:?}", canonical_assets)))
+// }
+
+/// Update swap route configuration
+fn execute_update_swap_route(
+    deps: DepsMut,
+    info: MessageInfo,
+    route: membrane::neutron_proxy::SwapRouteEntry,
+) -> Result<Response<NeutronMsg>, TokenFactoryError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // Assert authority
+    let (authorized, owner_index) = validate_authority(config.clone(), info.clone());
+    if !authorized || !config.owners[owner_index].non_token_contract_auth {
+        return Err(TokenFactoryError::Unauthorized {});
+    }
+
+    let key = (route.token_in.clone(), route.token_out.clone());
+
+    if route.remove {
+        SWAP_ROUTE_CONFIG.remove(deps.storage, key);
+    } else {
+        SWAP_ROUTE_CONFIG.save(deps.storage, key, &route.preference)?;
+    }
+
+    Ok(Response::<NeutronMsg>::new()
+        .add_attribute("method", "update_swap_route")
+        .add_attribute("token_in", route.token_in)
+        .add_attribute("token_out", route.token_out)
+        .add_attribute("remove", route.remove.to_string()))
+}
+
+/// Batch update swap route configurations
+fn execute_update_swap_routes(
+    deps: DepsMut,
+    info: MessageInfo,
+    routes: Vec<membrane::neutron_proxy::SwapRouteEntry>,
+) -> Result<Response<NeutronMsg>, TokenFactoryError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // Assert authority
+    let (authorized, owner_index) = validate_authority(config.clone(), info.clone());
+    if !authorized || !config.owners[owner_index].non_token_contract_auth {
+        return Err(TokenFactoryError::Unauthorized {});
+    }
+
+    let routes_count = routes.len();
+    for route in routes {
+        let key = (route.token_in.clone(), route.token_out.clone());
+        if route.remove {
+            SWAP_ROUTE_CONFIG.remove(deps.storage, key);
+        } else {
+            SWAP_ROUTE_CONFIG.save(deps.storage, key, &route.preference)?;
+        }
+    }
+
+    Ok(Response::<NeutronMsg>::new()
+        .add_attribute("method", "update_swap_routes")
+        .add_attribute("routes_count", routes_count.to_string()))
 }
 
 /// Edit Owner params
@@ -831,7 +1144,7 @@ pub fn burn_tokens(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config { } => to_json_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::GetOwner { owner } => to_json_binary(&get_contract_owner(deps, owner)?),
@@ -843,6 +1156,15 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         // QueryMsg::PoolState { id } => to_json_binary(&get_pool_state(deps, id)?),
         QueryMsg::GetTokenInfo { denom } => to_json_binary(&get_token_info(deps, denom)?),
         QueryMsg::GetSwapRoutes { } => to_json_binary(&SWAP_ROUTES.load(deps.storage)?),
+        QueryMsg::GetSwapRouteConfig { token_in, token_out } => {
+            to_json_binary(&get_swap_route_config(deps, token_in, token_out)?)
+        },
+        QueryMsg::SimulateSwap { token_in, token_out, amount_in } => {
+            to_json_binary(&simulate_swap(deps, env, token_in, token_out, amount_in)?)
+        },
+        QueryMsg::AstroportPairInfo { asset_infos } => {
+            to_json_binary(&get_astroport_pair_info(deps, asset_infos)?)
+        },
     }
 }
 
@@ -892,6 +1214,122 @@ fn get_contract_denoms(deps: Deps, limit: Option<u32>) -> StdResult<ContractDeno
             denoms,
         }
     )
+}
+
+/// Get swap route configuration for a pair
+fn get_swap_route_config(
+    deps: Deps,
+    token_in: String,
+    token_out: String,
+) -> StdResult<membrane::neutron_proxy::SwapRouteConfigResponse> {
+    let preference = SWAP_ROUTE_CONFIG.may_load(deps.storage, (token_in, token_out))?;
+    Ok(membrane::neutron_proxy::SwapRouteConfigResponse { preference })
+}
+
+/// Simulate swap on both DEXes
+fn simulate_swap(
+    deps: Deps,
+    _env: Env,
+    token_in: String,
+    token_out: String,
+    amount_in: Uint128,
+) -> StdResult<membrane::neutron_proxy::SimulateSwapResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    let coin_in = Coin {
+        denom: token_in.clone(),
+        amount: amount_in,
+    };
+
+    // Query Duality output (not available, return None)
+    let duality_output: Option<Uint128> = None;
+
+    // Query Astroport output
+    let astroport_output = if let Some(ref factory) = config.astroport_factory {
+        let asset_in = AssetInfo::NativeToken {
+            denom: token_in.clone(),
+        };
+        let asset_out = AssetInfo::NativeToken {
+            denom: token_out.clone(),
+        };
+        
+        match crate::astroport_helpers::resolve_astroport_pair(
+            &deps.querier,
+            factory,
+            &[asset_in, asset_out.clone()],
+        ) {
+            Ok(pair_addr) => {
+                crate::astroport_helpers::query_astroport_swap_output(
+                    &deps.querier,
+                    &pair_addr,
+                    &coin_in,
+                    &asset_out,
+                ).ok()
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    // Determine best DEX
+    let best_dex = crate::astroport_helpers::choose_best_dex(
+        duality_output,
+        astroport_output,
+    ).ok();
+
+    Ok(membrane::neutron_proxy::SimulateSwapResponse {
+        duality_output,
+        astroport_output,
+        best_dex,
+    })
+}
+
+/// Get Astroport pair info
+fn get_astroport_pair_info(
+    deps: Deps,
+    asset_infos: Vec<AssetInfo>,
+) -> StdResult<membrane::neutron_proxy::AstroportPairInfoResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    let factory = config.astroport_factory.ok_or_else(|| {
+        StdError::generic_err("Astroport factory not configured")
+    })?;
+
+    if asset_infos.len() != 2 {
+        return Err(StdError::generic_err("Pair must have exactly 2 assets"));
+    }
+
+    // Canonicalize
+    let mut canonical_assets = asset_infos.clone();
+    crate::astroport_helpers::canonicalize_asset_infos(&mut canonical_assets)
+        .map_err(|e| StdError::generic_err(e.to_string()))?;
+
+    // Convert to astroport AssetInfo
+    let astroport_assets: Vec<astroport::asset::AssetInfo> = canonical_assets
+        .iter()
+        .map(|a| crate::astroport_helpers::asset_info_to_astroport(a.clone()))
+        .collect();
+
+    // Query factory - use a response struct that matches the actual API
+    #[derive(serde::Deserialize)]
+    struct PairInfoResponse {
+        pub contract_addr: Addr,
+        pub liquidity_token: Addr,
+        pub pair_type: String,
+    }
+    
+    let pair_info: PairInfoResponse = deps.querier.query_wasm_smart(
+        &factory,
+        &astroport::factory::QueryMsg::Pair {
+            asset_infos: astroport_assets,
+        },
+    )?;
+
+    Ok(membrane::neutron_proxy::AstroportPairInfoResponse {
+        pair_addr: pair_info.contract_addr.to_string(),
+        lp_token: pair_info.liquidity_token.to_string(),
+        pair_type: pair_info.pair_type,
+    })
 }
 
 /// Returns denom for a specified creator address and subdenom

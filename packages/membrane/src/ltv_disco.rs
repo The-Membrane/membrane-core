@@ -1,7 +1,7 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, Uint128};
 
-use crate::types::DepositDenom;
+use crate::types::{DepositDenom, Locked};
 
 //NOTES: 
 // If the Transmuter is low on CDT, the bad debt fulfillment will error.
@@ -40,8 +40,6 @@ pub struct InstantiateMsg {
     pub cdt_denom: String,
     /// Minimum deposit amount
     pub minimum_deposit: Uint128,
-    /// Waiting period for deposits (in seconds)
-    pub waiting_period: u64,
     /// Maximum LTV
     pub max_ltv: Decimal,
     /// Percent of revenue to disperse linearly
@@ -54,6 +52,14 @@ pub struct InstantiateMsg {
     pub oracle_contract: String,
     /// Chain proxy contract for executing swaps
     pub chain_proxy_contract: String,
+    /// Lock duration ceiling in days (max days you can lock)
+    pub lock_duration_ceiling: Option<u64>,
+    /// Optional affiliate fee percentage (default 1%)
+    pub affiliate_fee: Option<Decimal>,
+    /// Optional maximum management fee percentage (default 0%)
+    pub max_management_fee: Option<Decimal>,
+    /// Optional LTV delta minimum for historical tracking (default 1%)
+    pub ltv_delta_minimum: Option<Decimal>,
 }
 
 /// Execute messages
@@ -67,18 +73,69 @@ pub enum ExecuteMsg {
     UpdateQueue {
         asset: String,
         max_ltv: Option<Decimal>,
+        percent_to_disperse: Option<Decimal>,
     },
     /// Submit a backing deposit
     SubmitDeposit {
         deposit_input: BackingDepositInput,
         deposit_owner: Option<String>,
+        /// Optional lock information. If provided, deposit is locked on creation
+        locked: Option<Locked>,
+        /// Optional deposit_id to deposit into a specific existing deposit
+        deposit_id: Option<Uint128>,
+        /// Optional manager address (can move deposits but cannot withdraw)
+        manager: Option<String>,
+        /// Optional affiliate address to set when depositing
+        affiliate_address: Option<String>,
     },
     /// Withdraw a backing deposit (by group)
     WithdrawDeposit {
         asset: String,
         ltv: Decimal,
         max_borrow_ltv: Decimal,
+        deposit_id: Uint128,
         amount: Option<Uint128>,
+    },
+    /// Lock a deposit for a specified duration
+    Lock {
+        asset: String,
+        ltv: Decimal,
+        max_borrow_ltv: Decimal,
+        deposit_id: Uint128,
+        locked: Locked,
+        amount: Option<Uint128>,
+    },
+    /// Move a deposit to a different slot/group
+    MoveDeposit {
+        asset: String,
+        ltv: Decimal,
+        max_borrow_ltv: Decimal,
+        deposit_id: Uint128,
+        destination: BackingDepositInput,
+        amount: Option<Uint128>,
+        /// User address (optional, defaults to sender)
+        /// If provided, checks that sender is a manager for this user's deposit
+        user: Option<String>,
+    },
+    /// Update or remove manager for a deposit
+    /// Only the deposit owner can update the manager
+    UpdateManager {
+        asset: String,
+        ltv: Decimal,
+        max_borrow_ltv: Decimal,
+        deposit_id: Uint128,
+        /// Manager address (Some = set/update manager, None = remove manager)
+        manager: Option<String>,
+    },
+    /// Toggle withdrawals for a deposit
+    /// Only the depositor (the address that made the deposit) can call this
+    ToggleWithdrawals {
+        user: String,
+        asset: String,
+        ltv: Decimal,
+        max_borrow_ltv: Decimal,
+        deposit_id: Uint128,
+        enabled: bool,
     },
     /// Add bad debt to an LTV queue (CDP contract only)
     AddBadDebt {
@@ -100,6 +157,7 @@ pub enum ExecuteMsg {
         max_ltv: Decimal,
         max_borrow_ltv: Decimal,
         limit: Option<u32>,
+        compound_action: Option<CompoundAction>,
     },
     /// Disperse revenue linearly over the active window
     DisperseRevenue {
@@ -112,12 +170,15 @@ pub enum ExecuteMsg {
         deposit_denom: Option<DepositDenom>,
         cdt_denom: Option<String>,
         minimum_deposit: Option<Uint128>,
-        waiting_period: Option<u64>,
         percent_to_disperse: Option<Decimal>,
         dispersal_window: Option<u64>,
         activation_window: Option<u64>,
         oracle_contract: Option<String>,
         chain_proxy_contract: Option<String>,
+        lock_duration_ceiling: Option<u64>,
+        affiliate_fee: Option<Decimal>,
+        max_management_fee: Option<Decimal>,
+        ltv_delta_minimum: Option<Decimal>,
     },
     // /// Post a deposit tracker entry for base token tracking
     // PostDepositTrackerEntry {
@@ -132,6 +193,29 @@ pub enum ExecuteMsg {
         max_ltv: Decimal,
         max_borrow_ltv: Decimal,
     },
+    /// Refresh lock on a deposit (extends locked_until if perpetual_lock is set)
+    RefreshLock {
+        /// User address (if None, uses info.sender)
+        user: Option<String>,
+        asset: String,
+        ltv: Decimal,
+        max_borrow_ltv: Decimal,
+        deposit_id: Uint128,
+    },
+    /// Set affiliate for a user
+    SetAffiliate {
+        user: String,
+        affiliate_address: String,
+        label: Option<String>,
+    },
+    /// Set manager fee (only callable by managers with active deposits)
+    SetManagerFee {
+        fee: Decimal,
+    },
+    /// Clean manager fee state for a manager with no deposits (permissionless)
+    CleanManagerFee {
+        manager: String,
+    },
 }
 
 /// Query messages
@@ -141,12 +225,13 @@ pub enum QueryMsg {
     Config {},
     /// Get LTV queue for an asset
     GetLTVQueue { asset: String },
-    /// Get backing deposit by group (single deposit per user per group)
+    /// Get backing deposit by group and deposit ID
     GetBackingDeposit { 
         user: String, 
         asset: String, 
         ltv: Decimal, 
-        max_borrow_ltv: Decimal
+        max_borrow_ltv: Decimal,
+        deposit_id: Uint128,
     },
     /// Get backing deposits by user
     GetBackingDepositsByUser {
@@ -178,8 +263,41 @@ pub enum QueryMsg {
     GetAssets {},
     /// Get daily TVL tracker history
     GetDailyTVL {},
+    /// Get daily LTV tracker history for an asset
+    GetDailyLTV { asset: String },
     /// Get user's total deposits
     UserTotalDeposits { user: String },
+    /// Get user's locked deposits
+    GetLockedDeposits { user: String },
+    /// Get affiliates for a user
+    GetAffiliates { user: String },
+    /// Convert vault tokens to deposit tokens for a specific deposit group
+    VaultTokenConversion {
+        asset: String,
+        ltv: Decimal,
+        max_borrow_ltv: Decimal,
+        vault_tokens: Uint128,
+    },
+    /// Convert deposit tokens to vault tokens for a specific deposit group
+    DepositTokenConversion {
+        asset: String,
+        ltv: Decimal,
+        max_borrow_ltv: Decimal,
+        deposit_tokens: Uint128,
+    },
+    /// Get managed deposit keys for a manager (paginated)
+    GetManagedDepositKeys {
+        manager: String,
+        limit: Option<u32>,
+        start_after: Option<String>,
+    },
+    /// Get total insurance (MBRN deposits + pending rewards)
+    /// Returns total in CDT if oracle available, otherwise returns separate values
+    GetTotalInsurance {},
+    /// Get manager fee for a specific manager
+    GetManagerFee {
+        manager: String,
+    },
 }
 
 /// Response for LTV queue query
@@ -205,6 +323,37 @@ pub struct BackingDepositsByUserResponse {
 pub struct AverageLTVsResponse {
     pub average_max_ltv: Decimal,
     pub average_max_borrow_ltv: Decimal,
+}
+
+/// Response for managed deposit keys query
+#[cw_serde]
+pub struct ManagedDepositKeysResponse {
+    pub keys: Vec<String>,
+    pub total: u64,
+    pub next_start_after: Option<String>,
+}
+
+/// Response for total insurance query
+#[cw_serde]
+pub enum TotalInsuranceResponse {
+    /// Oracle conversion succeeded - return total insurance in CDT
+    WithOracle {
+        total_insurance: Uint128,
+    },
+    /// Oracle conversion failed - return pending CDT and per-asset deposit totals
+    WithoutOracle {
+        pending_cdt: Uint128,
+        mbrn_deposit_totals: Vec<(String, Uint128)>,
+    },
+}
+
+/// Response for manager fee query
+#[cw_serde]
+pub struct ManagerFeeResponse {
+    /// Manager address
+    pub manager: String,
+    /// Manager fee percentage (0 if not set)
+    pub fee: Decimal,
 }
 
 #[cw_serde]
@@ -238,6 +387,28 @@ pub struct DepositPendingClaim {
 #[cw_serde]
 pub struct MigrateMsg {}
 
+/// Compound action for revenue claims
+/// 
+/// Allows users to control compound behavior on a per-claim basis.
+/// Can be used to:
+/// - One-time compound: compound_now = true, set_ongoing = false
+/// - Set ongoing intent: compound_now = true/false, set_ongoing = true
+/// - Override deposit setting: compound_now = true overrides deposit.compound_claims
+#[cw_serde]
+pub struct CompoundAction {
+    /// Whether to compound this claim
+    /// If true, deposits will compound this claim regardless of their compound_claims setting
+    /// Priority: compound_now > deposit.compound_claims
+    pub compound_now: bool,
+    /// Whether to set compound_claims as ongoing intent on deposits
+    /// If true, all deposits will have compound_claims set to true for future claims
+    /// This allows users to "turn on" automatic compounding permanently
+    pub set_ongoing: bool,
+    /// Optional recipient address for the claim
+    /// If provided, the claim will be sent to this address instead of the user
+    pub recipient_address: Option<String>,
+}
+
 
 /// Configuration for the LTV Discount contract
 #[cw_serde]
@@ -256,8 +427,6 @@ pub struct Config {
     pub cdt_denom: String,
     /// Minimum deposit amount
     pub minimum_deposit: Uint128,
-    /// Waiting period for deposits (in seconds)
-    pub waiting_period: u64,
     /// Max LTV
     pub max_ltv: Decimal,
     /// Percent of revenue to disperse linearly
@@ -275,6 +444,14 @@ pub struct Config {
     pub oracle_contract: Addr,
     /// Chain proxy contract for executing swaps to convert collateral to CDT
     pub chain_proxy_contract: Addr,
+    /// Lock duration ceiling in days (max days you can lock)
+    pub lock_duration_ceiling: u64,
+    /// Affiliate fee percentage (default 1%)
+    pub affiliate_fee: Decimal,
+    /// Maximum management fee percentage (default 0%)
+    pub max_management_fee: Decimal,
+    /// LTV delta minimum for historical tracking (default 1%)
+    pub ltv_delta_minimum: Decimal,
 }
 
 #[cw_serde]
@@ -301,6 +478,9 @@ pub struct LTVQueue {
     pub liquidation_ltv: DecimalMinMax,
     /// Current deposit ID counter
     pub current_deposit_id: Uint128,
+    /// Optional percent of revenue to disperse for this queue
+    /// If None, uses the global config value
+    pub percent_to_disperse: Option<Decimal>,
 }
 
 #[cw_serde]
@@ -333,6 +513,8 @@ pub struct MaxBorrowLTVGroup {
     pub total_deposit_tokens: Uint128,
     /// Total vault tokens for this group
     pub total_vault_tokens: Uint128,
+    /// Total locked vault tokens for this group (sum of all deposits' locked_vault_tokens)
+    pub total_locked_vault_tokens: Uint128,
 }
 
 /// Backing deposit similar to Bid but for LTV slots
@@ -342,12 +524,33 @@ pub struct BackingDeposit {
     pub user: Addr,
     /// Deposit amount (vault tokens)
     pub vault_tokens: Uint128,
+    /// Boosted vault tokens (vault_tokens * (lock_days + 1)) used for revenue calculations
+    pub locked_vault_tokens: Uint128,
     /// Chosen max borrow LTV for sorting within slot
     pub max_borrow_ltv: Decimal,
-    /// Wait end time (if any)
-    pub wait_end: Option<u64>,
     /// Last timestamp the user claimed revenue for this deposit
     pub last_claimed: u64,
+    /// Lock information (if locked)
+    pub locked: Option<Locked>,
+    /// Timestamp when deposit was created (for boost calculations)
+    pub start_time: u64,
+    /// Whether to automatically compound claimed revenue back into this deposit
+    /// 
+    /// If true, this deposit will automatically compound its claimed revenue on every claim.
+    /// The claimed CDT is swapped to deposit tokens via neutron_proxy and added back to the deposit.
+    /// 
+    /// Can be set via CompoundAction.set_ongoing or manually by the contract owner.
+    /// Defaults to false for new deposits.
+    pub compound_claims: bool,
+    /// Optional manager address
+    /// Manager can move deposits but cannot withdraw
+    pub manager: Option<Addr>,
+    /// Address that made the deposit (None for self-deposits, Some for deposits made on behalf of others)
+    /// First depositor for a position is saved and cannot be changed
+    pub depositor: Option<Addr>,
+    /// Whether withdrawals are enabled for this deposit
+    /// Only the depositor can toggle this setting
+    pub withdrawals_enabled: bool,
 }
 
 /// Input for creating a backing deposit
@@ -374,8 +577,8 @@ pub struct RevenueTrackingEntry {
 #[cw_serde]
 pub struct RevenueEvent {
     pub timestamp: u64,
-    // Revenue per 1 vault token
-    pub amount_per_vt: Decimal,
+    // Revenue per 1 locked vault token
+    pub amount_per_locked_vt: Decimal,
     // Remaining total to be claimed from this event
     pub amount_to_be_claimed: Uint128,
 }
@@ -394,6 +597,14 @@ pub struct TVLEntry {
     pub total_deposit_tokens: Uint128,
 }
 
+/// LTV tracking entry
+#[cw_serde]
+pub struct LTVEntry {
+    pub timestamp: u64,
+    pub average_max_ltv: Decimal,
+    pub average_max_borrow_ltv: Decimal,
+}
+
 /// Response for assets query
 #[cw_serde]
 pub struct AssetsResponse {
@@ -406,8 +617,35 @@ pub struct DailyTVLResponse {
     pub entries: Vec<TVLEntry>,
 }
 
+/// Response for daily LTV query
+#[cw_serde]
+pub struct DailyLTVResponse {
+    pub entries: Vec<LTVEntry>,
+}
+
 /// Response for user total deposits query
 #[cw_serde]
 pub struct UserTotalDepositsResponse {
     pub total_deposits: Uint128,
+}
+
+/// Locked deposit with identifying information to reconstruct the deposit key
+#[cw_serde]
+pub struct LockedDeposit {
+    /// Asset identifier
+    pub asset: String,
+    /// LTV value for this deposit
+    pub ltv: Decimal,
+    /// Max borrow LTV for this deposit
+    pub max_borrow_ltv: Decimal,
+    /// Deposit ID
+    pub deposit_id: Uint128,
+    /// The backing deposit
+    pub deposit: BackingDeposit,
+}
+
+/// Response for locked deposits query
+#[cw_serde]
+pub struct LockedDepositsResponse {
+    pub locked_deposits: Vec<LockedDeposit>,
 }

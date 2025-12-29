@@ -54,7 +54,7 @@ mod tests {
                 max_LTV: Decimal::percent(70),
                 pool_info: None,
                 rate_index: Decimal::one(),
-                hike_rates: None,
+                individual_cost: None,
             },
         ];
 
@@ -87,7 +87,7 @@ mod tests {
                 max_LTV: Decimal::percent(70),
                 pool_info: None,
                 rate_index: Decimal::one(),
-                hike_rates: None,
+                individual_cost: None,
             },
         ];
 
@@ -120,7 +120,7 @@ mod tests {
                 max_LTV: Decimal::percent(60),
                 pool_info: None,
                 rate_index: Decimal::one(),
-                hike_rates: None,
+                individual_cost: None,
             },
             cAsset {
                 asset: Asset {
@@ -133,7 +133,7 @@ mod tests {
                 max_LTV: Decimal::percent(65),
                 pool_info: None,
                 rate_index: Decimal::one(),
-                hike_rates: None,
+                individual_cost: None,
             },
         ];
 
@@ -169,7 +169,7 @@ mod tests {
                 max_LTV: Decimal::percent(75),
                 pool_info: None,
                 rate_index: Decimal::one(),
-                hike_rates: None,
+                individual_cost: None,
             },
         ];
 

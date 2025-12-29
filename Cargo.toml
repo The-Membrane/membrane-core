@@ -11,6 +11,7 @@ members = [
     "contracts/liq-queue",
     "contracts/ltv_disco",
     "contracts/liquidity_check",
+    "contracts/mars-mirror",
     "contracts/mars-vault-token",
     "contracts/oracle",
     "contracts/osmosis-proxy",
@@ -32,7 +33,9 @@ members = [
     "contracts/revenue-distributor",
     "contracts/neutron-proxy",
     "contracts/transmuter",
+    "contracts/transmuter-lockdrop",
     "contracts/yield-arb",
+    "contracts/neutron_launch"
 ]
 
 exclude = [

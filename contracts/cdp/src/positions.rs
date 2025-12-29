@@ -36,6 +36,7 @@ use crate::{
     },
     ContractError,
 };
+use crate::circuit_breaker::check_assets_not_frozen;
 
 //Liquidation reply ids
 pub const LIQ_QUEUE_REPLY_ID: u64 = 1u64;
@@ -62,11 +63,11 @@ pub fn deposit(
     position_owner: Option<String>,
     position_id: Option<Uint128>,
     cAssets: Vec<cAsset>,
+    affiliate_address: Option<String>,
 ) -> Result<Response, ContractError> {    
     let config = CONFIG.load(deps.storage)?;
     let valid_owner_addr = validate_position_owner(deps.api, info.clone(), position_owner)?;
     let mut basket: Basket = BASKET.load(deps.storage)?;
-    let mut set_redemption = false;
     
     //Check if frozen
     if basket.frozen { return Err(ContractError::Frozen {  }) }
@@ -77,13 +78,6 @@ pub fn deposit(
         .map(|cAsset| cAsset.asset.amount)
         .collect::<Vec<Uint128>>();
 
-    //If any cAsset is a rate_hike asset, force a redemption 
-    for cAsset in cAssets.clone(){
-        if cAsset.hike_rates.is_some() && cAsset.hike_rates.unwrap() {
-            set_redemption = true;
-        }
-    }
-
     //Initialize positions_prev_collateral & position_info for deposited assets
     //Used for to double check state storage
     let mut positions_prev_collateral = vec![];
@@ -93,19 +87,6 @@ pub fn deposit(
 
         //Add collateral to the position_id or Create a new position 
         if let Some(position_id) = position_id {
-            //If a rate hike asset is deposited, force a redemption
-            if set_redemption {
-                edit_redemption_info(
-                    deps.storage,
-                    info.clone().sender,
-                    vec![position_id],
-                    Some(true),
-                    Some(1),
-                    Some(Decimal::one()),
-                    None,
-                    true,
-                )?;
-            }
             //Find the position
             if let Some((position_index, mut position)) = positions.clone()
                 .into_iter()
@@ -212,21 +193,6 @@ pub fn deposit(
                     Ok(positions)
                 },
             )?;
-
-            
-            //If a rate hike asset is deposited, force a redemption
-            if set_redemption {
-                edit_redemption_info(
-                    deps.storage,
-                    info.clone().sender,
-                    vec![position_info.position_id],
-                    Some(true),
-                    Some(1),
-                    Some(Decimal::one()),
-                    None,
-                    true,
-                )?;
-            }
         }
     } else { //No existing positions loaded so new Vec<Position> is created
         let (new_position_info, new_position) = create_position_in_deposit(
@@ -248,24 +214,44 @@ pub fn deposit(
             valid_owner_addr,
             &vec![new_position],
         )?;
-                
-        //If a rate hike asset is deposited, force a redemption
-        if set_redemption {
-            edit_redemption_info(
-                deps.storage,
-                info.clone().sender,
-                vec![position_info.position_id],
-                Some(true),
-                Some(1),
-                Some(Decimal::one()),
-                None,
-                true,
-            )?;
-        }
     }
 
     //Double check State storage
     check_deposit_state(deps.storage, deps.api, positions_prev_collateral, deposit_amounts, position_info.clone())?;    
+
+    // Handle affiliate if provided
+    if let Some(affiliate_addr) = affiliate_address {
+        // Load existing affiliates for this position
+        let mut affiliates = AFFILIATES.load(deps.storage, position_info.position_id.to_string()).unwrap_or_else(|_| vec![]);
+        
+        // Check if affiliate already exists
+        if !affiliates.iter().any(|a| a.affiliate_address == affiliate_addr) {
+            // Check limit
+            if affiliates.len() >= 3 {
+                return Err(ContractError::CustomError {
+                    val: "Can't add more than 3 affiliations".to_string(),
+                });
+            }
+            
+            // Add new affiliate with current time and fee from SetAffiliate logic
+            // Note: CDP uses individual fees, so we need to get the fee from the last affiliate or use a default
+            let affiliate_fee = if let Some(last_affiliate) = affiliates.last() {
+                last_affiliate.affiliate_fee
+            } else {
+                // Default to 0 affiliate fee if no previous affiliate
+                Decimal::percent(0)
+            };
+            
+            affiliates.push(AffiliateData {
+                affiliate_address: affiliate_addr.clone(),
+                affiliate_fee,
+                time_affiliated: env.block.time.seconds(),
+                label: None,
+            });
+            
+            AFFILIATES.save(deps.storage, position_info.position_id.to_string(), &affiliates)?;
+        }
+    }
 
     // Create collateral rate assurance for deposited assets
     let collateral_denoms: Vec<String> = cAssets.iter()
@@ -380,6 +366,15 @@ pub fn withdraw(
 
     //Check if frozen
     if basket.frozen { return Err(ContractError::Frozen {  }) }
+
+    // Circuit breaker: block withdrawals when any asset is frozen due to price deviation
+    check_assets_not_frozen(
+        deps.storage,
+        deps.querier,
+        &env,
+        &config,
+        &cAssets,
+    )?;
 
     //Set recipient
     let mut recipient = info.clone().sender;
@@ -696,8 +691,11 @@ pub fn repay(
     }
 
     //Get affiliates
-    let affiliations = AFFILIATES.load(storage, position_id.to_string())
+    let mut affiliations = AFFILIATES.load(storage, position_id.to_string())
         .unwrap_or_else(|_| vec![]);
+
+    // Early skip/reset affiliates with zero fee and zero time
+    affiliations.retain(|a| !a.affiliate_fee.is_zero() || a.time_affiliated != 0);
 
     //Set total_interest_paid
     let total_interest_paid = std::cmp::min(target_position.pending_interest, credit_asset.amount - excess_repayment);
@@ -723,7 +721,7 @@ pub fn repay(
     messages.extend(burn_and_rev_msgs);
 
     //Update affiliates.
-    //Used during repay to reset the time affiliated & shrink the list to a single affiliate..
+    //Used during repay to preserve historic flows (up to 10), reset time_affiliated
     update_affiliates(storage, affiliations, position_id, env.block.time.seconds())?;
 
     
@@ -798,6 +796,7 @@ pub fn repay(
             attr("total_interest_accrued", target_position.total_interest_accrued),
             attr("loan_amount", target_position.credit_amount),
             attr("total_interest_paid", total_interest_paid),
+            attr("revenue", total_interest_paid),
     ]))
 }
 
@@ -1237,10 +1236,12 @@ pub fn increase_debt(
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
     let mut basket: Basket = BASKET.load(deps.storage)?;
-    let mut set_redemption = false;
 
     //Check if frozen
     if basket.frozen { return Err(ContractError::Frozen {  }) }
+
+    // Circuit breaker: block new debt when any collateral asset is frozen
+    // We'll perform the check after loading the target position so we know which assets to examine.
 
     //Only the contract can send deployment_intents
     if deployment_intent.is_some() && info.sender != env.contract.address {
@@ -1257,13 +1258,14 @@ pub fn increase_debt(
     //Get Target position
     let (position_index, mut target_position) = get_target_position(deps.storage, position_owner.clone(), position_id)?;
 
-    
-    //If any cAsset is a rate_hike asset, force a redemption 
-    for cAsset in target_position.collateral_assets.clone(){
-        if cAsset.hike_rates.is_some() && cAsset.hike_rates.unwrap() {
-            set_redemption = true;
-        }
-    }    
+    // Circuit breaker: ensure the position's collateral assets are not frozen
+    check_assets_not_frozen(
+        deps.storage,
+        deps.querier,
+        &env,
+        &config,
+        &target_position.collateral_assets,
+    )?;
 
     //Accrue interest
     accrue(
@@ -1426,20 +1428,6 @@ pub fn increase_debt(
         position_id, 
         position_owner.clone(),
     )?;
-    
-    //If a rate hike asset is deposited, force a redemption
-    if set_redemption {
-        edit_redemption_info(
-            deps.storage,
-            position_owner.clone(),
-            vec![position_id.clone()],
-            Some(true),
-            Some(1),
-            Some(Decimal::one()),
-            None,
-            true,
-        )?;
-    }
 
     let response = Response::new()
         .add_messages(messages)
@@ -1710,15 +1698,6 @@ pub fn edit_redemption_info(
         }
     }
 
-    //If a rate hike asset is in the position, USER CAN"T REMOVE REEDMPTIONS
-    for id in position_ids.clone() {
-        let (_i, target_position) = get_target_position(storage, position_owner.clone(), id)?;
-        for cAsset in target_position.collateral_assets.clone(){
-            if !called_by_contract && cAsset.hike_rates.is_some() && cAsset.hike_rates.unwrap() {
-                return Err(ContractError::CustomError { val: format!("Can't edit redemption for a position with a rate hike asset: {:?}", cAsset.asset.info) })
-            }
-        }
-    }
 
     //////Additions//////
     //Add PositionRedemption objects under the user in the desired premium while skipping duplicates, if redeemable is true or None
@@ -2444,14 +2423,10 @@ pub fn redeem_for_collateral(
     for (i, asset) in collateral_types.iter().enumerate() {
         if let Some(ref mut cost) = new_assets[i].individual_cost {
             // If individual_cost exists, initialize the rate
-            let initial_rate = if config.rate_hike_rate.is_some() && asset.hike_rates.is_some() && asset.hike_rates.unwrap() {
-                config.rate_hike_rate.unwrap()
-            } else {
-                decimal_multiplication(
-                    base_interest_rate,
-                    decimal_division(Decimal::one(), asset.max_LTV)?,
-                )?
-            };
+            let initial_rate = decimal_multiplication(
+                base_interest_rate,
+                decimal_division(Decimal::one(), asset.max_LTV)?,
+            )?;
             cost.rate = initial_rate;
         }
         // Otherwise leave it as None
@@ -2562,7 +2537,6 @@ pub fn edit_basket(
         max_LTV: Decimal::zero(),
         pool_info: None,
         rate_index: Decimal::one(),
-        hike_rates: Some(false),
         individual_cost: Some(IndividualCost {
             rate: Decimal::zero(),
             updater_address: None,
@@ -2602,14 +2576,10 @@ pub fn edit_basket(
         new_cAsset.rate_index = Decimal::one();
 
         //Initialize individual_cost with base formula: base_interest_rate * (1/max_LTV)
-        let initial_rate = if config.rate_hike_rate.is_some() && new_cAsset.hike_rates.is_some() && new_cAsset.hike_rates.unwrap() {
-            config.rate_hike_rate.unwrap()
-        } else {
-            decimal_multiplication(
-                basket.base_interest_rate,
-                decimal_division(Decimal::one(), new_cAsset.max_LTV)?,
-            )?
-        };
+        let initial_rate = decimal_multiplication(
+            basket.base_interest_rate,
+            decimal_division(Decimal::one(), new_cAsset.max_LTV)?,
+        )?;
         
         //Initialize individual_cost if not already set
         if new_cAsset.individual_cost.is_none() {
@@ -3244,7 +3214,7 @@ pub fn credit_mint_msg(
 }
 
 /// Updates the affiliates for a position.
-/// Used during repay to reset the time affiliated & shrink the list to a single affiliate.
+/// Used during repay to reset the time affiliated & preserve historic affiliate flows (up to 10).
 fn update_affiliates(
     storage: &mut dyn Storage,
     affiliates: Vec<AffiliateData>,
@@ -3254,12 +3224,28 @@ fn update_affiliates(
     if affiliates.is_empty() {
         return Ok(())
     }
-    //Only save the last affiliate
-    let mut affiliates = vec![affiliates[affiliates.len() - 1].clone()];
-    //Set this affiliate's time affiliated to the current block time
-    affiliates[0].time_affiliated = current_time;
-    //Update affiliates
-    AFFILIATES.save(storage, position_id.to_string(), &affiliates)?;
+    // Keep all affiliates (up to 10), limit to last 10 if more exist
+    let mut updated_affiliates = affiliates;
+    if updated_affiliates.len() > 10 {
+        // Remove from the front, keep last 10
+        let start_idx = updated_affiliates.len() - 10;
+        updated_affiliates = updated_affiliates.into_iter().skip(start_idx).collect();
+    }
+    
+    // Reset time_affiliated: set to 0 for all except the last one, set to current_time for the last one
+    let len = updated_affiliates.len();
+    for (i, aff) in updated_affiliates.iter_mut().enumerate() {
+        if i == len - 1 {
+            // Last affiliate: set to current time
+            aff.time_affiliated = current_time;
+        } else {
+            // All others: reset to 0 (wipe time spent)
+            aff.time_affiliated = 0;
+        }
+    }
+    
+    // Update affiliates
+    AFFILIATES.save(storage, position_id.to_string(), &updated_affiliates)?;
 
     Ok(())
 }

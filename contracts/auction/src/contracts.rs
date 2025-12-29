@@ -8,7 +8,7 @@ use cw2::set_contract_version;
 use membrane::auction::{ExecuteMsg, InstantiateMsg, QueryMsg, Config, UpdateConfig, MigrateMsg};
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
-use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
+use membrane::chain_proxy::ExecuteMsg as ChainProxyExecuteMsg;
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
 use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, DebtAuction, FeeAuction};
@@ -615,7 +615,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
         //Else
         let message = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.clone().osmosis_proxy.to_string(),
-            msg: to_json_binary(&OsmoExecuteMsg::MintTokens {
+            msg: to_json_binary(& ChainProxyExecuteMsg::MintTokens {
                 denom: config.clone().mbrn_denom,
                 amount: mbrn_mint_amount,
                 mint_to_address: info.clone().sender.to_string(),

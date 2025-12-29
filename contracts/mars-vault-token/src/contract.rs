@@ -195,6 +195,7 @@ pub fn update_cdp_costs(
             distribute_revenue: None,
             take_revenue: None,
             individual_costs: Some(vec![(vault_token_asset_string, vault_cost_rate)]),
+            individual_cost_updaters: None,
         }
     );
     

@@ -109,6 +109,20 @@ pub struct PriceTimestamp {
     pub timestamp: u64,
 }
 
+/// Per-asset circuit breaker configuration and state
+#[cw_serde]
+pub struct AssetCircuitBreaker {
+    /// Is the asset currently frozen due to abnormal price moves?
+    pub frozen: bool,
+    /// Timestamp (in seconds) when the asset was frozen
+    pub frozen_at: u64,
+    /// Allowed price deviation from the reference price before freezing
+    /// Example: 0.10 = 10% deviation
+    pub price_deviation_threshold: Decimal,
+    /// Reference price used to measure deviation (typically a TWAP or recent average)
+    pub reference_price: Option<Decimal>,
+}
+
 #[cw_serde]
 pub struct LTVUpdateTracker {
     /// Timestamp of last upward accrual
@@ -162,6 +176,8 @@ pub const CDT_SUPPLY: Item<Vec<SupplyTimestamp>> = Item::new("cdt_supply");
 pub const HISTORICAL_ORACLE_PRICES: Map<String, Vec<PriceTimestamp>> = Map::new("historical_oracle"); //asset, price
 /// LTV Update Trackers for dynamic LTV mechanism
 pub const LTV_UPDATE_TRACKERS: Map<String, LTVUpdateTracker> = Map::new("ltv_update_trackers"); //asset_denom, tracker
+/// Per-asset circuit breaker state
+pub const ASSET_CIRCUIT_BREAKERS: Map<String, AssetCircuitBreaker> = Map::new("asset_circuit_breakers");
 
 //Helper functions
 
@@ -283,7 +299,6 @@ pub fn update_position_claims(
         max_LTV: Decimal::zero(),
         pool_info: None,
         rate_index: Decimal::one(),
-        hike_rates: Some(false),
         individual_cost: Some(IndividualCost {
             rate: Decimal::zero(),
             updater_address: None,

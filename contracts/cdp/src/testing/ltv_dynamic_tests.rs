@@ -30,7 +30,6 @@ mod tests {
             debt_minimum: cosmwasm_std::Uint128::new(100),
             base_debt_cap_multiplier: cosmwasm_std::Uint128::new(100),
             rate_slope_multiplier: Decimal::one(),
-            rate_hike_rate: None,
             affiliate_fee_max: Decimal::percent(5),
             skip_credit_price_accrual: false,
             liquidation_stat_limit: 500,

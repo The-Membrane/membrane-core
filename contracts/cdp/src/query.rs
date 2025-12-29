@@ -22,6 +22,7 @@ use membrane::math::{decimal_division, decimal_multiplication, decimal_subtracti
 
 use crate::positions::get_amount_from_LTV;
 use crate::state::{get_target_position, CollateralVolatility, ACTIVE_DEPLOYMENT_VENUES, BASKET, CONFIG, HISTORICAL_ORACLE_PRICES, LIQUIDATION_STATS, POSITIONS, REDEMPTION_OPT_IN, STORED_PRICES, USER_INTENTS, VOLATILITY, update_historical_oracle};
+use crate::ltv_updater::cap_ltv_values;
 
 const MAX_LIMIT: u32 = 31;
 pub const VOLATILITY_LIST_LIMIT: u32 = 48;
@@ -275,7 +276,6 @@ pub fn query_basket_credit_interest(
             max_LTV: Decimal::zero(),
             pool_info: None,
             rate_index: Decimal::one(),
-            hike_rates: Some(false),
             individual_cost: Some(IndividualCost {
                 rate: Decimal::zero(),
                 updater_address: None,
@@ -712,17 +712,21 @@ pub fn query_ltv_disco_for_asset_ltvs(
         )?;
 
         // If ltv_disco returns zero (no deposits for this asset), fall back to cAsset's stored LTVs
-        let max_ltv = if response.average_max_ltv.is_zero() {
+        let mut max_ltv = if response.average_max_ltv.is_zero() {
             asset.max_LTV
         } else {
             response.average_max_ltv
         };
 
-        let max_borrow_ltv = if response.average_max_borrow_ltv.is_zero() {
+        let mut max_borrow_ltv = if response.average_max_borrow_ltv.is_zero() {
             asset.max_borrow_LTV
         } else {
             response.average_max_borrow_ltv
         };
+
+        // Ensure LTVs are valid: max_borrow_ltv < max_ltv
+        cap_ltv_values(&mut max_borrow_ltv, &mut max_ltv)
+            .map_err(|e| StdError::generic_err(format!("Failed to cap LTV values: {}", e)))?;
 
         ltv_tuples.push((max_ltv, max_borrow_ltv));
     }

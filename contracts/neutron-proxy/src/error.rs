@@ -1,4 +1,4 @@
-use cosmwasm_std::StdError;
+use cosmwasm_std::{StdError, Uint128};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
@@ -32,4 +32,28 @@ pub enum TokenFactoryError {
 
     #[error("Custom Error val: {val:?}")]
     CustomError { val: String },
+
+    #[error("Astroport pair not found for assets: {asset_infos:?}")]
+    PairNotFound { asset_infos: Vec<String> },
+
+    #[error("Astroport router not configured")]
+    RouterNotConfigured {},
+
+    #[error("Invalid route configuration: {reason}")]
+    InvalidRouteConfig { reason: String },
+
+    #[error("No liquidity available on either DEX")]
+    NoLiquidityAvailable {},
+
+    #[error("Dynamic routing is disabled")]
+    DynamicRoutingDisabled {},
+
+    #[error("Invalid PCL parameter {field}: {message}")]
+    InvalidPclParam { field: String, message: String },
+
+    #[error("Slippage exceeded: expected {expected}, got {actual}")]
+    SlippageExceeded { expected: Uint128, actual: Uint128 },
+
+    #[error("Duplicate assets in pair")]
+    DuplicateAssets {},
 }

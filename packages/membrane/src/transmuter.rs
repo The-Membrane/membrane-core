@@ -23,13 +23,13 @@ use crate::types::LiqAsset;
 pub struct InstantiateMsg {
     pub owner: Option<String>,
     pub tokenfactory_contract: Option<Addr>,
-    pub revenue_contract: String,
+    pub discounts_contract: String,
     pub cdp_contract: String,
     pub vault_subdenom: String,
     pub deposit_pair: AssetPair,
     pub composition_leeway: Decimal,
     pub asset_a_to_b_rate: Decimal,
-    pub target_ratio: Decimal, //probably set to 0%, which means no CDT needed.
+    pub cdt_target_ratio: Decimal, //probably set to 0%, which means no CDT needed.
     pub usage_fee: Option<Decimal>,
     pub swap_history_cap: u32,
     pub volume_history_cap: u32,
@@ -49,6 +49,12 @@ pub struct InstantiateMsg {
     pub global_rate_limit_window_secs: Option<u64>,
     /// Optional global rate limit threshold as percentage of total deposits for all non-whitelisted addresses (default 20%)
     pub global_rate_limit_threshold: Option<Decimal>,
+    /// Maximum lock days allowed for vault tokens
+    pub lock_ceiling: u64,
+    /// Affiliate fee percentage (required, default 1%)
+    pub affiliate_fee: Decimal,
+    /// Whether to send swap fees to revenue distributor (true) or keep them in contract (false)
+    pub send_swap_fee: Option<bool>,
 }
 
 #[cw_serde]
@@ -58,10 +64,10 @@ pub enum ExecuteMsg {
         deposit_pair: Option<AssetPair>,
         composition_leeway: Option<Decimal>,
         asset_a_to_b_rate: Option<Decimal>,
-        target_ratio: Option<Decimal>,
+        cdt_target_ratio: Option<Decimal>,
         tokenfactory_contract: Option<Addr>,
+        discounts_contract: Option<String>,
         cdp_contract: Option<String>,
-        revenue_contract: Option<String>,
         usage_fee: Option<Decimal>,
         swap_history_cap: Option<u32>,
         volume_history_cap: Option<u32>,
@@ -81,27 +87,25 @@ pub enum ExecuteMsg {
         revenue_distributor_addr: Option<String>,
         /// Optional revenue distribution ratios (Vec<LiqAsset>)
         revenue_distributions: Option<Vec<crate::types::DistributionEntry>>,
-        /// Optional monthly incentive maximum
-        monthly_incentive_max: Option<Uint128>,
-        /// Optional incentive denom
-        incentive_denom: Option<String>,
-        /// Optional neutron proxy
-        neutron_proxy: Option<String>,
+        /// Maximum lock days allowed for vault tokens
+        lock_ceiling: Option<u64>,
+        /// Affiliate fee percentage (required)
+        affiliate_fee: Decimal,
+        /// Whether to send swap fees to revenue distributor (true) or keep them in contract (false)
+        send_swap_fee: Option<bool>,
     },
     EnterVault {
         recipient: Option<String>,
-        /// If true, minted vault tokens are held in-contract for incentives accrual
-        deposit_for_incentives: Option<bool>,
+        /// Optional lock days for vault tokens (must be <= lock_ceiling)
+        lock_days: Option<u64>,
+        /// Optional affiliate address to set when depositing
+        affiliate_address: Option<String>,
     },
     DepositFee {},
     ExitVault {
         recipient: Option<String>,
         withdraw_as: Option<String>,
-        /// If Some(amount), includes incentive-held vault tokens in the withdrawal
-        use_incentive_deposits: Option<Uint128>,
     },
-    /// Deposit already-held vault tokens into incentives (send VT in funds)
-    DepositIncentives {},
     Transmute {
         recipient: Option<String>,
     },
@@ -109,8 +113,14 @@ pub enum ExecuteMsg {
     /// Assures that for deposits & withdrawals the conversion rate is static
     /// Only callable by the contract
     RateAssurance {},
-    /// Claim incentives for a specific user (anyone can call)
-    ClaimIncentivesForUser { user: String, limit: Option<u32> },
+    /// Set affiliate for a user
+    SetAffiliate {
+        user: String,
+        affiliate_address: String,
+        label: Option<String>,
+    },
+    /// Add current vault token conversion rate to history
+    AddToRateHistory {},
 }
 
 #[cw_serde]
@@ -130,19 +140,29 @@ pub enum QueryMsg {
     RateLimitMany { addresses: Option<Vec<String>>, start_after: Option<u64>, limit: Option<u32> },
     /// Current global rate limit status for all non-whitelisted addresses
     GlobalRateLimit {},
+    /// Get locked vault tokens for a user
+    LockedVaultTokens { user: String },
+    /// Get affiliates for a user
+    GetAffiliates { user: String },
+    /// Get vault token conversion rate history
+    RateHistory { start_after: Option<u64>, limit: Option<u32> },
 }
 
 #[cw_serde]
 pub struct Config {
     pub owner: Addr,
     pub tokenfactory_contract: Option<Addr>,
-    pub revenue_contract: String,
+    // System discounts contract
+    pub discounts_contract: String,
     pub cdp_contract: String,
     pub vault_token: String,
     pub deposit_pair: AssetPair,
     pub composition_leeway: Decimal,
     pub asset_a_to_b_rate: Decimal,
-    pub target_ratio: Decimal,
+    /// Target ratio for CDT of total deposits
+    /// If the target ratio is 0%, then we will not require any CDT on deposits...
+    /// ...unless the deployed paired asset is greater than 0.
+    pub cdt_target_ratio: Decimal,
     /// Usage fee for any usage that isn't from the CDP or a deployable venue.
     /// This fee is set bc we don't want this to be used as an LP/arbitrage tool.
     /// -- Issue with this is that without arb usage it won't be able to sustain itself.
@@ -165,12 +185,12 @@ pub struct Config {
     pub revenue_distributor_addr: Option<Addr>,
     /// Revenue distribution ratios (Vec<LiqAsset>)
     pub revenue_distributions: Vec<LiqAsset>,
-    /// Incentive token denom.
-    /// Not really optional, but can be set later.
-    pub incentive_denom: Option<String>,
-    /// Neutron proxy used to mint incentive tokens.
-    /// Not really optional, but can be set later.
-    pub neutron_proxy: Option<Addr>,
+    /// Maximum lock days allowed for vault tokens
+    pub lock_ceiling: u64,
+    /// Optional affiliate fee percentage (default 1%)
+    pub affiliate_fee: Decimal,
+    /// Whether to send swap fees to revenue distributor (true) or keep them in contract (false)
+    pub send_swap_fee: bool,
 }
 
 
@@ -196,6 +216,13 @@ pub struct VolumeWindow {
     pub paired_asset_swapped: Uint128,
     pub paired_asset_received: Uint128,
     pub block_time: Timestamp,
+    pub cumulative_volume: Uint128,
+}
+
+#[cw_serde]
+pub struct RateHistoryEntry {
+    pub conversion_rate: Uint128,
+    pub timestamp: Timestamp,
 }
 
 
@@ -217,6 +244,13 @@ pub struct VolumeHistoryResponse {
 #[cw_serde]
 pub struct TransmuteHistoryResponse {
     pub records: Vec<SwapRecord>,
+    pub total: u64,
+    pub next_start_after: Option<u64>,
+}
+
+#[cw_serde]
+pub struct RateHistoryResponse {
+    pub records: Vec<RateHistoryEntry>,
     pub total: u64,
     pub next_start_after: Option<u64>,
 }
@@ -269,4 +303,15 @@ pub struct GlobalRateLimitResponse {
     pub threshold_base: Uint128,
     pub remaining_base: Uint128,
     pub entries_count: u64,
+}
+
+#[cw_serde]
+pub struct LockedVaultToken {
+    pub amount: Uint128,
+    pub locked_until: u64,
+}
+
+#[cw_serde]
+pub struct LockedVaultTokensResponse {
+    pub locked_tokens: Vec<LockedVaultToken>,
 }

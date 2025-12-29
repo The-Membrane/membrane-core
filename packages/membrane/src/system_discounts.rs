@@ -12,8 +12,6 @@ pub struct InstantiateMsg {
     pub positions_contract: String,
     /// Staking contract address
     pub staking_contract: String,
-    /// Stability pool contract address
-    pub stability_pool_contract: String,
     /// Lockdrop contract address
     pub lockdrop_contract: Option<String>,
     /// Discount vault contract address
@@ -61,6 +59,11 @@ pub enum QueryMsg {
         /// User address
         user: String
     },
+    /// Returns % boost for each intent based on lock duration
+    IntentBoosts {
+        /// List of intents to calculate boosts for
+        intents: Vec<crate::transmuter_lockdrop::MbrnIntentOption>
+    },
 }
 
 #[cw_serde]
@@ -75,8 +78,6 @@ pub struct Config {
     pub positions_contract: Addr,
     /// Staking contract address
     pub staking_contract: Addr,
-    /// Stability pool contract address
-    pub stability_pool_contract: Addr,
     /// Lockdrop contract address
     pub lockdrop_contract: Option<Addr>,
     /// Discount vault contract address
@@ -103,8 +104,6 @@ pub struct UpdateConfig {
     pub positions_contract: Option<String>,
     /// Staking contract address
     pub staking_contract: Option<String>,
-    /// Stability pool contract address
-    pub stability_pool_contract: Option<String>,
     /// Lockdrop contract address
     pub lockdrop_contract: Option<String>,
     /// Discount vault contract address
@@ -137,6 +136,12 @@ pub struct UserBoostResponse {
     pub user: String,
     /// User boost
     pub boost: Decimal,
+}
+
+#[cw_serde]
+pub struct IntentBoostsResponse {
+    /// List of boosts, one per intent in the same order as input
+    pub boosts: Vec<Decimal>,
 }
 
 #[cw_serde]

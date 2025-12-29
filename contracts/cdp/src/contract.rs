@@ -40,7 +40,7 @@ use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 const CONTRACT_NAME: &str = "crates.io:cdp";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-const AFFILIATE_LIMIT: usize = 3;
+const AFFILIATE_LIMIT: usize = 10;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -68,7 +68,6 @@ pub fn instantiate(
         base_debt_cap_multiplier: msg.base_debt_cap_multiplier,
         collateral_twap_timeframe: msg.collateral_twap_timeframe,
         credit_twap_timeframe: msg.credit_twap_timeframe,
-        rate_hike_rate: Some(Decimal::percent(30)),
         // redemption_fee: Decimal::from_str("0.005").unwrap(), //0.5%
         affiliate_fee_max: Decimal::percent(5), //5%
         skip_credit_price_accrual: true,
@@ -139,7 +138,7 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::UpdateConfig (update) => update_config(deps, info, update),
-        ExecuteMsg::Deposit { position_owner, position_id} => {
+        ExecuteMsg::Deposit { position_owner, position_id, affiliate_address} => {
             //Set valid_assets from funds sent
             let valid_assets = info
                 .clone()
@@ -161,7 +160,7 @@ pub fn execute(
             //If there is nothing being deposited, error
             if cAssets == vec![] { return Err(ContractError::CustomError { val: String::from("No deposit assets passed") }) }
 
-            deposit(deps, env, info, position_owner, position_id, cAssets)
+            deposit(deps, env, info, position_owner, position_id, cAssets, affiliate_address)
         }
         ExecuteMsg::Withdraw {
             position_id,
@@ -233,8 +232,7 @@ pub fn execute(
             asset,
             max_borrow_LTV,
             max_LTV,
-            hike_rates,
-        } => edit_cAsset(deps, info, asset, max_borrow_LTV, max_LTV, hike_rates),
+        } => edit_cAsset(deps, info, asset, max_borrow_LTV, max_LTV),
         ExecuteMsg::EditBasket(edit) => edit_basket(deps, env, info,edit),
         ExecuteMsg::Liquidate {
             position_id,
@@ -359,7 +357,6 @@ fn edit_cAsset(
     asset: AssetInfo,
     max_borrow_LTV: Option<Decimal>,
     max_LTV: Option<Decimal>,
-    rate_hiked: Option<bool>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -424,11 +421,6 @@ fn edit_cAsset(
                     })
                 }
             }
-
-        if let Some(rate_hiked) = rate_hiked {
-            asset.hike_rates = Some(rate_hiked);
-            attrs.push(attr("rate_hiked", rate_hiked.to_string()));
-        }
 
         // Write the mutated asset back in place
         basket.collateral_types[i] = asset;

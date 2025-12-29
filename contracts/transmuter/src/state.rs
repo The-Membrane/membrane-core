@@ -1,12 +1,13 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Decimal, Int128, StdError, StdResult, Storage, Timestamp, Uint128};
+use cosmwasm_std::{Int128, StdError, StdResult, Storage, Timestamp, Uint128};
 use cw_storage_plus::{Item, Map};
 
-use membrane::transmuter::{Config, VolumeWindow};
+use membrane::transmuter::{Config, VolumeWindow, RateHistoryEntry};
 
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const VAULT_TOKEN_SUPPLY: Item<Uint128> = Item::new("vault_token_supply");
 pub const TOKEN_RATE_ASSURANCE: Item<TokenRateAssurance> = Item::new("token_rate_assurance");
+pub const CUMULATIVE_VOLUME: Item<Uint128> = Item::new("cumulative_volume");
 
 pub const TRANSMUTE_HISTORY: Item<Vec<TransmuteSnapshot>> = Item::new("transmute_history");
 pub const VOLUME_HISTORY: Item<Vec<VolumeWindow>> = Item::new("volume_history");
@@ -26,37 +27,21 @@ pub const GLOBAL_RATE_LIMIT_FLOWS: Item<Vec<FlowEntry>> = Item::new("global_rate
 // Tracks accumulated fees (in paired_asset) that couldn't be converted to CDT yet
 pub const PENDING_REVENUE: Item<Uint128> = Item::new("pending_revenue");
 
-// ================= Incentives =================
+// ================= Locked Vault Tokens =================
 #[cw_serde]
-pub struct UserIncentives {
-    pub total_claimed: Uint128,
-    pub vault_tokens_in_contract: Uint128,
-    pub last_accrued: u64,
+pub struct LockedVaultToken {
+    pub amount: Uint128,
+    pub locked_until: u64,
 }
 
-#[cw_serde]
-pub struct IncentiveSchedule {
-    pub last_accrued_time: u64,
-    pub start_time: u64,
-    pub total_monthly_emission: Uint128,
-}
+/// User address -> Vec<LockedVaultToken>
+pub const LOCKED_VAULT_TOKENS: Map<String, Vec<LockedVaultToken>> = Map::new("locked_vault_tokens");
 
-#[cw_serde]
-pub struct IncentiveEvent {
-    /// Amount per 1 vault token at the time of event
-    pub amount_per_vt: Decimal,
-    /// Event timestamp
-    pub time_of_event: u64,
-    /// Remaining total to be claimed from this event
-    pub amount_left_to_claim: Uint128,
-}
-
-/// User address -> UserIncentives
-pub const USER_INCENTIVES: Map<String, UserIncentives> = Map::new("user_incentives");
-/// Global incentive schedule
-pub const INCENTIVE_SCHEDULE: Item<IncentiveSchedule> = Item::new("incentive_schedule");
-/// Global list of incentive events
-pub const INCENTIVE_EVENTS: Item<Vec<IncentiveEvent>> = Item::new("incentive_events");
+// ================= Affiliates =================
+/// Affiliates map: user address -> Vec<AffiliateData>
+pub const AFFILIATES: Map<String, Vec<membrane::types::AffiliateData>> = Map::new("affiliates");
+/// Maximum number of affiliates per user
+pub const AFFILIATE_LIMIT: usize = 10;
 
 #[cw_serde]
 pub struct TransmuteSnapshot {
@@ -79,28 +64,53 @@ pub struct TokenRateAssurance {
     pub pre_btokens_per_one: Uint128,
 }
 
+// ================= Rate History =================
+pub const RATE_HISTORY: Item<Vec<RateHistoryEntry>> = Item::new("rate_history");
+pub const LAST_RATE_UPDATE: Item<Timestamp> = Item::new("last_rate_update");
 
-pub fn new_volume_window(now: Timestamp) -> VolumeWindow {
+
+pub fn new_volume_window(now: Timestamp, cumulative_volume: Uint128) -> VolumeWindow {
     VolumeWindow {
         cdt_swapped: Uint128::zero(),
         cdt_received: Uint128::zero(),
         paired_asset_swapped: Uint128::zero(),
         paired_asset_received: Uint128::zero(),
         block_time: now,
+        cumulative_volume,
     }
 }
 
 pub fn apply_volume_update(
+    store: &mut dyn Storage,
     window: &mut VolumeWindow,
     cdt_swapped: Uint128,
     cdt_received: Uint128,
     paired_asset_swapped: Uint128,
     paired_asset_received: Uint128,
-) {
+) -> StdResult<()> {
+    // Calculate the volume delta being added in this update
+    let update_delta = cdt_swapped
+        .checked_add(cdt_received)?
+        .checked_add(paired_asset_swapped)?
+        .checked_add(paired_asset_received)?;
+    
+    // Update window fields
     window.cdt_swapped += cdt_swapped;
     window.cdt_received += cdt_received;
     window.paired_asset_swapped += paired_asset_swapped;
     window.paired_asset_received += paired_asset_received;
+    
+    // Get current cumulative volume and add the delta
+    let current_cumulative = CUMULATIVE_VOLUME.may_load(store)?.unwrap_or(Uint128::zero());
+    let new_cumulative = current_cumulative.checked_add(update_delta)?;
+    
+    // Update cumulative volume tracker
+    CUMULATIVE_VOLUME.save(store, &new_cumulative)?;
+    
+    // Set window's cumulative_volume to the current cumulative total
+    window.cumulative_volume = new_cumulative;
+    
+    Ok(())
 }
 
 pub fn init_history(store: &mut dyn Storage) -> StdResult<()> {
@@ -176,4 +186,26 @@ pub fn history_slice<T: Clone>(
 
 pub fn history_total<T>(history: &[T]) -> u64 {
     history.len() as u64
+}
+
+pub fn append_rate_history_entry(
+    store: &mut dyn Storage,
+    cap: u32,
+    entry: RateHistoryEntry,
+) -> StdResult<()> {
+    if cap == 0 {
+        return Err(StdError::generic_err("rate history cap cannot be zero"));
+    }
+
+    let mut history = RATE_HISTORY.may_load(store)?.unwrap_or_default();
+    //Push first
+    history.push(entry);
+
+    //Then trim if needed
+    if history.len() > cap as usize {
+        let remove = history.len() - cap as usize;
+        history.drain(0..remove);
+    }
+
+    RATE_HISTORY.save(store, &history)
 }

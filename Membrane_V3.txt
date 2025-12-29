@@ -1,3 +1,14 @@
+EMISSIONS VOTING FOR THE LOCKDROP 
+- create a scale from 0-1M and have MBRN vote per week 
+- that means one lockdrop a week 
+- "emissions are protocol-ownership redistribution"
+
+CDP SUPERVAULTS
+- Permissionless CDT-denominated PropAMMs
+- WE can use supervaults as the base structure
+- Create an inApp visual for the routing between them all and the transmuter
+- "No IL for senior tranche LPs" as a USP (experimental)
+
 
 ***********V3***************
 Points system

@@ -304,7 +304,8 @@ pub fn cap_ltv_values(
     *max_borrow_ltv = (*max_borrow_ltv).min(Decimal::percent(100)).max(Decimal::zero());
     *max_ltv = (*max_ltv).min(Decimal::percent(100)).max(Decimal::zero());
     
-    // Ensure max_borrow_LTV < max_LTV
+    // Ensure max_borrow_LTV < max_LTV.
+    //Should be impossible to reach this code path.
     if *max_borrow_ltv >= *max_ltv {
         // Adjust max_borrow_LTV to be slightly less than max_LTV
         *max_borrow_ltv = decimal_multiplication(*max_ltv, Decimal::percent(95))?;

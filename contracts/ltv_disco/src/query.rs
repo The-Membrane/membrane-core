@@ -1,16 +1,17 @@
-use cosmwasm_std::{Decimal, Deps, StdResult, StdError, Uint128};
+use cosmwasm_std::{Decimal, Deps, StdResult, StdError, Uint128, Env};
 use std::str::FromStr;
 use membrane::ltv_disco::{
     Config, LTVQueue, AverageLTVsResponse,
     LTVQueueResponse, BackingDepositResponse, BackingDepositsByUserResponse, 
     RevenueTrackingEntry, PendingClaimsResponse, DepositPendingClaim, 
-    UserLifetimeRevenueEntry, RevenueEvent, BackingDeposit, AssetsResponse, DailyTVLResponse,
-    UserTotalDepositsResponse
+    UserLifetimeRevenueEntry, RevenueEvent, BackingDeposit, AssetsResponse, DailyTVLResponse, DailyLTVResponse,
+    UserTotalDepositsResponse, LockedDepositsResponse, ManagedDepositKeysResponse, ManagerFeeResponse, LTVEntry
 };
+use membrane::stability_pool_vault::{calculate_base_tokens, calculate_vault_tokens};
 use membrane::types::AssetInfo;
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
 
-use crate::state::{CONFIG, LTV_QUEUES, REVENUE_TRACKING, REVENUE_EVENTS, USER_LIFETIME_REVENUE, BACKING_DEPOSITS, USER_DEPOSITS, DISPERSAL, DAILY_TVL_TRACKER, USER_TOTAL_DEPOSITS};
+use crate::state::{CONFIG, LTV_QUEUES, REVENUE_TRACKING, REVENUE_EVENTS, USER_LIFETIME_REVENUE, BACKING_DEPOSITS, USER_DEPOSITS, DISPERSAL, DAILY_TVL_TRACKER, DAILY_LTV_TRACKER, USER_TOTAL_DEPOSITS, USER_LOCKED_DEPOSITS, MANAGED_DEPOSITS, MANAGER_FEE};
 
 const MAX_LIMIT: u32 = 32;
 
@@ -25,16 +26,23 @@ pub fn query_ltv_queue(deps: Deps, asset: String) -> StdResult<LTVQueueResponse>
     Ok(LTVQueueResponse { queue })
 }
 
-/// Query backing deposit by user and group
+/// Query backing deposit by user, group, and deposit_id
 pub fn query_backing_deposit(
     deps: Deps, 
     user: String, 
     asset: String, 
     ltv: Decimal, 
-    max_borrow_ltv: Decimal
+    max_borrow_ltv: Decimal,
+    deposit_id: Uint128,
 ) -> StdResult<BackingDepositResponse> {
     let user_addr = deps.api.addr_validate(&user)?;
-    let deposit_key = format!("{}:{}:{}:{}", asset, ltv, max_borrow_ltv, user_addr);
+    let deposit_key = crate::execute::make_deposit_key(
+        &asset,
+        &ltv.to_string(),
+        &max_borrow_ltv.to_string(),
+        &user_addr.to_string(),
+        &deposit_id,
+    );
     
     let deposit = BACKING_DEPOSITS.load(deps.storage, deposit_key)?;
 
@@ -270,7 +278,7 @@ pub fn query_pending_claims(
         if let Ok(deposit) = BACKING_DEPOSITS.load(deps.storage, deposit_key_str.clone()) {
             // Parse LTV values from key string
             let parts: Vec<&str> = deposit_key_str.split(':').collect();
-            if parts.len() != 4 {
+            if parts.len() != 5 {
                 continue;
             }
             let max_ltv = Decimal::from_str(parts[1])?;
@@ -325,7 +333,7 @@ fn calculate_pending_revenue(
             continue;
         }
         
-        let user_share = event.amount_per_vt * deposit.vault_tokens;
+        let user_share = event.amount_per_locked_vt * deposit.locked_vault_tokens;
         pending = pending.checked_add(user_share).unwrap_or(pending);
     }
     
@@ -376,6 +384,14 @@ pub fn query_daily_tvl(deps: Deps) -> StdResult<DailyTVLResponse> {
     Ok(DailyTVLResponse { entries })
 }
 
+/// Query daily LTV tracker history for an asset
+pub fn query_daily_ltv(deps: Deps, asset: String) -> StdResult<DailyLTVResponse> {
+    let entries = DAILY_LTV_TRACKER
+        .may_load(deps.storage, asset)?
+        .unwrap_or_else(Vec::new);
+    Ok(DailyLTVResponse { entries })
+}
+
 /// Query user's total deposits
 pub fn query_user_total_deposits(deps: Deps, user: String) -> StdResult<UserTotalDepositsResponse> {
     // Validate user address
@@ -386,4 +402,256 @@ pub fn query_user_total_deposits(deps: Deps, user: String) -> StdResult<UserTota
         .unwrap_or(Uint128::zero());
     
     Ok(UserTotalDepositsResponse { total_deposits })
+}
+
+/// Query managed deposit keys for a manager (paginated)
+pub fn query_managed_deposit_keys(
+    deps: Deps,
+    manager: String,
+    limit: Option<u32>,
+    start_after: Option<String>,
+) -> StdResult<ManagedDepositKeysResponse> {
+    let manager_addr = deps.api.addr_validate(&manager)?;
+    let keys = MANAGED_DEPOSITS
+        .may_load(deps.storage, manager_addr)?
+        .unwrap_or_default();
+    
+    let total = keys.len() as u64;
+    let max_limit = limit.unwrap_or(50).min(100) as usize;
+    
+    // Find start index
+    let start_index = if let Some(start_key) = start_after {
+        keys.iter()
+            .position(|k| k == &start_key)
+            .map(|pos| pos + 1)
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    
+    let end_index = (start_index + max_limit).min(keys.len());
+    let result_keys = keys[start_index..end_index].to_vec();
+    
+    let next_start_after = if end_index < keys.len() {
+        result_keys.last().cloned()
+    } else {
+        None
+    };
+    
+    Ok(ManagedDepositKeysResponse {
+        keys: result_keys,
+        total,
+        next_start_after,
+    })
+}
+
+/// Query user's locked deposits
+pub fn query_locked_deposits(deps: Deps, user: String) -> StdResult<LockedDepositsResponse> {
+    // Validate user address
+    let user_addr = deps.api.addr_validate(&user)?;
+    
+    // Load locked deposits from storage
+    let locked_deposits = USER_LOCKED_DEPOSITS
+        .may_load(deps.storage, user_addr)?
+        .unwrap_or_else(Vec::new);
+    
+    Ok(LockedDepositsResponse { locked_deposits })
+}
+
+/// Convert vault tokens to deposit tokens for a specific deposit group
+pub fn query_vault_token_conversion(
+    deps: Deps,
+    asset: String,
+    ltv: Decimal,
+    max_borrow_ltv: Decimal,
+    vault_tokens: Uint128,
+) -> StdResult<Uint128> {
+    // Load the LTV queue for the asset
+    let queue = LTV_QUEUES.load(deps.storage, asset.clone())?;
+    
+    // Find the slot with matching LTV
+    let slot = queue.slots
+        .iter()
+        .find(|s| s.ltv == ltv)
+        .ok_or_else(|| StdError::generic_err(format!("Slot with LTV {} not found", ltv)))?;
+    
+    // Find the deposit group with matching max_borrow_ltv
+    let group = slot.deposit_groups
+        .iter()
+        .find(|g| g.max_borrow_ltv == max_borrow_ltv)
+        .ok_or_else(|| StdError::generic_err(format!("Deposit group with max_borrow_ltv {} not found", max_borrow_ltv)))?;
+    
+    // Check if group has deposits
+    if group.total_deposit_tokens.is_zero() || group.total_vault_tokens.is_zero() {
+        return Err(StdError::generic_err("Deposit group has no deposits"));
+    }
+    
+    // Convert vault tokens to deposit tokens
+    let deposit_tokens = calculate_base_tokens(
+        vault_tokens,
+        group.total_deposit_tokens,
+        group.total_vault_tokens,
+    )?;
+    
+    Ok(deposit_tokens)
+}
+
+/// Convert deposit tokens to vault tokens for a specific deposit group
+pub fn query_deposit_token_conversion(
+    deps: Deps,
+    asset: String,
+    ltv: Decimal,
+    max_borrow_ltv: Decimal,
+    deposit_tokens: Uint128,
+) -> StdResult<Uint128> {
+    // Load the LTV queue for the asset
+    let queue = LTV_QUEUES.load(deps.storage, asset.clone())?;
+    
+    // Find the slot with matching LTV
+    let slot = queue.slots
+        .iter()
+        .find(|s| s.ltv == ltv)
+        .ok_or_else(|| StdError::generic_err(format!("Slot with LTV {} not found", ltv)))?;
+    
+    // Find the deposit group with matching max_borrow_ltv
+    let group = slot.deposit_groups
+        .iter()
+        .find(|g| g.max_borrow_ltv == max_borrow_ltv)
+        .ok_or_else(|| StdError::generic_err(format!("Deposit group with max_borrow_ltv {} not found", max_borrow_ltv)))?;
+    
+    // Check if group has deposits
+    if group.total_deposit_tokens.is_zero() || group.total_vault_tokens.is_zero() {
+        return Err(StdError::generic_err("Deposit group has no deposits"));
+    }
+    
+    // Convert deposit tokens to vault tokens
+    let vault_tokens = calculate_vault_tokens(
+        deposit_tokens,
+        group.total_deposit_tokens,
+        group.total_vault_tokens,
+    )?;
+    
+    Ok(vault_tokens)
+}
+
+
+/// Query total insurance (MBRN deposits + pending rewards)
+/// Returns total in CDT if oracle available, otherwise returns separate values
+pub fn query_total_insurance(
+    deps: Deps,
+    _env: Env,
+) -> StdResult<membrane::ltv_disco::TotalInsuranceResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    let mut total_insurance_cdt = Uint128::zero();
+    let mut pending_cdt = Uint128::zero();
+    let mut mbrn_deposit_totals: Vec<(String, Uint128)> = vec![];
+    let mut oracle_failed = false;
+
+    // 1. Sum pending CDT from all dispersals
+    let all_assets: Vec<String> = LTV_QUEUES
+        .keys(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+        .collect::<StdResult<Vec<String>>>()?;
+
+    for asset in &all_assets {
+        if let Ok(Some(dispersal)) = DISPERSAL.may_load(deps.storage, asset.clone()) {
+            // Active dispersal: available = total_to_disperse - amount_dispersed
+            if dispersal.active_dispersal.dispersal_start != 0 {
+                let available_in_active = dispersal.total_to_disperse
+                    .checked_sub(dispersal.active_dispersal.amount_dispersed)
+                    .unwrap_or(Uint128::zero());
+                pending_cdt += available_in_active;
+            }
+            // Pending dispersal
+            pending_cdt += dispersal.pending_dispersal;
+        }
+    }
+
+    // 2. Sum deposit tokens per asset and convert to CDT via oracle
+    let cdt_info = AssetInfo::NativeToken {
+        denom: config.cdt_denom.clone(),
+    };
+
+    for asset in &all_assets {
+        let queue = match LTV_QUEUES.load(deps.storage, asset.clone()) {
+            Ok(q) => q,
+            Err(_) => continue,
+        };
+
+        // Sum total deposit tokens across all slots/groups
+        let total_deposit_tokens: Uint128 = queue.slots
+            .iter()
+            .flat_map(|slot| &slot.deposit_groups)
+            .map(|group| group.total_deposit_tokens)
+            .sum();
+
+        if total_deposit_tokens.is_zero() {
+            continue;
+        }
+
+        // Store per-asset deposit total
+        mbrn_deposit_totals.push((asset.clone(), total_deposit_tokens));
+
+        // Try to convert to CDT via oracle
+        let asset_info = AssetInfo::NativeToken {
+            denom: asset.clone(),
+        };
+        let asset_infos = vec![asset_info, cdt_info.clone()];
+
+        let price_response: Result<Vec<PriceResponse>, _> = deps.querier.query_wasm_smart(
+            config.oracle_contract.to_string(),
+            &Oracle_QueryMsg::Prices {
+                asset_infos,
+                twap_timeframe: 0,
+                oracle_time_limit: 0,
+            },
+        );
+
+        match price_response {
+            Ok(prices) => {
+                // Convert deposit tokens to CDT value
+                // Collateral amount -> USD value -> CDT amount
+                if let Ok(collateral_value) = prices[0].get_value(total_deposit_tokens) {
+                    if let Ok(cdt_amount) = prices[1].get_amount(collateral_value) {
+                        total_insurance_cdt += cdt_amount;
+                    } else {
+                        oracle_failed = true;
+                    }
+                } else {
+                    oracle_failed = true;
+                }
+            }
+            Err(_) => {
+                oracle_failed = true;
+            }
+        }
+    }
+
+    // 3. Add pending CDT to total if oracle succeeded
+    if !oracle_failed {
+        total_insurance_cdt += pending_cdt;
+        Ok(membrane::ltv_disco::TotalInsuranceResponse::WithOracle {
+            total_insurance: total_insurance_cdt,
+        })
+    } else {
+        Ok(membrane::ltv_disco::TotalInsuranceResponse::WithoutOracle {
+            pending_cdt,
+            mbrn_deposit_totals,
+        })
+    }
+}
+
+/// Query manager fee for a specific manager
+pub fn query_manager_fee(deps: Deps, manager: String) -> StdResult<ManagerFeeResponse> {
+    let manager_addr = deps.api.addr_validate(&manager)?;
+    
+    // Load manager fee, default to 0 if not set
+    let fee = MANAGER_FEE
+        .may_load(deps.storage, manager_addr)?
+        .unwrap_or(Decimal::zero());
+    
+    Ok(ManagerFeeResponse {
+        manager,
+        fee,
+    })
 }

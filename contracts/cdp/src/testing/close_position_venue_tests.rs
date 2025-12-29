@@ -49,6 +49,7 @@ mod tests {
             msg: to_json_binary(&ExecuteMsg::Deposit {
                 position_id: None,
                 position_owner: None,
+                affiliate_address: None,
             })
             .unwrap(),
             funds: vec![coin(10000_000_000, "debit")], // More collateral to support higher debt
@@ -278,6 +279,7 @@ mod tests {
             msg: to_json_binary(&ExecuteMsg::Deposit {
                 position_id: None,
                 position_owner: None,
+                affiliate_address: None,
             })
             .unwrap(),
             funds: vec![coin(10000_000_000, "debit")], // More collateral to support higher debt

@@ -7,3 +7,9 @@ mod contract_tests;
 
 #[cfg(test)]
 mod pending_revenue_tests;
+
+#[cfg(test)]
+mod intent_flow_tests;
+
+#[cfg(test)]
+mod affiliate_tests;

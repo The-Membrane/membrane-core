@@ -9,6 +9,12 @@ pub struct InstantiateMsg {
     pub transmuter_contract: Option<String>,
     /// Optional list of vaults for automatic exit on swaps
     pub vaults: Option<Vec<VaultInfo>>,
+    /// Optional Astroport Factory address
+    pub astroport_factory: Option<String>,
+    /// Optional Astroport Router address
+    pub astroport_router: Option<String>,
+    /// Enable dynamic routing (query both DEXes and choose best)
+    pub enable_dynamic_routing: Option<bool>,
 }
 
 #[cw_serde]
@@ -86,6 +92,29 @@ pub enum ExecuteMsg {
         transmuter_contract: Option<String>,
         /// List of vaults for automatic exit on swaps
         vaults: Option<Vec<VaultEntry>>,
+        /// Astroport Factory address
+        astroport_factory: Option<String>,
+        /// Astroport Router address
+        astroport_router: Option<String>,
+        /// Enable dynamic routing
+        enable_dynamic_routing: Option<bool>,
+    },
+    /// Create Astroport PCL (concentrated liquidity) pair
+    // CreatePclPair {
+    //     /// Asset infos for the pair (must be exactly 2)
+    //     asset_infos: Vec<crate::types::AssetInfo>,
+    //     /// PCL initialization parameters
+    //     params: PclInitParams,
+    // },
+    /// Update swap route configuration for a pair
+    UpdateSwapRoute {
+        /// Route entry
+        route: SwapRouteEntry,
+    },
+    /// Batch update swap route configurations
+    UpdateSwapRoutes {
+        /// Route entries
+        routes: Vec<SwapRouteEntry>,
     },
 }
 
@@ -117,6 +146,27 @@ pub enum QueryMsg {
     },
     /// Return list of swap routes
     GetSwapRoutes { },
+    /// Get swap route configuration for a pair
+    GetSwapRouteConfig {
+        /// Token in
+        token_in: String,
+        /// Token out
+        token_out: String,
+    },
+    /// Simulate swap on both DEXes and return outputs
+    SimulateSwap {
+        /// Token in
+        token_in: String,
+        /// Token out
+        token_out: String,
+        /// Amount in
+        amount_in: Uint128,
+    },
+    /// Get Astroport pair info
+    AstroportPairInfo {
+        /// Asset infos for the pair
+        asset_infos: Vec<crate::types::AssetInfo>,
+    },
 }
 
 #[cw_serde]
@@ -167,6 +217,12 @@ pub struct Config {
     pub usdc_denom: Option<String>,
     /// List of vaults for automatic exit on swaps
     pub vaults: Vec<VaultInfo>,
+    /// Astroport Factory address
+    pub astroport_factory: Option<Addr>,
+    /// Astroport Router address
+    pub astroport_router: Option<Addr>,
+    /// Enable dynamic routing (query both DEXes and choose best)
+    pub enable_dynamic_routing: bool,
 }
 
 
@@ -490,3 +546,96 @@ mod tests {
 
 // Re-export NeutronMsg for use in contracts
 pub use neutron_sdk::bindings::msg::NeutronMsg;
+
+/// Route configuration types
+#[cw_serde]
+pub enum DexPreference {
+    /// Always use Neutron DEX (Duality)
+    Duality,
+    /// Always use Astroport
+    Astroport,
+    /// Query both and choose best output
+    Best,
+    /// Multi-hop with per-hop DEX selection
+    MultiHop(Vec<HopConfig>),
+}
+
+#[cw_serde]
+pub struct HopConfig {
+    /// Intermediate token for this hop
+    pub intermediate_token: String,
+    /// DEX choice for this hop
+    pub dex: DexChoice,
+}
+
+#[cw_serde]
+pub enum DexChoice {
+    /// Use Duality DEX
+    Duality,
+    /// Use Astroport DEX
+    Astroport,
+}
+
+#[cw_serde]
+pub struct SwapRouteEntry {
+    /// Token in
+    pub token_in: String,
+    /// Token out
+    pub token_out: String,
+    /// Route preference
+    pub preference: DexPreference,
+    /// Remove this route configuration
+    pub remove: bool,
+}
+
+/// PCL initialization parameters
+#[cw_serde]
+pub struct PclInitParams {
+    /// Amplification parameter
+    pub amp: String,
+    /// Gamma parameter
+    pub gamma: String,
+    /// Mid fee
+    pub mid_fee: String,
+    /// Out fee
+    pub out_fee: String,
+    /// Fee gamma
+    pub fee_gamma: String,
+    /// Repeg profit threshold
+    pub repeg_profit_threshold: String,
+    /// Min price scale delta
+    pub min_price_scale_delta: String,
+    /// Initial price scale
+    pub initial_price_scale: String,
+    /// Moving average half time
+    pub ma_half_time: u64,
+    /// Owner address
+    pub owner: String,
+}
+
+/// Query response types
+#[cw_serde]
+pub struct SwapRouteConfigResponse {
+    /// Route preference (None if not configured)
+    pub preference: Option<DexPreference>,
+}
+
+#[cw_serde]
+pub struct SimulateSwapResponse {
+    /// Expected output from Duality (None if not available)
+    pub duality_output: Option<Uint128>,
+    /// Expected output from Astroport (None if not available)
+    pub astroport_output: Option<Uint128>,
+    /// Best DEX choice based on outputs
+    pub best_dex: Option<DexChoice>,
+}
+
+#[cw_serde]
+pub struct AstroportPairInfoResponse {
+    /// Pair contract address
+    pub pair_addr: String,
+    /// LP token address
+    pub lp_token: String,
+    /// Pair type
+    pub pair_type: String,
+}

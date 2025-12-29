@@ -47,4 +47,7 @@ pub enum ContractError {
 
     #[error("Invalid dispersal window")]
     InvalidDispersalWindow {},
+
+    #[error("Withdrawals disabled")]
+    WithdrawalsDisabled {},
 }

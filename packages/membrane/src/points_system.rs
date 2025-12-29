@@ -7,6 +7,7 @@ use crate::liq_queue::ClaimsResponse;
 #[cw_serde]
 pub struct InstantiateMsg {
     pub cdt_denom: String,
+    pub mbrn_denom: String,
     pub oracle_contract: String,
     pub positions_contract: String,
     pub stability_pool_contract: String,
@@ -20,12 +21,16 @@ pub enum ExecuteMsg {
     UpdateConfig {
         owner: Option<String>,
         cdt_denom: Option<String>,
+        mbrn_denom: Option<String>,
         oracle_contract: Option<String>,
         positions_contract: Option<String>,
         stability_pool_contract: Option<String>,
         liq_queue_contract: Option<String>,
         governance_contract: Option<String>,
         osmosis_proxy_contract: Option<String>,
+        transmuter_contract: Option<String>,
+        ltv_disco_contract: Option<String>,
+        system_discounts_contract: Option<String>,
         mbrn_per_point: Option<Decimal>,
         max_mbrn_distribution: Option<Uint128>,
         points_per_dollar: Option<Decimal>,
@@ -33,23 +38,37 @@ pub enum ExecuteMsg {
     },
     /// Queries contracts to confirm & save current claims for the user
     CheckClaims {
-        cdp_repayment: Option<UserInfo>,
         sp_claims: bool,
         lq_claims: bool,
         /// Proposal ID
         vote: Option<Vec<u64>>,
-        /// User address
-        rangebound_user: Option<String>,
     }, 
-    /// Recheck claims & give points for checked claims
+    /// Execute CDP repay and allocate points based on revenue attribute
+    RepayAndGivePoints {
+        position_id: Uint128,
+        position_owner: Option<String>,
+        send_excess_to: Option<String>,
+    },
+    /// Execute disco revenue claim and allocate points
+    ClaimDiscoRevenueAndGivePoints {
+        user: String,
+        asset: String,
+        limit: Option<u32>,
+        compound_action: Option<crate::ltv_disco::CompoundAction>,
+    },
+    /// Execute transmuter operation and allocate points
+    TransmuteAndGivePoints {
+        recipient: Option<String>,
+    },
+    /// Give points for operations that don't need reply handlers
+    /// (SP claims, LQ claims, votes, rangebound vault yields)
     GivePoints {
-        cdp_repayment: bool,
         sp_claims: bool,
         lq_claims: bool,
         /// Proposal ID
         vote: Option<Vec<u64>>,
-        /// User address
-        rangebound_user: Option<String>,
+        // User address
+        // rangebound_user: Option<String>,
     },
     /// Liquidate & send fees to caller (Points for liquidator and liquidatee)
     Liquidate {
@@ -90,6 +109,8 @@ pub struct Config {
     pub owner: Addr,
     /// CDT Denom
     pub cdt_denom: String,
+    /// MBRN Denom
+    pub mbrn_denom: String,
     /// Oracle contract address
     pub oracle_contract: Addr,
     /// Positions contract address
@@ -102,6 +123,12 @@ pub struct Config {
     pub governance_contract: Addr,
     /// Osmosis Proxy contract address
     pub osmosis_proxy_contract: Addr,
+    /// Transmuter contract address (optional)
+    pub transmuter_contract: Option<Addr>,
+    /// LTV Disco contract address (optional)
+    pub ltv_disco_contract: Option<Addr>,
+    /// System discounts contract address (optional, for boost queries)
+    pub system_discounts_contract: Option<Addr>,
     ///MBRN distribution per point
     pub mbrn_per_point: Decimal,
     ///Total MBRN distributon from the contract

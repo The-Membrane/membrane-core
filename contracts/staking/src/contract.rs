@@ -16,7 +16,7 @@ use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 use membrane::staking::{ Config, ExecuteMsg, InstantiateMsg, QueryMsg, Totals, MigrateMsg};
 use membrane::vesting::{QueryMsg as Vesting_QueryMsg, RecipientsResponse};
-use membrane::types::{Asset, AssetInfo, Basket, Delegate, Delegation, DelegationInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistribution, StakeDistributionLog};
+use membrane::types::{Asset, AssetInfo, Basket, Delegate, Delegation, DelegationInfo, FeeEvent, LiqAsset, StakeDeposit, StakeDistribution, StakeDistributionLog, Locked};
 use membrane::math::{decimal_division, decimal_multiplication};
 
 use crate::error::ContractError;
@@ -33,6 +33,75 @@ pub const SECONDS_PER_DAY: u64 = 86_400u64;
 
 //Reply ID
 const BURN_REPLY_ID: u64 = 1;
+
+/// Refresh deposit lock if perpetual_lock is set
+/// Extends locked_until by perpetual_lock days from current time
+fn refresh_deposit_lock(
+    deposit: &mut StakeDeposit,
+    env: &Env,
+    lock_ceiling: u64,
+) -> Result<(), ContractError> {
+    if let Some(ref mut locked) = deposit.locked {
+        if let Some(perpetual_days) = locked.perpetual_lock {
+            // Calculate new locked_until: current_time + perpetual_lock days
+            let new_locked_until = env.block.time.seconds() + perpetual_days * SECONDS_PER_DAY;
+            
+            // Calculate max allowed lock based on ceiling
+            let max_lock_time = env.block.time.seconds() + (lock_ceiling * SECONDS_PER_DAY);
+            
+            // Extend lock, but don't exceed ceiling
+            locked.locked_until = std::cmp::min(new_locked_until, max_lock_time);
+        }
+    }
+    Ok(())
+}
+
+/// Refresh lock on deposit(s)
+fn refresh_lock(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    user: Option<String>,
+    deposit_index: Option<usize>,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    // Use provided user or default to info.sender (permissionless)
+    let user_addr = if let Some(user_str) = user {
+        deps.api.addr_validate(&user_str)?
+    } else {
+        info.sender.clone()
+    };
+    
+    let mut deposits = STAKED.load(deps.storage, user_addr.clone())?;
+    let mut refreshed = 0u32;
+
+    if let Some(index) = deposit_index {
+        // Refresh specific deposit
+        if index >= deposits.len() {
+            return Err(ContractError::CustomError {
+                val: format!("Deposit index {} out of range", index),
+            });
+        }
+        refresh_deposit_lock(&mut deposits[index], &env, config.lock_duration_ceiling)?;
+        refreshed = 1;
+    } else {
+        // Refresh all locked deposits
+        for deposit in deposits.iter_mut() {
+            if deposit.locked.is_some() {
+                refresh_deposit_lock(deposit, &env, config.lock_duration_ceiling)?;
+                refreshed += 1;
+            }
+        }
+    }
+
+    STAKED.save(deps.storage, user_addr.clone(), &deposits)?;
+
+    Ok(Response::new()
+        .add_attribute("method", "refresh_lock")
+        .add_attribute("user", user_addr.to_string())
+        .add_attribute("caller", info.sender.to_string())
+        .add_attribute("refreshed_count", refreshed.to_string()))
+}
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -55,6 +124,7 @@ pub fn instantiate(
                 rate: Decimal::percent(9),
                 duration: 240,
             }),
+            lock_duration_ceiling: 365u64,
             unstaking_period: msg.unstaking_period.unwrap_or(4u64),
             max_commission_rate: Decimal::percent(10),
             keep_raw_cdt: true,
@@ -73,6 +143,7 @@ pub fn instantiate(
                 rate: Decimal::percent(9),
                 duration: 240,
             }),
+            lock_duration_ceiling: 365u64,
             unstaking_period: msg.unstaking_period.unwrap_or(4u64),
             max_commission_rate: Decimal::percent(10),
             keep_raw_cdt: true,
@@ -185,7 +256,7 @@ pub fn execute(
             vesting_rev_multiplier,
             buyback_and_burn,
         ),
-        ExecuteMsg::Stake { user } => stake(deps, env, info, user),
+        ExecuteMsg::Stake { user, locked } => stake(deps, env, info, user, locked),
         ExecuteMsg::Unstake { mbrn_amount } => unstake(deps, env, info, mbrn_amount),
         ExecuteMsg::UpdateDelegations { governator_addr, mbrn_amount, delegate, fluid, voting_power_delegation, commission } => update_delegations(
             deps,
@@ -246,6 +317,8 @@ pub fn execute(
         },
         ExecuteMsg::BuybackAndBurn { max_slippage } => buyback_and_burn(deps, env, info, max_slippage),
         ExecuteMsg::TrimFeeEvents {  } => trim_fee_events(deps.storage, info),
+        ExecuteMsg::Lock { locked, amount } => lock_stake(deps, env, info, locked, amount),
+        ExecuteMsg::RefreshLock { user, deposit_index } => refresh_lock(deps, env, info, user, deposit_index),
     }
 }
 
@@ -414,6 +487,7 @@ pub fn stake(
     env: Env,
     info: MessageInfo,
     user: Option<String>,
+    locked: Option<Locked>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -447,7 +521,8 @@ pub fn stake(
         env,
         config,
         valid_owner_addr.clone(),
-        valid_asset.amount
+        valid_asset.amount,
+        locked
     )?;
 
     //Response build
@@ -468,7 +543,24 @@ fn add_staking_deposit(
     config: Config,
     staker: Addr,
     amount: Uint128,
+    locked: Option<Locked>,
 ) -> StdResult<()>{
+    let locked = if let Some(mut locked) = locked {
+        // Validate lock duration
+        let lock_duration_days = (locked.locked_until - env.block.time.seconds()) / SECONDS_PER_DAY;
+        if lock_duration_days > config.lock_duration_ceiling { 
+            return Err(StdError::generic_err(format!("Can't lock for longer than {} days", config.lock_duration_ceiling))) 
+        }
+        // Validate perpetual_lock if set
+        if let Some(perpetual_days) = locked.perpetual_lock {
+            if perpetual_days > config.lock_duration_ceiling {
+                return Err(StdError::generic_err(format!("Perpetual lock duration can't exceed lock ceiling of {} days", config.lock_duration_ceiling)));
+            }
+        }
+        Some(locked)
+    } else {
+        None
+    };
     //Add new deposit to staker's list of StakeDeposits
     STAKED.update(storage, staker.clone(), |current_deposits| -> StdResult<_> {
         match current_deposits {
@@ -479,6 +571,7 @@ fn add_staking_deposit(
                     stake_time: env.block.time.seconds(),
                     unstake_start_time: None,
                     last_accrued: None,
+                    locked: locked,
                 });
                 Ok(deposits)
             }
@@ -490,6 +583,7 @@ fn add_staking_deposit(
                     stake_time: env.block.time.seconds(),
                     unstake_start_time: None,
                     last_accrued: None,
+                    locked: locked,
                 });
                 Ok(deposits)
             }
@@ -523,7 +617,17 @@ pub fn unstake(
     let config = CONFIG.load(deps.storage)?;
 
     //Restrict unstaking
-    can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
+    if config.governance_contract.is_some() {
+        can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
+    }
+    // Refresh locks on all deposits before processing
+    let mut deposits = STAKED.load(deps.storage, info.sender.clone())?;
+    for deposit in deposits.iter_mut() {
+        if deposit.locked.is_some() {
+            refresh_deposit_lock(deposit, &env, config.lock_duration_ceiling)?;
+        }
+    }
+    STAKED.save(deps.storage, info.sender.clone(), &deposits)?;
 
     //Get total Stake
     let total_stake = {
@@ -574,6 +678,9 @@ pub fn unstake(
 
         total_staker_deposits
     };
+    // println!("total_stake {:?}", total_stake);
+    // println!("new_total_staked {:?}", new_total_staked);
+    // println!("withdrawable_amount {:?}", withdrawable_amount);
     //if withdrawable_amount is greater than total stake or there is a stake discrepancy, error
     if withdrawable_amount > total_stake || withdrawable_amount + new_total_staked != total_stake {
         return Err(ContractError::CustomError {
@@ -1238,7 +1345,14 @@ fn restake(
     let error: Option<StdError> = None;
 
     //Load staker's deposits
-    let deposits = STAKED.load(deps.storage, info.clone().sender)?;
+    let mut deposits = STAKED.load(deps.storage, info.clone().sender)?;
+
+    // Refresh locks on all deposits before processing
+    for deposit in deposits.iter_mut() {
+        if deposit.locked.is_some() {
+            refresh_deposit_lock(deposit, &env, config.lock_duration_ceiling)?;
+        }
+    }
 
     //Iterate through staker's deposits
     let restaked_deposits: Vec<StakeDeposit> = deposits.clone()
@@ -1315,6 +1429,15 @@ pub fn claim_rewards(
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
 
+    // Refresh locks on all deposits before processing
+    let mut deposits = STAKED.load(deps.storage, info.sender.clone())?;
+    for deposit in deposits.iter_mut() {
+        if deposit.locked.is_some() {
+            refresh_deposit_lock(deposit, &env, config.lock_duration_ceiling)?;
+        }
+    }
+    STAKED.save(deps.storage, info.sender.clone(), &deposits)?;
+
     let mut messages: Vec<CosmosMsg>;
     let accrued_interest: Uint128;
     let user_claimables: Vec<Asset>;
@@ -1365,6 +1488,7 @@ pub fn claim_rewards(
                     contract_addr: env.contract.address.to_string(),
                     msg: to_binary(&ExecuteMsg::Stake {
                         user: Some(info.sender.to_string()),
+                        locked: None,
                     })?,
                     funds: vec![coin(accrued_interest.u128(), config.mbrn_denom)],
                 });
@@ -1639,7 +1763,7 @@ fn create_rewards_msgs(
     //Add accrued interest as a staking deposit && mint the amount to the contract
     if !accrued_interest.is_zero(){
         //Add accrued interest as a staking deposit
-        add_staking_deposit(storage, env.clone(), config.clone(), staker, accrued_interest)?;
+        add_staking_deposit(storage, env.clone(), config.clone(), staker, accrued_interest, None)?;
 
         //mint to contract for accounting purposes
         let msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -1815,17 +1939,19 @@ fn withdraw_from_state(
     } else {
         withdrawal_amount = Uint128::zero();
     }
-    //Only look at deposits that are not unstaking
+    //Only look at deposits that are not unstaking && aren't locked
     let staked_deposits: Vec<StakeDeposit> = deposits
         .clone()
         .into_iter()
-        .filter(|deposit| deposit.unstake_start_time.is_none())
+        .filter(|deposit| deposit.unstake_start_time.is_none() 
+        && (deposit.locked.is_none() || (deposit.locked.is_some() && env.block.time.seconds() > deposit.locked.as_ref().unwrap().locked_until)) )
         .collect::<Vec<StakeDeposit>>();
 
     //Iterate through deposits
     let mut new_deposits: Vec<StakeDeposit> = staked_deposits.clone()
         .into_iter()
         .map(|mut deposit| {
+
             
             //Subtract from each deposit until there is none left to withdraw or begin to unstake
             if withdrawal_amount != Uint128::zero() && deposit.amount > withdrawal_amount {
@@ -1877,6 +2003,8 @@ fn withdraw_from_state(
         .filter(|deposit| deposit.amount != Uint128::zero())
         .collect::<Vec<StakeDeposit>>();
 
+    // println!("deposits {:?}", deposits);
+
     if withdrawal_amount != Uint128::zero() {
         return Err(StdError::GenericErr {
             msg: format!(
@@ -1891,11 +2019,14 @@ fn withdraw_from_state(
     }
     //Add any returning_deposits
     new_deposits.extend(returning_deposits);
-    //Filter for deposits that are unstaking but not yet withdrawable
+    //Filter for deposits that are unstaking but not yet withdrawable.
+    //Also filter for deposits that are locked and not yet unlocked
     let mut unstaking_deposits: Vec<StakeDeposit> = deposits
         .clone()
         .into_iter()
-        .filter(|deposit| deposit.unstake_start_time.is_some() && env.block.time.seconds() - deposit.unstake_start_time.unwrap() < config.unstaking_period * SECONDS_PER_DAY)
+        .filter(|deposit| 
+            deposit.unstake_start_time.is_some() && env.block.time.seconds() - deposit.unstake_start_time.unwrap() < config.unstaking_period * SECONDS_PER_DAY
+            || (deposit.locked.is_some() && env.block.time.seconds() < deposit.locked.as_ref().unwrap().locked_until))
         .collect::<Vec<StakeDeposit>>();
     //Aggregate deposits
     unstaking_deposits.extend(new_deposits.clone());
@@ -2034,7 +2165,7 @@ fn get_user_claimables(
             .sum();
 
         //Get claimables per deposit
-        for deposit in deposits {
+        for deposit in deposits.clone() {
             add_deposit_claimables(
                 storage,
                 config.clone(), 
@@ -2051,16 +2182,51 @@ fn get_user_claimables(
             )?;
         }
 
-        //Add condensed deposit to returning_deposits
-        returning_deposits.push(
-            StakeDeposit {
-                staker: user.clone(),
-                amount: total_rewarding_stake,
-                stake_time: earliest_stake_time,
-                unstake_start_time: None,
-                last_accrued: Some(env.block.time.seconds()),
+        //Add condensed deposits grouped by locked status to returning_deposits
+        {
+            use std::collections::BTreeMap;
+
+            // Group by locked status (using a key that represents the lock state)
+            let mut by_lock: BTreeMap<Option<u64>, (Uint128, u64, Option<Locked>)> = BTreeMap::new();
+
+            let deposits_for_grouping = deposits.clone();
+            for d in deposits_for_grouping {
+                // Use locked_until timestamp as key for grouping, or None if not locked
+                let key = d.locked.as_ref().map(|l| l.locked_until);
+                let entry = by_lock.entry(key).or_insert((Uint128::zero(), d.stake_time, d.locked.clone()));
+                entry.0 += d.amount;
+                if d.stake_time < entry.1 { entry.1 = d.stake_time; }
+                // Keep the lock info from the first deposit in the group
+                if entry.2.is_none() && d.locked.is_some() {
+                    entry.2 = d.locked.clone();
+                }
             }
-        );
+
+            if by_lock.is_empty() {
+                // Fallback to previous behavior when no deposits (should not occur due to earlier check)
+                returning_deposits.push(
+                    StakeDeposit {
+                        staker: user.clone(),
+                        amount: total_rewarding_stake,
+                        stake_time: earliest_stake_time,
+                        unstake_start_time: None,
+                        locked: None,
+                        last_accrued: Some(env.block.time.seconds()),
+                    }
+                );
+            } else {
+                for (_key, (amount, earliest, locked)) in by_lock.into_iter() {
+                    returning_deposits.push(StakeDeposit {
+                        staker: user.clone(),
+                        amount,
+                        stake_time: earliest,
+                        unstake_start_time: None,
+                        locked,
+                        last_accrued: Some(env.block.time.seconds()),
+                    });
+                }
+            }
+        }
 
         //Save new condensed deposit for user
         STAKED.save(storage, user.clone(), &returning_deposits)?;
@@ -2126,6 +2292,7 @@ fn get_user_claimables(
                         stake_time: delegate.time_of_delegation,
                         unstake_start_time: None,
                         last_accrued: delegate.last_accrued,
+                        locked: None,
                     };
 
                 //Get claimables 
@@ -2199,6 +2366,7 @@ fn get_user_claimables(
             stake_time: VESTING_STAKE_TIME.load(storage)?,
             unstake_start_time: None,
             last_accrued: None,
+            locked: None,
         };
 
         //Save new vesting multiplier to config if necessary
@@ -2234,6 +2402,78 @@ fn get_user_claimables(
     }
 
     Ok((vec![], Uint128::zero()))
+}
+
+fn lock_stake(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    locked: Locked,
+    amount: Uint128,
+) -> Result<Response, ContractError>{
+    let config = CONFIG.load(deps.storage)?;
+    let user = info.sender;
+
+    // Validate lock duration
+    let lock_duration_days = (locked.locked_until - env.block.time.seconds()) / SECONDS_PER_DAY;
+    if lock_duration_days > config.lock_duration_ceiling { 
+        return Err(ContractError::CustomError { val: format!("Can't lock for longer than {} days", config.lock_duration_ceiling) }) 
+    }
+    // Validate perpetual_lock if set
+    if let Some(perpetual_days) = locked.perpetual_lock {
+        if perpetual_days > config.lock_duration_ceiling {
+            return Err(ContractError::CustomError { val: format!("Perpetual lock duration can't exceed lock ceiling of {} days", config.lock_duration_ceiling) });
+        }
+    }
+
+    //Validate amount
+    if amount == Uint128::zero() { return Err(ContractError::CustomError { val: "Amount must be greater than zero".to_string() }) }
+
+    //Load user's deposits
+    let mut deposits = STAKED.load(deps.storage, user.clone())?;
+
+    //Should only be one deposit if the parsing requires a deposit split
+    let mut new_deposits: Vec<StakeDeposit> = vec![];
+    //Track the amount locked
+    let mut locked_amount = Uint128::zero();
+    //Parse thru deposits and lock enough to fulfill the amount
+    for deposit in deposits.iter_mut() {
+        if locked_amount >= amount { break; }
+        if deposit.locked.is_some() { continue; }
+        if deposit.amount == Uint128::zero() { continue; }
+        let amount_to_lock = amount - locked_amount;
+        //If the deposit is less than the amount to lock, lock the whole deposit
+        if deposit.amount < amount_to_lock {
+            locked_amount += deposit.amount;
+        } else {
+            //Split the deposit into the amount to lock and the amount to leave.
+            let amount_to_leave = deposit.amount - amount_to_lock;
+            //Create a new deposit for the amount to leave
+            let new_deposit = StakeDeposit {
+                staker: user.clone(),
+                amount: amount_to_leave,
+                stake_time: deposit.stake_time,
+                unstake_start_time: deposit.unstake_start_time,
+                last_accrued: deposit.last_accrued,
+                locked: None
+            };
+
+            //Update the deposit
+            deposit.amount = amount_to_lock;
+            deposit.locked = Some(locked.clone());
+            locked_amount += amount_to_lock;
+
+            //Add the new deposit
+            new_deposits.push(new_deposit);
+        }
+    }
+    //Add the new deposits to the existing deposits
+    deposits.extend(new_deposits);
+
+    //Save new deposits
+    STAKED.save(deps.storage, user.clone(), &deposits)?;
+
+    Ok(Response::new())
 }
 
 /// Trim fee events to only include events after the earliest deposit

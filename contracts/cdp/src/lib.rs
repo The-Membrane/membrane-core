@@ -4,6 +4,7 @@
 #![allow(non_camel_case_types)]
 #![allow(clippy::too_many_arguments)]
 #![allow(clippy::inconsistent_digit_grouping)]
+
 pub mod contract;
 mod error;
 pub mod helpers;
@@ -15,6 +16,7 @@ pub mod reply;
 pub mod rates;
 pub mod risk_engine;
 pub mod ltv_updater;
+pub mod circuit_breaker;
 
 pub use crate::error::ContractError;
 

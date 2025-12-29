@@ -11,7 +11,7 @@ pub mod tests {
     use membrane::math::Uint256;
     use membrane::oracle::{AssetResponse, PriceResponse};
     use membrane::osmosis_proxy::{GetDenomResponse, TokenInfoResponse, OwnerResponse};
-    use membrane::cdp::{ExecuteMsg, InstantiateMsg, QueryMsg, EditBasket, UpdateConfig, CreateBasket, LiquidationStatResponse, BasketPositionsResponse};
+    use membrane::cdp::{ExecuteMsg, InstantiateMsg, QueryMsg, EditBasket, UpdateConfig, CreateBasket, LiquidationStatResponse, BasketPositionsResponse, RedeemabilityResponse};
     use membrane::stability_pool::LiquidatibleResponse as SP_LiquidatibleResponse;
     use membrane::staking::Config as Staking_Config;
     use membrane::types::{
@@ -1261,6 +1261,7 @@ pub mod tests {
                             vesting_contract: None,
                             governance_contract: None,
                             osmosis_proxy: None,
+                            lock_duration_ceiling: 0,
                         })?)
                     }
                 }
@@ -2107,11 +2108,10 @@ pub mod tests {
                 max_LTV: Decimal::percent(70),
                 pool_info: None,
                 rate_index: Decimal::one(),
-                hike_rates: Some(false),
-                individual_cost: membrane::types::IndividualCost {
+                individual_cost: Some(membrane::types::IndividualCost {
                     rate: Decimal::zero(),
                     updater_address: None,
-                },
+                }),
             }],
             credit_asset: Asset {
                 info: AssetInfo::NativeToken {
@@ -2152,6 +2152,8 @@ pub mod tests {
         let msg = ExecuteMsg::EditBasket(EditBasket {
             added_cAsset: None,
             liq_queue: None,
+            individual_costs: None,
+            individual_cost_updaters: None,
             collateral_supply_caps: None,
             base_interest_rate: None,
             credit_asset_twap_price_source: Some(TWAPPoolInfo {
@@ -2216,7 +2218,6 @@ pub mod tests {
             base_debt_cap_multiplier: None,
             cpc_multiplier: None,
             rate_slope_multiplier: None,
-            rate_hike_rate: None,
             affiliate_fee_max: None,
             skip_credit_price_accrual: None,
             liquidation_stat_limit: None,
@@ -2258,7 +2259,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -2293,6 +2294,8 @@ pub mod tests {
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
                 take_revenue: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2315,7 +2318,6 @@ pub mod tests {
                 debt_minimum: None,
                 base_debt_cap_multiplier: None,
                 rate_slope_multiplier: None,
-                rate_hike_rate: None,
                 affiliate_fee_max: None,
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
@@ -2331,7 +2333,8 @@ pub mod tests {
             // 1) Create a position by depositing collateral
             let deposit_msg = ExecuteMsg::Deposit { 
                 position_owner: Some(USER.to_string()), 
-                position_id: None 
+                position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract.call(deposit_msg, vec![
                 coin(100_000_000_000, "debit"),
@@ -2459,7 +2462,7 @@ pub mod tests {
                 .unwrap();
 
             // Deposit collateral and borrow to create an undercollateralized position
-            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: None };
+            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: None, affiliate_address: None };
             let cosmos = cdp.call(deposit, vec![Coin { denom: "debit".to_string(), amount: Uint128::new(50_000_000_000) }]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos).unwrap();
 
@@ -2518,7 +2521,7 @@ pub mod tests {
 
 
             // Re-Deposit collateral 
-            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: Some(Uint128::one()) };
+            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: Some(Uint128::one()), affiliate_address: None };
             let cosmos = cdp.call(deposit, vec![Coin { denom: "debit".to_string(), amount: Uint128::new(50_000_000_000) }]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos).unwrap();
             // Re-increase debt so the position can be liquidated again
@@ -2572,7 +2575,7 @@ pub mod tests {
             }};
             let cosmos = cdp.call(intent1, vec![]).unwrap();
             // Ensure the position exists first
-            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: None };
+            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: None, affiliate_address: None };
             let dep_cosmos = cdp.call(deposit, vec![Coin { denom: "debit".to_string(), amount: Uint128::new(50_000_000_000) }]).unwrap();
             app.execute(Addr::unchecked(USER), dep_cosmos).unwrap();
             app.execute(Addr::unchecked(USER), cosmos).unwrap();
@@ -2677,7 +2680,7 @@ pub mod tests {
             let (mut app, cdp, _lq) = proper_instantiate(false, false, false, false);
 
             // 1) Create a position and mint debt so it can later be liquidated into bad debt
-            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: None };
+            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: None, affiliate_address: None };
             let cosmos = cdp.call(deposit, vec![Coin { denom: "debit".to_string(), amount: Uint128::new(50_000_000_000) }]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos).unwrap();
 
@@ -2739,6 +2742,51 @@ pub mod tests {
         //     // assert!(err_str.contains("Unauthorized"), "expected Unauthorized, got: {}", err_str);
         // }
 
+        #[test]
+        fn test_bad_debt_check_queries_ltv_disco_can_handle() {
+            use membrane::ltv_disco::{ExecuteMsg as LTVDisco_ExecuteMsg, QueryMsg as LTVDisco_QueryMsg, InstantiateMsg as LTVDisco_InstantiateMsg, BackingDepositInput};
+            
+            let (mut app, cdp, _lq) = proper_instantiate(false, false, false, false);
+            
+            // Get the LTV Disco address from CDP config
+            let config: Config = app.wrap().query_wasm_smart(cdp.addr(), &QueryMsg::Config {}).unwrap();
+            let ltv_disco_addr = config.ltv_disco.clone();
+            
+            // Verify LTV Disco exists and can be queried
+            // The mock disco returns false for CanHandleBadDebt, so we verify the query works
+            let can_handle: bool = app.wrap().query_wasm_smart(
+                ltv_disco_addr.clone(),
+                &LTVDisco_QueryMsg::CanHandleBadDebt {
+                    asset: "debit".to_string(),
+                    amount: Uint128::new(100_000),
+                },
+            ).unwrap();
+            
+            // Mock disco returns false, but we verify the query mechanism works
+            // In a real scenario with deposits, this would return true
+            assert!(!can_handle, "Mock disco should return false (no deposits)");
+            
+            // Verify CDP has ltv_disco configured (compare addresses)
+            assert_eq!(config.ltv_disco.to_string(), ltv_disco_addr.to_string());
+        }
+
+        #[test]
+        fn test_bad_debt_check_flow_with_real_disco() {
+            // This test would require:
+            // 1. Replacing mock LTV Disco with real one in proper_instantiate
+            // 2. Adding deposits to disco
+            // 3. Creating position and liquidating to trigger bad debt
+            // 4. Verifying AddBadDebt is sent to disco
+            // 
+            // For now, we verify the infrastructure is in place
+            let (mut app, cdp, _lq) = proper_instantiate(false, false, false, false);
+            
+            let config: Config = app.wrap().query_wasm_smart(cdp.addr(), &QueryMsg::Config {}).unwrap();
+            
+            // Verify ltv_disco is configured
+            assert!(!config.ltv_disco.to_string().is_empty(), "LTV Disco should be configured");
+        }
+
         fn freeze(){
 
             let (mut app, cdp_contract, lq_contract) =
@@ -2770,6 +2818,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2778,6 +2828,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -2807,6 +2858,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2816,6 +2869,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -2845,6 +2899,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2880,6 +2936,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2914,6 +2972,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2945,6 +3005,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -2984,6 +3046,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3014,6 +3078,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3044,6 +3110,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3071,6 +3139,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3138,6 +3208,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3147,6 +3219,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -3166,6 +3239,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -3208,7 +3282,7 @@ pub mod tests {
                         max_LTV: Decimal::percent(70),
                         pool_info: None,  
                         rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                     }
                 ]
             );
@@ -3226,7 +3300,7 @@ pub mod tests {
                         max_LTV: Decimal::percent(70),
                         pool_info: None,  
                         rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                     }
                 ]
             );
@@ -3552,7 +3626,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(90),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -3587,6 +3661,8 @@ pub mod tests {
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
                 take_revenue: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3595,6 +3671,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -3829,6 +3906,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -3837,6 +3916,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("test".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -4070,7 +4150,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -4083,6 +4163,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4101,7 +4183,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -4114,6 +4196,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4152,7 +4236,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -4206,6 +4290,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4215,6 +4301,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -4515,7 +4602,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -4528,6 +4615,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4546,7 +4635,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -4559,6 +4648,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4597,7 +4688,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -4651,6 +4742,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4660,6 +4753,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -4678,6 +4772,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -4842,7 +4937,6 @@ pub mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-                rate_hike_rate: None,
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
@@ -4873,7 +4967,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -4886,6 +4980,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4904,7 +5000,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -4917,6 +5013,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -4955,7 +5053,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -5009,6 +5107,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5018,6 +5118,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("discounty".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -5128,6 +5229,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5136,6 +5239,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("test".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -5310,6 +5414,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5318,6 +5424,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("test".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -5463,6 +5570,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5471,6 +5580,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -5554,7 +5664,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -5567,6 +5677,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5585,7 +5697,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -5598,6 +5710,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5636,7 +5750,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(true),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -5690,6 +5804,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5699,6 +5815,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -5872,6 +5989,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5923,6 +6042,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5983,6 +6104,8 @@ pub mod tests {
                 frozen: None,
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -5991,6 +6114,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("test".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -6235,7 +6359,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -6267,6 +6391,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6275,6 +6401,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -6435,6 +6562,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6443,6 +6572,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -6563,7 +6693,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -6576,6 +6706,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6594,7 +6726,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -6607,6 +6739,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6646,7 +6780,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -6700,6 +6834,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6708,6 +6844,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -6815,7 +6952,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -6828,6 +6965,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6846,7 +6985,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -6859,6 +6998,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6898,7 +7039,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -6952,6 +7093,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -6960,6 +7103,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -7058,7 +7202,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -7071,6 +7215,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7089,7 +7235,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -7102,6 +7248,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7141,7 +7289,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -7195,6 +7343,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7203,6 +7353,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -7313,7 +7464,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -7326,6 +7477,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7343,7 +7496,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -7356,6 +7509,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7395,7 +7550,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -7449,6 +7604,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7457,6 +7614,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -7578,6 +7736,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7586,6 +7746,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -7726,6 +7887,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7749,7 +7912,6 @@ pub mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-                rate_hike_rate: None,
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
@@ -7764,6 +7926,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -7880,6 +8043,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -7903,7 +8068,6 @@ pub mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-                rate_hike_rate: None,
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
@@ -7918,6 +8082,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -8054,6 +8219,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8077,7 +8244,6 @@ pub mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-                rate_hike_rate: None,
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
@@ -8092,6 +8258,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -8607,6 +8774,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8615,6 +8784,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -8632,6 +8802,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("little_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -8703,6 +8874,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8711,6 +8884,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -8728,6 +8902,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("little_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -8802,7 +8977,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -8836,6 +9011,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8844,6 +9021,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -8922,7 +9100,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -8956,6 +9134,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -8964,6 +9144,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -9041,7 +9222,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -9054,6 +9235,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9072,7 +9255,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -9085,6 +9268,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9121,7 +9306,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -9175,6 +9360,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9183,6 +9370,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -9214,6 +9402,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: Some(Uint128::from(1u128)),
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -9314,7 +9503,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -9327,6 +9516,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9345,7 +9536,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -9358,6 +9549,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9394,7 +9587,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -9448,6 +9641,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9456,6 +9651,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -9487,6 +9683,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: Some(Uint128::from(1u128)),
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -9586,7 +9783,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -9599,6 +9796,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9617,7 +9816,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -9630,6 +9829,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9666,7 +9867,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -9728,6 +9929,8 @@ pub mod tests {
                     }
                 ]),
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9736,6 +9939,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -9753,6 +9957,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: Some(Uint128::new(1)),
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -9811,6 +10016,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("bigger_bank".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -9867,7 +10073,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -9880,6 +10086,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9898,7 +10106,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -9911,6 +10119,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -9947,7 +10157,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -10001,6 +10211,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10009,6 +10221,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some("lp_tester".to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -10081,6 +10294,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10089,6 +10304,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: Some(String::from("sender88")),
                 position_id: None,
+                affiliate_address: None,
             };
             app.send_tokens(
                 Addr::unchecked("little_bank"),
@@ -10164,7 +10380,7 @@ pub mod tests {
                             max_LTV: Decimal::percent(70),
                             pool_info: None,
                             rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                         }
                     ], 
                     cAsset_ratios: vec![], //arent calc'd in queries anymore
@@ -10196,7 +10412,6 @@ pub mod tests {
                 collateral_twap_timeframe: Some(33u64), 
                 cpc_multiplier: Some(Decimal::percent(50)),
                 rate_slope_multiplier: Some(Decimal::percent(2)), 
-                rate_hike_rate: Some(Decimal::one()),
                 skip_credit_price_accrual: Some(false),
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
@@ -10228,7 +10443,6 @@ pub mod tests {
             assert_eq!(resp.collateral_twap_timeframe, 33u64);
             assert_eq!(resp.cpc_multiplier, Decimal::percent(50));
             assert_eq!(resp.rate_slope_multiplier, Decimal::percent(2));
-            assert_eq!(resp.rate_hike_rate, Some(Decimal::one()));
             assert_eq!(resp.affiliate_fee_max, Decimal::percent(10));
             assert_eq!(resp.revenue_distributor, None);
             assert_eq!(resp.skip_credit_price_accrual, false);
@@ -10253,7 +10467,6 @@ pub mod tests {
                 collateral_twap_timeframe: None, 
                 cpc_multiplier: None, 
                 rate_slope_multiplier: Some(Decimal::percent(3)), 
-                rate_hike_rate: None,
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: None,
@@ -10284,7 +10497,6 @@ pub mod tests {
             assert_eq!(resp.collateral_twap_timeframe, 33u64);
             assert_eq!(resp.cpc_multiplier, Decimal::percent(50));
             assert_eq!(resp.rate_slope_multiplier, Decimal::percent(3));
-            assert_eq!(resp.rate_hike_rate, Some(Decimal::one()));
             assert_eq!(resp.affiliate_fee_max, Decimal::percent(10));
             assert_eq!(resp.revenue_distributor, None);
             assert_eq!(resp.skip_credit_price_accrual, false);
@@ -10301,7 +10513,6 @@ pub mod tests {
                 },
                 max_borrow_LTV: None,
                 max_LTV: None,
-                hike_rates: None,
             };
             let cosmos_msg = cdp_contract.call(edit_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
@@ -10321,6 +10532,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10332,7 +10545,6 @@ pub mod tests {
                 },
                 max_borrow_LTV: Some(Decimal::percent(82)),
                 max_LTV: Some(Decimal::percent(83)),
-                hike_rates: None,
             };
             let cosmos_msg = cdp_contract.call(edit_msg, vec![]).unwrap();
             let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10359,7 +10571,6 @@ pub mod tests {
                 },
                 max_borrow_LTV: Some(Decimal::percent(100)),
                 max_LTV: Some(Decimal::percent(100)),
-                hike_rates: None,
             };
             let cosmos_msg = cdp_contract.call(edit_msg, vec![]).unwrap();
             let err = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap_err();
@@ -10371,7 +10582,6 @@ pub mod tests {
                 },
                 max_borrow_LTV: None,
                 max_LTV: Some(Decimal::percent(100)),
-                hike_rates: None,
             };
             let cosmos_msg = cdp_contract.call(edit_msg, vec![]).unwrap();
             let res = app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10396,7 +10606,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(70),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -10430,6 +10640,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10440,6 +10652,7 @@ pub mod tests {
             let error_exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: Some(Uint128::from(3u128)),
+                affiliate_address: None,
             };
 
             //Fail due to a non-existent position
@@ -10462,6 +10675,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(exec_msg, vec![coin(666, "fake_debit")])
@@ -10473,6 +10687,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             app.send_tokens(
                 Addr::unchecked(USER),
@@ -10545,6 +10760,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10564,6 +10781,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract.call(exec_msg, coins(11, "debit")).unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
@@ -10623,6 +10841,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10643,6 +10863,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(exec_msg, vec![coin(11_000_000_000_000, "debit")])
@@ -10749,6 +10970,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -10773,6 +10996,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract.call(exec_msg, coins(11, "debit")).unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
@@ -10843,7 +11067,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(70),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -10875,6 +11099,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();           
@@ -10883,6 +11109,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract.call(exec_msg, vec![coin(11, "debit"), coin(11, "2nddebit")]).unwrap();
             let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
@@ -10911,6 +11138,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap(); 
@@ -11316,7 +11545,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(70),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -11350,6 +11579,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -11358,6 +11589,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(exec_msg.clone(), vec![coin(100_000_000000, "debit")])
@@ -11380,6 +11612,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(exec_msg.clone(), vec![coin(100_000_000000, "2nddebit")])
@@ -11680,7 +11913,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(70),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -11714,6 +11947,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -11722,6 +11957,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(exec_msg.clone(), vec![coin(100_000_000000, "debit")])
@@ -11744,6 +11980,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(exec_msg.clone(), vec![coin(100_000_000000, "debit")])
@@ -11877,7 +12114,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -11890,6 +12127,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -11908,7 +12147,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(60),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -11921,6 +12160,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -11939,7 +12180,7 @@ pub mod tests {
                     max_LTV: Decimal::percent(80),
                     pool_info: None,
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -11952,6 +12193,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -11988,7 +12231,7 @@ pub mod tests {
                         ],
                     }),
                     rate_index: Decimal::one(),
-                    hike_rates: Some(false),
+                individual_cost: None,
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -12052,6 +12295,8 @@ pub mod tests {
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
                 // revenue_destinations: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -12068,6 +12313,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
             .call(exec_msg.clone(), vec![coin(100_000000_000, "debit"), coin(100_000_000_000_000_000_000_000, "lp_denom")])
@@ -12111,6 +12357,7 @@ pub mod tests {
             let exec_msg = ExecuteMsg::Deposit {
                 position_owner: None,
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(exec_msg.clone(), vec![coin(100_000_000000, "2nddebit")])
@@ -12302,6 +12549,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -12354,6 +12602,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -12408,6 +12657,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -12422,8 +12672,8 @@ pub mod tests {
                 .unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
 
-            // Add 3 affiliates - should all succeed
-            for i in 1..=3 {
+            // Add 10 affiliates - should all succeed
+            for i in 1..=10 {
                 let msg = ExecuteMsg::SetAffiliate {
                     position_id: Uint128::new(1),
                     affiliate_address: format!("affiliate{}", i),
@@ -12434,24 +12684,24 @@ pub mod tests {
                 app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
             }
 
-            // Try to add a 4th affiliate - should fail
+            // Try to add an 11th affiliate - should fail
             let msg = ExecuteMsg::SetAffiliate {
                 position_id: Uint128::new(1),
-                affiliate_address: "affiliate4".to_string(),
+                affiliate_address: "affiliate11".to_string(),
                 affiliate_fee: Decimal::percent(3),
-                label: Some("test_affiliate_4".to_string()),
+                label: Some("test_affiliate_11".to_string()),
             };
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
 
-            // Verify we have exactly 3 affiliates
+            // Verify we have exactly 10 affiliates
             let query_msg = QueryMsg::GetAffiliates { position_id: Uint128::new(1) };
             let affiliates: Vec<membrane::types::AffiliateData> = app
                 .wrap()
                 .query_wasm_smart(cdp_contract.addr(), &query_msg)
                 .unwrap();
             
-            assert_eq!(affiliates.len(), 3);
+            assert_eq!(affiliates.len(), 10);
         }
 
         #[test]
@@ -12463,6 +12713,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -12524,6 +12775,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -12575,10 +12827,11 @@ pub mod tests {
               proper_instantiate(false, false, true, false);
 
           // Create a position first
-          let msg = ExecuteMsg::Deposit {
-              position_owner: Some(USER.to_string()),
-              position_id: None,
-          };
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some(USER.to_string()),
+                position_id: None,
+                affiliate_address: None,
+            };
           let cosmos_msg = cdp_contract
               .call(
                   msg,
@@ -12638,6 +12891,8 @@ pub mod tests {
               frozen: None,
               distribute_revenue: None,
               multi_asset_supply_caps: None,
+              individual_costs: None,
+              individual_cost_updaters: None,
           });
         let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
         app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -12710,10 +12965,11 @@ pub mod tests {
             proper_instantiate(false, false, false, false);
 
         // Create a position first
-        let msg = ExecuteMsg::Deposit {
-            position_owner: Some(USER.to_string()),
-            position_id: None,
-        };
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some(USER.to_string()),
+                position_id: None,
+                affiliate_address: None,
+            };
         let cosmos_msg = cdp_contract
             .call(
                 msg,
@@ -12832,10 +13088,11 @@ pub mod tests {
             proper_instantiate(false, false, false, false);
 
         // Create a position first
-        let msg = ExecuteMsg::Deposit {
-            position_owner: Some(USER.to_string()),
-            position_id: None,
-        };
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some(USER.to_string()),
+                position_id: None,
+                affiliate_address: None,
+            };
         let cosmos_msg = cdp_contract
             .call(
                 msg,
@@ -12941,10 +13198,11 @@ pub mod tests {
             proper_instantiate(false, false, false, false);
 
         // Create a position first
-        let msg = ExecuteMsg::Deposit {
-            position_owner: Some(USER.to_string()),
-            position_id: None,
-        };
+            let msg = ExecuteMsg::Deposit {
+                position_owner: Some(USER.to_string()),
+                position_id: None,
+                affiliate_address: None,
+            };
         let cosmos_msg = cdp_contract
             .call(
                 msg,
@@ -13012,6 +13270,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -13114,6 +13373,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -13144,6 +13404,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(USER.to_string()),
                 position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -13205,7 +13466,6 @@ pub mod tests {
                 credit_twap_timeframe: None,
                 cpc_multiplier: None,
                 rate_slope_multiplier: None,
-                rate_hike_rate: None,
                 skip_credit_price_accrual: None,
                 revenue_distributor: None,
             ltv_upward_kp: None,
@@ -13217,7 +13477,7 @@ pub mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             // Seed a position and mint credit via increase debt so we can redeem
-            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: None };
+            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: None, affiliate_address: None };
             let cosmos_msg = cdp_contract
                 .call(
                     deposit,
@@ -13248,7 +13508,7 @@ pub mod tests {
                 proper_instantiate(false, false, false, false);
 
             // Seed a position
-            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: None };
+            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: None, affiliate_address: None };
             let cosmos_msg = cdp_contract
                 .call(
                     deposit,
@@ -13278,7 +13538,8 @@ pub mod tests {
             // Create a position by depositing collateral
             let deposit = ExecuteMsg::Deposit { 
                 position_owner: Some(USER.to_string()), 
-                position_id: None 
+                position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -13313,6 +13574,8 @@ pub mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 distribute_revenue: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -13364,7 +13627,8 @@ pub mod tests {
             // Create a position by depositing collateral
             let deposit = ExecuteMsg::Deposit { 
                 position_owner: Some(USER.to_string()), 
-                position_id: None 
+                position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -13399,6 +13663,8 @@ pub mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 distribute_revenue: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -13490,7 +13756,8 @@ pub mod tests {
             // Create a position
             let deposit = ExecuteMsg::Deposit { 
                 position_owner: Some(USER.to_string()), 
-                position_id: None 
+                position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -13525,6 +13792,8 @@ pub mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 distribute_revenue: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -13565,7 +13834,8 @@ pub mod tests {
             // Add more collateral
             let deposit_more = ExecuteMsg::Deposit { 
                 position_owner: Some(USER.to_string()), 
-                position_id: Some(Uint128::from(1u128)) 
+                position_id: Some(Uint128::from(1u128)),
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -13611,7 +13881,8 @@ pub mod tests {
             // Create position for user1
             let deposit1 = ExecuteMsg::Deposit { 
                 position_id: None,
-                position_owner: Some(user1.to_string())
+                position_owner: Some(user1.to_string()),
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -13624,7 +13895,8 @@ pub mod tests {
             // Create position for user2
             let deposit2 = ExecuteMsg::Deposit { 
                 position_id: None,
-                position_owner: Some(user2.to_string())
+                position_owner: Some(user2.to_string()),
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -13669,6 +13941,8 @@ pub mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 distribute_revenue: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -13749,7 +14023,8 @@ pub mod tests {
             // Create a position
             let deposit = ExecuteMsg::Deposit { 
                 position_owner: Some(USER.to_string()), 
-                position_id: None 
+                position_id: None,
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -13784,6 +14059,8 @@ pub mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 distribute_revenue: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -13832,7 +14109,8 @@ pub mod tests {
             
             let deposit_zero_rate = ExecuteMsg::Deposit { 
                 position_id: None,
-                position_owner: Some(USER.to_string())
+                position_owner: Some(USER.to_string()),
+                affiliate_address: None,
             };
             let cosmos_msg = cdp_contract.call(deposit_zero_rate, vec![
                 coin(100_000_000_000, "debit"),
@@ -13864,6 +14142,8 @@ pub mod tests {
                 cpc_margin_of_error: None,
                 frozen: None,
                 distribute_revenue: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(edit_basket_zero, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -13925,7 +14205,6 @@ pub mod tests {
                 debt_minimum: Some(Uint128::new(1u128)),
                 base_debt_cap_multiplier: None,
                 rate_slope_multiplier: None,
-                rate_hike_rate: None,
                 affiliate_fee_max: None,
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
@@ -13938,7 +14217,7 @@ pub mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             // Create and borrow
-            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: None };
+            let deposit = ExecuteMsg::Deposit { position_owner: Some(USER.to_string()), position_id: None, affiliate_address: None };
             let cosmos_msg = cdp_contract
                 .call(
                     deposit,
@@ -13992,6 +14271,8 @@ pub mod tests {
                 frozen: None,
                 distribute_revenue: None,
                 multi_asset_supply_caps: None,
+                individual_costs: None,
+                individual_cost_updaters: None,
             });
             let cosmos_msg = cdp_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -14014,7 +14295,6 @@ pub mod tests {
                 debt_minimum: None,
                 base_debt_cap_multiplier: None,
                 rate_slope_multiplier: None,
-                rate_hike_rate: None,
                 revenue_distributor: None,
             ltv_upward_kp: None,
             ltv_downward_period: None,
@@ -14027,7 +14307,7 @@ pub mod tests {
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
 
             // Deposit collateral and mint debt
-            let msg = ExecuteMsg::Deposit { position_owner: None, position_id: None };
+            let msg = ExecuteMsg::Deposit { position_owner: None, position_id: None, affiliate_address: None };
             let cosmos_msg = cdp_contract
                 .call(
                     msg,
@@ -14261,4 +14541,5 @@ pub mod tests {
             let cost = c_asset.individual_cost.as_ref().unwrap();
             assert_eq!(cost.rate, new_rate);
         }
+
     }

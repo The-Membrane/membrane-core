@@ -36,3 +36,5 @@ pub const VAULT_INFO: Item<Vec<VaultInfo>> = Item::new("vault_info");
 pub const POINTS_MULTIPLIERS: Item<PointsMultipliers> = Item::new("points_multipliers");
 
 pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
+// Store pending user for reply handlers (simple - just need to know who to give points to)
+pub const PENDING_USER: Item<Addr> = Item::new("pending_user");

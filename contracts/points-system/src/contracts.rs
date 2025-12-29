@@ -1,8 +1,9 @@
 use core::panic;
 
 use cosmwasm_std::{
-    attr, entry_point, to_json_binary, Addr, Attribute, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, QuerierWrapper, QueryRequest, Reply, ReplyOn, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg, WasmQuery
+    attr, entry_point, to_json_binary, Addr, Attribute, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, QuerierWrapper, QueryRequest, Reply, ReplyOn, Response, StdError, StdResult, Storage, SubMsg, SubMsgResponse, Uint128, WasmMsg, WasmQuery
 };
+use std::str::FromStr;
 use cw2::set_contract_version;
 
 use cw_storage_plus::Bound;
@@ -18,9 +19,11 @@ use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::staking::ExecuteMsg as Staking_ExecuteMsg;
 use membrane::types::{AssetInfo, Basket, UserInfo, PointsMultipliers, VaultMultiplier};
 use membrane::range_bound_lp_vault::QueryMsg as RB_QueryMsg;
+use membrane::system_discounts::{QueryMsg as SystemDiscounts_QueryMsg, UserBoostResponse};
+use membrane::transmuter::ExecuteMsg as Transmuter_ExecuteMsg;
 
 use crate::error::ContractError;
-use crate::state::{LiquidationPropagation, POINTS_MULTIPLIERS, CLAIM_CHECK, CONFIG, LIQ_PROPAGATION, OWNERSHIP_TRANSFER, USER_STATS, USER_VAULT_CONVERSION_RATES};
+use crate::state::{LiquidationPropagation, POINTS_MULTIPLIERS, CLAIM_CHECK, CONFIG, LIQ_PROPAGATION, OWNERSHIP_TRANSFER, USER_STATS, USER_VAULT_CONVERSION_RATES, PENDING_USER};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "points_system";
@@ -34,7 +37,9 @@ const PAGINATION_DEFAULT_LIMIT: u64 = 30;
 
 //Reply IDs
 const LIQUIDATION_REPLY_ID: u64 = 1u64;
-const ACCRUE_REPLY_ID: u64 = 2u64;
+const CDP_REPAY_REPLY_ID: u64 = 3u64;
+const DISCO_CLAIM_REPLY_ID: u64 = 4u64;
+const TRANSMUTER_TRANSMUTE_REPLY_ID: u64 = 5u64;
 
 //Contract
 const RANGE_BOUND_VAULT: &str = "osmo17rvvd6jc9javy3ytr0cjcypxs20ru22kkhrpwx7j3ym02znuz0vqa37ffx";
@@ -52,32 +57,38 @@ pub fn instantiate(
     let config = Config {
         owner: info.sender,
         cdt_denom: msg.cdt_denom,
+        mbrn_denom: msg.mbrn_denom,
         oracle_contract: deps.api.addr_validate(&msg.oracle_contract)?,
         positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
         stability_pool_contract: deps.api.addr_validate(&msg.stability_pool_contract)?,
         liq_queue_contract: deps.api.addr_validate(&msg.liq_queue_contract)?,
         governance_contract: deps.api.addr_validate(&msg.governance_contract)?,
         osmosis_proxy_contract: deps.api.addr_validate(&msg.osmosis_proxy_contract)?,
+        transmuter_contract: None,
+        ltv_disco_contract: None,
+        system_discounts_contract: None,
         mbrn_per_point: Decimal::from_ratio(1_000_000u128, 1u128), //1
         total_mbrn_distribution: Uint128::zero(), 
         max_mbrn_distribution: Uint128::new(100_000_000000u128), //100_000
         points_per_dollar: Decimal::one(),
     };    
 
-    // let config = Config {
-    //     owner: Addr::unchecked("osmo1wk0zlag50ufu5wrsfyelrylykfe3cw68fgv9s8xqj20qznhfm44qgdnq86"),
-    //     cdt_denom: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/ucdt"),
-    //     oracle_contract: Addr::unchecked("osmo16sgcpe0hcs42qk5vumk06jzmstkpka9gjda9tfdelwn65ksu3l7s7d4ggs"),
-    //     positions_contract: Addr::unchecked("osmo1gy5gpqqlth0jpm9ydxlmff6g5mpnfvrfxd3mfc8dhyt03waumtzqt8exxr"),
-    //     stability_pool_contract: Addr::unchecked("osmo1326cxlzftxklgf92vdep2nvmqffrme0knh8dvugcn9w308ya9wpqv03vk8"),
-    //     liq_queue_contract: Addr::unchecked("osmo1ycmtfa7h0efexjxuaw7yh3h3qayy5lspt9q4n4e3stn06cdcgm8s50zmjl"),
-    //     governance_contract: Addr::unchecked("osmo1wk0zlag50ufu5wrsfyelrylykfe3cw68fgv9s8xqj20qznhfm44qgdnq86"),
-    //     osmosis_proxy_contract: Addr::unchecked("osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd"),
-    //     mbrn_per_point: Decimal::from_ratio(1_000_000u128, 1u128), //1
-    //     total_mbrn_distribution: Uint128::zero(), 
-    //     max_mbrn_distribution: Uint128::new(100_000_000000u128), //100_000
-    //     points_per_dollar: Decimal::one(),
-    // };    
+    //Set initial points multipliers
+    let points_multiplier = PointsMultipliers {
+        interest_rate: Decimal::percent(1_00),
+        liquidation_execution: Decimal::percent(1_00),
+        liquidation_claims: Decimal::percent(1_00),
+        governance_votes: Decimal::percent(3_00),
+        transmuter_swap_fees: Decimal::percent(1_00),
+        disco_revenue: Decimal::percent(1_00),
+        vault_yields: vec![
+            VaultMultiplier {
+                vault_address: String::from(RANGE_BOUND_VAULT),
+                multiplier: Decimal::percent(100_00),
+            },
+        ],
+    };
+    POINTS_MULTIPLIERS.save(deps.storage, &points_multiplier)?;
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
@@ -96,10 +107,13 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig { owner, cdt_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar, points_multipliers } => update_config(deps, info, owner, cdt_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar, points_multipliers),
+        ExecuteMsg::UpdateConfig { owner, cdt_denom, mbrn_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, transmuter_contract, ltv_disco_contract, system_discounts_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar, points_multipliers } => update_config(deps, info, owner, cdt_denom, mbrn_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, transmuter_contract, ltv_disco_contract, system_discounts_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar, points_multipliers),
         ExecuteMsg::Liquidate { position_id, position_owner } => liquidate_for_user(deps, env, info, position_id, position_owner),
-        ExecuteMsg::CheckClaims { cdp_repayment, sp_claims, lq_claims, vote, rangebound_user } => check_claims(deps, env, info, cdp_repayment, sp_claims, lq_claims, vote, rangebound_user),
-        ExecuteMsg::GivePoints { cdp_repayment, sp_claims, lq_claims, vote, rangebound_user } => give_points(deps, env, info, cdp_repayment, sp_claims, lq_claims, vote, rangebound_user),
+        ExecuteMsg::CheckClaims { sp_claims, lq_claims, vote } => check_claims(deps, env, info, sp_claims, lq_claims, vote),
+        ExecuteMsg::RepayAndGivePoints { position_id, position_owner, send_excess_to } => repay_and_give_points(deps, env, info, position_id, position_owner, send_excess_to),
+        ExecuteMsg::ClaimDiscoRevenueAndGivePoints { user, asset, limit, compound_action } => claim_disco_revenue_and_give_points(deps, env, info, user, asset, limit, compound_action),
+        ExecuteMsg::TransmuteAndGivePoints { recipient } => transmute_and_give_points(deps, env, info, recipient),
+        ExecuteMsg::GivePoints { sp_claims, lq_claims, vote } => give_points(deps, env, info, sp_claims, lq_claims, vote),
         ExecuteMsg::ClaimMBRN {} => claim_mbrn_from_points(deps, env, info),
     }
 }
@@ -113,35 +127,21 @@ fn check_claims(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,    
-    cdp_repayment: Option<UserInfo>,
     sp_claims: bool,
     lq_claims: bool,
     vote: Option<Vec<u64>>,
-    rangebound_user: Option<String>,
 ) -> Result<Response, ContractError>{
     //Load config
     let config: Config = CONFIG.load(deps.storage)?;
 
-    if cdp_repayment.is_none() && !sp_claims && !lq_claims && vote.is_none() && rangebound_user.is_none() {
+    if !sp_claims && !lq_claims && vote.is_none() {
         return Err(ContractError::Std(StdError::generic_err("No claims to check")));
     }
 
-    let mut msgs: Vec<SubMsg> = vec![];
+    let msgs: Vec<SubMsg> = vec![];
     
-    //1) Check CDP repayment?
-    if let Some(user_info) = cdp_repayment.clone() {
-        //Create accrue message
-        let accrue_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
-            contract_addr: config.clone().positions_contract.to_string(), 
-            msg: to_json_binary(&CDP_ExecuteMsg::Accrue {
-                position_ids: vec![ user_info.position_id ],
-                position_owner: Some(user_info.position_owner),
-            })?,
-            funds: vec![] 
-        });
-        let sub_msg = SubMsg::reply_on_success(accrue_msg, ACCRUE_REPLY_ID);
-        msgs.push(sub_msg);
-    }
+    // Note: CDP revenue no longer needs accrue message or pending_revenue tracking
+    // We use the revenue attribute from the repay response directly
 
     let mut pending_sp_claims: ClaimsResponse = ClaimsResponse {
         claims: vec![],
@@ -202,69 +202,6 @@ fn check_claims(
         }
     }
 
-    //Save Range Bound Vault conversion rate and user's VT balance
-    if let Some(user) = rangebound_user {
-        let range_bound_user_addr = deps.api.addr_validate(&user)?;
-
-        //Load User's Vault Conversion info
-        let mut user_info = match USER_VAULT_CONVERSION_RATES.load(deps.storage, range_bound_user_addr.clone()){
-            Ok(info) => info,
-            Err(_) => vec![]
-        };
-
-        //Create Range Bound Vault Conversion Rate info
-        let mut rangebound_info = VaultConversionRate {
-            vault_address: String::from(RANGE_BOUND_VAULT),
-            last_conversion_rate: Uint128::zero(),
-            last_vt_balance: Uint128::zero(),
-        };
-        let mut found: Option<usize> = None;
-
-        //Find User's Range Bound Vault info
-        if user_info.len() > 0 {
-            if let Some((index, rb_info)) = user_info.clone().into_iter().enumerate().find(|(index, x)| x.vault_address == RANGE_BOUND_VAULT){
-                rangebound_info = rb_info;
-                found = Some(index);
-            }
-        }
-        //Query user's wallet for VT balance
-        let user_vt_balance: Uint128 = match deps.querier.query_balance(user, String::from(RANGE_BOUND_VAULT_TOKEN)){
-            Ok(balance) => balance.amount,
-            Err(_) => Uint128::zero(),
-        };
-
-        if user_vt_balance == Uint128::zero() {
-            return Err(ContractError::Std(StdError::generic_err("User has no VT balance")));
-        }
-
-        //Query Range Bound Vault for conversion rate
-        let conversion_rate: Uint128 = match deps.querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart { 
-            contract_addr: RANGE_BOUND_VAULT.to_string().clone(), 
-            msg: to_json_binary(&RB_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1000000000000u128) })?
-        })){
-            Ok(rate) => rate,
-            Err(_) => return Err(ContractError::Std(StdError::generic_err("Failed to query Range Bound Vault for conversion rate"))),
-        };
-
-        //Override both rate and balance if the user's balance is higher
-        if user_vt_balance > rangebound_info.last_vt_balance {
-            rangebound_info.last_vt_balance = user_vt_balance;
-            rangebound_info.last_conversion_rate = conversion_rate;
-        } else {
-            //Otherwise only save balance if it's lower or equal
-            rangebound_info.last_vt_balance = user_vt_balance;
-        }
-
-        if let Some(found) = found {
-            //Update user's Range Bound Vault info
-            user_info[found] = rangebound_info;
-        } else {
-            //Add user's Range Bound Vault info
-            user_info.push(rangebound_info);
-        }
-        //Save user info
-        USER_VAULT_CONVERSION_RATES.save(deps.storage, range_bound_user_addr, &user_info)?;
-    }
 
     //Save Claim Check
     CLAIM_CHECK.save(deps.storage, &
@@ -280,10 +217,9 @@ fn check_claims(
 
     //Set attributes
     let mut attrs: Vec<Attribute> = vec![];
-        attrs.push(attr("accrual_msg_sent", cdp_repayment.is_some().to_string()));
         attrs.push(attr("sp_pending_claims", format!("{:?}", pending_sp_claims.clone().claims)));
         attrs.push(attr("lq_pending_claims", format!("{:?}", pending_lq_claims)));
-        attrs.push(attr("vote_pending", format!("{:?}", unvoted_proposals)));   
+        attrs.push(attr("vote_pending", format!("{:?}", unvoted_proposals)));
 
 
 
@@ -291,22 +227,137 @@ fn check_claims(
 }
 
 
+/// Execute CDP repay and allocate points based on revenue attribute from reply
+fn repay_and_give_points(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    position_id: Uint128,
+    position_owner: Option<String>,
+    send_excess_to: Option<String>,
+) -> Result<Response, ContractError> {
+    let config: Config = CONFIG.load(deps.storage)?;
+    
+    // Store user address for reply handler
+    PENDING_USER.save(deps.storage, &info.sender)?;
+    
+    // Create CDP repay submessage
+    let repay_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.positions_contract.to_string(),
+        msg: to_json_binary(&CDP_ExecuteMsg::Repay {
+            position_id,
+            position_owner,
+            send_excess_to: Some(send_excess_to.unwrap_or(info.sender.to_string())),
+        })?,
+        funds: info.funds.clone(),
+    });
+    
+    let repay_submsg = SubMsg::reply_on_success(repay_msg, CDP_REPAY_REPLY_ID);
+    
+    Ok(Response::new()
+        .add_submessage(repay_submsg)
+        .add_attribute("method", "repay_and_give_points"))
+}
+
+/// Execute disco revenue claim and allocate points based on revenue_claimed attribute from reply
+fn claim_disco_revenue_and_give_points(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    user: String,
+    asset: String,
+    limit: Option<u32>,
+    compound_action: Option<membrane::ltv_disco::CompoundAction>,
+) -> Result<Response, ContractError> {
+    let config: Config = CONFIG.load(deps.storage)?;
+    
+    // Validate user address
+    let user_addr = deps.api.addr_validate(&user)?;
+    
+    // Ensure caller is the user or authorized
+    // if info.sender != user_addr {
+    //     return Err(ContractError::Unauthorized {});
+    // }
+    
+    // Store user address for reply handler
+    PENDING_USER.save(deps.storage, &user_addr)?;
+    
+    // Get disco contract address
+    let disco_addr = config.ltv_disco_contract.ok_or_else(|| {
+        ContractError::Std(StdError::generic_err("LTV Disco contract not configured"))
+    })?;
+    
+    // Create disco claim submessage
+    // Note: max_ltv and max_borrow_ltv are required by the message but ignored in the implementation
+    let claim_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: disco_addr.to_string(),
+        msg: to_json_binary(&membrane::ltv_disco::ExecuteMsg::ClaimRevenueForUser {
+            user,
+            asset,
+            max_ltv: Decimal::zero(),
+            max_borrow_ltv: Decimal::zero(),
+            limit,
+            compound_action,
+        })?,
+        funds: vec![],
+    });
+    
+    let claim_submsg = SubMsg::reply_on_success(claim_msg, DISCO_CLAIM_REPLY_ID);
+    
+    Ok(Response::new()
+        .add_submessage(claim_submsg)
+        .add_attribute("method", "claim_disco_revenue_and_give_points"))
+}
+
+/// Execute transmuter operation and allocate points based on swap_fee attribute from reply
+fn transmute_and_give_points(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    recipient: Option<String>,
+) -> Result<Response, ContractError> {
+    let config: Config = CONFIG.load(deps.storage)?;
+    
+    // Store user address for reply handler
+    PENDING_USER.save(deps.storage, &info.sender)?;
+    
+    // Get transmuter contract address
+    let transmuter_addr = config.transmuter_contract.ok_or_else(|| {
+        ContractError::Std(StdError::generic_err("Transmuter contract not configured"))
+    })?;
+    
+    // Create transmuter transmute submessage
+    // Note: Transmute requires funds to be sent with the message
+    // The funds should be in info.funds
+    let transmute_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: transmuter_addr.to_string(),
+        msg: to_json_binary(&membrane::transmuter::ExecuteMsg::Transmute {
+            recipient: Some(recipient.unwrap_or(info.sender.to_string())),
+        })?,
+        funds: info.funds.clone(),
+    });
+    
+    let transmute_submsg = SubMsg::reply_on_success(transmute_msg, TRANSMUTER_TRANSMUTE_REPLY_ID);
+    
+    Ok(Response::new()
+        .add_submessage(transmute_submsg)
+        .add_attribute("method", "transmute_and_give_points"))
+}
+
 //1) CDP Repayment: Calc difference btwn CDP's pending revenue to validate how much was repaid
 //- The sequence for points valid repayment is: accrue, claim_check, repay, give_points.
 // Otherwise we'll account for less revenue than you may have paid if any.
 //2) SP Claims: Check difference btwn present & pending claims & allocate points inline with value
 //3) LQ Claims: Check difference btwn present & pending claims & allocate points inline with value
 //4) Governance Votes: Give points for every unvoted proposal saved in CheckClaims that is now voted on
-//5) Range Bound Vault: Give points based on the difference in conversion rates * the VT balance
 fn give_points(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,    
-    cdp_repayment: bool,
     sp_claims: bool,
     lq_claims: bool,
     vote: Option<Vec<u64>>,
-    rangebound_user: Option<String>,
+    // rangebound_user: Option<String>,
 ) -> Result<Response, ContractError>{
     //Load Points Multiplier
     let points_multiplier: PointsMultipliers = match POINTS_MULTIPLIERS.load(deps.storage){
@@ -318,57 +369,20 @@ fn give_points(
                 liquidation_execution: Decimal::one(),
                 liquidation_claims: Decimal::one(),
                 governance_votes: Decimal::one(),
+                transmuter_swap_fees: Decimal::one(),
+                disco_revenue: Decimal::one(),
             }
         }
     };
     //Load config
     let config: Config = CONFIG.load(deps.storage)?;
     //Load Claim Check
-    let claim_check: ClaimCheck = match CLAIM_CHECK.load(deps.storage){
-        Ok(check) => {
-            check
-        },
-        Err(_) => {
-            if rangebound_user.is_none() {
-                return Err(ContractError::Std(StdError::generic_err("No claim check found & no Range Bound user to give points to")));
-            } else {
-                ClaimCheck {
-                    user: info.clone().sender,
-                    cdp_pending_revenue: Uint128::zero(),
-                    lq_pending_claims: vec![],
-                    sp_pending_claims: vec![],
-                    vote_pending: vec![],
-                    check_time: env.block.time.seconds() - 1,
-                }
-            }
-        },
-    };
+    let claim_check: ClaimCheck = CLAIM_CHECK.load(deps.storage)?;
 
 
-    //Get CDP Basket    
-    let basket: Basket = deps.querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart { 
-        contract_addr: config.clone().positions_contract.to_string(), 
-        msg: to_json_binary(&CDP_QueryMsg::GetBasket {  })?
-    }))?;
     
-    let mut revenue_paid: Uint128 = Uint128::zero();
+    
     let mut attrs: Vec<Attribute> = vec![];
-    //1) Check CDP repayment?
-    if cdp_repayment {
-        //Assert the caller is the same as the claim check user
-        if info.clone().sender != claim_check.user {
-            return Err(ContractError::Unauthorized {});
-        }
-        //Check if the claim check is outdated
-        if claim_check.check_time != env.block.time.seconds() {
-            return Err(ContractError::Std(StdError::generic_err("Claim Check is outdated")));
-        }
-        //Get CDP's pending revenue
-        revenue_paid = match claim_check.cdp_pending_revenue.checked_sub(basket.pending_revenue){
-            Ok(amount) => amount,
-            Err(_) => return Err(ContractError::Std(StdError::generic_err("The sequence for points valid repayment is: accrue, claim_check, repay, give_points. Otherwise we'll account for less revenue than you may have paid if any."))),
-        };
-    }
 
     let mut sp_claim_diff: Vec<Coin> = vec![];
     //2) Check SP claims?
@@ -508,115 +522,120 @@ fn give_points(
         }
     }
     //5) Check Range Bound Vault conversion rates
-    if let Some(user) = rangebound_user {
-        //Validate user address
-        let range_bound_user_addr = deps.api.addr_validate(&user)?;
-        //Load User's Vault Conversion info
-        let mut user_info = USER_VAULT_CONVERSION_RATES.load(deps.storage, range_bound_user_addr.clone())?;
+    // if let Some(user) = rangebound_user {
+    //     //Validate user address
+    //     let range_bound_user_addr = deps.api.addr_validate(&user)?;
+    //     //Load User's Vault Conversion info
+    //     let mut user_info = USER_VAULT_CONVERSION_RATES.load(deps.storage, range_bound_user_addr.clone())?;
 
-        let mut found: Option<usize> = None;
+    //     let mut found: Option<usize> = None;
         
-        //Find User's Range Bound Vault info
-        let mut rangebound_info = match user_info.clone().into_iter().enumerate().find(|(_, x)| x.vault_address == RANGE_BOUND_VAULT){
-            Some((index, info)) => {
-                found = Some(index);
-                info
-            },
-            None => return Err(ContractError::Std(StdError::generic_err(format!("{} has no Range Bound Vault info", user.clone())))),
-        };
-        //Query user's wallet for VT balance
-        let user_vt_balance: Uint128 = match deps.querier.query_balance(user.clone(), String::from(RANGE_BOUND_VAULT_TOKEN)){
-            Ok(balance) => balance.amount,
-            Err(_) => Uint128::zero(),
-        };
-        //If balance is less than the last balance, update the user's info
-        if user_vt_balance < rangebound_info.last_vt_balance {
-            rangebound_info.last_vt_balance = user_vt_balance;
-        } 
+    //     //Find User's Range Bound Vault info
+    //     let mut rangebound_info = match user_info.clone().into_iter().enumerate().find(|(_, x)| x.vault_address == RANGE_BOUND_VAULT){
+    //         Some((index, info)) => {
+    //             found = Some(index);
+    //             info
+    //         },
+    //         None => return Err(ContractError::Std(StdError::generic_err(format!("{} has no Range Bound Vault info", user.clone())))),
+    //     };
+    //     //Query user's wallet for VT balance
+    //     let user_vt_balance: Uint128 = match deps.querier.query_balance(user.clone(), String::from(RANGE_BOUND_VAULT_TOKEN)){
+    //         Ok(balance) => balance.amount,
+    //         Err(_) => Uint128::zero(),
+    //     };
+    //     //If balance is less than the last balance, update the user's info
+    //     if user_vt_balance < rangebound_info.last_vt_balance {
+    //         rangebound_info.last_vt_balance = user_vt_balance;
+    //     } 
 
-        //If balance is 0, remove the user's info
-        if user_vt_balance == Uint128::zero() || rangebound_info.last_vt_balance == Uint128::zero() {
-            //Remove user's Range Bound Vault info
-            user_info.remove(found.unwrap());
-        } else {
-            /////Give points on the difference of the conversion rates * the VT initial/lower balance////
-            //Query Range Bound Vault for conversion rate
-            let conversion_rate: Uint128 = match deps.querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart { 
-                contract_addr: RANGE_BOUND_VAULT.to_string().clone(), 
-                msg: to_json_binary(&RB_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1000000000000u128) })?
-            })){
-                Ok(rate) => rate,
-                Err(_) => return Err(ContractError::Std(StdError::generic_err("Failed to query Range Bound Vault for conversion rate"))),
-            };
-            //Calc conversion rate difference
-            let mut rate_diff = match decimal_division(
-                Decimal::from_ratio(conversion_rate, Uint128::one()),
-            Decimal::from_ratio(rangebound_info.last_conversion_rate, Uint128::one())
-            ){
-                Ok(diff) => diff,
-                Err(_) => return Err(ContractError::Std(StdError::generic_err(format!("{} conversion rate division errored", user)))),
-            };
-            //Subtract 1 to get the yield gained per 1 VT
-            rate_diff = match rate_diff.checked_sub(Decimal::one()){
-                Ok(diff) => diff,
-                Err(_) => return Err(ContractError::Std(StdError::generic_err(format!("{} conversion rate subtraction errored", user)))),
-            };
+    //     //If balance is 0, remove the user's info
+    //     if user_vt_balance == Uint128::zero() || rangebound_info.last_vt_balance == Uint128::zero() {
+    //         //Remove user's Range Bound Vault info
+    //         user_info.remove(found.unwrap());
+    //     } else {
+    //         /////Give points on the difference of the conversion rates * the VT initial/lower balance////
+    //         //Query Range Bound Vault for conversion rate
+    //         let conversion_rate: Uint128 = match deps.querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart { 
+    //             contract_addr: RANGE_BOUND_VAULT.to_string().clone(), 
+    //             msg: to_json_binary(&RB_QueryMsg::VaultTokenUnderlying { vault_token_amount: Uint128::new(1000000000000u128) })?
+    //         })){
+    //             Ok(rate) => rate,
+    //             Err(_) => return Err(ContractError::Std(StdError::generic_err("Failed to query Range Bound Vault for conversion rate"))),
+    //         };
+    //         //Calc conversion rate difference
+    //         let mut rate_diff = match decimal_division(
+    //             Decimal::from_ratio(conversion_rate, Uint128::one()),
+    //         Decimal::from_ratio(rangebound_info.last_conversion_rate, Uint128::one())
+    //         ){
+    //             Ok(diff) => diff,
+    //             Err(_) => return Err(ContractError::Std(StdError::generic_err(format!("{} conversion rate division errored", user)))),
+    //         };
+    //         //Subtract 1 to get the yield gained per 1 VT
+    //         rate_diff = match rate_diff.checked_sub(Decimal::one()){
+    //             Ok(diff) => diff,
+    //             Err(_) => return Err(ContractError::Std(StdError::generic_err(format!("{} conversion rate subtraction errored", user)))),
+    //         };
 
-            //Query Range Bound Vault for user's underlying token balance
-            let underlying_deposit_token: Uint128 = match deps.querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart { 
-                contract_addr: RANGE_BOUND_VAULT.to_string().clone(), 
-                msg: to_json_binary(&RB_QueryMsg::VaultTokenUnderlying { vault_token_amount: rangebound_info.last_vt_balance })?
-            })){
-                Ok(rate) => rate,
-                Err(_) => return Err(ContractError::Std(StdError::generic_err("Failed to query Range Bound Vault for underlying_deposit_token"))),
-            };
-            //Calc points to give.
-            //We give points based on the underlying CDT * the yield gained per 1 VT = how much CDT was earned
-            let cdt_rev_made = decimal_multiplication(
-                rate_diff, 
-                Decimal::from_ratio(underlying_deposit_token, Uint128::one()
-            ))?;
+    //         //Query Range Bound Vault for user's underlying token balance
+    //         let underlying_deposit_token: Uint128 = match deps.querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart { 
+    //             contract_addr: RANGE_BOUND_VAULT.to_string().clone(), 
+    //             msg: to_json_binary(&RB_QueryMsg::VaultTokenUnderlying { vault_token_amount: rangebound_info.last_vt_balance })?
+    //         })){
+    //             Ok(rate) => rate,
+    //             Err(_) => return Err(ContractError::Std(StdError::generic_err("Failed to query Range Bound Vault for underlying_deposit_token"))),
+    //         };
+    //         //Calc points to give.
+    //         //We give points based on the underlying CDT * the yield gained per 1 VT = how much CDT was earned
+    //         let cdt_rev_made = decimal_multiplication(
+    //             rate_diff, 
+    //             Decimal::from_ratio(underlying_deposit_token, Uint128::one()
+    //         ))?;
 
-            //Find the points multiplier for the range bound vault
-            let mut multiplier = Decimal::one();
-            for vault in points_multiplier.vault_yields.clone() {
-                if vault.vault_address == RANGE_BOUND_VAULT {
-                    multiplier = vault.multiplier;
-                    break;
-                }
-            }
+    //         //Find the points multiplier for the range bound vault
+    //         let mut multiplier = Decimal::one();
+    //         for vault in points_multiplier.vault_yields.clone() {
+    //             if vault.vault_address == RANGE_BOUND_VAULT {
+    //                 multiplier = vault.multiplier;
+    //                 break;
+    //             }
+    //         }
 
-            //Add these points to the user's claimable points
-            allocate_points(
-                deps.storage, 
-                deps.querier, 
-                config.clone(), 
-                range_bound_user_addr.clone(), 
-                basket.clone().credit_price, 
-                cdt_rev_made.clone().to_uint_floor() * multiplier, 
-                vec![], 
-                vec![], 
-                    vec![],
-                    points_multiplier.clone()
-            )?;
-            attrs.push(attr("range_bound_yield", cdt_rev_made.to_string()));
+    //         //Add these points to the user's claimable points
+    //         allocate_points(
+    //             deps.storage, 
+    //             deps.querier, 
+    //             config.clone(), 
+    //             range_bound_user_addr.clone(), 
+    //             basket.clone().credit_price, 
+    //             cdt_rev_made.clone().to_uint_floor() * multiplier, 
+    //             vec![], 
+    //             vec![], 
+    //             vec![],
+    //             vec![],
+    //             vec![],
+    //             points_multiplier.clone()
+    //         )?;
+    //         attrs.push(attr("range_bound_yield", cdt_rev_made.to_string()));
 
-            //Update user's Range Bound Vault info
-            user_info[found.unwrap()] = VaultConversionRate {
-                vault_address: String::from(RANGE_BOUND_VAULT),
-                last_conversion_rate: conversion_rate,
-                last_vt_balance: user_vt_balance,
-            };
+    //         //Update user's Range Bound Vault info
+    //         user_info[found.unwrap()] = VaultConversionRate {
+    //             vault_address: String::from(RANGE_BOUND_VAULT),
+    //             last_conversion_rate: conversion_rate,
+    //             last_vt_balance: user_vt_balance,
+    //         };
 
-        }
+    //     }
 
-        //Save or remove user info
-        if user_info.len() > 0 {
-            USER_VAULT_CONVERSION_RATES.save(deps.storage, range_bound_user_addr, &user_info)?;
-        } else {
-            USER_VAULT_CONVERSION_RATES.remove(deps.storage, range_bound_user_addr);
-        }
-    }
+    //     //Save or remove user info
+    //     if user_info.len() > 0 {
+    //         USER_VAULT_CONVERSION_RATES.save(deps.storage, range_bound_user_addr, &user_info)?;
+    //     } else {
+    //         USER_VAULT_CONVERSION_RATES.remove(deps.storage, range_bound_user_addr);
+    //     }
+    // }
+
+    let transmuter_fee_diff: Vec<Coin> = vec![];
+    let disco_revenue_diff: Vec<Coin> = vec![];
 
     //Delete Claim Check
     CLAIM_CHECK.remove(deps.storage);
@@ -627,16 +646,22 @@ fn give_points(
         deps.querier, 
         config.clone(), 
         info.sender.clone(), 
-        basket.clone().credit_price, 
-        revenue_paid * points_multiplier.interest_rate, 
+        PriceResponse {
+            prices: vec![],
+            price: Decimal::zero(),
+            decimals: 0,
+        }, 
+        Uint128::zero(), 
         sp_claim_diff.clone(), 
         lq_claim_diff.clone(), 
         newly_voted_proposals.clone(),
+        transmuter_fee_diff.clone(),
+        disco_revenue_diff.clone(),
         points_multiplier.clone()
     )?;
 
     //Set attributes
-    attrs.push(attr("revenue_paid", revenue_paid));
+    // attrs.push(attr("revenue_paid", revenue_paid));
     attrs.push(attr("sp_claim_diff", format!("{:?}", sp_claim_diff)));
     attrs.push(attr("lq_claim_diff", format!("{:?}", lq_claim_diff)));
     attrs.push(attr("newly_voted_proposals", format!("{:?}", newly_voted_proposals)));
@@ -761,10 +786,13 @@ fn claim_mbrn_from_points(
     //Stake the MBRN for the user
     let mbrn_stake: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: "osmo1fty83rfxqs86jm5fmlql5e340e8pe0v9j8ez0lcc6zwt2amegwvsfp3gxj".to_string(),
-        msg: to_json_binary(&Staking_ExecuteMsg::Stake { user: Some(info.sender.clone().to_string()) })?,
+        msg: to_json_binary(&Staking_ExecuteMsg::Stake { 
+            user: Some(info.sender.clone().to_string()),
+            locked: None,
+        })?,
         funds: vec![
             Coin {
-                denom: String::from("factory/osmo1s794h9rxggytja3a4pmwul53u98k06zy2qtrdvjnfuxruh7s8yjs6cyxgd/umbrn"), 
+                denom: config.mbrn_denom, 
                 amount: mbrn_to_claim, 
             }
         ],
@@ -793,6 +821,8 @@ fn allocate_points(
     sp_claim_diff: Vec<Coin>,
     lq_claim_diff: Vec<Coin>,
     newly_voted_proposals: Vec<u64>,
+    transmuter_fee_diff: Vec<Coin>,
+    disco_revenue_diff: Vec<Coin>,
     points_multipliers: PointsMultipliers
 ) -> StdResult<()> {
     //Concat the sp & lq claims
@@ -843,8 +873,75 @@ fn allocate_points(
         points_multipliers.governance_votes.clone()
     )?;
 
-    //Calculate points
-    let points = decimal_multiplication(total_value, config.clone().points_per_dollar)?;
+    //Add transmuter swap fees value
+    for coin in transmuter_fee_diff.clone() {
+        // if coin.denom == config.cdt_denom {
+            total_value += decimal_multiplication(
+                cdt_price.get_value(coin.amount)?,
+                points_multipliers.transmuter_swap_fees.clone()
+            )?;
+        // } else {
+        //     // Query price for non-CDT fees
+        //     let fee_price: PriceResponse = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        //         contract_addr: config.clone().oracle_contract.to_string(),
+        //         msg: to_json_binary(&Oracle_QueryMsg::Prices {
+        //             asset_infos: vec![AssetInfo::NativeToken { denom: coin.denom.clone() }],
+        //             twap_timeframe: 60u64,
+        //             oracle_time_limit: 600u64,
+        //         })?
+        //     }))?;
+        //     total_value += decimal_multiplication(
+        //         fee_price.get_value(coin.amount)?,
+        //         points_multipliers.transmuter_swap_fees.clone()
+        //     )?;
+        // }
+    }
+
+    //Add disco revenue value
+    for coin in disco_revenue_diff.clone() {
+        // if coin.denom == config.cdt_denom {
+            total_value += decimal_multiplication(
+                cdt_price.get_value(coin.amount)?,
+                points_multipliers.disco_revenue.clone()
+            )?;
+        // } else {
+        //     // Query price for non-CDT revenue
+        //     let revenue_price: PriceResponse = querier.query::<PriceResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        //         contract_addr: config.clone().oracle_contract.to_string(),
+        //         msg: to_json_binary(&Oracle_QueryMsg::Prices {
+        //             asset_infos: vec![AssetInfo::NativeToken { denom: coin.denom.clone() }],
+        //             twap_timeframe: 60u64,
+        //             oracle_time_limit: 600u64,
+        //         })?
+        //     }))?;
+        //     total_value += decimal_multiplication(
+        //         revenue_price.get_value(coin.amount)?,
+        //         points_multipliers.disco_revenue.clone()
+        //     )?;
+        // }
+    }
+
+    //Calculate base points
+    let base_points = decimal_multiplication(total_value, config.clone().points_per_dollar)?;
+
+    //Apply boost multiplier if system_discounts contract is configured
+    let points = if let Some(discounts_addr) = &config.system_discounts_contract {
+        // Query user's boost
+        let boost_response: UserBoostResponse = querier.query::<UserBoostResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: discounts_addr.to_string(),
+            msg: to_json_binary(&SystemDiscounts_QueryMsg::UserBoost {
+                user: user.to_string(),
+            })?
+        }))?;
+        
+        // Calculate boost multiplier: 1 + boost_percentage
+        let boost_multiplier = Decimal::one() + boost_response.boost;
+        
+        // Apply boost to points
+        decimal_multiplication(base_points, boost_multiplier)?
+    } else {
+        base_points
+    };
 
     //Save points to user
     let mut user_stats = match USER_STATS.load(storage, user.clone()){
@@ -869,12 +966,16 @@ fn update_config(
     info: MessageInfo,
     owner: Option<String>,
     cdt_denom: Option<String>,
+    mbrn_denom: Option<String>,
     oracle_contract: Option<String>,
     positions_contract: Option<String>,
     stability_pool_contract: Option<String>,
     liq_queue_contract: Option<String>,
     governance_contract: Option<String>,
     osmosis_proxy_contract: Option<String>,
+    transmuter_contract: Option<String>,
+    ltv_disco_contract: Option<String>,
+    system_discounts_contract: Option<String>,
     mbrn_per_point: Option<Decimal>,
     max_mbrn_distribution: Option<Uint128>,
     points_per_dollar: Option<Decimal>,  
@@ -909,6 +1010,10 @@ fn update_config(
         config.oracle_contract = deps.api.addr_validate(&addr)?;
         attrs.push(attr("oracle_contract", addr));
     }
+    if let Some(denom) = mbrn_denom {
+        config.mbrn_denom = denom.clone();
+        attrs.push(attr("mbrn_denom", denom));
+    }
     if let Some(addr) = positions_contract {
         config.positions_contract = deps.api.addr_validate(&addr)?;
         attrs.push(attr("positions_contract", addr));
@@ -928,6 +1033,18 @@ fn update_config(
     if let Some(addr) = osmosis_proxy_contract {
         config.osmosis_proxy_contract = deps.api.addr_validate(&addr)?;
         attrs.push(attr("osmosis_proxy_contract", addr));
+    }
+    if let Some(addr) = transmuter_contract {
+        config.transmuter_contract = Some(deps.api.addr_validate(&addr)?);
+        attrs.push(attr("transmuter_contract", addr));
+    }
+    if let Some(addr) = ltv_disco_contract {
+        config.ltv_disco_contract = Some(deps.api.addr_validate(&addr)?);
+        attrs.push(attr("ltv_disco_contract", addr));
+    }
+    if let Some(addr) = system_discounts_contract {
+        config.system_discounts_contract = Some(deps.api.addr_validate(&addr)?);
+        attrs.push(attr("system_discounts_contract", addr));
     }
     if let Some(amount) = mbrn_per_point {
         config.mbrn_per_point = amount;
@@ -959,7 +1076,9 @@ fn update_config(
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
         LIQUIDATION_REPLY_ID => handle_liq_reply(deps, env, msg),
-        ACCRUE_REPLY_ID => handle_accrue_reply(deps, env, msg),
+        CDP_REPAY_REPLY_ID => handle_cdp_repay_reply(deps, env, msg),
+        DISCO_CLAIM_REPLY_ID => handle_disco_claim_reply(deps, env, msg),
+        TRANSMUTER_TRANSMUTE_REPLY_ID => handle_transmuter_transmute_reply(deps, env, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }
@@ -1021,6 +1140,8 @@ fn handle_liq_reply(
                 vec![],                 
                 vec![],                 
                 vec![],
+                vec![],
+                vec![],
                 points_multiplier.clone()
             )?;
 
@@ -1034,6 +1155,8 @@ fn handle_liq_reply(
                 Uint128::zero(), 
                 balances.clone(),
                 vec![],                 
+                vec![],
+                vec![],
                 vec![],
                 points_multiplier.clone()
             )?;
@@ -1055,39 +1178,252 @@ fn handle_liq_reply(
     }
 }
 
-fn handle_accrue_reply(
+/// Helper function to parse attributes from reply responses
+fn parse_attribute(result: &SubMsgResponse, key: &str) -> StdResult<Uint128> {
+    // Search through events for the attribute
+    for event in &result.events {
+        for attr in &event.attributes {
+            if attr.key == key {
+                return Uint128::from_str(&attr.value)
+                    .map_err(|_| StdError::generic_err(format!("Invalid {} value: {}", key, attr.value)));
+            }
+        }
+    }
+    Err(StdError::generic_err(format!("Attribute {} not found in reply", key)))
+}
+
+/// Helper function to parse string attribute from reply responses
+fn parse_string_attribute(result: &SubMsgResponse, key: &str) -> StdResult<String> {
+    // Search through events for the attribute
+    for event in &result.events {
+        for attr in &event.attributes {
+            if attr.key == key {
+                return Ok(attr.value.clone());
+            }
+        }
+    }
+    Err(StdError::generic_err(format!("Attribute {} not found in reply", key)))
+}
+
+/// Handle CDP repay reply - parse revenue attribute and allocate points
+fn handle_cdp_repay_reply(
     deps: DepsMut,
     env: Env,
     msg: Reply,
-) -> StdResult<Response>{
-    
+) -> StdResult<Response> {
     match msg.result.into_result() {
-        Ok(_) => {
-            //Load config
-            let config: Config = CONFIG.load(deps.storage)?;
-            //Get CDP's pending revenue
-            let basket: Basket = deps.querier.query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart { 
-                contract_addr: config.clone().positions_contract.to_string(), 
-                msg: to_json_binary(&CDP_QueryMsg::GetBasket {  })?
+        Ok(result) => {
+            // Parse revenue attribute from response
+            let revenue = parse_attribute(&result, "revenue")?;
+            
+            // Load user from temporary storage
+            let user = PENDING_USER.load(deps.storage)?;
+            PENDING_USER.remove(deps.storage);
+            
+            // Load config and calculate points
+            let config = CONFIG.load(deps.storage)?;
+            let basket: Basket = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: config.positions_contract.to_string(),
+                msg: to_json_binary(&CDP_QueryMsg::GetBasket {})?,
             }))?;
-            let present_revenue = basket.pending_revenue;
-
-            //Load Claim Check
-            let mut claim_check: ClaimCheck = CLAIM_CHECK.load(deps.storage)?;
-            claim_check.cdp_pending_revenue = present_revenue;
-            CLAIM_CHECK.save(deps.storage, &claim_check)?;
-
+            
+            // Load points multipliers
+            let points_multiplier: PointsMultipliers = POINTS_MULTIPLIERS.load(deps.storage)
+                .unwrap_or_else(|_| PointsMultipliers {
+                    interest_rate: Decimal::one(),
+                    vault_yields: vec![],
+                    liquidation_execution: Decimal::one(),
+                    liquidation_claims: Decimal::one(),
+                    governance_votes: Decimal::one(),
+                    transmuter_swap_fees: Decimal::one(),
+                    disco_revenue: Decimal::one(),
+                });
+            
+            // Allocate points with verified revenue
+            allocate_points(
+                deps.storage,
+                deps.querier,
+                config,
+                user.clone(),
+                basket.credit_price,
+                revenue,
+                vec![], // sp_claim_diff
+                vec![], // lq_claim_diff
+                vec![], // newly_voted_proposals
+                vec![], // transmuter_fee_diff
+                vec![], // disco_revenue_diff
+                points_multiplier,
+            )?;
             
             Ok(Response::new()
-                .add_attribute("pending_revenue_post_accrual", present_revenue)
-            )
-
-        },
-        Err(string) => {            
-            Ok(Response::new().add_attribute("we no error", string))
+                .add_attribute("method", "handle_cdp_repay_reply")
+                .add_attribute("user", user.to_string())
+                .add_attribute("revenue", revenue.to_string())
+                .add_attribute("points_allocated", "true"))
+        }
+        Err(err) => {
+            // Clean up storage and return error
+            PENDING_USER.remove(deps.storage);
+            Err(StdError::generic_err(format!("Repay failed: {}", err)))
         }
     }
 }
+
+/// Handle disco claim reply - parse revenue_claimed attribute and allocate points
+fn handle_disco_claim_reply(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply,
+) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(result) => {
+            // Parse revenue_claimed attribute from response
+            let revenue_claimed = parse_attribute(&result, "revenue_claimed")?;
+            
+            // Load user from temporary storage
+            let user = PENDING_USER.load(deps.storage)?;
+            PENDING_USER.remove(deps.storage);
+            
+            // Load config and calculate points
+            let config = CONFIG.load(deps.storage)?;
+            let basket: Basket = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: config.positions_contract.to_string(),
+                msg: to_json_binary(&CDP_QueryMsg::GetBasket {})?,
+            }))?;
+            
+            // Load points multipliers
+            let points_multiplier: PointsMultipliers = POINTS_MULTIPLIERS.load(deps.storage)
+                .unwrap_or_else(|_| PointsMultipliers {
+                    interest_rate: Decimal::one(),
+                    vault_yields: vec![],
+                    liquidation_execution: Decimal::one(),
+                    liquidation_claims: Decimal::one(),
+                    governance_votes: Decimal::one(),
+                    transmuter_swap_fees: Decimal::one(),
+                    disco_revenue: Decimal::one(),
+                });
+            
+            // Convert revenue to Coin format for allocate_points
+            let disco_revenue_diff = if !revenue_claimed.is_zero() {
+                vec![Coin {
+                    denom: config.cdt_denom.clone(),
+                    amount: revenue_claimed,
+                }]
+            } else {
+                vec![]
+            };
+            
+            // Allocate points with verified revenue
+            allocate_points(
+                deps.storage,
+                deps.querier,
+                config,
+                user.clone(),
+                basket.credit_price,
+                Uint128::zero(), // revenue_paid
+                vec![], // sp_claim_diff
+                vec![], // lq_claim_diff
+                vec![], // newly_voted_proposals
+                vec![], // transmuter_fee_diff
+                disco_revenue_diff, // disco_revenue_diff
+                points_multiplier,
+            )?;
+            
+            Ok(Response::new()
+                .add_attribute("method", "handle_disco_claim_reply")
+                .add_attribute("user", user.to_string())
+                .add_attribute("revenue_claimed", revenue_claimed.to_string())
+                .add_attribute("points_allocated", "true"))
+        }
+        Err(err) => {
+            // Clean up storage and return error
+            PENDING_USER.remove(deps.storage);
+            Err(StdError::generic_err(format!("Disco claim failed: {}", err)))
+        }
+    }
+}
+
+/// Handle transmuter transmute reply - parse swap_fee attributes and allocate points
+fn handle_transmuter_transmute_reply(
+    deps: DepsMut,
+    env: Env,
+    msg: Reply,
+) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(result) => {
+            // Parse swap_fee and swap_fee_denom attributes from response
+            let swap_fee = parse_attribute(&result, "swap_fee")?;
+            let swap_fee_denom = parse_string_attribute(&result, "swap_fee_denom")
+                .unwrap_or_else(|_| String::new());
+            
+            // Load user from temporary storage
+            let user = PENDING_USER.load(deps.storage)?;
+            PENDING_USER.remove(deps.storage);
+            
+            // If no swap fee, just return success without allocating points
+            if swap_fee.is_zero() || swap_fee_denom.is_empty() {
+                return Ok(Response::new()
+                    .add_attribute("method", "handle_transmuter_transmute_reply")
+                    .add_attribute("user", user.to_string())
+                    .add_attribute("swap_fee", "0")
+                    .add_attribute("points_allocated", "false"));
+            }
+            
+            // Load config and calculate points
+            let config = CONFIG.load(deps.storage)?;
+            let basket: Basket = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+                contract_addr: config.positions_contract.to_string(),
+                msg: to_json_binary(&CDP_QueryMsg::GetBasket {})?,
+            }))?;
+            
+            // Load points multipliers
+            let points_multiplier: PointsMultipliers = POINTS_MULTIPLIERS.load(deps.storage)
+                .unwrap_or_else(|_| PointsMultipliers {
+                    interest_rate: Decimal::one(),
+                    vault_yields: vec![],
+                    liquidation_execution: Decimal::one(),
+                    liquidation_claims: Decimal::one(),
+                    governance_votes: Decimal::one(),
+                    transmuter_swap_fees: Decimal::one(),
+                    disco_revenue: Decimal::one(),
+                });
+            
+            // Convert swap fee to Coin format for allocate_points
+            let transmuter_fee_diff = vec![Coin {
+                denom: swap_fee_denom,
+                amount: swap_fee,
+            }];
+            
+            // Allocate points with verified swap fee
+            allocate_points(
+                deps.storage,
+                deps.querier,
+                config,
+                user.clone(),
+                basket.credit_price,
+                Uint128::zero(), // revenue_paid
+                vec![], // sp_claim_diff
+                vec![], // lq_claim_diff
+                vec![], // newly_voted_proposals
+                transmuter_fee_diff, // transmuter_fee_diff
+                vec![], // disco_revenue_diff
+                points_multiplier,
+            )?;
+            
+            Ok(Response::new()
+                .add_attribute("method", "handle_transmuter_transmute_reply")
+                .add_attribute("user", user.to_string())
+                .add_attribute("swap_fee", swap_fee.to_string())
+                .add_attribute("points_allocated", "true"))
+        }
+        Err(err) => {
+            // Clean up storage and return error
+            PENDING_USER.remove(deps.storage);
+            Err(StdError::generic_err(format!("Transmute failed: {}", err)))
+        }
+    }
+}
+
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
@@ -1185,20 +1521,6 @@ fn query_user_conversion_rates(
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn migrate(deps: DepsMut, env: Env, _msg: MigrateMsg) -> Result<Response, ContractError> {
 
-    //Set initial points multipliers
-    let points_multiplier = PointsMultipliers {
-        interest_rate: Decimal::percent(1_00),
-        liquidation_execution: Decimal::percent(1_00),
-        liquidation_claims: Decimal::percent(1_00),
-        governance_votes: Decimal::percent(3_00),
-        vault_yields: vec![
-            VaultMultiplier {
-                vault_address: String::from(RANGE_BOUND_VAULT),
-                multiplier: Decimal::percent(100_00),
-            },
-        ],
-    };
-    POINTS_MULTIPLIERS.save(deps.storage, &points_multiplier)?;
     
     Ok(Response::default())
 }

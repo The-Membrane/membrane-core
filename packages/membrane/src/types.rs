@@ -219,6 +219,14 @@ pub struct PremiumSlot {
 
 /// Staking
 #[cw_serde]
+pub struct Locked {
+    /// Lock expiration timestamp
+    pub locked_until: u64,
+    /// Perpetual lock duration in days (if set, lock refreshes on each execute)
+    pub perpetual_lock: Option<u64>,
+}
+
+#[cw_serde]
 pub struct StakeDeposit {
     /// Staker address
     pub staker: Addr,
@@ -228,6 +236,9 @@ pub struct StakeDeposit {
     pub stake_time: u64,
     /// Time of unstake in seconds
     pub unstake_start_time: Option<u64>,
+    /// Lock information (if locked)
+    /// None if not locked
+    pub locked: Option<Locked>,
     /// last_accrued time in seconds
     pub last_accrued: Option<u64>,
 }
@@ -432,8 +443,6 @@ pub struct cAsset {
     pub rate_index: Decimal, 
     /// Pool Info for Osmosis LP
     pub pool_info: Option<PoolInfo>,
-    /// Is this subject to rate hikes?
-    pub hike_rates: Option<bool>,
     /// Individual cost tracking for this asset
     pub individual_cost: Option<IndividualCost>,
 }
@@ -1320,6 +1329,8 @@ pub struct PointsMultipliers {
     pub liquidation_execution: Decimal,
     pub liquidation_claims: Decimal,
     pub governance_votes: Decimal,
+    pub transmuter_swap_fees: Decimal,
+    pub disco_revenue: Decimal,
 } 
 
 //Managed Market

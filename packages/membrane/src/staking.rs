@@ -1,7 +1,7 @@
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Uint128, Addr, Decimal};
 
-use crate::types::{Asset, FeeEvent, OldStakeDeposit, StakeDistribution, OldDelegationInfo, Delegate};
+use crate::types::{Asset, FeeEvent, StakeDeposit, StakeDistribution, OldDelegationInfo, Delegate, Locked};
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -62,6 +62,8 @@ pub enum ExecuteMsg {
     Stake {
         /// User address
         user: Option<String>,
+        /// Optional lock information. If provided, stake is locked on creation
+        locked: Option<Locked>,
     },
     /// Unstake/Withdraw MBRN tokens & claim claimables
     Unstake {
@@ -116,11 +118,24 @@ pub enum ExecuteMsg {
     },
     /// Position's contract deposits protocol revenue
     DepositFee {},
+    /// Lock MBRN stake for a specified duration
+    Lock {
+        /// Lock information
+        locked: Locked,
+        /// Amount of MBRN to lock
+        amount: Uint128,
+    },
+            /// Refresh lock on deposits (extends locked_until if perpetual_lock is set)
+            RefreshLock {
+                /// User address (if None, uses info.sender)
+                user: Option<String>,
+                /// Deposit index in deposit list (if None, refresh all locked deposits)
+                deposit_index: Option<usize>,
+            },
     /// Clear FeeEvent state object
     TrimFeeEvents {},
     /// Buyback and burn MBRN with CDT in the contract
     BuybackAndBurn { max_slippage: Option<Decimal> },
-
 }
 
 #[cw_serde]
@@ -191,6 +206,9 @@ pub struct Config {
     pub mbrn_denom: String,
     /// Incentive schedule
     pub incentive_schedule: StakeDistribution,
+    /// Lock duration ceiling, in days
+    /// Can't lock for longer than this
+    pub lock_duration_ceiling: u64,
     /// Unstaking period, in days
     pub unstaking_period: u64,
     /// Max commission rate
@@ -221,7 +239,7 @@ pub struct StakerResponse {
     /// Total MBRN staked
     pub total_staked: Uint128,
     /// Deposit list 
-    pub deposit_list: Vec<OldStakeDeposit>,
+    pub deposit_list: Vec<StakeDeposit>,
 }
 
 #[cw_serde]
@@ -235,7 +253,7 @@ pub struct RewardsResponse {
 #[cw_serde]
 pub struct StakedResponse {
     /// List of StakeDeposits
-    pub stakers: Vec<OldStakeDeposit>,
+    pub stakers: Vec<StakeDeposit>,
 }
 
 #[cw_serde]

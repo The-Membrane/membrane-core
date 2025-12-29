@@ -24,6 +24,7 @@ use crate::positions::{BAD_DEBT_REPLY_ID, DEPLOYABLE_VENUE_REPLY_ID, LIQ_QUEUE_R
 use crate::query::{insolvency_check, get_cAsset_ratios};
 use crate::risk_engine::update_basket_tally;
 use crate::state::{create_collateral_rate_assurance, get_target_position, update_position, DeployableVenuePropagation, LiquidationPropagation, LiquidationStat, SellCollateralPropagation, Timer, BASKET, CONFIG, DEPLOYABLE_VENUE, FREEZE_TIMER, LIQUIDATION, LIQUIDATION_STATS, SELL_COLLATERAL};
+use crate::circuit_breaker::check_assets_not_frozen;
 
 pub const SECONDS_PER_DAY: u64 = 86400;
 pub const BAD_DEBT_CALLER_FEE: Decimal = Decimal::percent(1);
@@ -85,6 +86,16 @@ pub fn liquidate(
         storage,
         valid_position_owner.clone(),
         position_id,
+    )?;
+
+    // Circuit breaker: block liquidations when any collateral asset is frozen due to price deviation.
+    // This preserves liveness while avoiding acting on potentially bad oracle data.
+    check_assets_not_frozen(
+        storage,
+        querier.clone(),
+        &env,
+        &config,
+        &target_position.collateral_assets,
     )?;
 
     //Check position health compared to max_LTV

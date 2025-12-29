@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use cosmwasm_std::{
-    attr, entry_point, to_binary, to_json_binary, Addr, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, QueryRequest, Response, StdResult, Uint128, WasmQuery
+    attr, entry_point, to_binary, to_json_binary, Addr, Binary, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, QueryRequest, Response, StdError, StdResult, Uint128, WasmQuery
 };
 use cw2::set_contract_version;
 
@@ -10,13 +10,15 @@ use osmosis_std::shim::Duration;
 use osmosis_std::types::osmosis::lockup::{LockupQuerier, AccountLockedLongerDurationDenomResponse};
 
 use membrane::math::{decimal_division, decimal_multiplication};
-use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, UserDiscountResponse, UserBoostResponse, MigrateMsg};
+use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, UserDiscountResponse, UserBoostResponse, IntentBoostsResponse, MigrateMsg};
+use membrane::transmuter_lockdrop::MbrnIntentOption;
 use membrane::stability_pool::QueryMsg as SP_QueryMsg;
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
 use membrane::cdp::{BasketPositionsResponse, QueryMsg as CDP_QueryMsg};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
-use membrane::ltv_disco::{QueryMsg as LTVDisco_QueryMsg, UserTotalDepositsResponse};
+use membrane::ltv_disco::{QueryMsg as LTVDisco_QueryMsg, UserTotalDepositsResponse, LockedDepositsResponse};
+use membrane::types::Locked;
 use membrane::types::{AssetInfo, AssetPool, Basket, Deposit, TimedDiscountPeriod};
 
 use crate::error::ContractError;
@@ -28,6 +30,8 @@ const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 //Constants
 const SECONDS_PER_DAY: u64 = 86_400u64;
+
+// Time deposited and locked time are additive so once the user gets to the max discount time, they'll have no reason to continue locking. This leaves room for incentive improvement.
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -72,7 +76,6 @@ pub fn instantiate(
         positions_contract: deps.api.addr_validate(&msg.positions_contract)?,
         oracle_contract: deps.api.addr_validate(&msg.oracle_contract)?,
         staking_contract,
-        stability_pool_contract: deps.api.addr_validate(&msg.stability_pool_contract)?,
         lockdrop_contract: None,
         discount_vault_contract: vec![],
         ltv_disco_contract: None,
@@ -159,9 +162,6 @@ fn update_config(
 
         config.mbrn_denom = mbrn_denom;
     }
-    if let Some(addr) = update.stability_pool_contract {
-        config.stability_pool_contract = deps.api.addr_validate(&addr)?;
-    }
     if let Some(addr) = update.lockdrop_contract {
         config.lockdrop_contract = Some(deps.api.addr_validate(&addr)?);
     }
@@ -223,7 +223,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::UserDiscount { user } => to_binary(&get_discount(deps, env, user)?),
-        QueryMsg::UserBoost { user } => to_binary(&get_boost(deps, user)?),
+        QueryMsg::UserBoost { user } => to_binary(&get_boost(deps, env, user)?),
+        QueryMsg::IntentBoosts { intents } => to_binary(&get_intent_boosts(deps, env, intents)?),
     }
 }
 
@@ -259,8 +260,8 @@ fn get_discount(
     //Load Config
     let config = CONFIG.load(deps.storage)?;
 
-    // Get user's total MBRN (staked + deposited in LTV Disco)
-    let user_total_mbrn = get_user_total_mbrn(deps.querier, config.clone(), user.clone())?;
+    // Get user's total MBRN (staked + deposited in LTV Disco, with locked boosts)
+    let user_total_mbrn = get_user_total_mbrn(deps.querier, config.clone(), user.clone(), env.block.time.seconds())?;
 
     // Calculate discount based on MBRN amount
     let discount = if config.mbrn_at_max_discount.is_zero() {
@@ -288,14 +289,15 @@ fn get_discount(
 /// Returns % boost for user based on MBRN amount
 fn get_boost(
     deps: Deps,
+    env: Env,
     user: String, 
 )-> StdResult<UserBoostResponse>{
     
     //Load Config
     let config = CONFIG.load(deps.storage)?;
 
-    // Get user's total MBRN (staked + deposited in LTV Disco)
-    let user_total_mbrn = get_user_total_mbrn(deps.querier, config.clone(), user.clone())?;
+    // Get user's total MBRN (staked + deposited in LTV Disco, with locked boosts)
+    let user_total_mbrn = get_user_total_mbrn(deps.querier, config.clone(), user.clone(), env.block.time.seconds())?;
 
     // Calculate boost based on MBRN amount
     let boost = if config.mbrn_at_max_discount.is_zero() {
@@ -320,20 +322,162 @@ fn get_boost(
     })
 }
 
+/// Returns % boost for each intent based on lock duration
+fn get_intent_boosts(
+    deps: Deps,
+    env: Env,
+    intents: Vec<MbrnIntentOption>,
+) -> StdResult<IntentBoostsResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    let current_time = env.block.time.seconds();
+    let mut boosts = Vec::new();
+
+    for intent in intents {
+        let boost = if let Some(locked) = intent.lock {
+            // Calculate lock duration in days
+            let lock_duration_seconds = locked.locked_until.saturating_sub(current_time);
+            let lock_duration_days = lock_duration_seconds / SECONDS_PER_DAY;
+
+            // Get lock_ceiling based on intent type
+            let lock_ceiling = match &intent.intent_type {
+                membrane::transmuter_lockdrop::MbrnIntentType::Stake {} => {
+                    // Query staking contract for lock_duration_ceiling
+                    let staking_config = deps.querier.query::<Staking_Config>(&QueryRequest::Wasm(WasmQuery::Smart {
+                        contract_addr: config.staking_contract.to_string(),
+                        msg: to_binary(&Staking_QueryMsg::Config {})?,
+                    }))?;
+                    staking_config.lock_duration_ceiling
+                }
+                membrane::transmuter_lockdrop::MbrnIntentType::DepositViaMarsMirror { .. } => {
+                    // Query disco contract for lock_duration_ceiling
+                    if let Some(ltv_disco_contract) = config.ltv_disco_contract.clone() {
+                        let ltv_disco_config = deps.querier.query::<membrane::ltv_disco::Config>(&QueryRequest::Wasm(WasmQuery::Smart {
+                            contract_addr: ltv_disco_contract.to_string(),
+                            msg: to_binary(&LTVDisco_QueryMsg::Config {})?,
+                        }))?;
+
+                        //Return lock ceiling from config
+                        ltv_disco_config.lock_duration_ceiling
+
+                    } else {
+                        return Err(StdError::generic_err("LTV Disco contract not configured"));
+                    }
+                }
+            };
+
+            // Calculate ratio: min(lock_duration_days / lock_ceiling, 1.0)
+            let ratio = if lock_ceiling == 0 {
+                Decimal::zero()
+            } else {
+                let ratio = Decimal::from_ratio(lock_duration_days, lock_ceiling);
+                if ratio > Decimal::one() {
+                    Decimal::one()
+                } else {
+                    ratio
+                }
+            };
+
+            // Calculate boost: ratio * max_boost
+            decimal_multiplication(ratio, config.max_boost)?
+        } else {
+            // No lock, return 0% boost
+            Decimal::zero()
+        };
+
+        boosts.push(boost);
+    }
+
+    Ok(IntentBoostsResponse { boosts })
+}
+
+/// Calculate boosted amount for a locked deposit
+/// Time deposited and locked time are additive so once the user gets to the max discount time, they'll have no reason to continue locking. This leaves room for incentive improvement.
+/// NOTES: We use this to boost the MBRN count used for discount queries & global boosts. Intent boosts don't incorporate existing deposits.
+fn calculate_locked_boost(
+    deposit_amount: Uint128,
+    locked: &Locked,
+    start_time: u64,
+    current_time: u64,
+    lock_ceiling: u64,
+    perpetual_lock: Option<u64>,
+) -> StdResult<Uint128> {
+    // Virtually refresh the lock with the perp duration for calculation
+    let virtual_locked_until = if let Some(perpetual_days) = perpetual_lock {
+        // Extend locked_until by perpetual_lock days from current time
+        let new_locked_until = current_time + perpetual_days * SECONDS_PER_DAY;
+        let max_lock_time = start_time + (lock_ceiling * SECONDS_PER_DAY);
+        std::cmp::min(new_locked_until, max_lock_time)
+    } else {
+        locked.locked_until
+    };
+    
+    // Calculate lock duration (how long the deposit is locked)
+    let lock_duration = virtual_locked_until.saturating_sub(start_time);
+    
+    // Calculate time since deposit
+    let time_since_deposit = current_time.saturating_sub(start_time);
+    
+    // Convert lock ceiling to seconds
+    let lock_ceiling_seconds = lock_ceiling * SECONDS_PER_DAY;
+    
+    // Calculate ratios
+    let lock_ratio = if lock_ceiling_seconds == 0 {
+        Decimal::zero()
+    } else {
+        Decimal::from_ratio(lock_duration, lock_ceiling_seconds)
+    };
+    
+    let time_ratio = if lock_ceiling_seconds == 0 {
+        Decimal::zero()
+    } else {
+        Decimal::from_ratio(time_since_deposit, lock_ceiling_seconds)
+    };
+    
+    // Take the maximum ratio (whichever is bigger)
+    let max_ratio = if lock_ratio > time_ratio {
+        lock_ratio
+    } else {
+        time_ratio
+    };
+    
+    // Cap ratio at 1.0 (100%)
+    let capped_ratio = if max_ratio > Decimal::one() {
+        Decimal::one()
+    } else {
+        max_ratio
+    };
+    
+    // Apply boost: boosted_amount = deposit_amount * (1 + ratio)
+    let boost_multiplier = Decimal::one() + capped_ratio;
+    let boosted_amount = decimal_multiplication(
+        Decimal::from_ratio(deposit_amount, Uint128::one()),
+        boost_multiplier,
+    )?.to_uint_floor();
+    
+    Ok(boosted_amount)
+}
+
 /// Get user's total MBRN: staked in staking contract + deposited in LTV Disco
+/// Includes boosted amounts from locked deposits
 fn get_user_total_mbrn(
     querier: QuerierWrapper,
     config: Config,
     user: String,
+    current_time: u64,
 ) -> StdResult<Uint128> {
-    // Query staking contract for user's staked MBRN
-    let user_stake = querier.query::<StakerResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    // Query staking contract for user's stake info
+    let staker_response = querier.query::<StakerResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
         contract_addr: config.staking_contract.to_string(),
         msg: to_binary(&Staking_QueryMsg::UserStake {
             staker: user.clone(),
         })?,
-    }))?
-    .total_staked;
+    }))?;
+    
+    // Query staking config for lock_ceiling
+    let staking_config = querier.query::<Staking_Config>(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.staking_contract.to_string(),
+        msg: to_binary(&Staking_QueryMsg::Config {})?,
+    }))?;
 
     // Query rewards and add accrued interest
     let rewards = querier.query::<RewardsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -343,10 +487,31 @@ fn get_user_total_mbrn(
         })?,
     }))?;
 
-    let mut total_mbrn = user_stake + rewards.accrued_interest;
+    // Base amount: total_staked + accrued_interest
+    let mut total_mbrn = staker_response.total_staked + rewards.accrued_interest;
+
+    // Boost locked stake deposits
+    for deposit in &staker_response.deposit_list {
+        if let Some(ref locked) = deposit.locked {
+            // Only boost if still locked
+            if locked.locked_until > current_time {
+                let boosted = calculate_locked_boost(
+                    deposit.amount,
+                    locked,
+                    deposit.stake_time,
+                    current_time,
+                    staking_config.lock_duration_ceiling,
+                    locked.perpetual_lock,
+                )?;
+                // Add the boost (boosted - original)
+                total_mbrn = total_mbrn.checked_add(boosted.checked_sub(deposit.amount)?)?;
+            }
+        }
+    }
 
     // Query LTV Disco contract if configured
     if let Some(ltv_disco_contract) = config.ltv_disco_contract {
+        // Query base deposits
         let ltv_deposits = querier.query::<UserTotalDepositsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: ltv_disco_contract.to_string(),
             msg: to_binary(&LTVDisco_QueryMsg::UserTotalDeposits {
@@ -355,6 +520,50 @@ fn get_user_total_mbrn(
         }))?;
         
         total_mbrn += ltv_deposits.total_deposits;
+        
+        // Query locked deposits and boost them
+        let locked_deposits_response = querier.query::<LockedDepositsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: ltv_disco_contract.to_string(),
+            msg: to_binary(&LTVDisco_QueryMsg::GetLockedDeposits {
+                user: user.clone(),
+            })?,
+        }))?;
+        
+        // Query ltv_disco config for lock_ceiling
+        let ltv_disco_config = querier.query::<membrane::ltv_disco::Config>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: ltv_disco_contract.to_string(),
+            msg: to_binary(&LTVDisco_QueryMsg::Config {})?,
+        }))?;
+        
+        for locked_deposit in &locked_deposits_response.locked_deposits {
+            let deposit = &locked_deposit.deposit;
+            if let Some(ref locked) = deposit.locked {
+                // Only boost if still locked
+                if locked.locked_until > current_time {
+                    // Convert vault tokens to deposit tokens using the conversion query
+                    let deposit_tokens: Uint128 = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+                        contract_addr: ltv_disco_contract.to_string(),
+                        msg: to_binary(&LTVDisco_QueryMsg::VaultTokenConversion {
+                            asset: locked_deposit.asset.clone(),
+                            ltv: locked_deposit.ltv,
+                            max_borrow_ltv: locked_deposit.max_borrow_ltv,
+                            vault_tokens: deposit.vault_tokens,
+                        })?,
+                    }))?;
+                    let lock_ceiling = ltv_disco_config.lock_duration_ceiling;
+                    let boosted = calculate_locked_boost(
+                        deposit_tokens,
+                        locked,
+                        deposit.start_time,
+                        current_time,
+                        lock_ceiling,
+                        locked.perpetual_lock,
+                    )?;
+                    // Add the boost (boosted - original deposit tokens)
+                    total_mbrn = total_mbrn.checked_add(boosted.checked_sub(deposit_tokens)?)?;
+                }
+            }
+        }
     }
 
     Ok(total_mbrn)

@@ -202,6 +202,7 @@ mod tests {
                             max_commission_rate: Decimal::zero(),
                             unstaking_period: 0,
                             keep_raw_cdt: false,
+                            lock_duration_ceiling: 365,
                             vesting_rev_multiplier: Decimal::one(),
                             positions_contract: None,
                             auction_contract: None,
@@ -459,7 +460,11 @@ mod tests {
             stability_pool_contract: sp_contract_addr.to_string(),
             lockdrop_contract: None,
             discount_vault_contract: Some(discount_contract_addr.to_string()),
+            ltv_disco_contract: None,
             minimum_time_in_network: 7,
+            max_discount: Some(Decimal::percent(50)),
+            mbrn_at_max_discount: Some(Uint128::new(100_000_000_000u128)),
+            max_boost: Some(Decimal::percent(9)),
             
         };
 
@@ -514,7 +519,11 @@ mod tests {
                 oracle_contract: Some(String::from("new_oracle_contract")), 
                 staking_contract: None, 
                 stability_pool_contract: Some(String::from("new_stability_pool_contract")), 
-                lockdrop_contract: Some(String::from("new_lockdrop_contract")), 
+                lockdrop_contract: Some(String::from("new_lockdrop_contract")),
+                ltv_disco_contract: None,
+                max_discount: None,
+                mbrn_at_max_discount: None,
+                max_boost: None,
                 discount_vault_contract: Some((String::from("new_discount_vault_contract"), true)), 
                 minimum_time_in_network: Some(14),
                 static_discount: Some(UserDiscountResponse {
@@ -546,7 +555,11 @@ mod tests {
                 staking_contract: None, 
                 stability_pool_contract: None, 
                 lockdrop_contract: None, 
-                discount_vault_contract: None, 
+                discount_vault_contract: None,
+                ltv_disco_contract: None,
+                max_discount: None,
+                mbrn_at_max_discount: None,
+                max_boost: None,
                 minimum_time_in_network: None, 
                 static_discount: Some(UserDiscountResponse {
                     user: String::from("user"),
@@ -589,18 +602,26 @@ mod tests {
                     stability_pool_contract: Addr::unchecked("new_stability_pool_contract"), 
                     lockdrop_contract: Some(Addr::unchecked("new_lockdrop_contract")), 
                     discount_vault_contract: vec![Addr::unchecked("contract3"), Addr::unchecked("new_discount_vault_contract")], 
+                    ltv_disco_contract: None,
                     minimum_time_in_network: 14,
-            });
+                    max_discount: Decimal::percent(50),
+                    mbrn_at_max_discount: Uint128::new(100_000_000_000u128),
+                    max_boost: Decimal::percent(9),
+                });
 
             //Successful ownership transfer
             let msg = ExecuteMsg::UpdateConfig(UpdateConfig { 
-                owner: None,
-                positions_contract: None,
-                oracle_contract: None,
+                owner: None, 
+                positions_contract: None,                 
+                oracle_contract: None, 
                 staking_contract: None, 
                 stability_pool_contract: None,
                 lockdrop_contract: None,
                 discount_vault_contract: None,
+                ltv_disco_contract: None,
+                max_discount: None,
+                mbrn_at_max_discount: None,
+                max_boost: None,
                 minimum_time_in_network: None,
                 static_discount: None,
             });
@@ -627,8 +648,12 @@ mod tests {
                     stability_pool_contract: Addr::unchecked("new_stability_pool_contract"), 
                     lockdrop_contract: Some(Addr::unchecked("new_lockdrop_contract")), 
                     discount_vault_contract: vec![Addr::unchecked("contract3"), Addr::unchecked("new_discount_vault_contract")], 
+                    ltv_disco_contract: None,
                     minimum_time_in_network: 14,
-            });
+                    max_discount: Decimal::percent(50),
+                    mbrn_at_max_discount: Uint128::new(100_000_000_000u128),
+                    max_boost: Decimal::percent(9),
+                });
 
             //Remove old discount vault
             //Successful UpdateConfig
@@ -639,7 +664,11 @@ mod tests {
                 staking_contract: None, 
                 stability_pool_contract: None, 
                 lockdrop_contract: None, 
-                discount_vault_contract: Some((String::from("contract3"), false)), 
+                discount_vault_contract: Some((String::from("contract3"), false)),
+                ltv_disco_contract: None,
+                max_discount: None,
+                mbrn_at_max_discount: None,
+                max_boost: None,
                 minimum_time_in_network: None,
                 static_discount: None,
             });

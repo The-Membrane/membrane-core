@@ -219,7 +219,7 @@ mod tests {
                         max_LTV: Decimal::percent(80),
                         pool_info: None,
                         rate_index: Decimal::one(),
-                        hike_rates: Some(false),
+                        individual_cost: None,
                     },
                     cAsset {
                         asset: Asset {
@@ -230,7 +230,7 @@ mod tests {
                         max_LTV: Decimal::percent(80),
                         pool_info: None,
                         rate_index: Decimal::one(),
-                        hike_rates: Some(false),
+                        individual_cost: None,
                     },
                 ],
                 credit_asset: Asset {
@@ -289,6 +289,7 @@ mod tests {
         let deposit_msg = ExecuteMsg::Deposit {
             position_owner: Some(USER.to_string()),
             position_id: None,
+            affiliate_address: None,
         };
 
         let result = app.execute_contract(
@@ -353,6 +354,7 @@ mod tests {
         let deposit_msg = ExecuteMsg::Deposit {
             position_owner: Some(USER.to_string()),
             position_id: None,
+            affiliate_address: None,
         };
 
         app.execute_contract(
@@ -411,6 +413,7 @@ mod tests {
         let deposit_msg = ExecuteMsg::Deposit {
             position_owner: Some(USER.to_string()),
             position_id: None,
+            affiliate_address: None,
         };
 
         app.execute_contract(

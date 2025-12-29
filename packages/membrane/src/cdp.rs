@@ -58,6 +58,8 @@ pub enum ExecuteMsg {
         /// Position owner.
         /// Defaults to the sender.
         position_owner: Option<String>,
+        /// Optional affiliate address to set when depositing
+        affiliate_address: Option<String>,
     },
     /// Increase debt of a Position
     IncreaseDebt {
@@ -158,8 +160,6 @@ pub enum ExecuteMsg {
         max_borrow_LTV: Option<Decimal>, 
         /// Point of liquidation
         max_LTV: Option<Decimal>,
-        /// Hike rates
-        hike_rates: Option<bool>,
     },
     /// Set affiliate for a Position.
     /// Adds to current list of affiliations.
@@ -336,8 +336,6 @@ pub struct Config {
     pub base_debt_cap_multiplier: Uint128,
     /// Interest rate 2nd Slope multiplier
     pub rate_slope_multiplier: Decimal,
-    /// Rate hike rate
-    pub rate_hike_rate: Option<Decimal>,
     /// Redemption Fee
     //This is only optional for backwards compatibility & should never be None as we do a bare unwrap() call in redeem_for_collateral()
     // pub redemption_fee: Decimal,
@@ -420,8 +418,6 @@ pub struct UpdateConfig {
     pub base_debt_cap_multiplier: Option<Uint128>,
     /// Interest rate 2nd Slope multiplier
     pub rate_slope_multiplier: Option<Decimal>,
-    /// Rate hike rate
-    pub rate_hike_rate: Option<Decimal>,
     /// Redemption Fee
     // pub redemption_fee: Option<Decimal>,
     /// Affiliate Fee Max
@@ -522,9 +518,6 @@ impl UpdateConfig {
                 return Err(StdError::GenericErr{ msg: String::from("Rate slope multiplier must be between 0-10000%") });
             }            
             config.rate_slope_multiplier = rate_slope_multiplier;
-        }
-        if let Some(new_rate) = self.rate_hike_rate {
-            config.rate_hike_rate = Some(new_rate);
         }
         // if let Some(redemption_fee) = self.redemption_fee {
         //     //Enforce 0-99% range

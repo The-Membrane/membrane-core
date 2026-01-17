@@ -21,6 +21,69 @@ docker run --rm -v "$(pwd)":/code \
   cosmwasm/optimizer:${RUST_OPTIMIZER_VERSION}
 """
 
+# Alternative: Use cw-optimizoor (no Docker, avoids --locked issues)
+# Run: cargo make cw-optimizoor-exclude
+[tasks.cw-optimizoor-exclude]
+cwd = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
+script = """
+# Create backups of workspace files
+cp Cargo.toml Cargo.toml.backup
+cp Cargo.lock Cargo.lock.backup 2>/dev/null || true
+
+# Create the modified Cargo.toml with only contracts that don't have problematic dependencies
+cat > Cargo.toml << 'EOF'
+[workspace]
+resolver = "2"
+members = [
+    "packages/membrane",
+    "contracts/auction",
+    "contracts/cdp",
+    "contracts/liq-queue",
+    "contracts/mars-vault-token",
+    "contracts/oracle",
+    "contracts/points-system",
+    "contracts/staking",
+    "contracts/system_discounts",
+    "contracts/tokenfactory",
+    "contracts/vesting",
+]
+
+exclude = [
+    "my_scripts", 
+    "artifacts", 
+    "contracts/cdp/src/testing/*", 
+    "contracts/target/*"
+]
+
+[workspace.dependencies]
+base64ct = "=1.7.3"
+neutron-sdk = "0.11.1"
+
+[profile.release]
+codegen-units = 1
+debug = false
+debug-assertions = false
+incremental = false
+lto = true
+opt-level = 'z'
+overflow-checks = true
+panic = 'abort'
+rpath = false
+EOF
+
+# Generate fresh lockfile for modified workspace
+cargo generate-lockfile
+
+# Build with cw-optimizoor (no Docker needed)
+cargo cw-optimizoor
+
+# Restore original workspace files
+mv Cargo.toml.backup Cargo.toml
+mv Cargo.lock.backup Cargo.lock 2>/dev/null || true
+echo "Restored original Cargo.toml and Cargo.lock"
+"""
+
+# Original Docker-based optimizer (may have --locked issues)
 [tasks.rust-optimizer-exclude]
 cwd = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
 script = """
@@ -58,7 +121,6 @@ exclude = [
 
 [workspace.dependencies]
 base64ct = "=1.7.3"
-osmo-bindings = { git = "https://github.com/osmosis-labs/bindings.git", rev = "531cf7bd58d90ce4681de84556cc9bda428aec68" }
 neutron-sdk = "0.11.1"
 
 [profile.release]

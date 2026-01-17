@@ -17,6 +17,21 @@ use crate::state::{get_target_position, update_position, BASKET, CONFIG, VOLATIL
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 const MINIMUM_LIQUIDITY: Uint128 = Uint128::new(2_000_000_000_000u128);
 
+/// Get average volatility for an asset from its volatility list.
+/// Returns None if no volatility data exists (triggering fallback to LTV-based rate).
+fn get_avg_volatility(storage: &dyn Storage, asset_info: &str) -> Option<Decimal> {
+    VOLATILITY.load(storage, asset_info.to_string())
+        .ok()
+        .and_then(|vol_store| {
+            if vol_store.volatility_list.is_empty() {
+                return None; // No data, use fallback
+            }
+            let sum: Decimal = vol_store.volatility_list.iter().cloned().sum();
+            decimal_division(sum, Decimal::from_str(&vol_store.volatility_list.len().to_string()).unwrap())
+                .ok()
+        })
+}
+
 /// Accrue interest for a list of Positions
 pub fn external_accrue_call(
     storage: &mut dyn Storage,
@@ -188,11 +203,13 @@ pub fn update_rate_indices(
 }
 
 /// Calculate interest rates for each asset in the basket
-///Maximum rate is 100% to avoid overflows due to supply cap/pricing errors
+/// Maximum rate is 100% to avoid overflows due to supply cap/pricing errors
 /// 
-/// Goal: Rates at base unless supply cap overages
-/// - To ensure rates at base, we set the cap ratios to a minimum of 100% (i.e. Decimal::one() )
-/// - Remove debt caps bc they can't be calculated accurately
+/// Goal: Comparative volatility-based rates
+/// - Lowest volatility asset gets: base_interest_rate * (1 / max_LTV)
+/// - Other assets get: base_interest_rate * (asset_avg_vol / lowest_avg_vol)
+/// - Fallback (no volatility data): base_interest_rate * (1 / max_LTV)
+/// - Assets with individual_cost set: use their rate directly
 pub fn get_interest_rates(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
@@ -209,22 +226,50 @@ pub fn get_interest_rates(
         basket.clone().collateral_types.clone(),
     )?;
 
+    // First pass: collect average volatility for each asset
+    let avg_volatilities: Vec<Option<Decimal>> = basket.collateral_types.iter()
+        .map(|asset| get_avg_volatility(storage, &asset.asset.info.to_string()))
+        .collect();
+    
+    // Find the lowest volatility among assets that have volatility data
+    let lowest_vol: Option<Decimal> = avg_volatilities.iter()
+        .filter_map(|v| *v)
+        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
     let mut rates = vec![];
 
     for (i, asset) in basket.clone().collateral_types.iter().enumerate() {
-        //Base_Rate * max collateral_ratio
-        //ex: 2% * 110% = 2.2%
-        //Higher rates for more volatile assets
-
         if asset.individual_cost.is_some() {
-            rates.push( asset.individual_cost.clone().unwrap().rate )
+            // Use individual cost rate if set (unchanged behavior)
+            rates.push(asset.individual_cost.clone().unwrap().rate);
         } else {
-            //base * (1/max_LTV) - using queried LTV from ltv_disco
-            rates.push(decimal_multiplication(
+            // Calculate LTV-based fallback rate: base * (1/max_LTV)
+            let ltv_based_rate = decimal_multiplication(
                 basket.clone().base_interest_rate,
-                decimal_division(Decimal::one(), ltv_tuples[i].0)?, // Use queried max_ltv
-            )?);    
-        }    
+                decimal_division(Decimal::one(), ltv_tuples[i].0)?,
+            )?;
+            
+            match (avg_volatilities[i], lowest_vol) {
+                // Both asset has volatility data and we have a lowest vol reference
+                (Some(asset_vol), Some(low_vol)) => {
+                    if asset_vol == low_vol {
+                        // Lowest volatility asset: use LTV-based rate
+                        rates.push(ltv_based_rate);
+                    } else {
+                        // Other assets: base_rate * (asset_vol / lowest_vol)
+                        let vol_multiplier = decimal_division(asset_vol, low_vol)?;
+                        rates.push(decimal_multiplication(
+                            basket.clone().base_interest_rate,
+                            vol_multiplier,
+                        )?);
+                    }
+                }
+                // No volatility data for this asset or no lowest vol reference: use fallback
+                _ => {
+                    rates.push(ltv_based_rate);
+                }
+            }
+        }
     }
 
     //Get proportion of supply caps filled
@@ -694,4 +739,71 @@ fn get_discounted_interest(
     } * Uint128::one();
     
     Ok(discounted_interest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cosmwasm_std::testing::mock_dependencies;
+    use crate::state::CollateralVolatility;
+
+    #[test]
+    fn test_get_avg_volatility_empty_list() {
+        let deps = mock_dependencies();
+        
+        // No volatility data stored - should return None
+        let result = get_avg_volatility(&deps.storage, "test_asset");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_get_avg_volatility_with_data() {
+        let mut deps = mock_dependencies();
+        
+        // Store volatility data
+        let vol_store = CollateralVolatility {
+            index: Decimal::one(),
+            volatility_list: vec![
+                Decimal::percent(10), // 0.10
+                Decimal::percent(20), // 0.20
+                Decimal::percent(30), // 0.30
+            ],
+        };
+        VOLATILITY.save(&mut deps.storage, "test_asset".to_string(), &vol_store).unwrap();
+        
+        // Should return average: (0.10 + 0.20 + 0.30) / 3 = 0.20
+        let result = get_avg_volatility(&deps.storage, "test_asset");
+        assert!(result.is_some());
+        assert_eq!(result.unwrap(), Decimal::percent(20));
+    }
+
+    #[test]
+    fn test_volatility_rate_calculation_logic() {
+        // Test the comparative volatility logic
+        let base_rate = Decimal::percent(2); // 2% base rate
+        
+        // Asset A: lowest volatility at 5%
+        let asset_a_vol = Decimal::percent(5);
+        // Asset B: higher volatility at 10% 
+        let asset_b_vol = Decimal::percent(10);
+        // Asset C: highest volatility at 15%
+        let asset_c_vol = Decimal::percent(15);
+        
+        let lowest_vol = asset_a_vol;
+        
+        // Asset A (lowest vol) should get the LTV-based rate (which we'll simulate as base_rate for this test)
+        // Asset B: base_rate * (10% / 5%) = base_rate * 2 = 4%
+        let asset_b_rate = decimal_multiplication(
+            base_rate,
+            decimal_division(asset_b_vol, lowest_vol).unwrap(),
+        ).unwrap();
+        assert_eq!(asset_b_rate, Decimal::percent(4));
+        
+        // Asset C: base_rate * (15% / 5%) = base_rate * 3 = 6%
+        let asset_c_rate = decimal_multiplication(
+            base_rate,
+            decimal_division(asset_c_vol, lowest_vol).unwrap(),
+        ).unwrap();
+        assert_eq!(asset_c_rate, Decimal::percent(6));
+    }
 }

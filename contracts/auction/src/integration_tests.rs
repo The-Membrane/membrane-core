@@ -987,5 +987,109 @@ mod tests {
                 },
             );
         }
+
+        #[test]
+        fn test_start_auction_with_per_asset_distribution() {
+            let (mut app, debt_contract, cdp_contract) = proper_instantiate();
+
+            // Start auction with per_asset_distribution
+            let per_asset_distribution = vec![
+                Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("uatom"),
+                    },
+                    amount: Uint128::new(60u128),
+                },
+                Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("uosmo"),
+                    },
+                    amount: Uint128::new(40u128),
+                },
+            ];
+
+            let msg = ExecuteMsg::StartAuction {
+                repayment_position_info: None,
+                send_to: None,
+                auction_asset: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("fee_asset"),
+                    },
+                    amount: Uint128::new(1000u128),
+                },
+                per_asset_distribution: Some(per_asset_distribution.clone()),
+            };
+            
+            // Send the fee asset along with the message
+            let cosmos_msg = debt_contract.call(msg, vec![coin(1000, "fee_asset")]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            // Query the fee auction to verify it was created
+            let auctions: Vec<FeeAuction> = app
+                .wrap()
+                .query_wasm_smart(
+                    debt_contract.addr(),
+                    &QueryMsg::OngoingFeeAuctions {
+                        auction_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("fee_asset"),
+                        }),
+                        limit: None,
+                        start_after: None,
+                    },
+                )
+                .unwrap();
+            
+            assert_eq!(auctions.len(), 1);
+            assert_eq!(auctions[0].auction_asset.amount, Uint128::new(1000u128));
+            
+            // Verify per_asset_distribution is stored
+            assert!(auctions[0].per_asset_distribution.is_some());
+            let stored_distribution = auctions[0].per_asset_distribution.clone().unwrap();
+            assert_eq!(stored_distribution.len(), 2);
+            assert_eq!(stored_distribution[0].info.to_string(), "uatom");
+            assert_eq!(stored_distribution[0].amount, Uint128::new(60u128));
+            assert_eq!(stored_distribution[1].info.to_string(), "uosmo");
+            assert_eq!(stored_distribution[1].amount, Uint128::new(40u128));
+        }
+
+        #[test]
+        fn test_fee_auction_without_per_asset_distribution() {
+            let (mut app, debt_contract, cdp_contract) = proper_instantiate();
+
+            // Start auction without per_asset_distribution (backwards compatibility)
+            let msg = ExecuteMsg::StartAuction {
+                repayment_position_info: None,
+                send_to: None,
+                auction_asset: Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: String::from("fee_asset"),
+                    },
+                    amount: Uint128::new(500u128),
+                },
+                per_asset_distribution: None,
+            };
+            
+            let cosmos_msg = debt_contract.call(msg, vec![coin(500, "fee_asset")]).unwrap();
+            app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+
+            // Query the fee auction
+            let auctions: Vec<FeeAuction> = app
+                .wrap()
+                .query_wasm_smart(
+                    debt_contract.addr(),
+                    &QueryMsg::OngoingFeeAuctions {
+                        auction_asset: Some(AssetInfo::NativeToken {
+                            denom: String::from("fee_asset"),
+                        }),
+                        limit: None,
+                        start_after: None,
+                    },
+                )
+                .unwrap();
+            
+            assert_eq!(auctions.len(), 1);
+            // per_asset_distribution should be None
+            assert!(auctions[0].per_asset_distribution.is_none());
+        }
     }
 }

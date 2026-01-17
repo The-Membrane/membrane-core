@@ -11,17 +11,17 @@ use cosmwasm_std::{Decimal, StdError, Uint128, StdResult};
 
 /// Checked Decimal subtraction
 pub fn decimal_subtraction(a: Decimal, b: Decimal) -> StdResult<Decimal> {
-    a.checked_sub(b).map_err(|_| StdError::GenericErr{msg: String::from("Decimal subtraction overflow")})
+    a.checked_sub(b).map_err(|_| StdError::generic_err(String::from("Decimal subtraction overflow")))
 }
 
 /// Checked Decimal division
 pub fn decimal_division(a: Decimal, b: Decimal) -> StdResult<Decimal> {
-    a.checked_div(b).map_err(|_| StdError::GenericErr{msg: String::from("Decimal division overflow")})
+    a.checked_div(b).map_err(|_| StdError::generic_err(String::from("Decimal division overflow")))
 }
 
 /// Checked Decimal multiplication
 pub fn decimal_multiplication(a: Decimal, b: Decimal) -> StdResult<Decimal> {
-    a.checked_mul(b).map_err(|_| StdError::GenericErr{msg: String::from("Decimal multiplication overflow")})
+    a.checked_mul(b).map_err(|_| StdError::generic_err(String::from("Decimal multiplication overflow")))
 }
 
 //////////////cosmwasm-bignumber Fork: https://github.com/terra-money/terra-cosmwasm/blob/094dc24caa9d417e528e32cc2e44fa19c576599b/packages/bignumber/Cargo.toml///////////////////////

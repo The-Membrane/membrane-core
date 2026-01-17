@@ -99,9 +99,9 @@ jobs:
             -p auction \
             -p cdp \
             -p liq-queue \
-            -p mars-vault-token \
+            -p mars_vault_token \
             -p oracle \
-            -p points-system \
+            -p points_system \
             -p staking \
             -p system_discounts \
             -p tokenfactory \

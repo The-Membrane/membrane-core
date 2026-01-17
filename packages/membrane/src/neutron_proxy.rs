@@ -279,40 +279,37 @@ impl DualityRoute {
 
         // There must be at least two denoms in the route
         if swap_denoms.len() < 2 {
-            return Err(StdError::GenericErr {
-                msg: "the route must contain at least one pair".to_string(),
-            });
+            return Err(StdError::generic_err(
+                "the route must contain at least one pair".to_string(),
+            ));
         }
 
         // Ensure the first denom in the route is the input denom
         if swap_denoms.first() != Some(&denom_in.to_string()) {
-            return Err(StdError::GenericErr {
-                msg: format!(
-                    "the route's first denom {} does not match the input denom {}",
-                    swap_denoms.first().unwrap_or(&"none".to_string()),
-                    denom_in
-                ),
-            });
+            return Err(StdError::generic_err(format!(
+                "the route's first denom {} does not match the input denom {}",
+                swap_denoms.first().unwrap_or(&"none".to_string()),
+                denom_in
+            )));
         }
 
         // Ensure the last denom in the route is the output denom
         if swap_denoms.last() != Some(&denom_out.to_string()) {
-            return Err(StdError::GenericErr {
-                msg: format!(
-                    "the route's last denom {} does not match the output denom {}",
-                    swap_denoms.last().unwrap_or(&"none".to_string()),
-                    denom_out
-                ),
-            });
+            return Err(StdError::generic_err(format!(
+                "the route's last denom {} does not match the output denom {}",
+                swap_denoms.last().unwrap_or(&"none".to_string()),
+                denom_out
+            )));
         }
 
         // Check for loops - each denom should only appear once in the route
         let mut seen_denoms = hashset(&[]);
         for denom in swap_denoms.iter() {
             if seen_denoms.contains(denom) {
-                return Err(StdError::GenericErr {
-                    msg: format!("route contains a loop: denom {} seen twice", denom),
-                });
+                return Err(StdError::generic_err(format!(
+                    "route contains a loop: denom {} seen twice",
+                    denom
+                )));
             }
             seen_denoms.insert(denom.to_string());
         }
@@ -330,9 +327,9 @@ impl DualityRoute {
         let swap_denoms = &self.swap_denoms;
 
         if swap_denoms.len() < 2 {
-            return Err(StdError::GenericErr {
-                msg: "the route must contain at least two denoms".to_string(),
-            });
+            return Err(StdError::generic_err(
+                "the route must contain at least two denoms".to_string(),
+            ));
         }
 
         // If we have more than two denoms, we need to do a multi-hop swap.
@@ -465,9 +462,7 @@ fn from(v: PlaceLimitOrderRequest) -> StdResult<MsgPlaceLimitOrder> {
 fn serialize_prec_dec(decimal_str: &str) -> StdResult<String> {
     // Basic validation
     if decimal_str.is_empty() {
-        return Err(StdError::GenericErr {
-            msg: "Empty input".to_string(),
-        });
+        return Err(StdError::generic_err("Empty input".to_string()));
     }
 
     // Split into parts

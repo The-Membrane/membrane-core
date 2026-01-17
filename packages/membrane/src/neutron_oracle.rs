@@ -111,10 +111,13 @@ impl PriceResponse {
         let pre_scaled_amount = decimal_division(value, self.price)?;
 
         //Post scaled amount where we add the asset's decimals (1 = 1_000_000)
-        let asset_amount = pre_scaled_amount
-            * Uint128::new(10u64.pow(exponent_difference as u32) as u128);
+        let scale = Decimal::from_ratio(
+            Uint128::from(10u64.pow(exponent_difference as u32) as u128),
+            Uint128::one(),
+        );
+        let asset_amount = decimal_multiplication(pre_scaled_amount, scale)?;
 
-        Ok(asset_amount)
+        Ok(asset_amount.to_uint_floor())
     }
 
     pub fn to_decimal256(&self) -> StdResult<PriceResponse256>{

@@ -135,10 +135,10 @@ pub fn get_pool_state_response(
     
 //             Ok(msg)            
 //         } else {
-//             Err(StdError::GenericErr { msg: String::from("Native assets only") })
+//             Err(StdError::generic_err(String::from("Native assets only")))
 //         }
 //     } else {
-//         Err(StdError::GenericErr { msg: String::from("Native assets only") })
+//         Err(StdError::generic_err(String::from("Native assets only")))
 //     }
 // }
 
@@ -150,7 +150,7 @@ pub fn query_stability_pool_fee(
     let resp: Option<Vec<u8>> = querier.query_wasm_raw(stability_pool, b"asset")?;
     let asset_pool: AssetPool = match resp {
         Some(asset) => serde_json_wasm::from_slice(&asset).unwrap(),
-        None => return Err(StdError::GenericErr { msg: String::from("Asset pool not found") }),
+        None => return Err(StdError::generic_err(String::from("Asset pool not found"))),
     };
 
     Ok(asset_pool.liq_premium)
@@ -165,7 +165,7 @@ pub fn get_discount_vault_config(
     let resp: Option<Vec<u8>> = querier.query_wasm_raw(discount_vault, b"config")?;
     let config: DV_Config = match resp {
         Some(asset) => serde_json_wasm::from_slice(&asset).unwrap(),
-        None => return Err(StdError::GenericErr { msg: String::from("Config not found") }),
+        None => return Err(StdError::generic_err(String::from("Config not found"))),
     };
 
     Ok(config)
@@ -179,7 +179,7 @@ pub fn get_stability_pool_liquidity(
     let resp: Option<Vec<u8>> = querier.query_wasm_raw(stability_pool, b"asset")?;
     let asset_pool: AssetPool = match resp {
         Some(asset) => serde_json_wasm::from_slice(&asset).unwrap(),
-        None => return Err(StdError::GenericErr { msg: String::from("Asset pool not found") }),
+        None => return Err(StdError::generic_err(String::from("Asset pool not found"))),
     };
 
     Ok(asset_pool.credit_asset.amount)
@@ -193,7 +193,7 @@ pub fn query_basket(
     let resp: Option<Vec<u8>> = querier.query_wasm_raw(cdp_contract, b"basket")?;
     let basket: Basket = match resp {
         Some(basket) => serde_json_wasm::from_slice(&basket).unwrap(),
-        None => return Err(StdError::GenericErr { msg: String::from("Basket not found") }),
+        None => return Err(StdError::generic_err(String::from("Basket not found"))),
     };
 
     Ok(basket)
@@ -207,7 +207,7 @@ pub fn query_staking_totals(
     let resp: Option<Vec<u8>> = querier.query_wasm_raw(staking_contract, b"totals")?;
     let totals: Totals = match resp {
         Some(totals) => serde_json_wasm::from_slice(&totals).unwrap(),
-        None => return Err(StdError::GenericErr { msg: String::from("Totals not found") }),
+        None => return Err(StdError::generic_err(String::from("Totals not found"))),
     };
 
     Ok(totals)
@@ -244,7 +244,7 @@ pub fn withdrawal_msg(asset: Asset, recipient: Addr) -> StdResult<CosmosMsg> {
         });
         Ok(message)        
     } else {
-        Err(StdError::GenericErr { msg: String::from("Native assets only") })
+        Err(StdError::generic_err(String::from("Native assets only")))
     }
 }
 
@@ -274,9 +274,7 @@ pub fn asset_to_coin(asset: Asset) -> StdResult<Coin> {
     match asset.info {
         //
         AssetInfo::Token { address: _ } => {
-            Err(StdError::GenericErr {
-                msg: String::from("CW20 Assets can't be converted into Coin"),
-            })
+            Err(StdError::generic_err(String::from("CW20 Assets can't be converted into Coin"),))
         }
         AssetInfo::NativeToken { denom } => Ok(Coin {
             denom,

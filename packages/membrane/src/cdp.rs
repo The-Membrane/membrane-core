@@ -486,7 +486,7 @@ impl UpdateConfig {
         if let Some(liq_fee) = self.liq_fee {
             //Enforce 0-100% range
             if liq_fee > Decimal::percent(100) || liq_fee < Decimal::zero() {
-                return Err(StdError::GenericErr{ msg: String::from("Liquidation fee must be between 0-100%") });
+                return Err(StdError::generic_err(String::from("Liquidation fee must be between 0-100%")));
             }
             config.liq_fee = liq_fee;
         }
@@ -499,7 +499,7 @@ impl UpdateConfig {
         if let Some(oracle_time_limit) = self.oracle_time_limit {
             //Assert oracle time limit is max the collateral_twap_timeframe
             if oracle_time_limit > config.collateral_twap_timeframe * 60 {
-                return Err(StdError::GenericErr{ msg: String::from("Oracle time limit ceiling is the collateral twap timeframe")});
+                return Err(StdError::generic_err(String::from("Oracle time limit ceiling is the collateral twap timeframe")));
             }
             config.oracle_time_limit = oracle_time_limit;
         }
@@ -512,28 +512,28 @@ impl UpdateConfig {
         if let Some(cpc_multiplier) = self.cpc_multiplier {
             //Enforce 0-1k%
             if cpc_multiplier > Decimal::percent(10_00) || cpc_multiplier < Decimal::zero() {
-                return Err(StdError::GenericErr{ msg: String::from("CPC multiplier must be between 0-1000%") });
+                return Err(StdError::generic_err(String::from("CPC multiplier must be between 0-1000%")));
             }
             config.cpc_multiplier = cpc_multiplier;
         }
         if let Some(rate_slope_multiplier) = self.rate_slope_multiplier {
             //Enforce 0-1k%
             if rate_slope_multiplier > Decimal::percent(10_00) || rate_slope_multiplier < Decimal::zero() {
-                return Err(StdError::GenericErr{ msg: String::from("Rate slope multiplier must be between 0-10000%") });
+                return Err(StdError::generic_err(String::from("Rate slope multiplier must be between 0-10000%")));
             }            
             config.rate_slope_multiplier = rate_slope_multiplier;
         }
         // if let Some(redemption_fee) = self.redemption_fee {
         //     //Enforce 0-99% range
         //     if redemption_fee >= Decimal::percent(100) || redemption_fee < Decimal::zero() {
-        //         return Err(StdError::GenericErr{ msg: String::from("Redemption fee must be between 0-99%") });
+        //         return Err(StdError::generic_err(String::from("Redemption fee must be between 0-99%")));
         //     }
         //     config.redemption_fee = redemption_fee;
         // }
         if let Some(affiliate_fee_max) = self.affiliate_fee_max {
             //Enforce 0-100% range
             if affiliate_fee_max > Decimal::percent(100) || affiliate_fee_max < Decimal::zero() {
-                return Err(StdError::GenericErr{ msg: String::from("Affiliate fee max must be between 0-100%") });
+                return Err(StdError::generic_err(String::from("Affiliate fee max must be between 0-100%")));
             }
             config.affiliate_fee_max = affiliate_fee_max;
         }
@@ -546,7 +546,7 @@ impl UpdateConfig {
         if let Some(ltv_upward_kp) = self.ltv_upward_kp {
             //Enforce 0-100% range (realistically should be much lower, like 0-20%)
             if ltv_upward_kp > Decimal::percent(100) || ltv_upward_kp < Decimal::zero() {
-                return Err(StdError::GenericErr{ msg: String::from("LTV upward Kp must be between 0-100%") });
+                return Err(StdError::generic_err(String::from("LTV upward Kp must be between 0-100%")));
             }
             config.ltv_upward_kp = ltv_upward_kp;
         }
@@ -556,7 +556,7 @@ impl UpdateConfig {
         if let Some(ltv_max_downward_shift) = self.ltv_max_downward_shift {
             //Enforce 0-100% range
             if ltv_max_downward_shift > Decimal::percent(100) || ltv_max_downward_shift < Decimal::zero() {
-                return Err(StdError::GenericErr{ msg: String::from("LTV max downward shift must be between 0-100%") });
+                return Err(StdError::generic_err(String::from("LTV max downward shift must be between 0-100%")));
             }
             config.ltv_max_downward_shift = ltv_max_downward_shift;
         }

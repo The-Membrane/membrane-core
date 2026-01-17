@@ -363,6 +363,12 @@ fn get_intent_boosts(
                         return Err(StdError::generic_err("LTV Disco contract not configured"));
                     }
                 }
+                membrane::transmuter_lockdrop::MbrnIntentType::SendToAddress { .. } => {
+                    // SendToAddress intents don't support locks
+                    // return Err(StdError::generic_err("SendToAddress intents cannot have locks"));
+                    // SendToAddress intents don't support locks
+                    0
+                }
             };
 
             // Calculate ratio: min(lock_duration_days / lock_ceiling, 1.0)
@@ -433,18 +439,14 @@ fn calculate_locked_boost(
         Decimal::from_ratio(time_since_deposit, lock_ceiling_seconds)
     };
     
-    // Take the maximum ratio (whichever is bigger)
-    let max_ratio = if lock_ratio > time_ratio {
-        lock_ratio
-    } else {
-        time_ratio
-    };
+    // Add the ratios together instead of taking the max
+    let combined_ratio = lock_ratio + time_ratio;
     
     // Cap ratio at 1.0 (100%)
-    let capped_ratio = if max_ratio > Decimal::one() {
+    let capped_ratio = if combined_ratio > Decimal::one() {
         Decimal::one()
     } else {
-        max_ratio
+        combined_ratio
     };
     
     // Apply boost: boosted_amount = deposit_amount * (1 + ratio)

@@ -14,6 +14,8 @@ pub struct InstantiateMsg {
     pub liq_queue_contract: String,
     pub governance_contract: String,
     pub osmosis_proxy_contract: String,
+    /// Emissions Voting contract address (optional)
+    pub emissions_voting_contract: Option<String>,
 }
 
 #[cw_serde]
@@ -31,6 +33,8 @@ pub enum ExecuteMsg {
         transmuter_contract: Option<String>,
         ltv_disco_contract: Option<String>,
         system_discounts_contract: Option<String>,
+        emissions_voting_contract: Option<String>,
+        revenue_distributor_contract: Option<String>,
         mbrn_per_point: Option<Decimal>,
         max_mbrn_distribution: Option<Uint128>,
         points_per_dollar: Option<Decimal>,
@@ -79,6 +83,29 @@ pub enum ExecuteMsg {
     },
     /// Claim MBRN from level ups
     ClaimMBRN {},
+    /// Receive voting result from emissions voting contract
+    ReceiveVotingResult {
+        /// Graph label to identify which parameter this result is for
+        label: String,
+        /// Result as Uint128 (for Uint128 graphs)
+        result_uint128: Option<Uint128>,
+        /// Result as Decimal (for Decimal graphs, e.g., multipliers)
+        result_decimal: Option<Decimal>,
+    },
+    /// Give points for affiliate fee distribution
+    GivePointsForAffiliateFee {
+        /// Affiliate address
+        affiliate: String,
+        /// Fee amount in CDT
+        fee_amount: Uint128,
+    },
+    /// Give points for manager fee distribution
+    GivePointsForManagerFee {
+        /// Manager address
+        manager: String,
+        /// Fee amount in CDT
+        fee_amount: Uint128,
+    },
 }
 //Position Repayments can be done on the the base Positions contract
 
@@ -100,6 +127,8 @@ pub enum QueryMsg {
          limit: Option<u64>,
          start_after: Option<String>,
       },
+     // Return points multipliers
+     PointsMultipliers {},
 }
 
 
@@ -129,6 +158,10 @@ pub struct Config {
     pub ltv_disco_contract: Option<Addr>,
     /// System discounts contract address (optional, for boost queries)
     pub system_discounts_contract: Option<Addr>,
+    /// Emissions Voting contract address (optional, for creating vault graphs)
+    pub emissions_voting_contract: Option<Addr>,
+    /// Revenue distributor contract address (optional, for validating affiliate points calls)
+    pub revenue_distributor_contract: Option<Addr>,
     ///MBRN distribution per point
     pub mbrn_per_point: Decimal,
     ///Total MBRN distributon from the contract
@@ -189,4 +222,10 @@ pub struct UserConversionResponse {
     pub user: Addr,
     ///Stats
     pub conversion_rates: Vec<VaultConversionRate>,
+}
+
+#[cw_serde]
+pub struct PointsMultipliersResponse {
+    /// Points multipliers
+    pub points_multipliers: PointsMultipliers,
 }

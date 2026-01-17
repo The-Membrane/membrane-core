@@ -13,7 +13,7 @@ use membrane::range_bound_lp_vault::{ExecuteMsg as RBLP_ExecuteMsg, QueryMsg as 
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::stability_pool::{LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
 use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
-use membrane::staking::ExecuteMsg as StakingExecuteMsg;
+use membrane::revenue_distributor::ExecuteMsg as RevenueDistributorExecuteMsg;
 use membrane::deployable_venue::{ExecuteMsg as DeployableVenue_ExecuteMsg, QueryMsg as DeployableVenue_QueryMsg};
 use membrane::chain_proxy::ExecuteMsg as ChainProxyExecuteMsg;
 use membrane::types::{cAsset, Asset, AssetInfo, AssetPool, Basket, DeploymentVenue, PoolStateResponse, Position, StringEntry, UserInfo};
@@ -118,8 +118,8 @@ pub fn liquidate(
     };
 
     //REMOVE, FOR TESTING
-    let insolvent = true;
-    let current_LTV = Decimal::percent(90);
+    // let insolvent = true;
+    // let current_LTV = Decimal::percent(90);
     
     if !insolvent {
         return Err(ContractError::PositionSolvent {});
@@ -263,7 +263,7 @@ pub fn liquidate(
 
     //Calculate caller & protocol fees 
     //and amount to send to the Liquidation Queue.
-    let (protocol_fee_msg, leftover_repayment) = match per_asset_fulfillments(
+    let (protocol_fee_msgs, leftover_repayment) = match per_asset_fulfillments(
         storage,
         querier, 
         config.clone(), 
@@ -408,12 +408,6 @@ pub fn liquidate(
     
     let mut liquidation_propagation: Option<String> = None;
     if let Ok(repay) = LIQUIDATION.load(storage) { liquidation_propagation = Some(format!("{:?}", repay)) }
-
-    //Convert protocol_fee_msg to vec if it's Some, otherwise empty vec
-    let protocol_fee_msgs = match protocol_fee_msg {
-        Some(msg) => vec![msg],
-        None => vec![],
-    };
 
     Ok(res
         .add_submessages(submessages) //LQ & SP msgs
@@ -710,7 +704,7 @@ fn per_asset_fulfillments(
     liquidated_assets: &mut Vec<cAsset>,
     caller_fee_value_paid: &mut Decimal,
     position_info: UserInfo,
-) -> StdResult<(Option<CosmosMsg>, Uint128)>{
+) -> StdResult<(Vec<CosmosMsg>, Uint128)>{
 
     // println!("leftover_repayment: {:?}", leftover_repayment);
 
@@ -997,17 +991,31 @@ fn per_asset_fulfillments(
     // println!("caller_coins: {:?}", caller_coins);
     // println!("protocol_coins: {:?}", protocol_coins);
 
-    if !protocol_coins.is_empty(){
-        //Create Msg to send all native token liq fees for MBRN to the staking contract
-        let protocol_fee_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.clone().staking_contract.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-            msg: to_json_binary(&StakingExecuteMsg::DepositFee {})?,
-            funds: protocol_coins,
-        }); 
+    if !protocol_coins.is_empty() {
+        // All protocol fees are collateral (non-CDT), route to revenue-distributor for auction
+        let mut protocol_fee_msgs: Vec<CosmosMsg> = vec![];
 
-        Ok((Some(protocol_fee_msg), leftover_repayment))
+        if let Some(revenue_distributor) = config.revenue_distributor.clone() {
+            for coin in protocol_coins {
+                // Create per_asset_distribution showing this collateral earned this amount
+                let per_asset_distribution = vec![Asset {
+                    info: AssetInfo::NativeToken { denom: coin.denom.clone() },
+                    amount: coin.amount,
+                }];
+                
+                protocol_fee_msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: revenue_distributor.to_string(),
+                    msg: to_json_binary(&RevenueDistributorExecuteMsg::AddNonCdtRevenue {
+                        per_asset_distribution,
+                    })?,
+                    funds: vec![coin],
+                }));
+            }
+        }
+
+        Ok((protocol_fee_msgs, leftover_repayment))
     } else {
-        Ok((None, leftover_repayment))
+        Ok((vec![], leftover_repayment))
     }
 
 }

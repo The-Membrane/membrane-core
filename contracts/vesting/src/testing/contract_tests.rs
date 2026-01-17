@@ -3,12 +3,46 @@
 mod tests {
     use crate::contract::{query, instantiate, execute};
 
-    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
-    use cosmwasm_std::{from_binary, to_binary, CosmosMsg, SubMsg, Uint128, WasmMsg, attr};
+    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info, MockQuerier};
+    use cosmwasm_std::{from_binary, from_json, to_binary, CosmosMsg, SubMsg, Uint128, WasmMsg, attr, QueryRequest, WasmQuery, StdResult, Binary, to_json_binary, SystemResult, ContractResult};
 
     use membrane::vesting::{QueryMsg, InstantiateMsg, Config, ExecuteMsg, AllocationResponse, UnlockedResponse, RecipientsResponse};
     use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
     use membrane::types::VestingPeriod;
+    use membrane::staking::{QueryMsg as StakingQueryMsg, RewardsResponse, StakerResponse};
+    use membrane::types::{AssetInfo, Asset};
+
+    fn setup_querier_with_staking() -> MockQuerier {
+        let mut querier = MockQuerier::default();
+        querier.update_wasm(|query| -> SystemResult<ContractResult<Binary>> {
+            match query {
+                WasmQuery::Smart { contract_addr, msg } => {
+                    if contract_addr == "staking_contract" {
+                        match from_json::<StakingQueryMsg>(msg) {
+                            Ok(StakingQueryMsg::UserRewards { user: _ }) => {
+                                SystemResult::Ok(ContractResult::Ok(to_json_binary(&RewardsResponse {
+                                    claimables: vec![],
+                                    accrued_interest: Uint128::zero(),
+                                }).unwrap()))
+                            },
+                            Ok(StakingQueryMsg::UserStake { staker: _ }) => {
+                                SystemResult::Ok(ContractResult::Ok(to_json_binary(&StakerResponse {
+                                    staker: "vesting_contract".to_string(),
+                                    total_staked: Uint128::new(30_000_000_000_000),
+                                    deposit_list: vec![],
+                                }).unwrap()))
+                            },
+                            _ => SystemResult::Ok(ContractResult::Err("Unknown query".to_string())),
+                        }
+                    } else {
+                        SystemResult::Ok(ContractResult::Err("Unknown contract".to_string()))
+                    }
+                },
+                _ => SystemResult::Ok(ContractResult::Err("Unknown query type".to_string())),
+            }
+        });
+        querier
+    }
 
     #[test]
     fn recipients() {
@@ -21,7 +55,9 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
-            pre_launch_contributors: String::from("labs")
+            pre_launch_contributors: String::from("labs"),
+            neutron_proxy: None,
+            old_mbrn_denom: None,
         };
 
         //Instantiating contract
@@ -101,6 +137,7 @@ mod tests {
     #[test]
     fn allocations() {
         let mut deps = mock_dependencies();
+        deps.querier = setup_querier_with_staking();
 
         let msg = InstantiateMsg {
             owner: Some(String::from("owner0000")),
@@ -109,7 +146,9 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
-            pre_launch_contributors: String::from("labs")
+            pre_launch_contributors: String::from("labs"),
+            neutron_proxy: None,
+            old_mbrn_denom: None,
         };
 
         //Instantiating contract
@@ -123,6 +162,8 @@ mod tests {
             osmosis_proxy: None,
             staking_contract: None,
             additional_allocation: Some( Uint128::new(1_000_000_000_000u128) ),
+            neutron_proxy: None,
+            old_mbrn_denom: None,
         };
         let _res = execute( deps.as_mut(),mock_env(), mock_info("owner0000", &[]), msg )
         .unwrap();
@@ -251,6 +292,7 @@ mod tests {
     #[test]
     fn vesting_unlocks() {
         let mut deps = mock_dependencies();
+        deps.querier = setup_querier_with_staking();
 
         let msg = InstantiateMsg {
             owner: Some(String::from("owner0000")),
@@ -259,7 +301,9 @@ mod tests {
             mbrn_denom: String::from("mbrn_denom"),
             osmosis_proxy: String::from("osmosis_proxy"),
             staking_contract: String::from("staking_contract"),
-            pre_launch_contributors: String::from("labs")
+            pre_launch_contributors: String::from("labs"),
+            neutron_proxy: None,
+            old_mbrn_denom: None,
         };
 
         //Instantiating contract
@@ -297,6 +341,8 @@ mod tests {
             osmosis_proxy: None,
             staking_contract: None,
             additional_allocation: Some( Uint128::new(1_000_000_000_000u128) ),
+            neutron_proxy: None,
+            old_mbrn_denom: None,
         };
         let _res = execute( deps.as_mut(),mock_env(), mock_info("owner0000", &[]), msg )
         .unwrap();

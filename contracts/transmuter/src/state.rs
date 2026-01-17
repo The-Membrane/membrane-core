@@ -32,6 +32,10 @@ pub const PENDING_REVENUE: Item<Uint128> = Item::new("pending_revenue");
 pub struct LockedVaultToken {
     pub amount: Uint128,
     pub locked_until: u64,
+    /// Intended lock duration in days when lock was created (for early withdrawal calculation)
+    pub intended_lock_days: u64,
+    /// Timestamp when lock was created (for early withdrawal calculation)
+    pub lock_start_time: u64,
 }
 
 /// User address -> Vec<LockedVaultToken>

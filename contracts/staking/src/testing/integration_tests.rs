@@ -392,6 +392,7 @@ mod tests {
         let staking_id = app.store_code(staking_contract());
 
         let msg = InstantiateMsg {
+            emissions_voting_contract: None,
             owner: Some(ADMIN.to_string()),
             positions_contract: Some(cdp_contract_addr.to_string()),
             auction_contract: Some(auction_contract_addr.to_string()),
@@ -925,6 +926,7 @@ mod tests {
                 keep_raw_cdt: None,
                 vesting_rev_multiplier: Some(Decimal::percent(50)),
                 buyback_and_burn: None,
+                emissions_voting_contract: None,
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1001,6 +1003,7 @@ mod tests {
                 keep_raw_cdt: None,
                 vesting_rev_multiplier: Some(Decimal::zero()),
                 buyback_and_burn: None,
+                emissions_voting_contract: None,
             };
             let cosmos_msg = staking_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -1128,6 +1131,7 @@ mod tests {
             // Lock 600_000 for 30 days
             let msg = ExecuteMsg::Lock { 
                 locked: membrane::types::Locked {
+                    intended_lock_days: None,
                     locked_until: app.block_info().time.plus_seconds(30 * 86400).seconds(),
                     perpetual_lock: None,
                 },
@@ -1151,6 +1155,7 @@ mod tests {
             // Lock duration ceiling enforcement: 400 days exceeds default 365
             let msg = ExecuteMsg::Lock { 
                 locked: membrane::types::Locked {
+                    intended_lock_days: None,
                     locked_until: app.block_info().time.plus_seconds(400 * 86400).seconds(),
                     perpetual_lock: None,
                 },
@@ -1179,6 +1184,7 @@ mod tests {
 
             // Stake with lock_duration 45 days
             let msg = ExecuteMsg::Stake { user: None, locked: Some(membrane::types::Locked {
+                intended_lock_days: None,
                 locked_until: app.block_info().time.plus_seconds(45 * 86400).seconds(),
                 perpetual_lock: None,
             }) };
@@ -1220,6 +1226,7 @@ mod tests {
             let msg = ExecuteMsg::Stake { 
                 user: None, 
                 locked: Some(membrane::types::Locked {
+                    intended_lock_days: None,
                     locked_until: app.block_info().time.plus_seconds(30 * 86400).seconds(),
                     perpetual_lock: None,
                 })
@@ -1232,6 +1239,7 @@ mod tests {
             let msg = ExecuteMsg::Stake { 
                 user: None, 
                 locked: Some(membrane::types::Locked {
+                    intended_lock_days: None,
                     locked_until: app.block_info().time.plus_seconds(60 * 86400).seconds(),
                     perpetual_lock: None,
                 })

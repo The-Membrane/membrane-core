@@ -35,7 +35,8 @@ members = [
     "contracts/transmuter",
     "contracts/transmuter-lockdrop",
     "contracts/yield-arb",
-    "contracts/neutron_launch"
+    "contracts/neutron_launch",
+    "contracts/emissions-voting"
 ]
 
 exclude = [

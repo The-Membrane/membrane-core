@@ -32,6 +32,7 @@ fn update_config(){
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
+        emissions_voting_contract: None,
     };
 
     //Instantiating contract
@@ -52,6 +53,7 @@ fn update_config(){
         keep_raw_cdt: Some(false),
         vesting_rev_multiplier: None,
         buyback_and_burn: None,
+        emissions_voting_contract: None,
     };
 
     execute(
@@ -85,6 +87,7 @@ fn update_config(){
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
             lock_duration_ceiling: 365u64,
+            emissions_voting_contract: None,
             max_commission_rate: Decimal::percent(11),
             keep_raw_cdt: false,
             vesting_rev_multiplier: Decimal::percent(20),      
@@ -105,6 +108,7 @@ fn update_config(){
         keep_raw_cdt: None,
         vesting_rev_multiplier: None,
         buyback_and_burn: None,
+        emissions_voting_contract: None,
     };
 
     execute(
@@ -130,6 +134,7 @@ fn update_config(){
         keep_raw_cdt: None,
         vesting_rev_multiplier: None,
         buyback_and_burn: None,
+        emissions_voting_contract: None,
     };
 
     execute(
@@ -163,6 +168,7 @@ fn update_config(){
             vesting_contract: Some( Addr::unchecked("new_bv")),             
             incentive_schedule: StakeDistribution { rate: Decimal::percent(100), duration: 0 },
             lock_duration_ceiling: 365u64,
+            emissions_voting_contract: None,
             max_commission_rate: Decimal::percent(11),  
             keep_raw_cdt: false,
             vesting_rev_multiplier: Decimal::percent(20),
@@ -184,6 +190,7 @@ fn stake() {
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
+        emissions_voting_contract: None,
     };
 
     //Instantiating contract
@@ -311,6 +318,7 @@ fn delegate() {
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
+        emissions_voting_contract: None,
     };
 
     //Instantiating contract
@@ -546,6 +554,7 @@ fn commissions() {
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
+        emissions_voting_contract: None,
     };
 
     //Instantiating contract
@@ -618,6 +627,7 @@ fn fluid_delegations() {
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
+        emissions_voting_contract: None,
     };
 
     //Instantiating contract
@@ -844,6 +854,7 @@ fn unstake() {
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
+        emissions_voting_contract: None,
     };
 
     //Instantiating contract
@@ -1198,6 +1209,7 @@ fn unstake_v2() {
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
+        emissions_voting_contract: None,
     };
 
     //Instantiating contract
@@ -1324,6 +1336,7 @@ fn declare_delegates() {
         incentive_schedule: Some(StakeDistribution { rate: Decimal::percent(10), duration: 90 }),
         mbrn_denom: String::from("mbrn_denom"),
         unstaking_period: None,
+        emissions_voting_contract: None,
     };
 
     //Instantiating contract

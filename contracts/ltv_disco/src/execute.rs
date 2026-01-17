@@ -1,19 +1,21 @@
 use cosmwasm_std::{
-    attr, to_json_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo, QueryRequest, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg, WasmQuery, QuerierWrapper
+    attr, to_json_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, Int128, MessageInfo, QueryRequest, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg, WasmQuery, QuerierWrapper
 };
 use std::str::FromStr;
 use std::collections::HashMap;
 use membrane::cdp::{LiquidationStatResponse, QueryMsg as CDP_QueryMsg};
+use membrane::emissions_voting::{HasAnyVotesResponse, QueryMsg as EmissionsVotingQueryMsg};
 use membrane::ltv_disco::{
-    BackingDeposit, BackingDepositInput, RevenueTrackingEntry, RevenueEvent, UserLifetimeRevenueEntry, Config, DecimalMinMax, Dispersal, ActiveDispersal, LTVQueue, MaxBorrowLTVGroup, MaxLTVSlot, ExecuteMsg, TVLEntry, LTVEntry, CompoundAction
+    BackingDeposit, BackingDepositInput, RevenueTrackingEntry, RevenueEvent, UserLifetimeRevenueEntry, Config, DecimalMinMax, Dispersal, ActiveDispersal, LTVQueue, MaxBorrowLTVGroup, MaxLTVSlot, ExecuteMsg, TVLEntry, LTVEntry, CompoundAction, LVTTimeCliff, DepositLVTTracking, GroupLVTTracking
 };
 use membrane::math::{decimal_division, decimal_multiplication};
-use membrane::types::{Basket, DepositDenom, AssetInfo};
+use membrane::types::{Asset, Basket, DepositDenom, AssetInfo};
 use membrane::stability_pool_vault::{calculate_base_tokens, calculate_vault_tokens};
 use membrane::cdp::ExecuteMsg as CDP_ExecuteMsg;
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
 use membrane::osmosis_proxy::ExecuteMsg as OsmosisProxy_ExecuteMsg;
 use membrane::neutron_proxy::ExecuteMsg as NeutronProxy_ExecuteMsg;
+use membrane::revenue_distributor::{QueryMsg as RevenueDistributorQueryMsg, EpochCountdownResponse};
 
 use crate::error::ContractError;
 use crate::state::{SwapPropagation, SWAP_PROPAGATION, CompoundPropagation, COMPOUND_PROPAGATION, REVENUE_TRACKING, RATE_ASSURANCE, REVENUE_EVENTS, USER_LIFETIME_REVENUE, BACKING_DEPOSITS, USER_DEPOSITS, CONFIG, DISPERSAL, LTV_QUEUES, DAILY_TVL_TRACKER, DAILY_LTV_TRACKER, USER_TOTAL_DEPOSITS, MANAGER_FEE, MANAGED_DEPOSITS};
@@ -39,13 +41,459 @@ fn calculate_lock_days(deposit: &BackingDeposit, env: &Env) -> u64 {
     0
 }
 
-/// Calculate locked vault tokens for a deposit
+/// Calculate base locked vault tokens for a deposit (without epoch discount)
 /// Formula: vault_tokens * (lock_days + 1)
 /// This ensures unlocked deposits (lock_days = 0) contribute vault_tokens * 1 = vault_tokens
 /// Locked deposits get boosted: vault_tokens * (lock_days + 1)
+/// 
+/// Note: This function calculates the base value. Epoch-based discounts are applied separately
+/// in `calculate_unused_locked_vault_tokens` when epoch information is available.
 fn calculate_locked_vault_tokens(deposit: &BackingDeposit, env: &Env) -> Uint128 {
     let lock_days = calculate_lock_days(deposit, env);
     deposit.vault_tokens * Uint128::from(lock_days + 1)
+}
+
+/// Calculate unused locked vault tokens (lost weight from late deposit)
+/// This is used when we have epoch information from the revenue distributor
+/// Formula: base_locked_vt * penalty_weight, where penalty_weight = (deposit_time - epoch_start) / epoch_duration
+/// Returns the amount of locked vault tokens that should NOT count towards revenue distribution
+fn calculate_unused_locked_vault_tokens(
+    deposit: &BackingDeposit,
+    env: &Env,
+    epoch_start: u64,
+    epoch_end: u64,
+    _current_time: u64,
+) -> Uint128 {
+    let lock_days = calculate_lock_days(deposit, env);
+    let base_locked_vt = deposit.vault_tokens * Uint128::from(lock_days + 1);
+
+    // Calculate unused (lost weight) if deposit_time is available
+    if let Some(deposit_time) = deposit.deposit_time {
+        let epoch_duration = epoch_end.saturating_sub(epoch_start);
+        if epoch_duration > 0 {
+            let time_passed = deposit_time.saturating_sub(epoch_start);
+            // Calculate penalty: time_passed / epoch_duration
+            // The later in the epoch the deposit was made, the more weight is lost
+            // Use Decimal for precision
+            let penalty_weight = if time_passed > 0 && epoch_duration > 0 {
+                Decimal::from_ratio(time_passed, epoch_duration)
+            } else {
+                Decimal::zero()  // Deposit at epoch start loses nothing
+            };
+
+            // Calculate unused: base * penalty_weight
+            let unused = decimal_multiplication(
+                Decimal::from_ratio(base_locked_vt, Uint128::one()),
+                penalty_weight,
+            ).unwrap_or(Decimal::zero());
+
+            return unused.to_uint_floor();
+        }
+    }
+
+    // No deposit_time or invalid epoch: no penalty (deposit at epoch start)
+    Uint128::zero()
+}
+
+// ============= LVT TIME-CLIFF TRACKING FUNCTIONS =============
+
+/// Calculate LVT at a specific timestamp from tracking data
+/// Supports reverse time (timestamp < reference_time) for late claimers
+///
+/// `reference_time` is the timestamp where `base_lvt` and `base_daily_delta` are known.
+/// This is the starting point for all calculations. If `timestamp == reference_time`,
+/// the function returns `base_lvt` directly. Otherwise, it applies the daily delta
+/// and processes time cliffs to calculate LVT at the requested timestamp.
+///
+/// The function supports both forward time (timestamp > reference_time) and reverse
+/// time (timestamp < reference_time), enabling accurate revenue calculations for
+/// late claimers who claim revenue for past events.
+fn calculate_lvt_at_time(
+    base_lvt: Uint128,
+    reference_time: u64,
+    base_daily_delta: Int128,
+    time_cliffs: &[LVTTimeCliff],
+    timestamp: u64,
+) -> Result<Uint128, ContractError> {
+    if timestamp == reference_time {
+        return Ok(base_lvt);
+    }
+    
+    let mut current_lvt = Int128::from(base_lvt.u128() as i128);
+    let mut current_daily_delta = base_daily_delta;
+    
+    if timestamp > reference_time {
+        // Forward time: process cliffs up to timestamp
+        let mut last_time = reference_time;
+        
+        for cliff in time_cliffs {
+            if cliff.timestamp > timestamp {
+                break;
+            }
+            
+            // Apply delta from last_time to cliff.timestamp
+            let days_elapsed = (cliff.timestamp - last_time) / ONE_DAY_SECONDS;
+            current_lvt = current_lvt + (current_daily_delta * Int128::from(days_elapsed as i128));
+            
+            // Update daily delta
+            current_daily_delta = current_daily_delta + cliff.delta_change;
+            last_time = cliff.timestamp;
+        }
+        
+        // Apply delta from last cliff to timestamp
+        let days_elapsed = (timestamp - last_time) / ONE_DAY_SECONDS;
+        current_lvt = current_lvt + (current_daily_delta * Int128::from(days_elapsed as i128));
+    } else {
+        // Reverse time: go backwards from reference_time
+        let mut last_time = reference_time;
+        
+        // Process cliffs in reverse order
+        for cliff in time_cliffs.iter().rev() {
+            if cliff.timestamp > last_time {
+                continue;
+            }
+            if cliff.timestamp <= timestamp {
+                break;
+            }
+            
+            // Reverse the delta from last_time to cliff.timestamp
+            let days_elapsed = (last_time - cliff.timestamp) / ONE_DAY_SECONDS;
+            // Use current delta for the interval after the cliff
+            current_lvt = current_lvt - (current_daily_delta * Int128::from(days_elapsed as i128));
+            
+            // Update daily delta (reverse the change at the cliff)
+            current_daily_delta = current_daily_delta - cliff.delta_change;
+            last_time = cliff.timestamp;
+        }
+        
+        // Apply delta from last cliff to timestamp
+        let days_elapsed = (last_time - timestamp) / ONE_DAY_SECONDS;
+        current_lvt = current_lvt - (current_daily_delta * Int128::from(days_elapsed as i128));
+    }
+    
+    // Ensure non-negative and convert to Uint128
+    if current_lvt.is_negative() {
+        Ok(Uint128::zero())
+    } else {
+        Ok(Uint128::from(current_lvt.i128() as u128))
+    }
+}
+
+/// Calculate deposit's contribution to LVT tracking
+/// Returns: (base_lvt, daily_delta, cliffs)
+fn calculate_deposit_contribution(
+    deposit: &BackingDeposit,
+    env: &Env,
+    lock_ceiling: u64,
+) -> Result<(Uint128, Int128, Vec<LVTTimeCliff>), ContractError> {
+    let vault_tokens = deposit.vault_tokens;
+    let current_time = env.block.time.seconds();
+    
+    // Handle perpetual locks: treat as constant until explicitly changed
+    let (locked_until, is_perpetual) = if let Some(ref locked) = deposit.locked {
+        if let Some(perpetual_days) = locked.perpetual_lock {
+            // Perpetual: treat as constant boost (locked_until stays in future)
+            let virtual_locked_until = current_time + perpetual_days * ONE_DAY_SECONDS;
+            (virtual_locked_until, true)
+        } else {
+            (locked.locked_until, false)
+        }
+    } else {
+        // Unlocked: only time boost applies
+        return Ok((
+            vault_tokens, // Base: 1x multiplier
+            Int128::from(vault_tokens.u128() as i128), // Daily delta: +vault_tokens/day
+            vec![] // No cliffs
+        ));
+    };
+    
+    // Calculate current lock days
+    let lock_days = if locked_until > current_time {
+        (locked_until - current_time) / ONE_DAY_SECONDS
+    } else {
+        0
+    };
+    
+    // Current LVT using formula: vault_tokens * (lock_days + 1)
+    let current_lvt = vault_tokens * Uint128::from(lock_days + 1);
+    
+    // Calculate daily delta
+    let daily_delta = if is_perpetual {
+        // Perpetual lock: lock_ratio constant, time_ratio increases
+        // Daily delta = +vault_tokens (time boost increases)
+        Int128::from(vault_tokens.u128() as i128)
+    } else if locked_until > current_time {
+        // During lock: lock decaying (-vault_tokens/day), time increasing (+vault_tokens/day)
+        // Net = 0 during lock period
+        Int128::zero()
+    } else {
+        // After lock expires: only time boost
+        Int128::from(vault_tokens.u128() as i128)
+    };
+    
+    // Create cliffs
+    let mut cliffs = Vec::new();
+    
+    if !is_perpetual && locked_until > current_time {
+        // Regular lock will expire, create cliff
+        cliffs.push(LVTTimeCliff {
+            timestamp: locked_until,
+            delta_change: Int128::from(vault_tokens.u128() as i128), // Changes from 0 to +vault_tokens
+        });
+    }
+    
+    Ok((current_lvt, daily_delta, cliffs))
+}
+
+/// Initialize deposit's LVT tracking for a new deposit
+fn initialize_deposit_lvt_tracking(
+    deposit: &mut BackingDeposit,
+    env: &Env,
+    lock_ceiling: u64,
+) -> Result<(), ContractError> {
+    let reference_time = env.block.time.seconds();
+    let (base_lvt, daily_delta, cliffs) = calculate_deposit_contribution(
+        deposit,
+        env,
+        lock_ceiling,
+    )?;
+    
+    deposit.lvt_tracking = DepositLVTTracking {
+        base_lvt,
+        reference_time,
+        daily_delta,
+        time_cliffs: cliffs,
+    };
+    
+    Ok(())
+}
+
+/// Update deposit's LVT tracking when it changes
+fn update_deposit_lvt_tracking(
+    deposit: &mut BackingDeposit,
+    env: &Env,
+    lock_ceiling: u64,
+) -> Result<(), ContractError> {
+    let reference_time = env.block.time.seconds();
+    let (base_lvt, daily_delta, cliffs) = calculate_deposit_contribution(
+        deposit,
+        env,
+        lock_ceiling,
+    )?;
+    
+    // Adjust base_lvt to new reference_time if needed
+    let adjusted_base_lvt = if reference_time != deposit.lvt_tracking.reference_time {
+        calculate_lvt_at_time(
+            deposit.lvt_tracking.base_lvt,
+            deposit.lvt_tracking.reference_time,
+            deposit.lvt_tracking.daily_delta,
+            &deposit.lvt_tracking.time_cliffs,
+            reference_time,
+        )?
+    } else {
+        base_lvt
+    };
+    
+    deposit.lvt_tracking = DepositLVTTracking {
+        base_lvt: adjusted_base_lvt,
+        reference_time,
+        daily_delta,
+        time_cliffs: cliffs,
+    };
+    
+    Ok(())
+}
+
+/// Update group LVT tracking when a deposit changes
+/// old_deposit: None if new deposit, Some if deposit existed
+/// new_deposit: None if deposit removed, Some if deposit exists
+fn update_group_lvt_tracking_for_deposit(
+    storage: &mut dyn Storage,
+    env: &Env,
+    asset: &str,
+    ltv: Decimal,
+    max_borrow_ltv: Decimal,
+    old_deposit: Option<&BackingDeposit>,
+    new_deposit: Option<&BackingDeposit>,
+) -> Result<(), ContractError> {
+    let mut queue = LTV_QUEUES.load(storage, asset.to_string())?;
+    let slot_index = queue.slots.iter().position(|s| s.ltv == ltv)
+        .ok_or_else(|| ContractError::CustomError { val: "Slot not found".to_string() })?;
+    let mut slot = queue.slots[slot_index].clone();
+    let group_index = slot.deposit_groups.iter().position(|g| g.max_borrow_ltv == max_borrow_ltv)
+        .ok_or_else(|| ContractError::CustomError { val: "Group not found".to_string() })?;
+    let mut group = slot.deposit_groups[group_index].clone();
+    
+    let reference_time = env.block.time.seconds();
+    let mut tracking = group.lvt_tracking.clone();
+    
+    // Remove old contribution if deposit existed
+    if let Some(old_dep) = old_deposit {
+        let old_tracking = &old_dep.lvt_tracking;
+        
+        // Adjust old tracking to current reference_time
+        let old_lvt_at_ref = calculate_lvt_at_time(
+            old_tracking.base_lvt,
+            old_tracking.reference_time,
+            old_tracking.daily_delta,
+            &old_tracking.time_cliffs,
+            reference_time,
+        )?;
+        
+        // Subtract from base
+        tracking.base_total = tracking.base_total.saturating_sub(old_lvt_at_ref);
+        tracking.base_daily_delta = tracking.base_daily_delta - old_tracking.daily_delta;
+        
+        // Remove old cliffs (subtract their delta_change)
+        for old_cliff in &old_tracking.time_cliffs {
+            if let Some(pos) = tracking.time_cliffs.iter().position(|c| c.timestamp == old_cliff.timestamp) {
+                tracking.time_cliffs[pos].delta_change = tracking.time_cliffs[pos].delta_change - old_cliff.delta_change;
+                // Remove if delta_change becomes zero
+                if tracking.time_cliffs[pos].delta_change.is_zero() {
+                    tracking.time_cliffs.remove(pos);
+                }
+            } else {
+                // Add inverse cliff
+                tracking.time_cliffs.push(LVTTimeCliff {
+                    timestamp: old_cliff.timestamp,
+                    delta_change: Int128::zero() - old_cliff.delta_change,
+                });
+            }
+        }
+    }
+    
+    // Add new contribution if deposit exists
+    if let Some(new_dep) = new_deposit {
+        let new_tracking = &new_dep.lvt_tracking;
+        
+        // Adjust new tracking to current reference_time
+        let new_lvt_at_ref = calculate_lvt_at_time(
+            new_tracking.base_lvt,
+            new_tracking.reference_time,
+            new_tracking.daily_delta,
+            &new_tracking.time_cliffs,
+            reference_time,
+        )?;
+        
+        // Add to base
+        tracking.base_total = tracking.base_total.checked_add(new_lvt_at_ref)
+            .map_err(|e| ContractError::CustomError { 
+                val: format!("Overflow adding to base_total: {}", e) 
+            })?;
+        tracking.base_daily_delta = tracking.base_daily_delta + new_tracking.daily_delta;
+        
+        // Add new cliffs
+        for new_cliff in &new_tracking.time_cliffs {
+            if let Some(pos) = tracking.time_cliffs.iter().position(|c| c.timestamp == new_cliff.timestamp) {
+                tracking.time_cliffs[pos].delta_change = tracking.time_cliffs[pos].delta_change + new_cliff.delta_change;
+                // Remove if delta_change becomes zero
+                if tracking.time_cliffs[pos].delta_change.is_zero() {
+                    tracking.time_cliffs.remove(pos);
+                }
+            } else {
+                tracking.time_cliffs.push(new_cliff.clone());
+            }
+        }
+    }
+    
+    // Update reference_time
+    tracking.reference_time = reference_time;
+    
+    // Sort cliffs by timestamp
+    tracking.time_cliffs.sort_by_key(|c| c.timestamp);
+    
+    // Save updated tracking
+    group.lvt_tracking = tracking;
+    slot.deposit_groups[group_index] = group;
+    queue.slots[slot_index] = slot;
+    LTV_QUEUES.save(storage, asset.to_string(), &queue)?;
+    
+    Ok(())
+}
+
+// ============= END LVT TIME-CLIFF TRACKING FUNCTIONS =============
+
+/// Update group's total_unused_locked_vault_tokens when a deposit changes
+/// This should be called whenever a deposit's locked vault tokens change
+/// Only edits if the deposit is made within the current epoch.
+/// Resets unused totals when the epochs change
+fn update_group_unused_total(
+    storage: &mut dyn Storage,
+    querier: &QuerierWrapper,
+    env: &Env,
+    config: &Config,
+    asset: &str,
+    ltv: Decimal,
+    max_borrow_ltv: Decimal,
+    old_unused_vt: Uint128,
+    new_unused_vt: Uint128,
+    deposit_time: Option<u64>,
+) -> Result<(), ContractError> {
+    // Query current epoch from revenue distributor if available
+    let epoch_info = if let Some(revenue_distributor_addr) = &config.revenue_distributor {
+        querier.query_wasm_smart::<EpochCountdownResponse>(
+            revenue_distributor_addr,
+            &RevenueDistributorQueryMsg::EpochCountdown {},
+        )
+        .ok()
+        .map(|countdown| (countdown.epoch_start, countdown.epoch_end, env.block.time.seconds()))
+    } else {
+        None
+    };
+
+    let mut queue = LTV_QUEUES.load(storage, asset.to_string())?;
+    let slot_index = queue.slots.iter().position(|s| s.ltv == ltv)
+        .ok_or_else(|| ContractError::CustomError { val: "Slot not found".to_string() })?;
+    let mut slot = queue.slots[slot_index].clone();
+    let group_index = find_or_create_borrow_group(&mut slot, max_borrow_ltv, false)?;
+    let mut group = slot.deposit_groups[group_index].clone();
+
+    // Check if epoch changed - if so, reset unused total
+    if let Some((epoch_start, _, _)) = epoch_info {
+        if group.effective_epoch_start.map(|e| e != epoch_start).unwrap_or(true) {
+            // New epoch detected - reset unused total to zero
+            group.total_unused_locked_vault_tokens = Uint128::zero();
+            group.effective_epoch_start = Some(epoch_start);
+        }
+    }
+
+    // Update unused total by delta (only if deposit is in current epoch)
+    if let Some((epoch_start, epoch_end, _)) = epoch_info {
+        // Check if deposit was made in current epoch
+        let is_in_current_epoch = if let Some(dep_time) = deposit_time {
+            dep_time >= epoch_start && dep_time < epoch_end
+        } else {
+            false
+        };
+
+        if is_in_current_epoch {
+            // Only update if deposit is in current epoch
+            if new_unused_vt > old_unused_vt {
+                let delta = new_unused_vt.checked_sub(old_unused_vt)
+                    .map_err(|e| ContractError::CustomError {
+                        val: format!("Overflow calculating unused_vt delta: {}", e)
+                    })?;
+                group.total_unused_locked_vault_tokens = group.total_unused_locked_vault_tokens
+                    .checked_add(delta)
+                    .map_err(|e| ContractError::CustomError {
+                        val: format!("Overflow updating total_unused_locked_vault_tokens: {}", e)
+                    })?;
+            } else if new_unused_vt < old_unused_vt {
+                let delta = old_unused_vt.checked_sub(new_unused_vt)
+                    .map_err(|e| ContractError::CustomError {
+                        val: format!("Overflow calculating unused_vt delta: {}", e)
+                    })?;
+                group.total_unused_locked_vault_tokens = group.total_unused_locked_vault_tokens
+                    .saturating_sub(delta);  // Use saturating_sub to avoid underflow
+            }
+        }
+    }
+
+    slot.deposit_groups[group_index] = group;
+    queue.slots[slot_index] = slot;
+    LTV_QUEUES.save(storage, asset.to_string(), &queue)?;
+
+    Ok(())
 }
 
 /// Refresh deposit lock if it has perpetual_lock
@@ -173,6 +621,135 @@ fn remove_locked_deposit(
     Ok(())
 }
 
+/// Add lost vault tokens from early withdrawal to contract's own deposit
+fn add_lost_amount_to_contract_deposit(
+    storage: &mut dyn Storage,
+    querier: &QuerierWrapper,
+    env: &Env,
+    config: &Config,
+    asset: &str,
+    ltv: Decimal,
+    max_borrow_ltv: Decimal,
+    lost_vault_tokens: Uint128,
+    group: &mut MaxBorrowLTVGroup,
+    _queue: &mut LTVQueue,
+) -> Result<(), ContractError> {
+    if lost_vault_tokens.is_zero() {
+        return Ok(());
+    }
+
+    let contract_addr = env.contract.address.clone();
+    let asset_str = asset.to_string();
+    let ltv_str = ltv.to_string();
+    let max_borrow_ltv_str = max_borrow_ltv.to_string();
+    let contract_str = contract_addr.to_string();
+    
+    // Query epoch start time from revenue distributor
+    let epoch_start_time = if let Some(revenue_distributor_addr) = &config.revenue_distributor {
+        querier.query_wasm_smart::<EpochCountdownResponse>(
+            revenue_distributor_addr,
+            &RevenueDistributorQueryMsg::EpochCountdown {},
+        )
+        .map(|countdown| countdown.epoch_start)
+        .unwrap_or_else(|_| env.block.time.seconds())
+    } else {
+        env.block.time.seconds()
+    };
+    
+    // Find or create deposit_id for contract's deposit
+    // Use deposit_id 0 for contract's deposit (or find existing)
+    let contract_deposit_id = Uint128::zero();
+    let contract_deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &contract_str, &contract_deposit_id, epoch_start_time);
+    
+    // Calculate base tokens for lost vault tokens
+    let lost_base_tokens = calculate_base_tokens(
+        lost_vault_tokens,
+        group.total_deposit_tokens,
+        group.total_vault_tokens,
+    )?;
+    
+    if let Some(mut contract_deposit) = BACKING_DEPOSITS.may_load(storage, contract_deposit_key.clone())? {
+        // Update existing contract deposit
+        let old_contract_locked_vt = contract_deposit.locked_vault_tokens;
+        contract_deposit.vault_tokens += lost_vault_tokens;
+        contract_deposit.locked_vault_tokens = calculate_locked_vault_tokens(&contract_deposit, env);
+        BACKING_DEPOSITS.save(storage, contract_deposit_key.clone(), &contract_deposit)?;
+        
+        // Update group total_locked_vault_tokens by delta
+        let delta = contract_deposit.locked_vault_tokens.checked_sub(old_contract_locked_vt)
+            .unwrap_or(Uint128::zero());
+        group.total_locked_vault_tokens = group.total_locked_vault_tokens.checked_add(delta)
+            .map_err(|e| ContractError::CustomError { 
+                val: format!("Overflow updating contract deposit locked_vault_tokens: {}", e) 
+            })?;
+    } else {
+        // Create new contract deposit
+        let temp_deposit = BackingDeposit {
+            user: contract_addr.clone(),
+            vault_tokens: lost_vault_tokens,
+            locked_vault_tokens: Uint128::zero(), // Will be calculated below
+            max_borrow_ltv,
+            last_claimed: env.block.time.seconds(),
+            locked: None,
+            start_time: env.block.time.seconds(),
+            deposit_time: Some(env.block.time.seconds()),
+            compound_claims: false,
+            manager: None,
+            depositor: None,
+            withdrawals_enabled: true,
+            lvt_tracking: DepositLVTTracking {
+                base_lvt: Uint128::zero(),
+                reference_time: env.block.time.seconds(),
+                daily_delta: Int128::zero(),
+                time_cliffs: vec![],
+            },
+        };
+        let locked_vt = calculate_locked_vault_tokens(&temp_deposit, env);
+        let mut contract_deposit = BackingDeposit {
+            user: contract_addr.clone(),
+            vault_tokens: lost_vault_tokens,
+            locked_vault_tokens: locked_vt,
+            max_borrow_ltv,
+            last_claimed: env.block.time.seconds(),
+            locked: None,
+            start_time: env.block.time.seconds(),
+            deposit_time: Some(env.block.time.seconds()),
+            compound_claims: false,
+            manager: None,
+            depositor: None,
+            withdrawals_enabled: true,
+            lvt_tracking: DepositLVTTracking {
+                base_lvt: Uint128::zero(),
+                reference_time: env.block.time.seconds(),
+                daily_delta: Int128::zero(),
+                time_cliffs: vec![],
+            },
+        };
+        // Initialize LVT tracking for contract deposit
+        initialize_deposit_lvt_tracking(&mut contract_deposit, env, config.lock_duration_ceiling)?;
+        BACKING_DEPOSITS.save(storage, contract_deposit_key.clone(), &contract_deposit)?;
+        
+        // Add to USER_DEPOSITS index
+        let mut keys = USER_DEPOSITS
+            .may_load(storage, (contract_addr.clone(), asset.to_string()))?
+            .unwrap_or_default();
+        keys.push(contract_deposit_key.clone());
+        USER_DEPOSITS.save(storage, (contract_addr.clone(), asset.to_string()), &keys)?;
+        
+        // Update locked_vault_tokens for new contract deposit
+        group.total_locked_vault_tokens = group.total_locked_vault_tokens.checked_add(contract_deposit.locked_vault_tokens)
+            .map_err(|e| ContractError::CustomError { 
+                val: format!("Overflow adding contract deposit locked_vault_tokens: {}", e) 
+            })?;
+    }
+    
+    // Update group totals
+    group.total_deposit_tokens += lost_base_tokens;
+    group.total_vault_tokens += lost_vault_tokens;
+    
+    Ok(())
+}
+
 /// Update deposit lock state: recalculate locked_vault_tokens and update group totals
 /// Returns the old locked_vault_tokens value for use in tracking updates
 fn update_deposit_lock_state(
@@ -238,9 +815,12 @@ fn update_deposit_lock_state(
 }
 
 /// Helper to create composite key for BACKING_DEPOSITS map
-pub fn make_deposit_key(asset: &str, ltv: &str, max_borrow_ltv: &str, user: &str, deposit_id: &Uint128) -> String {
-    format!("{}:{}:{}:{}:{}", asset, ltv, max_borrow_ltv, user, deposit_id)
+/// Format: asset:ltv:max_borrow_ltv:user:deposit_id:epoch_timestamp
+/// For backward compatibility, epoch_timestamp can be 0 for old deposits
+pub fn make_deposit_key(asset: &str, ltv: &str, max_borrow_ltv: &str, user: &str, deposit_id: &Uint128, epoch_timestamp: u64) -> String {
+    format!("{}:{}:{}:{}:{}:{}", asset, ltv, max_borrow_ltv, user, deposit_id, epoch_timestamp)
 }
+
 
 /// Create a new LTV queue for an asset
 pub fn create_queue(
@@ -426,16 +1006,42 @@ pub fn submit_deposit(
         group.total_vault_tokens,
     )?; 
 
+
+    // Query epoch info
+    let epoch_info = if let Some(revenue_distributor_addr) = &config.revenue_distributor {
+        deps.querier.query_wasm_smart::<EpochCountdownResponse>(
+            revenue_distributor_addr,
+            &RevenueDistributorQueryMsg::EpochCountdown {},
+        )
+        .ok()
+        .map(|countdown| (countdown.epoch_start, countdown.epoch_end, env.block.time.seconds()))
+    } else {
+        None
+    };
+
     // Event-based deposit storage key strings
     let asset_str = deposit_input.asset.clone();
     let ltv_str = slot.ltv.to_string();
     let max_borrow_ltv_str = deposit_input.max_borrow_ltv.to_string();
     let user_str = valid_owner_addr.to_string();
     
+    // Get epoch_start_time from deposit_input or query it
+    let epoch_start_time = if let Some(epoch_start) = deposit_input.epoch_start_time {
+        epoch_start
+    } else {
+        // Query epoch start time from revenue distributor if not provided
+        if let Some((epoch_start, _, _)) = epoch_info {
+            epoch_start
+        } else {
+            env.block.time.seconds()
+        }
+    };
+    
+    
     // Determine deposit_id - use provided or create new
     let deposit_id = if let Some(id) = deposit_id {
-        // Validate deposit exists if ID provided
-        let check_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &id);
+        // Validate deposit exists if ID provided - use epoch_start_time from deposit_input
+        let check_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &id, epoch_start_time);
         if !BACKING_DEPOSITS.has(deps.storage, check_key.clone()) {
             return Err(ContractError::CustomError {
                 val: format!("Deposit with id {} not found", id),
@@ -450,7 +1056,8 @@ pub fn submit_deposit(
         new_id
     };
     
-    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id);
+    let deposit_time = env.block.time.seconds();
+    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id, epoch_start_time);
 
     // Validate deposit amount
     if info.funds[0].amount < config.minimum_deposit {
@@ -466,7 +1073,9 @@ pub fn submit_deposit(
         // Claim revenues for existing deposit and send
         let claimed = claim_revenue_for_deposit(
             deps.storage,
+            &deps.querier,
             &env,
+            &config,
             &mut existing,
             deposit_input.asset.clone(),
             slot.ltv,
@@ -525,11 +1134,44 @@ pub fn submit_deposit(
                 })?;
         }
         
+        // Update effective total for existing deposit
+        
+        // Calculate old and new effective vault tokens
+        let old_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+            // Create a temporary deposit with old vault_tokens to calculate old effective
+            let mut old_deposit = existing.clone();
+            old_deposit.vault_tokens -= vault_tokens.clone();
+            old_deposit.locked_vault_tokens = old_locked_vault_tokens;
+            calculate_unused_locked_vault_tokens(&old_deposit, &env, epoch_start, epoch_end, current_time)
+        } else {
+            old_locked_vault_tokens
+        };
+        
+        let new_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+            calculate_unused_locked_vault_tokens(&existing, &env, epoch_start, epoch_end, current_time)
+        } else {
+            existing.locked_vault_tokens
+        };
+        
+        // Update effective total
+        update_group_unused_total(
+            deps.storage,
+            &deps.querier,
+            &env,
+            &config,
+            &deposit_input.asset,
+            slot.ltv,
+            deposit_input.max_borrow_ltv,
+            old_unused_vt,
+            new_unused_vt,
+            existing.deposit_time,
+        )?;
+        
         // Update locked deposits tracking if still locked
         if existing.locked.is_some() {
             // Get deposit_id from key
             let parts: Vec<&str> = deposit_key.split(':').collect();
-            if parts.len() == 5 {
+            if parts.len() == 6 {
                 if let Ok(deposit_id) = Uint128::from_str(parts[4]) {
                     update_locked_deposit(
                         deps.storage,
@@ -546,9 +1188,11 @@ pub fn submit_deposit(
     } else {
         // New deposit: initialize last_claimed to now
         let locked_info = if let Some(ref l) = locked {
+            let intended_lock_days = (l.locked_until - env.block.time.seconds()) / ONE_DAY_SECONDS;
             Some(membrane::types::Locked {
                 locked_until: l.locked_until,
                 perpetual_lock: l.perpetual_lock,
+                intended_lock_days: Some(intended_lock_days),
             })
         } else {
             None
@@ -578,14 +1222,21 @@ pub fn submit_deposit(
             last_claimed: env.block.time.seconds(),
             locked: locked_info.clone(),
             start_time: env.block.time.seconds(),
+            deposit_time: Some(deposit_time),
             compound_claims: false,
             manager: manager_addr.clone(),
             depositor: depositor.clone(),
             withdrawals_enabled: true,
+            lvt_tracking: DepositLVTTracking {
+                base_lvt: Uint128::zero(),
+                reference_time: env.block.time.seconds(),
+                daily_delta: Int128::zero(),
+                time_cliffs: vec![],
+            },
         };
         new_deposit_locked_vault_tokens = calculate_locked_vault_tokens(&temp_deposit, &env);
         
-        let deposit = BackingDeposit {
+        let mut deposit = BackingDeposit {
             user: valid_owner_addr.clone(),
             vault_tokens: vault_tokens.clone(),
             locked_vault_tokens: new_deposit_locked_vault_tokens,
@@ -593,11 +1244,20 @@ pub fn submit_deposit(
             last_claimed: env.block.time.seconds(),
             locked: locked_info.clone(),
             start_time: env.block.time.seconds(),
+            deposit_time: Some(deposit_time),
             compound_claims: false,
             manager: manager_addr.clone(),
             depositor: depositor.clone(),
             withdrawals_enabled: true,
+            lvt_tracking: DepositLVTTracking {
+                base_lvt: Uint128::zero(),
+                reference_time: env.block.time.seconds(),
+                daily_delta: Int128::zero(),
+                time_cliffs: vec![],
+            },
         };
+        // Initialize LVT tracking for new deposit
+        initialize_deposit_lvt_tracking(&mut deposit, &env, config.lock_duration_ceiling)?;
         BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &deposit)?;
         
         // Add to USER_DEPOSITS index
@@ -626,6 +1286,62 @@ pub fn submit_deposit(
                 &deposit,
             )?;
         }
+        
+        // Update effective total for new deposit
+        // Calculate effective vault tokens for new deposit
+        let new_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+            calculate_unused_locked_vault_tokens(&deposit, &env, epoch_start, epoch_end, current_time)
+        } else {
+            new_deposit_locked_vault_tokens
+        };
+        
+        // Save group to storage first so update_group_unused_total can find it
+        // Update group totals first (before effective total update)
+        group.total_deposit_tokens += deposit_amount;
+        group.total_vault_tokens += vault_tokens.clone();
+        group.total_locked_vault_tokens = group.total_locked_vault_tokens.checked_add(new_deposit_locked_vault_tokens)
+            .map_err(|e| ContractError::CustomError { 
+                val: format!("Overflow adding to total_locked_vault_tokens: {}", e) 
+            })?;
+        
+        // Update slot totals
+        slot.total_deposit_tokens += deposit_amount;
+        slot.deposit_groups[group_index] = group.clone();
+        queue.slots[slot_index] = slot.clone();
+        LTV_QUEUES.save(deps.storage, deposit_input.asset.clone(), &queue)?;
+        
+        // Update group LVT tracking for new deposit
+        update_group_lvt_tracking_for_deposit(
+            deps.storage,
+            &env,
+            &deposit_input.asset,
+            slot.ltv,
+            deposit_input.max_borrow_ltv,
+            None, // old_deposit: None for new deposit
+            Some(&deposit), // new_deposit: the newly created deposit
+        )?;
+        
+        // Update effective total (old is 0 for new deposits)
+        update_group_unused_total(
+            deps.storage,
+            &deps.querier,
+            &env,
+            &config,
+            &deposit_input.asset,
+            slot.ltv,
+            deposit_input.max_borrow_ltv,
+            Uint128::zero(),
+            new_unused_vt,
+            Some(deposit_time),
+        )?;
+        
+        // Reload group after effective total update (it may have been modified)
+        let mut queue = LTV_QUEUES.load(deps.storage, deposit_input.asset.clone())?;
+        let slot_index = queue.slots.iter().position(|s| s.ltv == slot.ltv)
+            .ok_or_else(|| ContractError::CustomError { val: "Slot not found".to_string() })?;
+        let mut slot = queue.slots[slot_index].clone();
+        let group_index = find_or_create_borrow_group(&mut slot, deposit_input.max_borrow_ltv, false)?;
+        group = slot.deposit_groups[group_index].clone();
     }
 
 
@@ -645,17 +1361,12 @@ pub fn submit_deposit(
         }));
     }
 
-    // Update group totals
-    group.total_deposit_tokens += deposit_amount;
-    group.total_vault_tokens += vault_tokens.clone();
-    
-    // Update total_locked_vault_tokens (only for new deposits, existing deposits already updated above)
-    if is_new_deposit {
-        // This is a new deposit, add its locked_vault_tokens
-        group.total_locked_vault_tokens = group.total_locked_vault_tokens.checked_add(new_deposit_locked_vault_tokens)
-            .map_err(|e| ContractError::CustomError { 
-                val: format!("Overflow adding to total_locked_vault_tokens: {}", e) 
-            })?;
+    // Update group totals (only for existing deposits, new deposits already updated above at lines 955-966)
+    // Note: For new deposits, we already updated group totals and saved the queue above (lines 955-966)
+    // We do NOT add new_deposit_locked_vault_tokens here for new deposits because it was already added at line 957
+    if !is_new_deposit {
+        group.total_deposit_tokens += deposit_amount;
+        group.total_vault_tokens += vault_tokens.clone();
     }
 
     // Update slot totals, just for easier global tracking.
@@ -718,17 +1429,32 @@ pub fn withdraw_deposit(
     max_borrow_ltv: Decimal,
     deposit_id: Uint128,
     amount: Option<Uint128>, //Amount of base tokens to withdraw
+    epoch_start_time: u64,
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
+
+    // Block withdrawal if user has active emissions votes
+    if let Some(emissions_voting_contract) = &config.emissions_voting_contract {
+        let has_votes_response: HasAnyVotesResponse = deps.querier.query_wasm_smart(
+            emissions_voting_contract.to_string(),
+            &EmissionsVotingQueryMsg::HasAnyVotes { user: info.sender.to_string() },
+        )?;
+        if has_votes_response.has_votes {
+            return Err(ContractError::CustomError {
+                val: String::from("Cannot withdraw while you have active emissions votes. Remove your votes first."),
+            });
+        }
+    }
+
     let mut queue = LTV_QUEUES.load(deps.storage, asset.clone())?;
     
-    // Refresh lock on deposit before processing
-    // First, create deposit key to load the deposit
+    // Construct deposit key using epoch_start_time
     let asset_str = asset.clone();
     let ltv_str = ltv.to_string();
     let max_borrow_ltv_str = max_borrow_ltv.to_string();
-    let user_str = info.sender.to_string(); //This gates withdrawals to the owner of the deposit
-    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id);
+    let user_str = info.sender.to_string();
+    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id, epoch_start_time);
+    
     // Load deposit from BACKING_DEPOSITS map
     let mut deposit = BACKING_DEPOSITS.load(deps.storage, deposit_key.clone())?;
 
@@ -744,7 +1470,9 @@ pub fn withdraw_deposit(
     // Claim revenue before withdrawal and send to user
     let claimed_revenue = claim_revenue_for_deposit(
         deps.storage,
+        &deps.querier,
         &env,
+        &config,
         &mut deposit,
         asset.clone(),
         ltv,
@@ -777,41 +1505,117 @@ pub fn withdraw_deposit(
 
     let withdraw_vault_tokens = std::cmp::min(vault_tokens_to_withdraw, deposit.vault_tokens);
 
-    // Calculate base tokens to withdraw using vault-like mechanism
-    let base_tokens_to_withdraw = calculate_base_tokens(
-        withdraw_vault_tokens,
-        group.total_deposit_tokens,
-        group.total_vault_tokens,
-    )?;
-
     // Calculate old locked_vault_tokens before withdrawal
     let old_locked_vault_tokens = deposit.locked_vault_tokens;
     
-    // Update group totals
+    // Handle early withdrawal if deposit is locked
+    let (actual_withdraw_vault_tokens, lost_vault_tokens) = if let Some(ref lock_info) = deposit.locked {
+        if lock_info.locked_until > env.block.time.seconds() {
+            // Early withdrawal: calculate proportional loss
+            let current_time = env.block.time.seconds();
+            let lock_start_time = deposit.start_time;
+            
+            // Calculate fulfilled days
+            let fulfilled_seconds = current_time.saturating_sub(lock_start_time);
+            let fulfilled_days = fulfilled_seconds / ONE_DAY_SECONDS;
+            
+            // Get intended lock days (use perpetual_lock if set, otherwise use intended_lock_days)
+            let intended_days = if let Some(perpetual_days) = lock_info.perpetual_lock {
+                perpetual_days
+            } else if let Some(intended) = lock_info.intended_lock_days {
+                intended
+            } else {
+                // Fallback: calculate from locked_until - start_time (for backward compatibility)
+                (lock_info.locked_until - lock_start_time) / ONE_DAY_SECONDS
+            };
+            
+            // Calculate ratio (capped at 1.0)
+            let ratio = if intended_days > 0 {
+                let ratio_decimal = Decimal::from_ratio(fulfilled_days, intended_days);
+                ratio_decimal.min(Decimal::one())
+            } else {
+                Decimal::one() // If intended_days is 0, return 100%
+            };
+            
+            // Calculate returned and lost amounts
+            let returned_vault_tokens = Decimal::from_ratio(withdraw_vault_tokens, Uint128::one()) * ratio;
+            let returned_vault_tokens = returned_vault_tokens.to_uint_floor();
+            let lost_vault_tokens = withdraw_vault_tokens.checked_sub(returned_vault_tokens)
+                .unwrap_or(Uint128::zero());
+            
+            (returned_vault_tokens, lost_vault_tokens)
+        } else {
+            // Lock expired, normal withdrawal
+            (withdraw_vault_tokens, Uint128::zero())
+        }
+    } else {
+        // Not locked, normal withdrawal
+        (withdraw_vault_tokens, Uint128::zero())
+    };
+    
+    // Calculate base tokens to withdraw using actual withdrawal amount
+    let base_tokens_to_withdraw = calculate_base_tokens(
+        actual_withdraw_vault_tokens,
+        group.total_deposit_tokens,
+        group.total_vault_tokens,
+    )?;
+    
+    // Update group totals (only for actual withdrawal, lost amount handled separately)
     group.total_deposit_tokens -= base_tokens_to_withdraw;
-    group.total_vault_tokens -= withdraw_vault_tokens;
+    group.total_vault_tokens -= actual_withdraw_vault_tokens;
     
     // Subtract old locked_vault_tokens from group total
     group.total_locked_vault_tokens = group.total_locked_vault_tokens.checked_sub(old_locked_vault_tokens)
         .map_err(|e| ContractError::CustomError { 
             val: format!("Underflow subtracting locked_vault_tokens from group: {}", e) 
         })?;
-
-    // Check lock status before withdrawal
-    if let Some(ref lock_info) = deposit.locked {
-        if lock_info.locked_until > env.block.time.seconds() {
-            return Err(ContractError::CustomError {
-                val: "Deposit is locked and cannot be withdrawn".to_string(),
-            });
-        }
+    
+    // Update effective total before withdrawal
+    // Query epoch info to calculate effective vault tokens
+    let epoch_info = if let Some(revenue_distributor_addr) = &config.revenue_distributor {
+        deps.querier.query_wasm_smart::<EpochCountdownResponse>(
+            revenue_distributor_addr,
+            &RevenueDistributorQueryMsg::EpochCountdown {},
+        )
+        .ok()
+        .map(|countdown| (countdown.epoch_start, countdown.epoch_end, env.block.time.seconds()))
+    } else {
+        None
+    };
+    
+    // Calculate old effective vault tokens
+    let old_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+        calculate_unused_locked_vault_tokens(&deposit, &env, epoch_start, epoch_end, current_time)
+    } else {
+        old_locked_vault_tokens
+    };
+    
+    // Add lost amount to contract's deposit if any
+    if !lost_vault_tokens.is_zero() {
+        add_lost_amount_to_contract_deposit(
+            deps.storage,
+            &deps.querier,
+            &env,
+            &config,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            lost_vault_tokens,
+            &mut group,
+            &mut queue,
+        )?;
     }
     
     // Remove or update deposit
+    // Check if user is withdrawing all their vault tokens (not the actual returned amount after loss)
+    // Save old deposit state for LVT tracking
+    let old_deposit_for_tracking = deposit.clone();
+    
     let fully_withdrawn = withdraw_vault_tokens == deposit.vault_tokens;
     if fully_withdrawn {
         // Remove deposit from BACKING_DEPOSITS
         BACKING_DEPOSITS.remove(deps.storage, deposit_key.clone());
-        
+
         // Remove from USER_DEPOSITS index
         let mut user_keys = USER_DEPOSITS
             .may_load(deps.storage, (info.sender.clone(), asset.clone()))?
@@ -822,7 +1626,7 @@ pub fn withdraw_deposit(
         } else {
             USER_DEPOSITS.save(deps.storage, (info.sender.clone(), asset.clone()), &user_keys)?;
         }
-        
+
         // Remove from locked deposits tracking if was locked
         if deposit.locked.is_some() {
             remove_locked_deposit(
@@ -834,8 +1638,43 @@ pub fn withdraw_deposit(
                 deposit_id,
             )?;
         }
+        
+        // Update group LVT tracking for removed deposit
+        update_group_lvt_tracking_for_deposit(
+            deps.storage,
+            &env,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            Some(&old_deposit_for_tracking), // old_deposit: the deposit being removed
+            None, // new_deposit: None since fully withdrawn
+        )?;
+
+        // Update effective total for fully withdrawn deposit (new effective is 0)
+        // NOTE: Must be called before reloading queue, as it saves the queue
+        update_group_unused_total(
+            deps.storage,
+            &deps.querier,
+            &env,
+            &config,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            old_unused_vt,
+            Uint128::zero(),
+            deposit.deposit_time,
+        )?;
+
+        // Reload queue after update_group_unused_total modified it
+        queue = LTV_QUEUES.load(deps.storage, asset.clone())?;
+        let slot_index = queue.slots.iter().position(|s| s.ltv == ltv)
+            .ok_or_else(|| ContractError::CustomError { val: "Slot not found after update".to_string() })?;
+        slot = queue.slots[slot_index].clone();
+        let group_index = slot.deposit_groups.iter().position(|g| g.max_borrow_ltv == max_borrow_ltv)
+            .ok_or_else(|| ContractError::CustomError { val: "Group not found after update".to_string() })?;
+        group = slot.deposit_groups[group_index].clone();
     } else {
-        // Update deposit
+        // Update deposit (reduce by full withdrawal amount, lost portion already handled)
         deposit.vault_tokens -= withdraw_vault_tokens;
         
         // If lock expired, remove it
@@ -862,7 +1701,14 @@ pub fn withdraw_deposit(
             .map_err(|e| ContractError::CustomError { 
                 val: format!("Overflow adding locked_vault_tokens to group: {}", e) 
             })?;
-
+        
+        // Calculate new effective vault tokens for remaining deposit
+        let new_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+            calculate_unused_locked_vault_tokens(&deposit, &env, epoch_start, epoch_end, current_time)
+        } else {
+            deposit.locked_vault_tokens
+        };
+        
         // Calculate remaining base tokens
         let remaining_base_tokens = calculate_base_tokens(
             deposit.vault_tokens,
@@ -876,10 +1722,13 @@ pub fn withdraw_deposit(
                 minimum: config.minimum_deposit,
             });
         }
+
+        // Update deposit's LVT tracking after modification
+        update_deposit_lvt_tracking(&mut deposit, &env, config.lock_duration_ceiling)?;
         
         // Save updated deposit
         BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &deposit)?;
-        
+
         // Update locked deposits tracking if still locked
         if deposit.locked.is_some() {
             update_locked_deposit(
@@ -892,6 +1741,41 @@ pub fn withdraw_deposit(
                 &deposit,
             )?;
         }
+        
+        // Update group LVT tracking for modified deposit
+        update_group_lvt_tracking_for_deposit(
+            deps.storage,
+            &env,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            Some(&old_deposit_for_tracking), // old_deposit: before withdrawal
+            Some(&deposit), // new_deposit: after partial withdrawal
+        )?;
+
+        // Update effective total for partially withdrawn deposit
+        // NOTE: This must be done BEFORE saving the queue, as it modifies and saves the queue
+        update_group_unused_total(
+            deps.storage,
+            &deps.querier,
+            &env,
+            &config,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            old_unused_vt,
+            new_unused_vt,
+            deposit.deposit_time,
+        )?;
+
+        // Reload queue after update_group_unused_total modified it
+        queue = LTV_QUEUES.load(deps.storage, asset.clone())?;
+        let slot_index = queue.slots.iter().position(|s| s.ltv == ltv)
+            .ok_or_else(|| ContractError::CustomError { val: "Slot not found after update".to_string() })?;
+        slot = queue.slots[slot_index].clone();
+        let group_index = slot.deposit_groups.iter().position(|g| g.max_borrow_ltv == max_borrow_ltv)
+            .ok_or_else(|| ContractError::CustomError { val: "Group not found after update".to_string() })?;
+        group = slot.deposit_groups[group_index].clone();
     }
 
     // Update slot totals
@@ -959,17 +1843,23 @@ pub fn withdraw_deposit(
         }));
     }
 
+    let mut attrs = vec![
+        attr("method", "withdraw_deposit"),
+        attr("asset", asset),
+        attr("ltv", ltv.to_string()),
+        attr("max_borrow_ltv", max_borrow_ltv.to_string()),
+        attr("vault_tokens_withdrawn", actual_withdraw_vault_tokens.to_string()),
+        attr("base_tokens", base_tokens_to_withdraw.to_string()),
+        attr("claimed_revenue", claimed_revenue.to_string()),
+    ];
+    
+    if !lost_vault_tokens.is_zero() {
+        attrs.push(attr("early_withdrawal_lost_vault_tokens", lost_vault_tokens.to_string()));
+    }
+    
     Ok(Response::new()
         .add_messages(msgs)
-        .add_attributes(vec![
-            attr("method", "withdraw_deposit"),
-            attr("asset", asset),
-            attr("ltv", ltv.to_string()),
-            attr("max_borrow_ltv", max_borrow_ltv.to_string()),
-            attr("vault_tokens", withdraw_vault_tokens.to_string()),
-            attr("base_tokens", base_tokens_to_withdraw.to_string()),
-            attr("claimed_revenue", claimed_revenue.to_string()),
-        ]))
+        .add_attributes(attrs))
 }
 
 /// Add bad debt to an LTV queue (CDP contract only)
@@ -1236,7 +2126,7 @@ pub fn add_revenue(
     }
     
     // Distribute remaining revenue to users based on their vault token holdings
-    distribute_revenue_to_users(deps.storage, &env, &queue, asset.clone(), revenue_amount)?;
+    distribute_revenue_to_users(deps.storage, &deps.querier, &env, &config, &queue, asset.clone(), revenue_amount)?;
 
     Ok(response
         .add_attributes(vec![
@@ -1246,15 +2136,177 @@ pub fn add_revenue(
         ]))
 }
 
+/// Add deposit token revenue from auction with per-asset distribution
+/// Adds directly to total_deposit_tokens to compound for all depositors
+pub fn add_deposit_token_revenue(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    per_asset_distribution: Vec<Asset>,
+) -> Result<Response, ContractError> {
+    let config: Config = CONFIG.load(deps.storage)?;
+
+    // Validate sender is auction contract
+    // if let Some(auction_addr) = &config.auction_contract {
+    //     if info.sender != *auction_addr {
+    //         return Err(ContractError::Unauthorized {});
+    //     }
+    // } else {
+    //     return Err(ContractError::CustomError {
+    //         val: "Auction contract not configured".to_string(),
+    //     });
+    // }
+
+    // Validate deposit token is sent
+    let deposit_denom = config.deposit_denom.denom.clone();
+
+    if info.funds.len() != 1 || info.funds[0].denom != deposit_denom {
+        return Err(ContractError::CustomError {
+            val: format!("Invalid deposit token denomination. Expected: {}", deposit_denom),
+        });
+    }
+
+    let total_deposit_token_revenue = info.funds[0].amount;
+    
+    if per_asset_distribution.is_empty() {
+        return Err(ContractError::CustomError {
+            val: "per_asset_distribution cannot be empty".to_string(),
+        });
+    }
+
+    // Calculate total weight from distribution
+    let total_weight: Uint128 = per_asset_distribution.iter()
+        .map(|a| a.amount)
+        .sum();
+
+    if total_weight.is_zero() {
+        return Err(ContractError::CustomError {
+            val: "Total distribution weight cannot be zero".to_string(),
+        });
+    }
+
+    let mut response = Response::new();
+    let mut total_distributed = Uint128::zero();
+
+    // Distribute deposit tokens to each asset's queue proportionally
+    for asset_entry in per_asset_distribution.iter() {
+        let asset_denom = asset_entry.info.to_string();
+        let revenue_share = total_deposit_token_revenue.multiply_ratio(asset_entry.amount, total_weight);
+        
+        if revenue_share.is_zero() {
+            continue;
+        }
+
+        // Load queue for this asset
+        match LTV_QUEUES.may_load(deps.storage, asset_denom.clone())? {
+            Some(mut queue) => {
+                // Calculate total deposit tokens across all slots in the queue
+                let queue_total_deposit_tokens: Uint128 = queue.slots
+                    .iter()
+                    .map(|slot| slot.total_deposit_tokens)
+                    .sum();
+
+                if queue_total_deposit_tokens.is_zero() {
+                    // No deposits for this asset, skip (tokens will stay in contract)
+                    continue;
+                }
+
+                // Distribute revenue proportionally to each slot and group
+                for slot in queue.slots.iter_mut() {
+                    if slot.total_deposit_tokens.is_zero() {
+                        continue;
+                    }
+                    
+                    // Calculate slot's share of the revenue
+                    let slot_share = revenue_share.multiply_ratio(
+                        slot.total_deposit_tokens, 
+                        queue_total_deposit_tokens
+                    );
+                    
+                    if slot_share.is_zero() {
+                        continue;
+                    }
+                    
+                    let slot_total = slot.total_deposit_tokens;
+                    
+                    // Distribute to each group within the slot
+                    for group in slot.deposit_groups.iter_mut() {
+                        if group.total_deposit_tokens.is_zero() {
+                            continue;
+                        }
+                        
+                        // Calculate group's share of the slot's revenue
+                        let group_share = slot_share.multiply_ratio(
+                            group.total_deposit_tokens,
+                            slot_total
+                        );
+                        
+                        // Add to group's total_deposit_tokens (this compounds for all depositors)
+                        group.total_deposit_tokens += group_share;
+                    }
+                    
+                    // Update slot's total_deposit_tokens
+                    slot.total_deposit_tokens += slot_share;
+                }
+
+                // Save the updated queue
+                LTV_QUEUES.save(deps.storage, asset_denom.clone(), &queue)?;
+
+                total_distributed += revenue_share;
+
+                response = response.add_attribute(
+                    format!("revenue_to_{}", asset_denom),
+                    revenue_share.to_string()
+                );
+            },
+            None => {
+                // Queue doesn't exist for this asset, skip
+                continue;
+            }
+        }
+    }
+
+    Ok(response
+        .add_attributes(vec![
+            attr("method", "add_deposit_token_revenue"),
+            attr("total_revenue", total_deposit_token_revenue.to_string()),
+            attr("total_distributed", total_distributed.to_string()),
+        ]))
+}
+
 /// Distribute revenue to users based on their vault token holdings
 /// Creates RevenueEvent structs instead of immediately distributing to users
+/// Uses effective locked vault tokens (with epoch discount) for revenue distribution.
+/// This allows us to individualize discounts from late deposits
 fn distribute_revenue_to_users(
     storage: &mut dyn Storage,
+    querier: &QuerierWrapper,
     env: &Env,
+    config: &Config,
     queue: &LTVQueue,
     asset: String,
     revenue_amount: Uint128,
 ) -> Result<(), ContractError> {
+    // Query epoch info from revenue distributor if available
+    let epoch_info = if let Some(revenue_distributor_addr) = &config.revenue_distributor {
+        match querier.query::<cosmwasm_std::Binary>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: revenue_distributor_addr.to_string(),
+            msg: to_json_binary(&RevenueDistributorQueryMsg::EpochCountdown {})?,
+        })) {
+            Ok(response) => {
+                let countdown: EpochCountdownResponse = cosmwasm_std::from_json(response)?;
+                Some((countdown.epoch_start, countdown.epoch_end, env.block.time.seconds()))
+            },
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    // Load contract owned deposit keys from USER_DEPOSITS index
+    // Will use them later to subtract the contract's locked vault tokens from the group's totals
+    let contract_deposit_keys = USER_DEPOSITS.may_load(storage, (env.contract.address.clone(), asset.clone()))?
+        .unwrap_or_else(Vec::new);
     // Calculate total deposit tokens across all slots
     let total_deposit_tokens: Uint128 = queue.slots
         .iter()
@@ -1297,23 +2349,91 @@ fn distribute_revenue_to_users(
                 continue;
             }
             
-            // Use total_locked_vault_tokens for revenue distribution
-            // If it's zero (shouldn't happen with lock_days + 1 formula), fall back to total_vault_tokens
-            let denominator = if group.total_locked_vault_tokens.is_zero() {
-                group.total_vault_tokens
+            // Check if epoch changed and update group if needed
+            // We need to load the queue, update the group, and save it back
+            let mut queue_for_update = LTV_QUEUES.load(storage, asset.clone())?;
+            let slot_index_for_update = queue_for_update.slots.iter().position(|s| s.ltv == slot.ltv)
+                .ok_or_else(|| ContractError::CustomError { val: "Slot not found".to_string() })?;
+            let mut slot_for_update = queue_for_update.slots[slot_index_for_update].clone();
+            let group_index_for_update = find_or_create_borrow_group(&mut slot_for_update, group.max_borrow_ltv, false)?;
+            let mut group_for_update = slot_for_update.deposit_groups[group_index_for_update].clone();
+            
+
+            // Check if epoch changed - if so, reset unused total
+            if let Some((epoch_start, _, _)) = epoch_info {
+                if group_for_update.effective_epoch_start.map(|e| e != epoch_start).unwrap_or(true) {
+                    // Reset unused total for new epoch
+                    group_for_update.total_unused_locked_vault_tokens = Uint128::zero();
+                    group_for_update.effective_epoch_start = Some(epoch_start);
+
+                    // Save updated group
+                    slot_for_update.deposit_groups[group_index_for_update] = group_for_update.clone();
+                    queue_for_update.slots[slot_index_for_update] = slot_for_update;
+                    LTV_QUEUES.save(storage, asset.clone(), &queue_for_update)?;
+                }
+            }
+
+            // Calculate effective denominator by subtracting unused amounts
+            // Use LVT tracking to get the accurate LVT at current timestamp
+            let calculated_lvt = calculate_lvt_at_time(
+                group_for_update.lvt_tracking.base_total,
+                group_for_update.lvt_tracking.reference_time,
+                group_for_update.lvt_tracking.base_daily_delta,
+                &group_for_update.lvt_tracking.time_cliffs,
+                env.block.time.seconds(),
+            )?;
+            
+            let base_denominator = if calculated_lvt > Uint128::zero() {
+                calculated_lvt
+            } else if group_for_update.total_locked_vault_tokens > Uint128::zero() {
+                // Fallback to static value if tracking not initialized
+                group_for_update.total_locked_vault_tokens
             } else {
-                group.total_locked_vault_tokens
+                group_for_update.total_vault_tokens  // Fallback if no locks
             };
+
+            // Subtract unused locked vault tokens from late deposits
+            let mut effective_denominator = base_denominator.saturating_sub(
+                group_for_update.total_unused_locked_vault_tokens
+            );
+
+            // Calculate contract deposits' locked vault tokens and subtract them
+            // Contract deposits should not receive any revenue
+            let contract_deposit_keys_for_group: Vec<_> = contract_deposit_keys.iter()
+                .filter(|k| {
+                    k.split(':').nth(1).unwrap_or("") == slot.ltv.to_string() &&
+                    k.split(':').nth(2).unwrap_or("") == group.max_borrow_ltv.to_string()
+                })
+                .collect();
+
+            // Sum up contract deposits' total locked vault tokens (they get zero weight)
+            let mut contract_unused_total = Uint128::zero();
+            for contract_key in contract_deposit_keys_for_group {
+                if let Some(contract_deposit) = BACKING_DEPOSITS.may_load(storage, contract_key.clone())? {
+                    // Contract deposits contribute their FULL locked vault tokens as "unused"
+                    contract_unused_total += contract_deposit.locked_vault_tokens;
+                }
+            }
+
+            // Subtract contract deposits' weight from denominator
+            effective_denominator = effective_denominator.saturating_sub(contract_unused_total);
+
+            // Ensure denominator is not zero
+            if effective_denominator.is_zero() {
+                effective_denominator = Uint128::one();
+            }
             
             // Calculate amount per 1 locked vault token (as Decimal)
             let amount_per_locked_vt = Decimal::from_ratio(
                 group_revenue.u128(),
-                denominator.u128()
+                effective_denominator.u128()
             );
             
-            // Create revenue event
+            // Create revenue event with epoch info
             let event = RevenueEvent {
                 timestamp: env.block.time.seconds(),
+                epoch_start: epoch_info.map(|(start, _, _)| start).unwrap_or(0),
+                epoch_end: epoch_info.map(|(_, end, _)| end).unwrap_or(0),
                 amount_per_locked_vt,  // Store as Decimal for direct multiplication
                 amount_to_be_claimed: group_revenue,
             };
@@ -1382,10 +2502,346 @@ fn add_revenue_tracking_entry(
     Ok(())
 }
 
+/// Condense deposits from completed epochs to prevent state bloat
+/// Merges deposits that have identical settings and are from epochs before the current epoch
+fn condense_deposits_for_user(
+    deps: DepsMut,
+    env: &Env,
+    config: &Config,
+    user_addr: &Addr,
+    asset: &str,
+) -> Result<Vec<String>, ContractError> {
+    // Query current epoch info
+    let epoch_info = if let Some(revenue_distributor_addr) = &config.revenue_distributor {
+        deps.querier.query_wasm_smart::<EpochCountdownResponse>(
+            revenue_distributor_addr,
+            &RevenueDistributorQueryMsg::EpochCountdown {},
+        )
+        .ok()
+        .map(|countdown| (countdown.epoch_start, countdown.epoch_end, env.block.time.seconds()))
+    } else {
+        None
+    };
+    
+    let current_epoch_start = if let Some((epoch_start, _, _)) = epoch_info {
+        epoch_start
+    } else {
+        // No revenue distributor, can't determine epochs - skip condensing
+        return Ok(vec![]);
+    };
+    
+    // Load all deposit keys for this user and asset
+    let deposit_keys = USER_DEPOSITS
+        .may_load(deps.storage, (user_addr.clone(), asset.to_string()))?
+        .unwrap_or_default();
+    
+    if deposit_keys.len() < 2 {
+        // Need at least 2 deposits to condense
+        return Ok(vec![]);
+    }
+    
+    // Group deposits by matching criteria
+    // Key: (ltv, max_borrow_ltv, lock_key, manager_key, depositor_key, withdrawals_enabled, compound_claims)
+    // where lock_key, manager_key, depositor_key are string representations for grouping
+    let mut deposit_groups: HashMap<String, Vec<(String, BackingDeposit)>> = HashMap::new();
+    
+    for deposit_key_str in deposit_keys.iter() {
+        // Parse deposit key: "asset:ltv:max_borrow_ltv:user:deposit_id:epoch_timestamp"
+        let parts: Vec<&str> = deposit_key_str.split(':').collect();
+        if parts.len() != 6 {
+            continue;
+        }
+        
+        // Load deposit
+        let deposit = match BACKING_DEPOSITS.load(deps.storage, deposit_key_str.clone()) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        
+        // Skip deposits without deposit_time (old deposits, can't determine epoch)
+        let deposit_time = match deposit.deposit_time {
+            Some(dt) => dt,
+            None => continue,
+        };
+        
+        // Only condense deposits from epochs before current epoch
+        if deposit_time >= current_epoch_start {
+            continue;
+        }
+        
+        // Create grouping key
+        let ltv_str = parts[1].to_string();
+        let max_borrow_ltv_str = parts[2].to_string();
+        let lock_key = if let Some(ref locked) = deposit.locked {
+            format!("{:?}", locked)
+        } else {
+            "None".to_string()
+        };
+        let manager_key = deposit.manager.as_ref()
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| "None".to_string());
+        let depositor_key = deposit.depositor.as_ref()
+            .map(|d| d.to_string())
+            .unwrap_or_else(|| "None".to_string());
+        let withdrawals_enabled_str = deposit.withdrawals_enabled.to_string();
+        let compound_claims_str = deposit.compound_claims.to_string();
+        
+        let group_key = format!(
+            "{}:{}:{}:{}:{}:{}:{}",
+            ltv_str, max_borrow_ltv_str, lock_key, manager_key, depositor_key, withdrawals_enabled_str, compound_claims_str
+        );
+        
+        deposit_groups
+            .entry(group_key)
+            .or_insert_with(Vec::new)
+            .push((deposit_key_str.clone(), deposit));
+    }
+    
+    let mut merged_keys = Vec::new();
+    
+    // Process each group
+    for (group_key, deposits) in deposit_groups.iter() {
+        if deposits.len() < 2 {
+            continue; // Need at least 2 deposits to merge
+        }
+        
+        // Parse group key to get ltv and max_borrow_ltv
+        let group_parts: Vec<&str> = group_key.split(':').collect();
+        if group_parts.len() != 7 {
+            continue;
+        }
+        let ltv = Decimal::from_str(group_parts[0])
+            .map_err(|_| ContractError::CustomError { val: "Invalid LTV format".to_string() })?;
+        let max_borrow_ltv = Decimal::from_str(group_parts[1])
+            .map_err(|_| ContractError::CustomError { val: "Invalid max_borrow_ltv format".to_string() })?;
+        
+        // Calculate merged deposit
+        let mut merged_vault_tokens = Uint128::zero();
+        let mut earliest_deposit_time = u64::MAX;
+        let mut earliest_start_time = u64::MAX;
+        let mut latest_last_claimed = 0u64;
+        let first_deposit = &deposits[0].1;
+        
+        for (_, deposit) in deposits.iter() {
+            merged_vault_tokens = merged_vault_tokens.checked_add(deposit.vault_tokens)
+                .map_err(|e| ContractError::CustomError {
+                    val: format!("Overflow adding vault_tokens: {}", e)
+                })?;
+            
+            if let Some(dt) = deposit.deposit_time {
+                earliest_deposit_time = earliest_deposit_time.min(dt);
+            }
+            earliest_start_time = earliest_start_time.min(deposit.start_time);
+            latest_last_claimed = latest_last_claimed.max(deposit.last_claimed);
+        }
+        
+        // Create merged deposit
+        let temp_merged_deposit = BackingDeposit {
+            user: user_addr.clone(),
+            vault_tokens: merged_vault_tokens,
+            locked_vault_tokens: Uint128::zero(), // Will be calculated below
+            max_borrow_ltv: first_deposit.max_borrow_ltv,
+            last_claimed: latest_last_claimed,
+            locked: first_deposit.locked.clone(),
+            start_time: earliest_start_time,
+            deposit_time: Some(earliest_deposit_time),
+            compound_claims: first_deposit.compound_claims,
+            manager: first_deposit.manager.clone(),
+            depositor: first_deposit.depositor.clone(),
+            withdrawals_enabled: first_deposit.withdrawals_enabled,
+            lvt_tracking: DepositLVTTracking {
+                base_lvt: Uint128::zero(),
+                reference_time: env.block.time.seconds(),
+                daily_delta: Int128::zero(),
+                time_cliffs: vec![],
+            },
+        };
+        
+        let merged_locked_vt = calculate_locked_vault_tokens(&temp_merged_deposit, env);
+        let mut merged_deposit = BackingDeposit {
+            locked_vault_tokens: merged_locked_vt,
+            ..temp_merged_deposit
+        };
+        // Initialize LVT tracking for merged deposit
+        let config = CONFIG.load(deps.storage)?;
+        initialize_deposit_lvt_tracking(&mut merged_deposit, env, config.lock_duration_ceiling)?;
+        
+        // Calculate old locked_vault_tokens total from deposits being merged
+        let mut old_total_locked_vt = Uint128::zero();
+        for (_, deposit) in deposits.iter() {
+            old_total_locked_vt = old_total_locked_vt.checked_add(deposit.locked_vault_tokens)
+                .map_err(|e| ContractError::CustomError {
+                    val: format!("Overflow adding old locked_vault_tokens: {}", e)
+                })?;
+        }
+        
+        // Update group totals
+        let mut queue = LTV_QUEUES.load(deps.storage, asset.to_string())?;
+        let slot_index = queue.slots.iter().position(|s| s.ltv == ltv)
+            .ok_or_else(|| ContractError::CustomError { val: "Slot not found".to_string() })?;
+        let mut slot = queue.slots[slot_index].clone();
+        let group_index = find_or_create_borrow_group(&mut slot, max_borrow_ltv, false)?;
+        let mut group = slot.deposit_groups[group_index].clone();
+        
+        // Subtract old deposits' locked_vault_tokens, add merged deposit's
+        group.total_locked_vault_tokens = group.total_locked_vault_tokens
+            .checked_sub(old_total_locked_vt)
+            .map_err(|e| ContractError::CustomError {
+                val: format!("Overflow subtracting old locked_vault_tokens: {}", e)
+            })?;
+        group.total_locked_vault_tokens = group.total_locked_vault_tokens
+            .checked_add(merged_locked_vt)
+            .map_err(|e| ContractError::CustomError {
+                val: format!("Overflow adding merged locked_vault_tokens: {}", e)
+            })?;
+        
+        // Update effective totals
+        // Calculate old and new effective vault tokens
+        let epoch_info_for_effective = epoch_info;
+        let old_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info_for_effective {
+            // Sum effective vault tokens from all deposits being merged
+            let mut total_old_effective = Uint128::zero();
+            for (_, deposit) in deposits.iter() {
+                let dep_effective = if let Some(dt) = deposit.deposit_time {
+                    if dt >= epoch_start && dt < epoch_end {
+                        calculate_unused_locked_vault_tokens(deposit, env, epoch_start, epoch_end, current_time)
+                    } else {
+                        deposit.locked_vault_tokens
+                    }
+                } else {
+                    deposit.locked_vault_tokens
+                };
+                total_old_effective = total_old_effective.checked_add(dep_effective)
+                    .map_err(|e| ContractError::CustomError {
+                        val: format!("Overflow adding old effective_vt: {}", e)
+                    })?;
+            }
+            total_old_effective
+        } else {
+            old_total_locked_vt
+        };
+        
+        let new_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info_for_effective {
+            if let Some(dt) = merged_deposit.deposit_time {
+                if dt >= epoch_start && dt < epoch_end {
+                    calculate_unused_locked_vault_tokens(&merged_deposit, env, epoch_start, epoch_end, current_time)
+                } else {
+                    merged_locked_vt
+                }
+            } else {
+                merged_locked_vt
+            }
+        } else {
+            merged_locked_vt
+        };
+        
+        // Save updated group totals first
+        slot.deposit_groups[group_index] = group;
+        queue.slots[slot_index] = slot;
+        LTV_QUEUES.save(deps.storage, asset.to_string(), &queue)?;
+        
+        // Update effective total using helper (this will load and save the queue again)
+        update_group_unused_total(
+            deps.storage,
+            &deps.querier,
+            env,
+            &config,
+            asset,
+            ltv,
+            max_borrow_ltv,
+            old_unused_vt,
+            new_unused_vt,
+            merged_deposit.deposit_time,
+        )?;
+        
+        // Create new deposit key with earliest deposit_time
+        let new_deposit_id = queue.current_deposit_id;
+        queue.current_deposit_id += Uint128::one();
+        LTV_QUEUES.save(deps.storage, asset.to_string(), &queue)?;
+        
+        let new_deposit_key = make_deposit_key(
+            asset,
+            &ltv.to_string(),
+            &max_borrow_ltv.to_string(),
+            &user_addr.to_string(),
+            &new_deposit_id,
+            earliest_deposit_time,
+        );
+        
+        // Save merged deposit
+        BACKING_DEPOSITS.save(deps.storage, new_deposit_key.clone(), &merged_deposit)?;
+        
+        // Delete old deposits
+        for (old_key, _) in deposits.iter() {
+            BACKING_DEPOSITS.remove(deps.storage, old_key.clone());
+        }
+        
+        // Update USER_DEPOSITS index
+        // Reload current keys to get the latest state (in case previous groups were condensed)
+        let mut updated_keys = USER_DEPOSITS
+            .may_load(deps.storage, (user_addr.clone(), asset.to_string()))?
+            .unwrap_or_default();
+        for (old_key, _) in deposits.iter() {
+            updated_keys.retain(|k| k != old_key);
+        }
+        updated_keys.push(new_deposit_key.clone());
+        USER_DEPOSITS.save(deps.storage, (user_addr.clone(), asset.to_string()), &updated_keys)?;
+        
+        // Update MANAGED_DEPOSITS if manager exists
+        if let Some(manager) = &merged_deposit.manager {
+            // Remove old keys from manager's list
+            for (old_key, _) in deposits.iter() {
+                crate::state::remove_managed_deposit(deps.storage, manager, old_key)?;
+            }
+            // Add new merged key
+            crate::state::add_managed_deposit(deps.storage, manager, new_deposit_key.clone())?;
+        }
+        
+        // Update locked deposits tracking if needed
+        if merged_deposit.locked.is_some() {
+            // Remove old locked deposits
+            for (old_key, old_deposit) in deposits.iter() {
+                if old_deposit.locked.is_some() {
+                    let old_parts: Vec<&str> = old_key.split(':').collect();
+                    if old_parts.len() == 6 {
+                        if let Ok(old_deposit_id) = Uint128::from_str(old_parts[4]) {
+                            remove_locked_deposit(
+                                deps.storage,
+                                user_addr,
+                                asset,
+                                ltv,
+                                max_borrow_ltv,
+                                old_deposit_id,
+                            )?;
+                        }
+                    }
+                }
+            }
+            // Add new merged locked deposit
+            add_locked_deposit(
+                deps.storage,
+                user_addr,
+                asset,
+                ltv,
+                max_borrow_ltv,
+                new_deposit_id,
+                &merged_deposit,
+            )?;
+        }
+        
+        merged_keys.push(new_deposit_key);
+    }
+    
+    Ok(merged_keys)
+}
+
 /// Claim revenue for a specific deposit (internal helper)
+/// Uses effective locked vault tokens (with epoch discount) when calculating user share
 fn claim_revenue_for_deposit(
     storage: &mut dyn Storage,
+    _querier: &QuerierWrapper,
     env: &Env,
+    _config: &Config,
     deposit: &mut BackingDeposit,
     asset: String,
     max_ltv: Decimal,
@@ -1414,8 +2870,41 @@ fn claim_revenue_for_deposit(
             continue;
         }
         
-        // Direct multiplication: locked_vault_tokens * amount_per_locked_vt (Decimal) auto-floors the decimal
-        let mut user_share = event.amount_per_locked_vt * deposit.locked_vault_tokens;
+        // Calculate LVT at event timestamp using deposit's tracking data
+        let deposit_lvt_at_event = calculate_lvt_at_time(
+            deposit.lvt_tracking.base_lvt,
+            deposit.lvt_tracking.reference_time,
+            deposit.lvt_tracking.daily_delta,
+            &deposit.lvt_tracking.time_cliffs,
+            event.timestamp,
+        )?;
+        
+        // Determine unused locked vault tokens for this event
+        let unused_locked_vt = if let Some(deposit_time) = deposit.deposit_time {
+            // Check if deposit was made within this event's epoch
+            if deposit_time >= event.epoch_start && deposit_time < event.epoch_end {
+                // Deposit was made in this event's epoch - calculate lost weight
+                calculate_unused_locked_vault_tokens(
+                    deposit,
+                    env,
+                    event.epoch_start,
+                    event.epoch_end,
+                    env.block.time.seconds(),
+                )
+            } else {
+                // Deposit made in different epoch - no penalty
+                Uint128::zero()
+            }
+        } else {
+            // No deposit_time - no penalty (backward compatibility)
+            Uint128::zero()
+        };
+
+        // Calculate effective by subtracting unused from calculated LVT at event time
+        let effective_locked_vt = deposit_lvt_at_event.saturating_sub(unused_locked_vt);
+
+        // Direct multiplication: effective_locked_vault_tokens * amount_per_locked_vt (Decimal) auto-floors the decimal
+        let mut user_share = event.amount_per_locked_vt * effective_locked_vt;
         
         if !user_share.is_zero() {
             //If the user share is greater than the amount to be claimed, set the user share to the amount to be claimed and set the amount to be claimed to zero
@@ -1545,9 +3034,9 @@ pub fn claim_revenue_for_user(
             // Refresh lock on deposit before processing
             refresh_deposit_lock(&mut deposit, &env, config.lock_duration_ceiling)?;
             
-            // Parse LTV values from the key string (format: "asset:ltv:max_borrow_ltv:user:deposit_id")
+            // Parse LTV values from the key string (format: "asset:ltv:max_borrow_ltv:user:deposit_id:epoch_timestamp")
             let parts: Vec<&str> = deposit_key_str.split(':').collect();
-            if parts.len() != 5 {
+            if parts.len() != 6 {
                 continue;
             }
             let max_ltv = Decimal::from_str(parts[1])
@@ -1557,7 +3046,9 @@ pub fn claim_revenue_for_user(
             
             let mut claimed = claim_revenue_for_deposit(
                 deps.storage,
+                &deps.querier,
                 &env,
+                &config,
                 &mut deposit,
                 asset.clone(),
                 max_ltv,
@@ -1674,6 +3165,20 @@ pub fn claim_revenue_for_user(
         }
     }
     
+    // Validate recipient address early
+    let recipient_addr = if let Some(ref action) = compound_action {
+        if let Some(ref recipient) = action.recipient_address {
+            deps.api.addr_validate(recipient)
+                .map_err(|e| ContractError::CustomError {
+                    val: format!("Invalid recipient address: {}", e),
+                })?
+        } else {
+            user_addr.clone()
+        }
+    } else {
+        user_addr.clone()
+    };
+    
     let mut msgs: Vec<CosmosMsg> = vec![];
     let mut submsgs: Vec<SubMsg> = vec![];
     
@@ -1692,6 +3197,20 @@ pub fn claim_revenue_for_user(
                     amount: *fee_amount,
                 }],
             }.into());
+            
+            // Award points to manager if points system is configured
+            if let Some(points_system) = &config.points_system_contract {
+                let points_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: points_system.to_string(),
+                    msg: to_json_binary(&membrane::points_system::ExecuteMsg::GivePointsForManagerFee {
+                        manager: manager_addr.to_string(),
+                        fee_amount: *fee_amount,
+                    })?,
+                    funds: vec![],
+                });
+                // Use reply_on_error so points failure doesn't fail the claim
+                submsgs.push(SubMsg::reply_on_error(points_msg, 0));
+            }
         }
     }
     
@@ -1772,6 +3291,16 @@ pub fn claim_revenue_for_user(
             update_affiliates(deps.storage, affiliates, user.clone(), env.block.time.seconds())?;
         }
     }
+    
+    // Condense deposits from completed epochs to prevent state bloat
+    // Do this after all other deps operations to avoid borrow issues
+    let condensed_deposits = condense_deposits_for_user(
+        deps,
+        &env,
+        &config,
+        &user_addr,
+        &asset,
+    )?;
 
     // Redundant check: verify that manager_fees + affiliate_fees_total + compound_amount + user_amount <= total_claimed (before manager fee deduction)
     // Note: total_claimed already has manager fees deducted, so we need to add them back for the check
@@ -1787,19 +3316,7 @@ pub fn claim_revenue_for_user(
         })?;
     
     if !total_to_user.is_zero() {
-        // Determine recipient address: use recipient_address from compound_action if provided, otherwise use user_addr
-        let recipient_addr = if let Some(ref action) = compound_action {
-            if let Some(ref recipient) = action.recipient_address {
-                deps.api.addr_validate(recipient)
-                    .map_err(|e| ContractError::CustomError {
-                        val: format!("Invalid recipient address: {}", e),
-                    })?
-            } else {
-                user_addr.clone()
-            }
-        } else {
-            user_addr.clone()
-        };
+        // Use recipient address validated earlier
         
         msgs.push(BankMsg::Send {
             to_address: recipient_addr.to_string(),
@@ -1824,6 +3341,7 @@ pub fn claim_revenue_for_user(
             attr("compound_amount", total_to_compound.to_string()),
             attr("affiliate_fees", affiliate_fees_total.to_string()),
             attr("user_amount", total_to_user.to_string()),
+            attr("deposits_condensed", condensed_deposits.len().to_string()),
         ]))
 }
 
@@ -1837,6 +3355,7 @@ pub fn refresh_lock(
     ltv: Decimal,
     max_borrow_ltv: Decimal,
     deposit_id: Uint128,
+    epoch_start_time: u64,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     
@@ -1851,13 +3370,19 @@ pub fn refresh_lock(
     let ltv_str = ltv.to_string();
     let max_borrow_ltv_str = max_borrow_ltv.to_string();
     let user_str = user_addr.to_string();
-    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id);
+    
+    // Construct deposit key using epoch_start_time
+    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id, epoch_start_time);
     
     let mut deposit = BACKING_DEPOSITS.load(deps.storage, deposit_key.clone())?;
-    
+
     // Calculate old locked_vault_tokens before refresh
     let old_locked_vault_tokens = deposit.locked_vault_tokens;
+    let old_locked = deposit.locked.clone();
     
+    // Save old deposit state for LVT tracking
+    let old_deposit_for_tracking = deposit.clone();
+
     // Refresh lock
     refresh_deposit_lock(&mut deposit, &env, config.lock_duration_ceiling)?;
     
@@ -1900,8 +3425,66 @@ pub fn refresh_lock(
         slot.deposit_groups[group_index] = group;
         queue.slots[slot_index] = slot;
         LTV_QUEUES.save(deps.storage, asset.clone(), &queue)?;
+
+        // Update effective total
+        // NOTE: This must be called AFTER queue is saved, as it will load and save it again
+        // Query epoch info to calculate effective vault tokens
+        let epoch_info = if let Some(revenue_distributor_addr) = &config.revenue_distributor {
+            deps.querier.query_wasm_smart::<EpochCountdownResponse>(
+                revenue_distributor_addr,
+                &RevenueDistributorQueryMsg::EpochCountdown {},
+            )
+            .ok()
+            .map(|countdown| (countdown.epoch_start, countdown.epoch_end, env.block.time.seconds()))
+        } else {
+            None
+        };
+
+        // Calculate old and new effective vault tokens
+        let mut old_deposit = deposit.clone();
+        old_deposit.locked_vault_tokens = old_locked_vault_tokens;
+        old_deposit.locked = old_locked.clone(); // Use old lock state for calculation
+        let old_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+            calculate_unused_locked_vault_tokens(&old_deposit, &env, epoch_start, epoch_end, current_time)
+        } else {
+            old_locked_vault_tokens
+        };
+
+        let new_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+            calculate_unused_locked_vault_tokens(&deposit, &env, epoch_start, epoch_end, current_time)
+        } else {
+            deposit.locked_vault_tokens
+        };
+
+        // Update effective total
+        update_group_unused_total(
+            deps.storage,
+            &deps.querier,
+            &env,
+            &config,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            old_unused_vt,
+            new_unused_vt,
+            deposit.deposit_time,
+        )?;
+        
+        // Update deposit's LVT tracking after refresh
+        update_deposit_lvt_tracking(&mut deposit, &env, config.lock_duration_ceiling)?;
+        
+        // Update group LVT tracking for modified deposit
+        update_group_lvt_tracking_for_deposit(
+            deps.storage,
+            &env,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            Some(&old_deposit_for_tracking), // old_deposit: before refresh
+            Some(&deposit), // new_deposit: after refresh
+        )?;
     }
-    
+
     BACKING_DEPOSITS.save(deps.storage, deposit_key, &deposit)?;
     
     // Update locked deposits tracking if still locked
@@ -1936,6 +3519,7 @@ pub fn lock_deposit(
     deposit_id: Uint128,
     locked: membrane::types::Locked,
     amount: Option<Uint128>,
+    epoch_start_time: u64,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     
@@ -1951,14 +3535,18 @@ pub fn lock_deposit(
     let ltv_str = ltv.to_string();
     let max_borrow_ltv_str = max_borrow_ltv.to_string();
     let user_str = info.sender.to_string();
-    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id);
+    
+    // Construct deposit key using epoch_start_time
+    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id, epoch_start_time);
     
     let mut deposit = BACKING_DEPOSITS.load(deps.storage, deposit_key.clone())?;
     
     // Claim revenue before updating lock
-    let claimed = claim_revenue_for_deposit(
+    let _claimed = claim_revenue_for_deposit(
         deps.storage,
+        &deps.querier,
         &env,
+        &config,
         &mut deposit,
         asset.clone(),
         ltv,
@@ -1968,7 +3556,11 @@ pub fn lock_deposit(
     
     // Calculate old locked_vault_tokens before updating lock
     let old_locked_vault_tokens = deposit.locked_vault_tokens;
+    let old_locked = deposit.locked.clone();
     
+    // Save old deposit state for LVT tracking
+    let old_deposit_for_tracking = deposit.clone();
+
     // Check if deposit is already locked and still locked
     if let Some(ref existing_lock) = deposit.locked {
         if existing_lock.locked_until > env.block.time.seconds() {
@@ -2007,9 +3599,11 @@ pub fn lock_deposit(
         
         // Update existing deposit to be the locked portion
         deposit.vault_tokens = lock_amount_vt;
+        let intended_lock_days = (locked.locked_until - env.block.time.seconds()) / ONE_DAY_SECONDS;
         deposit.locked = Some(membrane::types::Locked {
             locked_until: locked.locked_until,
             perpetual_lock: locked.perpetual_lock,
+            intended_lock_days: Some(intended_lock_days),
         });
         deposit.start_time = env.block.time.seconds(); // Reset start time for new lock
         
@@ -2032,8 +3626,39 @@ pub fn lock_deposit(
         queue.slots[slot_index] = slot;
         LTV_QUEUES.save(deps.storage, asset.clone(), &queue)?;
         
-        BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &deposit)?;
+        // Update effective total for locked portion
+        // Query epoch info to calculate effective vault tokens
+        let epoch_info = if let Some(revenue_distributor_addr) = &config.revenue_distributor {
+            deps.querier.query_wasm_smart::<EpochCountdownResponse>(
+                revenue_distributor_addr,
+                &RevenueDistributorQueryMsg::EpochCountdown {},
+            )
+            .ok()
+            .map(|countdown| (countdown.epoch_start, countdown.epoch_end, env.block.time.seconds()))
+        } else {
+            None
+        };
         
+        // Calculate old and new effective vault tokens for locked portion
+        let mut old_deposit = deposit.clone();
+        old_deposit.locked_vault_tokens = old_locked_vault_tokens;
+        let old_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+            calculate_unused_locked_vault_tokens(&old_deposit, &env, epoch_start, epoch_end, current_time)
+        } else {
+            old_locked_vault_tokens
+        };
+        
+        let new_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+            calculate_unused_locked_vault_tokens(&deposit, &env, epoch_start, epoch_end, current_time)
+        } else {
+            deposit.locked_vault_tokens
+        };
+        
+        // Update deposit's LVT tracking after lock
+        update_deposit_lvt_tracking(&mut deposit, &env, config.lock_duration_ceiling)?;
+        
+        BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &deposit)?;
+
         // Add to locked deposits tracking
         add_locked_deposit(
             deps.storage,
@@ -2045,7 +3670,34 @@ pub fn lock_deposit(
             &deposit,
         )?;
         
+        // Update group LVT tracking for modified locked deposit
+        update_group_lvt_tracking_for_deposit(
+            deps.storage,
+            &env,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            Some(&old_deposit_for_tracking), // old_deposit: before lock
+            Some(&deposit), // new_deposit: after lock
+        )?;
+
+        // Update effective total for locked portion
+        // NOTE: Must be called before reloading queue, as it saves the queue
+        update_group_unused_total(
+            deps.storage,
+            &deps.querier,
+            &env,
+            &config,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            old_unused_vt,
+            new_unused_vt,
+            deposit.deposit_time,
+        )?;
+
         // Create new unlocked deposit with remaining amount
+        // Reload queue after update_group_unused_total modified it
         let queue = LTV_QUEUES.load(deps.storage, asset.clone())?;
         let new_deposit_id = queue.current_deposit_id;
         LTV_QUEUES.update(deps.storage, asset.clone(), |q| -> Result<_, ContractError> {
@@ -2056,7 +3708,14 @@ pub fn lock_deposit(
             Ok(queue)
         })?;
         
-        let new_deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &new_deposit_id);
+        // Query epoch start time from revenue distributor for new deposit
+        let epoch_start_time = if let Some((epoch_start, _, _)) = epoch_info {
+            epoch_start
+        } else {
+            env.block.time.seconds()
+        };
+        
+        let new_deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &new_deposit_id, epoch_start_time);
         let temp_new_deposit = BackingDeposit {
             user: info.sender.clone(),
             vault_tokens: remaining_vt,
@@ -2065,13 +3724,20 @@ pub fn lock_deposit(
             last_claimed: deposit.last_claimed, // Keep same last_claimed
             locked: None,
             start_time: deposit.start_time, // Keep original start time
+            deposit_time: deposit.deposit_time, // Preserve deposit_time
             compound_claims: deposit.compound_claims, // Preserve compound_claims
             manager: deposit.manager.clone(), // Preserve manager
             depositor: deposit.depositor.clone(), // Preserve depositor
             withdrawals_enabled: deposit.withdrawals_enabled, // Preserve withdrawals_enabled
+            lvt_tracking: DepositLVTTracking {
+                base_lvt: Uint128::zero(),
+                reference_time: env.block.time.seconds(),
+                daily_delta: Int128::zero(),
+                time_cliffs: vec![],
+            },
         };
         let new_deposit_locked_vt = calculate_locked_vault_tokens(&temp_new_deposit, &env);
-        let new_deposit = BackingDeposit {
+        let mut new_deposit = BackingDeposit {
             user: info.sender.clone(),
             vault_tokens: remaining_vt,
             locked_vault_tokens: new_deposit_locked_vt,
@@ -2079,30 +3745,74 @@ pub fn lock_deposit(
             last_claimed: deposit.last_claimed, // Keep same last_claimed
             locked: None,
             start_time: deposit.start_time, // Keep original start time
+            deposit_time: deposit.deposit_time, // Preserve deposit_time
             compound_claims: deposit.compound_claims, // Preserve compound_claims
             manager: deposit.manager.clone(), // Preserve manager
             depositor: deposit.depositor.clone(), // Preserve depositor
             withdrawals_enabled: deposit.withdrawals_enabled, // Preserve withdrawals_enabled
+            lvt_tracking: DepositLVTTracking {
+                base_lvt: Uint128::zero(),
+                reference_time: env.block.time.seconds(),
+                daily_delta: Int128::zero(),
+                time_cliffs: vec![],
+            },
         };
+        // Initialize LVT tracking for new deposit
+        initialize_deposit_lvt_tracking(&mut new_deposit, &env, config.lock_duration_ceiling)?;
         // Add new deposit's locked_vault_tokens to group total.
         //We already subtracted the original deposit's VTs
         group.total_locked_vault_tokens = group.total_locked_vault_tokens.checked_add(new_deposit_locked_vt)
             .map_err(|e| ContractError::CustomError { 
                 val: format!("Overflow adding new deposit locked_vault_tokens: {}", e) 
             })?;
-        BACKING_DEPOSITS.save(deps.storage, new_deposit_key.clone(), &new_deposit)?;
         
+        BACKING_DEPOSITS.save(deps.storage, new_deposit_key.clone(), &new_deposit)?;
+
         // Add to USER_DEPOSITS index
         let mut keys = USER_DEPOSITS
             .may_load(deps.storage, (info.sender.clone(), asset.clone()))?
             .unwrap_or_else(Vec::new);
         keys.push(new_deposit_key);
         USER_DEPOSITS.save(deps.storage, (info.sender.clone(), asset.clone()), &keys)?;
+        
+        // Update group LVT tracking for new unlocked deposit
+        update_group_lvt_tracking_for_deposit(
+            deps.storage,
+            &env,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            None, // old_deposit: None for new deposit
+            Some(&new_deposit), // new_deposit: the newly created unlocked deposit
+        )?;
+
+        // Update effective total for new unlocked deposit (old is 0)
+        // NOTE: This must be called AFTER all other storage operations
+        let new_deposit_effective_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+            calculate_unused_locked_vault_tokens(&new_deposit, &env, epoch_start, epoch_end, current_time)
+        } else {
+            new_deposit_locked_vt
+        };
+
+        update_group_unused_total(
+            deps.storage,
+            &deps.querier,
+            &env,
+            &config,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            Uint128::zero(),
+            new_deposit_effective_vt,
+            new_deposit.deposit_time,
+        )?;
     } else {
         // Full lock
+        let intended_lock_days = (locked.locked_until - env.block.time.seconds()) / ONE_DAY_SECONDS;
         deposit.locked = Some(membrane::types::Locked {
             locked_until: locked.locked_until,
             perpetual_lock: locked.perpetual_lock,
+            intended_lock_days: Some(intended_lock_days),
         });
         deposit.start_time = env.block.time.seconds(); // Reset start time for new lock
         
@@ -2126,8 +3836,11 @@ pub fn lock_deposit(
         queue.slots[slot_index] = slot;
         LTV_QUEUES.save(deps.storage, asset.clone(), &queue)?;
         
+        // Update deposit's LVT tracking after full lock
+        update_deposit_lvt_tracking(&mut deposit, &env, config.lock_duration_ceiling)?;
+
         BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &deposit)?;
-        
+
         // Add to locked deposits tracking
         add_locked_deposit(
             deps.storage,
@@ -2137,6 +3850,61 @@ pub fn lock_deposit(
             max_borrow_ltv,
             deposit_id,
             &deposit,
+        )?;
+        
+        // Update group LVT tracking for full lock
+        update_group_lvt_tracking_for_deposit(
+            deps.storage,
+            &env,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            Some(&old_deposit_for_tracking), // old_deposit: before lock
+            Some(&deposit), // new_deposit: after lock
+        )?;
+
+        // Update effective total for full lock
+        // NOTE: This must be called AFTER queue is saved, as it will load and save it again
+        // Query epoch info to calculate effective vault tokens
+        let epoch_info = if let Some(revenue_distributor_addr) = &config.revenue_distributor {
+            deps.querier.query_wasm_smart::<EpochCountdownResponse>(
+                revenue_distributor_addr,
+                &RevenueDistributorQueryMsg::EpochCountdown {},
+            )
+            .ok()
+            .map(|countdown| (countdown.epoch_start, countdown.epoch_end, env.block.time.seconds()))
+        } else {
+            None
+        };
+
+        // Calculate old and new effective vault tokens
+        let mut old_deposit = deposit.clone();
+        old_deposit.locked_vault_tokens = old_locked_vault_tokens;
+        old_deposit.locked = old_locked.clone(); // Use old lock state for calculation
+        let old_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+            calculate_unused_locked_vault_tokens(&old_deposit, &env, epoch_start, epoch_end, current_time)
+        } else {
+            old_locked_vault_tokens
+        };
+
+        let new_unused_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+            calculate_unused_locked_vault_tokens(&deposit, &env, epoch_start, epoch_end, current_time)
+        } else {
+            deposit.locked_vault_tokens
+        };
+
+        // Update effective total
+        update_group_unused_total(
+            deps.storage,
+            &deps.querier,
+            &env,
+            &config,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            old_unused_vt,
+            new_unused_vt,
+            deposit.deposit_time,
         )?;
     }
     
@@ -2162,6 +3930,7 @@ pub fn move_deposit(
     destination: BackingDepositInput,
     amount: Option<Uint128>,
     user: Option<String>,
+    epoch_start_time: u64,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut msgs: Vec<CosmosMsg> = vec![];
@@ -2182,43 +3951,24 @@ pub fn move_deposit(
     let (actual_user, deposit_key) = if let Some(user_str) = user {
         let validated_user = deps.api.addr_validate(&user_str)?;
         
+        // Construct deposit key using epoch_start_time
+        let user_str_for_key = validated_user.to_string();
+        let key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str_for_key, &deposit_id, epoch_start_time);
+        
         // If user is provided, check that sender is a manager for this user's deposit
-        // Search MANAGED_DEPOSITS for the sender (manager)
-        let manager_keys = crate::state::MANAGED_DEPOSITS
-            .may_load(deps.storage, info.sender.clone())?
-            .unwrap_or_default();
-        
-        // Find the key that matches our parameters AND the provided user
-        let correct_key = manager_keys.iter().find(|k| {
-            let parts: Vec<&str> = k.split(':').collect();
-            parts.len() == 5 
-                && parts[0] == &asset_str
-                && parts[1] == &ltv_str
-                && parts[2] == &max_borrow_ltv_str
-                && parts[3] == &validated_user.to_string()
-                && parts[4] == &deposit_id.to_string()
-        });
-        
-        if let Some(key) = correct_key {
-            // Load the deposit to verify it exists and manager is correct
-            let deposit_check = BACKING_DEPOSITS.load(deps.storage, key.clone())?;
-            // Verify that the sender is indeed the manager
-            if deposit_check.manager.as_ref() == Some(&info.sender) {
-                (validated_user, key.clone())
-            } else {
-                return Err(ContractError::CustomError { 
-                    val: "Deposit not found in manager's managed deposits for specified user".to_string() 
-                });
-            }
+        let deposit_check = BACKING_DEPOSITS.load(deps.storage, key.clone())?;
+        // Verify that the sender is indeed the manager
+        if deposit_check.manager.as_ref() == Some(&info.sender) {
+            (validated_user, key)
         } else {
             return Err(ContractError::CustomError { 
-                val: "Deposit not found in manager's managed deposits for specified user".to_string() 
+                val: "Deposit not found or sender is not the manager for this deposit".to_string() 
             });
         }
     } else {
-        // Default to sender
+        // Default to sender - construct deposit key using epoch_start_time
         let user_str = info.sender.to_string();
-        let key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id);
+        let key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id, epoch_start_time);
         (info.sender.clone(), key)
     };
     
@@ -2230,7 +3980,9 @@ pub fn move_deposit(
     // Claim revenue before move
     let claimed_revenue = claim_revenue_for_deposit(
         deps.storage,
+        &deps.querier,
         &env,
+        &config,
         &mut deposit,
         asset.clone(),
         ltv,
@@ -2258,14 +4010,17 @@ pub fn move_deposit(
     
     // Load source queue
     let mut source_queue = LTV_QUEUES.load(deps.storage, asset.clone())?;
-    let source_slot_index = source_queue.slots.iter().position(|s| s.ltv == ltv)
+    let mut source_slot_index = source_queue.slots.iter().position(|s| s.ltv == ltv)
         .ok_or_else(|| ContractError::CustomError { val: "Source slot not found".to_string() })?;
     let mut source_slot = source_queue.slots[source_slot_index].clone();
-    let source_group_index = find_or_create_borrow_group(&mut source_slot, max_borrow_ltv, false)?;
+    let mut source_group_index = find_or_create_borrow_group(&mut source_slot, max_borrow_ltv, false)?;
     let mut source_group = source_slot.deposit_groups[source_group_index].clone();
     
     // Calculate old locked_vault_tokens before moving
     let old_locked_vault_tokens = deposit.locked_vault_tokens;
+    
+    // Save old deposit state for LVT tracking
+    let old_deposit_for_tracking = deposit.clone();
     
     // Calculate base tokens to move
     let base_tokens_to_move = calculate_base_tokens(
@@ -2284,11 +4039,44 @@ pub fn move_deposit(
             val: format!("Underflow subtracting locked_vault_tokens from source group: {}", e) 
         })?;
     
+    // Query epoch info for effective total updates
+    let epoch_info = if let Some(revenue_distributor_addr) = &config.revenue_distributor {
+        deps.querier.query_wasm_smart::<EpochCountdownResponse>(
+            revenue_distributor_addr,
+            &RevenueDistributorQueryMsg::EpochCountdown {},
+        )
+        .ok()
+        .map(|countdown| (countdown.epoch_start, countdown.epoch_end, env.block.time.seconds()))
+    } else {
+        None
+    };
+    
+    // Calculate old effective vault tokens for source deposit
+    let old_source_effective_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+        calculate_unused_locked_vault_tokens(&deposit, &env, epoch_start, epoch_end, current_time)
+    } else {
+        old_locked_vault_tokens
+    };
+    
     // Update or remove source deposit
     let is_full_move = vault_tokens_to_move == deposit.vault_tokens;
     let locked_info = deposit.locked.clone();
     
     if is_full_move {
+        // Update effective total for source group (remove deposit - new effective is 0)
+        update_group_unused_total(
+            deps.storage,
+            &deps.querier,
+            &env,
+            &config,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            old_source_effective_vt,
+            Uint128::zero(),
+            deposit.deposit_time,
+        )?;
+        
         // Remove source deposit
         BACKING_DEPOSITS.remove(deps.storage, deposit_key.clone());
         
@@ -2319,6 +4107,26 @@ pub fn move_deposit(
                 deposit_id,
             )?;
         }
+        
+        // Update source group LVT tracking for removed deposit
+        update_group_lvt_tracking_for_deposit(
+            deps.storage,
+            &env,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            Some(&old_deposit_for_tracking), // old_deposit: deposit being moved
+            None, // new_deposit: None since fully moved
+        )?;
+
+        // Reload source queue after update_group_unused_total modified it
+        source_queue = LTV_QUEUES.load(deps.storage, asset.clone())?;
+        source_slot_index = source_queue.slots.iter().position(|s| s.ltv == ltv)
+            .ok_or_else(|| ContractError::CustomError { val: "Source slot not found after update".to_string() })?;
+        source_slot = source_queue.slots[source_slot_index].clone();
+        source_group_index = source_slot.deposit_groups.iter().position(|g| g.max_borrow_ltv == max_borrow_ltv)
+            .ok_or_else(|| ContractError::CustomError { val: "Source group not found after update".to_string() })?;
+        source_group = source_slot.deposit_groups[source_group_index].clone();
     } else {
         // Update source deposit
         deposit.vault_tokens -= vault_tokens_to_move;
@@ -2332,8 +4140,11 @@ pub fn move_deposit(
                 val: format!("Overflow adding locked_vault_tokens to source group: {}", e) 
             })?;
         
-        BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &deposit)?;
+        // Update deposit's LVT tracking after partial move
+        update_deposit_lvt_tracking(&mut deposit, &env, config.lock_duration_ceiling)?;
         
+        BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &deposit)?;
+
         // Update locked deposits tracking if still locked
         if deposit.locked.is_some() {
             update_locked_deposit(
@@ -2346,8 +4157,50 @@ pub fn move_deposit(
                 &deposit,
             )?;
         }
+        
+        // Update source group LVT tracking for modified deposit
+        update_group_lvt_tracking_for_deposit(
+            deps.storage,
+            &env,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            Some(&old_deposit_for_tracking), // old_deposit: before partial move
+            Some(&deposit), // new_deposit: after partial move
+        )?;
+
+        // Calculate new effective vault tokens for remaining source deposit
+        let new_source_effective_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+            calculate_unused_locked_vault_tokens(&deposit, &env, epoch_start, epoch_end, current_time)
+        } else {
+            deposit.locked_vault_tokens
+        };
+
+        // Update effective total for source group
+        // NOTE: Must be called before reloading source queue, as it saves the queue
+        update_group_unused_total(
+            deps.storage,
+            &deps.querier,
+            &env,
+            &config,
+            &asset,
+            ltv,
+            max_borrow_ltv,
+            old_source_effective_vt,
+            new_source_effective_vt,
+            deposit.deposit_time,
+        )?;
+
+        // Reload source queue after update_group_unused_total modified it
+        source_queue = LTV_QUEUES.load(deps.storage, asset.clone())?;
+        source_slot_index = source_queue.slots.iter().position(|s| s.ltv == ltv)
+            .ok_or_else(|| ContractError::CustomError { val: "Source slot not found after update".to_string() })?;
+        source_slot = source_queue.slots[source_slot_index].clone();
+        source_group_index = source_slot.deposit_groups.iter().position(|g| g.max_borrow_ltv == max_borrow_ltv)
+            .ok_or_else(|| ContractError::CustomError { val: "Source group not found after update".to_string() })?;
+        source_group = source_slot.deposit_groups[source_group_index].clone();
     }
-    
+
     // Update source slot and queue
     source_slot.total_deposit_tokens -= base_tokens_to_move;
     source_slot.deposit_groups[source_group_index] = source_group;
@@ -2367,165 +4220,173 @@ pub fn move_deposit(
     let dest_group_index = find_or_create_borrow_group(&mut dest_slot, destination.max_borrow_ltv, true)?;
     let mut dest_group = dest_slot.deposit_groups[dest_group_index].clone();
     
-    // Check if destination has condensable deposit
-    let dest_deposit_id = if is_full_move {
-        // Try to find condensable deposit
-        let user_keys = USER_DEPOSITS
-            .may_load(deps.storage, (actual_user.clone(), destination.asset.clone()))?
-            .unwrap_or_else(Vec::new);
-        
-        let condensable_id = user_keys.iter().find_map(|key| {
-            let parts: Vec<&str> = key.split(':').collect();
-            if parts.len() == 5 
-                && parts[0] == &destination.asset 
-                && parts[1] == &destination.ltv.to_string()
-                && parts[2] == &destination.max_borrow_ltv.to_string()
-                && parts[3] == &actual_user.to_string() {
-                if let Ok(existing_deposit) = BACKING_DEPOSITS.load(deps.storage, key.clone()) {
-                    // Check if can condense (same locked status)
-                    if existing_deposit.locked == locked_info {
-                        if let Ok(id) = Uint128::from_str(parts[4]) {
-                            return Some(id);
-                        }
-                    }
-                }
-            }
-            None
-        });
-        
-        condensable_id.unwrap_or_else(|| {
-            let new_id = dest_queue.current_deposit_id;
-            dest_queue.current_deposit_id += Uint128::one();
-            new_id
-        })
-    } else {
-        // Partial move always creates new deposit
+    // Always create a new deposit (can't condense due to deposit_time requirements)
+    let dest_deposit_id = {
         let new_id = dest_queue.current_deposit_id;
         dest_queue.current_deposit_id += Uint128::one();
         new_id
     };
     
-    // Create or update destination deposit
+    // Epoch start for the destination has to be the current epoch, we can't allow inputs for this
+    let dest_epoch_start_time = 
+        // Get epoch start time from epoch_info 
+        epoch_info.map(|(epoch_start, _, _)| epoch_start).unwrap_or(env.block.time.seconds());
+    
+    // Create new destination deposit (always create new due to deposit_time requirements)
     let dest_deposit_key = make_deposit_key(
         &destination.asset,
         &destination.ltv.to_string(),
         &destination.max_borrow_ltv.to_string(),
         &actual_user.to_string(),
         &dest_deposit_id,
+        dest_epoch_start_time,
     );
+
+    //The start_time should only reset if its in a different asset
     
-    if let Some(mut existing_dest) = BACKING_DEPOSITS.may_load(deps.storage, dest_deposit_key.clone())? {
-        // Calculate old locked_vault_tokens before updating
-        let old_dest_locked_vt = existing_dest.locked_vault_tokens;
-        
-        // Condense: add to existing deposit
-        existing_dest.vault_tokens += vault_tokens_to_move;
-        existing_dest.locked = locked_info.clone(); // Preserve lock from source
-        
-        // Recalculate locked_vault_tokens after update
-        existing_dest.locked_vault_tokens = calculate_locked_vault_tokens(&existing_dest, &env);
-        
-        // Update dest group total_locked_vault_tokens by subtracting the old and adding the new VTs
-        dest_group.total_locked_vault_tokens = dest_group.total_locked_vault_tokens.checked_add(existing_dest.locked_vault_tokens)
-            .map_err(|e| ContractError::CustomError { 
-                val: format!("Overflow adding new locked_vault_tokens to dest group: {}", e) 
-            })?;
-        dest_group.total_locked_vault_tokens = dest_group.total_locked_vault_tokens.checked_sub(old_dest_locked_vt)
-            .map_err(|e| ContractError::CustomError { 
-                val: format!("Overflow subtracting old locked_vault_tokens from dest group: {}", e) 
-            })?;
-        
-        BACKING_DEPOSITS.save(deps.storage, dest_deposit_key.clone(), &existing_dest)?;
-        
-        // Update locked deposits tracking
-        if existing_dest.locked.is_some() {
-            add_locked_deposit(
-                deps.storage,
-                &actual_user,
-                &destination.asset,
-                destination.ltv,
-                destination.max_borrow_ltv,
-                dest_deposit_id,
-                &existing_dest,
-            )?;
-        }
-        
-        // Update MANAGED_DEPOSITS if manager exists
-        if let Some(manager) = &deposit.manager {
-            crate::state::add_managed_deposit(deps.storage, manager, dest_deposit_key.clone())?;
-        }
+    // Determine start_time: reset if asset is changing, otherwise preserve
+    let new_start_time = if destination.asset != asset {
+        env.block.time.seconds() // Reset start_time when asset changes
     } else {
-        // Create new deposit
-        let temp_new_deposit = BackingDeposit {
-            user: actual_user.clone(),
-            vault_tokens: vault_tokens_to_move,
-            locked_vault_tokens: Uint128::zero(), // Will be calculated below
-            max_borrow_ltv: destination.max_borrow_ltv,
-            last_claimed: env.block.time.seconds(),
-            locked: locked_info.clone(), // Preserve lock from source
-            start_time: deposit.start_time, // Preserve original start time
-            compound_claims: deposit.compound_claims, // Preserve compound_claims
-            manager: deposit.manager.clone(), // Preserve manager
-            depositor: deposit.depositor.clone(), // Preserve depositor
-            withdrawals_enabled: deposit.withdrawals_enabled, // Preserve withdrawals_enabled
-        };
-        let new_deposit_locked_vt = calculate_locked_vault_tokens(&temp_new_deposit, &env);
-        let new_deposit = BackingDeposit {
-            user: actual_user.clone(),
-            vault_tokens: vault_tokens_to_move,
-            locked_vault_tokens: new_deposit_locked_vt,
-            max_borrow_ltv: destination.max_borrow_ltv,
-            last_claimed: env.block.time.seconds(),
-            locked: locked_info.clone(), // Preserve lock from source
-            start_time: deposit.start_time, // Preserve original start time
-            compound_claims: deposit.compound_claims, // Preserve compound_claims
-            manager: deposit.manager.clone(), // Preserve manager
-            depositor: deposit.depositor.clone(), // Preserve depositor
-            withdrawals_enabled: deposit.withdrawals_enabled, // Preserve withdrawals_enabled
-        };
-        
-        // Add new deposit's locked_vault_tokens to dest group total
-        dest_group.total_locked_vault_tokens = dest_group.total_locked_vault_tokens.checked_add(new_deposit_locked_vt)
-            .map_err(|e| ContractError::CustomError { 
-                val: format!("Overflow adding new deposit locked_vault_tokens to dest group: {}", e) 
-            })?;
-        
-        // Add to locked deposits tracking if locked
-        let locked_for_tracking = new_deposit.locked.clone();
-        BACKING_DEPOSITS.save(deps.storage, dest_deposit_key.clone(), &new_deposit)?;
-        
-        // Add to USER_DEPOSITS index
-        let mut dest_keys = USER_DEPOSITS
-            .may_load(deps.storage, (actual_user.clone(), destination.asset.clone()))?
-            .unwrap_or_else(Vec::new);
-        dest_keys.push(dest_deposit_key.clone());
-        USER_DEPOSITS.save(deps.storage, (actual_user.clone(), destination.asset.clone()), &dest_keys)?;
-        
-        // Add to MANAGED_DEPOSITS if manager exists
-        if let Some(manager) = &new_deposit.manager {
-            crate::state::add_managed_deposit(deps.storage, manager, dest_deposit_key.clone())?;
-        }
-        
-        // Add to locked deposits tracking if locked
-        if locked_for_tracking.is_some() {
-            add_locked_deposit(
-                deps.storage,
-                &actual_user,
-                &destination.asset,
-                destination.ltv,
-                destination.max_borrow_ltv,
-                dest_deposit_id,
-                &new_deposit,
-            )?;
-        }
-    }
+        deposit.start_time // Preserve start_time when asset is the same
+    };
     
+    // Create new deposit
+    let temp_new_deposit = BackingDeposit {
+        user: actual_user.clone(),
+        vault_tokens: vault_tokens_to_move,
+        locked_vault_tokens: Uint128::zero(), // Will be calculated below
+        max_borrow_ltv: destination.max_borrow_ltv,
+        last_claimed: env.block.time.seconds(),
+        locked: locked_info.clone(), // Preserve lock from source
+        start_time: new_start_time, // Reset only if asset is changing
+        deposit_time: deposit.deposit_time, // Preserve original deposit_time for epoch isolation
+        compound_claims: deposit.compound_claims, // Preserve compound_claims
+        manager: deposit.manager.clone(), // Preserve manager
+        depositor: deposit.depositor.clone(), // Preserve depositor
+        withdrawals_enabled: deposit.withdrawals_enabled, // Preserve withdrawals_enabled
+        lvt_tracking: DepositLVTTracking {
+            base_lvt: Uint128::zero(),
+            reference_time: env.block.time.seconds(),
+            daily_delta: Int128::zero(),
+            time_cliffs: vec![],
+        },
+    };
+    let new_deposit_locked_vt = calculate_locked_vault_tokens(&temp_new_deposit, &env);
+    let mut new_deposit = BackingDeposit {
+        user: actual_user.clone(),
+        vault_tokens: vault_tokens_to_move,
+        locked_vault_tokens: new_deposit_locked_vt,
+        max_borrow_ltv: destination.max_borrow_ltv,
+        last_claimed: env.block.time.seconds(),
+        locked: locked_info.clone(), // Preserve lock from source
+        start_time: new_start_time, // Reset only if asset is changing
+        deposit_time: deposit.deposit_time, // Preserve original deposit_time for epoch isolation
+        compound_claims: deposit.compound_claims, // Preserve compound_claims
+        manager: deposit.manager.clone(), // Preserve manager
+        depositor: deposit.depositor.clone(), // Preserve depositor
+        withdrawals_enabled: deposit.withdrawals_enabled, // Preserve withdrawals_enabled
+        lvt_tracking: DepositLVTTracking {
+            base_lvt: Uint128::zero(),
+            reference_time: env.block.time.seconds(),
+            daily_delta: Int128::zero(),
+            time_cliffs: vec![],
+        },
+    };
+    // Initialize LVT tracking for new deposit
+    initialize_deposit_lvt_tracking(&mut new_deposit, &env, config.lock_duration_ceiling)?;
+    
+    // Add new deposit's locked_vault_tokens to dest group total
+    dest_group.total_locked_vault_tokens = dest_group.total_locked_vault_tokens.checked_add(new_deposit_locked_vt)
+        .map_err(|e| ContractError::CustomError {
+            val: format!("Overflow adding new deposit locked_vault_tokens to dest group: {}", e)
+        })?;
+
+    // Save deposit (deposit_time is already set to preserve epoch isolation)
+    BACKING_DEPOSITS.save(deps.storage, dest_deposit_key.clone(), &new_deposit)?;
+
+    // Add to locked deposits tracking if locked
+    let locked_for_tracking = new_deposit.locked.clone();
+
+    // Add to USER_DEPOSITS index
+    let mut dest_keys = USER_DEPOSITS
+        .may_load(deps.storage, (actual_user.clone(), destination.asset.clone()))?
+        .unwrap_or_else(Vec::new);
+    dest_keys.push(dest_deposit_key.clone());
+    USER_DEPOSITS.save(deps.storage, (actual_user.clone(), destination.asset.clone()), &dest_keys)?;
+
+    // Add to MANAGED_DEPOSITS if manager exists
+    if let Some(manager) = &new_deposit.manager {
+        crate::state::add_managed_deposit(deps.storage, manager, dest_deposit_key.clone())?;
+    }
+
+    // Add to locked deposits tracking if locked
+    if locked_for_tracking.is_some() {
+        add_locked_deposit(
+            deps.storage,
+            &actual_user,
+            &destination.asset,
+            destination.ltv,
+            destination.max_borrow_ltv,
+            dest_deposit_id,
+            &new_deposit,
+        )?;
+    }
+
+    // Save dest_slot and dest_queue with the new group BEFORE calling update_group_unused_total
+    // This ensures the group exists when update_group_unused_total reloads the queue
+    // Note: dest_queue.current_deposit_id was already incremented earlier (line ~3529)
+    dest_slot.deposit_groups[dest_group_index] = dest_group.clone();
+    dest_queue.slots[dest_slot_index] = dest_slot.clone();
+    LTV_QUEUES.save(deps.storage, destination.asset.clone(), &dest_queue)?;
+    
+    // Update destination group LVT tracking for new deposit
+    update_group_lvt_tracking_for_deposit(
+        deps.storage,
+        &env,
+        &destination.asset,
+        destination.ltv,
+        destination.max_borrow_ltv,
+        None, // old_deposit: None for new deposit
+        Some(&new_deposit), // new_deposit: the destination deposit
+    )?;
+
+    // Update effective total for destination group (new deposit case)
+    // NOTE: Must be called before reloading dest queue, as it saves the queue
+    let new_dest_effective_vt = if let Some((epoch_start, epoch_end, current_time)) = epoch_info {
+        calculate_unused_locked_vault_tokens(&new_deposit, &env, epoch_start, epoch_end, current_time)
+    } else {
+        new_deposit_locked_vt
+    };
+
+    update_group_unused_total(
+        deps.storage,
+        &deps.querier,
+        &env,
+        &config,
+        &destination.asset,
+        destination.ltv,
+        destination.max_borrow_ltv,
+        Uint128::zero(),
+        new_dest_effective_vt,
+        new_deposit.deposit_time,
+    )?;
+
+    // Reload dest queue after update_group_unused_total modified it
+    dest_queue = LTV_QUEUES.load(deps.storage, destination.asset.clone())?;
+    let dest_slot_index = dest_queue.slots.iter().position(|s| s.ltv == destination.ltv)
+        .ok_or_else(|| ContractError::CustomError { val: "Dest slot not found after update".to_string() })?;
+    dest_slot = dest_queue.slots[dest_slot_index].clone();
+    let dest_group_index_new = dest_slot.deposit_groups.iter().position(|g| g.max_borrow_ltv == destination.max_borrow_ltv)
+        .ok_or_else(|| ContractError::CustomError { val: "Dest group not found after update".to_string() })?;
+    dest_group = dest_slot.deposit_groups[dest_group_index_new].clone();
+
     // Update destination group and slot
     dest_group.total_deposit_tokens += base_tokens_to_move;
     dest_group.total_vault_tokens += vault_tokens_to_move;
-    // Note: total_locked_vault_tokens already updated above for both condense and new deposit cases
+    // Note: total_locked_vault_tokens already updated above for new deposit
     dest_slot.total_deposit_tokens += base_tokens_to_move;
-    dest_slot.deposit_groups[dest_group_index] = dest_group;
+    dest_slot.deposit_groups[dest_group_index_new] = dest_group;
     dest_queue.slots[dest_slot_index] = dest_slot.clone();
     LTV_QUEUES.save(deps.storage, destination.asset.clone(), &dest_queue)?;
     
@@ -2598,13 +4459,14 @@ pub fn update_manager(
     max_borrow_ltv: Decimal,
     deposit_id: Uint128,
     manager: Option<String>,
+    epoch_start_time: u64,
 ) -> Result<Response, ContractError> {
-    // Create deposit key
+    // Construct deposit key using epoch_start_time
     let asset_str = asset.clone();
     let ltv_str = ltv.to_string();
     let max_borrow_ltv_str = max_borrow_ltv.to_string();
     let user_str = info.sender.to_string(); //this gates the update_manager message to only the deposit owner
-    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id);
+    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id, epoch_start_time);
     
     // Load deposit
     let mut deposit = BACKING_DEPOSITS.load(deps.storage, deposit_key.clone())?;
@@ -2635,7 +4497,9 @@ pub fn update_manager(
             // Claim revenue for this deposit
             let mut claimed = claim_revenue_for_deposit(
                 deps.storage,
+                &deps.querier,
                 &env,
+                &config,
                 &mut deposit,
                 asset.clone(),
                 ltv,
@@ -2748,16 +4612,17 @@ pub fn toggle_withdrawals(
     max_borrow_ltv: Decimal,
     deposit_id: Uint128,
     enabled: bool,
+    epoch_start_time: u64,
 ) -> Result<Response, ContractError> {
     // Validate user address
     let user_addr = deps.api.addr_validate(&user)?;
     
-    // Create deposit key
+    // Find the actual deposit key by searching user's deposits
     let asset_str = asset.clone();
     let ltv_str = ltv.to_string();
     let max_borrow_ltv_str = max_borrow_ltv.to_string();
     let user_str = user_addr.to_string();
-    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id);
+    let deposit_key = make_deposit_key(&asset_str, &ltv_str, &max_borrow_ltv_str, &user_str, &deposit_id, epoch_start_time);
     
     // Load deposit
     let mut deposit = BACKING_DEPOSITS.load(deps.storage, deposit_key.clone())?;
@@ -2811,10 +4676,15 @@ pub fn update_config(
     activation_window: Option<u64>,
     oracle_contract: Option<String>,
     chain_proxy_contract: Option<String>,
+    emissions_voting_contract: Option<String>,
     lock_duration_ceiling: Option<u64>,
     affiliate_fee: Option<Decimal>,
     max_management_fee: Option<Decimal>,
     ltv_delta_minimum: Option<Decimal>,
+    points_system_contract: Option<String>,
+    revenue_distributor: Option<String>,
+    auction_contract: Option<String>,
+    mbrn_denom: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut config: Config = CONFIG.load(deps.storage)?;
 
@@ -2855,6 +4725,10 @@ pub fn update_config(
         config.chain_proxy_contract = deps.api.addr_validate(&chain_proxy_contract)?;
     }
     
+    if let Some(emissions_voting_contract) = emissions_voting_contract {
+        config.emissions_voting_contract = Some(deps.api.addr_validate(&emissions_voting_contract)?);
+    }
+    
     if let Some(lock_duration_ceiling) = lock_duration_ceiling {
         config.lock_duration_ceiling = lock_duration_ceiling;
     }
@@ -2879,6 +4753,22 @@ pub fn update_config(
     
     if let Some(delta) = ltv_delta_minimum {
         config.ltv_delta_minimum = delta;
+    }
+    
+    if let Some(pts) = points_system_contract {
+        config.points_system_contract = Some(deps.api.addr_validate(&pts)?);
+    }
+    
+    if let Some(rd) = revenue_distributor {
+        config.revenue_distributor = Some(deps.api.addr_validate(&rd)?);
+    }
+    
+    if let Some(auction) = auction_contract {
+        config.auction_contract = Some(deps.api.addr_validate(&auction)?);
+    }
+    
+    if let Some(mbrn) = mbrn_denom {
+        config.mbrn_denom = Some(mbrn);
     }
     
     CONFIG.save(deps.storage, &config)?;
@@ -3060,8 +4950,9 @@ pub fn disperse_revenue(
     }
 
     // Load queue and distribute the dispersed amount to claimable revenue
+    let config = CONFIG.load(deps.storage)?;
     let queue: LTVQueue = LTV_QUEUES.load(deps.storage, asset.clone())?;
-    distribute_revenue_to_users(deps.storage, &env, &queue, asset.clone(), final_disperse_amount)?;
+    distribute_revenue_to_users(deps.storage, &deps.querier, &env, &config, &queue, asset.clone(), final_disperse_amount)?;
 
     Ok(Response::new()
         .add_attributes(vec![
@@ -3176,6 +5067,14 @@ pub fn find_or_create_borrow_group(slot: &mut MaxLTVSlot, max_borrow_ltv: Decima
             total_deposit_tokens: Uint128::zero(),
             total_vault_tokens: Uint128::zero(),
             total_locked_vault_tokens: Uint128::zero(),
+            total_unused_locked_vault_tokens: Uint128::zero(),
+            effective_epoch_start: None,
+            lvt_tracking: GroupLVTTracking {
+                base_total: Uint128::zero(),
+                reference_time: 0, // Will be set when first deposit is added
+                base_daily_delta: Int128::zero(),
+                time_cliffs: vec![],
+            },
         };
 
         slot.deposit_groups.push(new_group);
@@ -3886,3 +5785,6 @@ fn update_affiliates(
     
     Ok(())
 }
+
+#[cfg(test)]
+mod lvt_tests;

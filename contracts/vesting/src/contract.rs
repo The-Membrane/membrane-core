@@ -17,8 +17,8 @@ use membrane::types::{Allocation, Asset, VestingPeriod, Recipient, AssetInfo};
 use membrane::helpers::asset_to_coin;
 
 use crate::error::ContractError;
-use crate::query::{query_allocation, query_unlocked, query_recipients, query_recipient};
-use crate::state::{CONFIG, RECIPIENTS, OWNERSHIP_TRANSFER};
+use crate::query::{query_allocation, query_unlocked, query_recipients, query_recipient, query_vesting_schedules, query_vesting_schedule, query_total_vested_unlocked, query_vesting_stats};
+use crate::state::{CONFIG, RECIPIENTS, OWNERSHIP_TRANSFER, VESTING_SCHEDULES, OLD_MBRN_RECEIVED, MINTED_MBRN, TOTAL_OLD_MBRN, NEUTRON_PROXY, VestingSchedule};
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:vesting";
@@ -40,6 +40,8 @@ pub fn instantiate(
         mbrn_denom: msg.mbrn_denom,
         osmosis_proxy: deps.api.addr_validate(&msg.osmosis_proxy)?,
         staking_contract: deps.api.addr_validate(&msg.staking_contract)?,
+        neutron_proxy: msg.neutron_proxy.as_ref().map(|addr| deps.api.addr_validate(addr)).transpose()?,
+        old_mbrn_denom: msg.old_mbrn_denom,
     };
 
     //Set Optionals
@@ -49,6 +51,16 @@ pub fn instantiate(
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
+
+    // Initialize new state items
+    OLD_MBRN_RECEIVED.save(deps.storage, &Uint128::zero())?;
+    MINTED_MBRN.save(deps.storage, &Uint128::zero())?;
+    TOTAL_OLD_MBRN.save(deps.storage, &Uint128::zero())?;
+
+    // Initialize NEUTRON_PROXY if provided
+    if let Some(ref proxy) = config.neutron_proxy {
+        NEUTRON_PROXY.save(deps.storage, proxy)?;
+    }
 
     //Save Recipients w/ the pre_launch_contributors as the first Recipient
     RECIPIENTS.save(deps.storage, &vec![
@@ -143,6 +155,8 @@ pub fn execute(
             osmosis_proxy,
             staking_contract,
             additional_allocation,
+            neutron_proxy,
+            old_mbrn_denom,
         } => update_config(
             deps,
             info,
@@ -150,8 +164,18 @@ pub fn execute(
             mbrn_denom,
             osmosis_proxy,
             staking_contract,
-            additional_allocation
+            additional_allocation,
+            neutron_proxy,
+            old_mbrn_denom,
         ),
+        ExecuteMsg::AddVestedTransmutation {
+            recipient,
+            amount_to_mint,
+            vesting_period,
+        } => execute_add_vested_transmutation(
+            deps, env, info, recipient, amount_to_mint, vesting_period
+        ),
+        ExecuteMsg::WithdrawVestedUnlocked {} => execute_withdraw_vested_unlocked(deps, env, info),
     }
 }
 
@@ -382,30 +406,38 @@ fn claim_fees_for_contract(
 
 /// Get allocation ratios for list of recipients
 /// Only used for allocated recipients
+/// Ratios are calculated as proportions of total remaining allocation, not total_staked
 fn get_allocation_ratios(querier: QuerierWrapper, env: Env, config: Config, recipients: &mut Vec<Recipient>) -> StdResult<Vec<Decimal>> {
     let mut allocation_ratios: Vec<Decimal> = vec![];
 
-    //Get Contract's MBRN staked amount
-    let res: StakerResponse = querier.query_wasm_smart(
-        config.staking_contract, 
-        &StakingQueryMsg::UserStake { staker: env.contract.address.to_string() }
-    )?;
-    let staked_mbrn = res.total_staked;
+    //Calculate total remaining allocation across all recipients
+    let total_remaining_allocation: Uint128 = recipients
+        .iter()
+        .map(|recipient| {
+            let allocation = recipient.allocation.as_ref().unwrap();
+            allocation.amount - allocation.amount_withdrawn
+        })
+        .sum();
 
+    // If no remaining allocation, return zero ratios
+    if total_remaining_allocation.is_zero() {
+        for _ in recipients.iter() {
+            allocation_ratios.push(Decimal::zero());
+        }
+        return Ok(allocation_ratios);
+    }
+
+    //Calculate each recipient's ratio as proportion of total remaining allocation
     for recipient in recipients.clone() {
-        //Initialize allocation 
-        let allocation = recipient.clone().allocation.unwrap();
+        let allocation = recipient.allocation.unwrap();
+        let remaining_allocation = allocation.amount - allocation.amount_withdrawn;
         
-        //Ratio of base Recipient's remaining allocation amount to total_staked
+        //Ratio of recipient's remaining allocation to total remaining allocation
         allocation_ratios.push(decimal_division(
-            Decimal::from_ratio(
-                allocation.amount - allocation.amount_withdrawn,
-                Uint128::new(1u128),
-            ),
-            Decimal::from_ratio(staked_mbrn, Uint128::new(1u128)),
+            Decimal::from_ratio(remaining_allocation, Uint128::new(1u128)),
+            Decimal::from_ratio(total_remaining_allocation, Uint128::new(1u128)),
         )?);
     }
-    
 
     Ok(allocation_ratios)
 }
@@ -417,8 +449,10 @@ fn update_config(
     owner: Option<String>,
     mbrn_denom: Option<String>,
     osmosis_proxy: Option<String>,
-    staking_contract: Option<String>,    
+    staking_contract: Option<String>,
     additional_allocation: Option<Uint128>,
+    neutron_proxy: Option<String>,
+    old_mbrn_denom: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -452,6 +486,14 @@ fn update_config(
     };
     if let Some(additional_allocation) = additional_allocation {
         config.total_allocation += additional_allocation;
+    };
+    if let Some(proxy) = neutron_proxy {
+        let valid_addr = deps.api.addr_validate(&proxy)?;
+        config.neutron_proxy = Some(valid_addr.clone());
+        NEUTRON_PROXY.save(deps.storage, &valid_addr)?;
+    };
+    if let Some(denom) = old_mbrn_denom {
+        config.old_mbrn_denom = Some(denom);
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -823,6 +865,290 @@ fn remove_recipient(
     ]))
 }
 
+/// Execute vested transmutation from neutron-proxy
+fn execute_add_vested_transmutation(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    recipient: String,
+    amount_to_mint: Uint128,
+    vesting_period: VestingPeriod,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // AUTH: Only neutron-proxy can call
+    let neutron_proxy = NEUTRON_PROXY.load(deps.storage)?;
+    if info.sender != neutron_proxy {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    // VALIDATE: Correct token received (but don't use amount for tracking)
+    let old_mbrn_denom = config.old_mbrn_denom
+        .ok_or(ContractError::CustomError { val: "old_mbrn_denom not configured".to_string() })?;
+
+    if info.funds.len() != 1 || info.funds[0].denom != old_mbrn_denom {
+        return Err(ContractError::CustomError {
+            val: format!("Expected {} token", old_mbrn_denom)
+        });
+    }
+
+    let recipient_addr = deps.api.addr_validate(&recipient)?;
+
+    // Calculate week ID for grouping
+    const SECONDS_IN_WEEK: u64 = 604800;
+    let current_time = env.block.time.seconds();
+    let week_id = current_time / SECONDS_IN_WEEK;
+
+    // Load or create schedule
+    let schedule_key = (recipient.clone(), week_id);
+    let old_schedule = VESTING_SCHEDULES
+        .may_load(deps.storage, schedule_key.clone())?;
+    
+    // Calculate old remaining liability
+    let old_liability = old_schedule.as_ref()
+        .map(|s| s.mbrn_to_mint.saturating_sub(s.amount_withdrawn))
+        .unwrap_or_else(Uint128::zero);
+
+    let mut schedule = old_schedule.unwrap_or_else(|| VestingSchedule {
+        user: recipient_addr.clone(),
+        week_id,
+        mbrn_to_mint: Uint128::zero(),
+        amount_withdrawn: Uint128::zero(),
+        start_time: current_time,
+        vesting_period: vesting_period.clone(),
+        transmutation_count: 0,
+    });
+
+    // Update schedule
+    schedule.mbrn_to_mint += amount_to_mint;
+    schedule.transmutation_count += 1;
+
+    // Calculate new remaining liability
+    let new_liability = schedule.mbrn_to_mint.saturating_sub(schedule.amount_withdrawn);
+    let liability_change = new_liability.saturating_sub(old_liability);
+
+    // Update TOTAL_OLD_MBRN
+    let mut total_old_mbrn = TOTAL_OLD_MBRN
+        .may_load(deps.storage)?
+        .unwrap_or_else(|| Uint128::zero());
+    total_old_mbrn = total_old_mbrn.checked_add(liability_change)
+        .map_err(|_| ContractError::CustomError { val: "TOTAL_OLD_MBRN overflow".to_string() })?;
+    TOTAL_OLD_MBRN.save(deps.storage, &total_old_mbrn)?;
+
+    VESTING_SCHEDULES.save(deps.storage, schedule_key.clone(), &schedule)?;
+
+    // Update OLD_MBRN_RECEIVED (tracks MBRN mint liability)
+    let mut total_received = OLD_MBRN_RECEIVED
+        .may_load(deps.storage)?
+        .unwrap_or_else(|| Uint128::zero());
+    total_received = total_received.checked_add(amount_to_mint)
+        .map_err(|_| ContractError::CustomError { val: "OLD_MBRN_RECEIVED overflow".to_string() })?;
+    OLD_MBRN_RECEIVED.save(deps.storage, &total_received)?;
+
+    // Verify invariant: OLD_MBRN_RECEIVED - MINTED_MBRN == TOTAL_OLD_MBRN
+    verify_rate_assurance_invariant(deps.storage)?;
+
+    Ok(Response::new()
+        .add_attribute("method", "add_vested_transmutation")
+        .add_attribute("recipient", recipient)
+        .add_attribute("week_id", week_id.to_string())
+        .add_attribute("amount_to_mint", amount_to_mint))
+}
+
+/// Calculate user's total remaining mint across all schedules
+fn calculate_user_remaining_mint(
+    storage: &dyn cosmwasm_std::Storage,
+    user: &str,
+) -> StdResult<Uint128> {
+    let total_mint: Uint128 = VESTING_SCHEDULES
+        .range(storage, None, None, cosmwasm_std::Order::Ascending)
+        .filter_map(|item| {
+            let ((schedule_user, _), schedule) = item.ok()?;
+            if schedule_user == user {
+                Some(schedule.mbrn_to_mint.saturating_sub(schedule.amount_withdrawn))
+            } else {
+                None
+            }
+        })
+        .sum();
+    Ok(total_mint)
+}
+
+/// Withdraw unlocked MBRN from weekly vesting schedules
+fn execute_withdraw_vested_unlocked(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let current_time = env.block.time.seconds();
+
+    // Find all user's schedules
+    let all_schedules: Vec<((String, u64), VestingSchedule)> = VESTING_SCHEDULES
+        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+        .filter_map(|item| {
+            let ((user, week_id), schedule) = item.ok()?;
+            if user == info.sender.to_string() {
+                Some(((user, week_id), schedule))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    if all_schedules.is_empty() {
+        return Err(ContractError::CustomError {
+            val: "No vesting schedules found".to_string()
+        });
+    }
+
+    // Calculate user's total remaining mint before withdrawal
+    let user_total_mint = calculate_user_remaining_mint(
+        deps.storage,
+        &info.sender.to_string(),
+    )?;
+
+    let mut total_unlocked = Uint128::zero();
+    let mut updated_schedules = vec![];
+
+    // Calculate unlocked for each schedule
+    for ((user, week_id), schedule) in all_schedules {
+        let (unlocked_for_schedule, updated_schedule) = calculate_vested_unlocked(
+            &schedule,
+            current_time,
+        )?;
+
+        if !unlocked_for_schedule.is_zero() {
+            total_unlocked += unlocked_for_schedule;
+            updated_schedules.push(((user, week_id), updated_schedule));
+        }
+    }
+
+    if total_unlocked.is_zero() {
+        return Err(ContractError::CustomError {
+            val: "No unlocked tokens available".to_string()
+        });
+    }
+
+    // GATE: Ensure user doesn't mint more than their remaining mint
+    if total_unlocked > user_total_mint {
+        return Err(ContractError::CustomError {
+            val: format!(
+                "Cannot mint more than remaining mint: {} > {}",
+                total_unlocked, user_total_mint
+            )
+        });
+    }
+
+    // Save updated schedules
+    for ((user, week_id), schedule) in updated_schedules {
+        VESTING_SCHEDULES.save(deps.storage, (user, week_id), &schedule)?;
+    }
+
+    // Update MINTED_MBRN
+    let mut minted_mbrn = MINTED_MBRN
+        .may_load(deps.storage)?
+        .unwrap_or_else(|| Uint128::zero());
+    minted_mbrn = minted_mbrn.checked_add(total_unlocked)
+        .map_err(|_| ContractError::CustomError { val: "MINTED_MBRN overflow".to_string() })?;
+    MINTED_MBRN.save(deps.storage, &minted_mbrn)?;
+
+    // Update TOTAL_OLD_MBRN (reduce by amount withdrawn)
+    let mut total_old_mbrn = TOTAL_OLD_MBRN
+        .may_load(deps.storage)?
+        .unwrap_or_else(|| Uint128::zero());
+    total_old_mbrn = total_old_mbrn.checked_sub(total_unlocked)
+        .map_err(|_| ContractError::CustomError { val: "TOTAL_OLD_MBRN underflow".to_string() })?;
+    TOTAL_OLD_MBRN.save(deps.storage, &total_old_mbrn)?;
+
+    // Mint via neutron-proxy
+    let neutron_proxy = NEUTRON_PROXY.load(deps.storage)?;
+    let mint_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: neutron_proxy.to_string(),
+        msg: to_binary(&membrane::neutron_proxy::ExecuteMsg::MintTokens {
+            denom: config.mbrn_denom.clone(),
+            amount: total_unlocked,
+            mint_to_address: info.sender.to_string(),
+        })?,
+        funds: vec![],
+    });
+
+    // Verify invariant: OLD_MBRN_RECEIVED - MINTED_MBRN == TOTAL_OLD_MBRN
+    verify_rate_assurance_invariant(deps.storage)?;
+
+    Ok(Response::new()
+        .add_attribute("method", "withdraw_vested_unlocked")
+        .add_attribute("recipient", info.sender)
+        .add_attribute("unlocked_amount", total_unlocked)
+        .add_message(mint_msg))
+}
+
+/// Calculate unlocked amount for a vesting schedule
+pub fn calculate_vested_unlocked(
+    schedule: &VestingSchedule,
+    current_time: u64,
+) -> StdResult<(Uint128, VestingSchedule)> {
+    let mut updated_schedule = schedule.clone();
+
+    if schedule.mbrn_to_mint.is_zero() {
+        return Ok((Uint128::zero(), updated_schedule));
+    }
+
+    let time_passed = current_time.saturating_sub(schedule.start_time);
+    let cliff_in_seconds = schedule.vesting_period.cliff * SECONDS_IN_A_DAY;
+
+    // Check if cliff passed
+    if time_passed < cliff_in_seconds {
+        return Ok((Uint128::zero(), updated_schedule));
+    }
+
+    let time_passed_cliff = time_passed - cliff_in_seconds;
+    let linear_in_seconds = schedule.vesting_period.linear * SECONDS_IN_A_DAY;
+
+    let unlocked_amount = if time_passed_cliff >= linear_in_seconds {
+        // Fully vested
+        schedule.mbrn_to_mint - schedule.amount_withdrawn
+    } else {
+        // Partial vest
+        let ratio_unlocked = Decimal::from_ratio(time_passed_cliff, linear_in_seconds);
+        let total_unlocked_so_far = schedule.mbrn_to_mint * ratio_unlocked;
+        total_unlocked_so_far.saturating_sub(schedule.amount_withdrawn)
+    };
+
+    updated_schedule.amount_withdrawn += unlocked_amount;
+
+    Ok((unlocked_amount, updated_schedule))
+}
+
+/// Verify rate assurance invariant: OLD_MBRN_RECEIVED - MINTED_MBRN == TOTAL_OLD_MBRN
+fn verify_rate_assurance_invariant(
+    storage: &dyn cosmwasm_std::Storage,
+) -> Result<(), ContractError> {
+    let old_mbrn_received = OLD_MBRN_RECEIVED
+        .may_load(storage)?
+        .unwrap_or_else(|| Uint128::zero());
+    let minted_mbrn = MINTED_MBRN
+        .may_load(storage)?
+        .unwrap_or_else(|| Uint128::zero());
+    let remaining_mint_liability = TOTAL_OLD_MBRN
+        .may_load(storage)?
+        .unwrap_or_else(|| Uint128::zero());
+
+    let mint_cap_left = old_mbrn_received.saturating_sub(minted_mbrn);
+    let epsilon: Uint128 = Uint128::new(1); // Allow 1 unit difference for rounding
+
+    if mint_cap_left > remaining_mint_liability.checked_add(epsilon).unwrap_or_else(|_| remaining_mint_liability) {
+        return Err(ContractError::CustomError {
+            val: format!(
+                "Rate assurance failed: mint_cap_left ({}) > remaining_mint_liability ({}) in TOTAL_OLD_MBRN",
+                mint_cap_left, remaining_mint_liability
+            )
+        });
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -831,6 +1157,10 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::UnlockedTokens { recipient } => to_binary(&query_unlocked(deps, env, recipient)?),
         QueryMsg::Recipients {} => to_binary(&query_recipients(deps)?),
         QueryMsg::Recipient { recipient } => to_binary(&query_recipient(deps, recipient)?),
+        QueryMsg::VestingSchedules { user } => to_binary(&query_vesting_schedules(deps, env, user)?),
+        QueryMsg::VestingSchedule { user, week_id } => to_binary(&query_vesting_schedule(deps, env, user, week_id)?),
+        QueryMsg::TotalVestedUnlocked { user } => to_binary(&query_total_vested_unlocked(deps, env, user)?),
+        QueryMsg::VestingStats {} => to_binary(&query_vesting_stats(deps)?),
     }
 }
 

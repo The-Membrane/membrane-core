@@ -1,7 +1,60 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Decimal, Uint128};
+use cosmwasm_std::{Addr, Decimal, Int128, Uint128};
 
 use crate::types::{DepositDenom, Locked};
+
+/// Time cliff representing a change in daily LVT delta
+#[cw_serde]
+pub struct LVTTimeCliff {
+    /// Timestamp when this cliff becomes active
+    pub timestamp: u64,
+    /// Daily delta change at this cliff (can be positive or negative)
+    pub delta_change: Int128,
+}
+
+/// Tracks LVT changes over time for a deposit
+#[cw_serde]
+pub struct DepositLVTTracking {
+    /// Base LVT at reference_time
+    pub base_lvt: Uint128,
+    /// Reference timestamp for base_lvt and daily_delta calculations.
+    /// 
+    /// This is the point in time where `base_lvt` and `daily_delta` are known.
+    /// All time-cliff calculations use this as the starting point. To calculate LVT
+    /// at any other timestamp, we apply the daily delta and process time cliffs
+    /// forward (if timestamp > reference_time) or backward (if timestamp < reference_time).
+    /// 
+    /// Typically set to the current block time when tracking is initialized or updated,
+    /// but can be any timestamp. When updating tracking, if the reference_time changes,
+    /// the base_lvt is adjusted to the new reference_time using the previous tracking data.
+    pub reference_time: u64,
+    /// Daily delta at reference_time
+    pub daily_delta: Int128,
+    /// Time cliffs for this deposit (sorted by timestamp)
+    pub time_cliffs: Vec<LVTTimeCliff>,
+}
+
+/// Tracks LVT changes over time for a group (aggregate of all deposits)
+#[cw_serde]
+pub struct GroupLVTTracking {
+    /// Base LVT total at reference_time
+    pub base_total: Uint128,
+    /// Reference timestamp for base_total and base_daily_delta calculations.
+    /// 
+    /// This is the point in time where `base_total` and `base_daily_delta` are known.
+    /// All time-cliff calculations use this as the starting point. To calculate group LVT
+    /// at any other timestamp, we apply the daily delta and process time cliffs
+    /// forward (if timestamp > reference_time) or backward (if timestamp < reference_time).
+    /// 
+    /// Typically set to the current block time when tracking is initialized or updated,
+    /// but can be any timestamp. When updating tracking, if the reference_time changes,
+    /// the base_total is adjusted to the new reference_time using the previous tracking data.
+    pub reference_time: u64,
+    /// Cumulative daily delta at reference_time
+    pub base_daily_delta: Int128,
+    /// Time cliffs sorted by timestamp (ascending)
+    pub time_cliffs: Vec<LVTTimeCliff>,
+}
 
 //NOTES: 
 // If the Transmuter is low on CDT, the bad debt fulfillment will error.
@@ -52,6 +105,8 @@ pub struct InstantiateMsg {
     pub oracle_contract: String,
     /// Chain proxy contract for executing swaps
     pub chain_proxy_contract: String,
+    /// Emissions voting contract address
+    pub emissions_voting_contract: Option<String>,
     /// Lock duration ceiling in days (max days you can lock)
     pub lock_duration_ceiling: Option<u64>,
     /// Optional affiliate fee percentage (default 1%)
@@ -60,6 +115,14 @@ pub struct InstantiateMsg {
     pub max_management_fee: Option<Decimal>,
     /// Optional LTV delta minimum for historical tracking (default 1%)
     pub ltv_delta_minimum: Option<Decimal>,
+    /// Points system contract address (optional)
+    pub points_system_contract: Option<String>,
+    /// Revenue distributor contract address (optional, for querying epoch information)
+    pub revenue_distributor: Option<String>,
+    /// Auction contract address (optional, for receiving MBRN revenue)
+    pub auction_contract: Option<String>,
+    /// MBRN denom (optional, for validating MBRN revenue)
+    pub mbrn_denom: Option<String>,
 }
 
 /// Execute messages
@@ -95,6 +158,8 @@ pub enum ExecuteMsg {
         max_borrow_ltv: Decimal,
         deposit_id: Uint128,
         amount: Option<Uint128>,
+        /// Epoch start time when the deposit was created (required to identify the deposit)
+        epoch_start_time: u64,
     },
     /// Lock a deposit for a specified duration
     Lock {
@@ -104,6 +169,8 @@ pub enum ExecuteMsg {
         deposit_id: Uint128,
         locked: Locked,
         amount: Option<Uint128>,
+        /// Epoch start time when the deposit was created (required to identify the deposit)
+        epoch_start_time: u64,
     },
     /// Move a deposit to a different slot/group
     MoveDeposit {
@@ -116,6 +183,8 @@ pub enum ExecuteMsg {
         /// User address (optional, defaults to sender)
         /// If provided, checks that sender is a manager for this user's deposit
         user: Option<String>,
+        /// Epoch start time when the source deposit was created (required to identify the deposit)
+        epoch_start_time: u64,
     },
     /// Update or remove manager for a deposit
     /// Only the deposit owner can update the manager
@@ -126,6 +195,8 @@ pub enum ExecuteMsg {
         deposit_id: Uint128,
         /// Manager address (Some = set/update manager, None = remove manager)
         manager: Option<String>,
+        /// Epoch start time when the deposit was created (required to identify the deposit)
+        epoch_start_time: u64,
     },
     /// Toggle withdrawals for a deposit
     /// Only the depositor (the address that made the deposit) can call this
@@ -136,6 +207,8 @@ pub enum ExecuteMsg {
         max_borrow_ltv: Decimal,
         deposit_id: Uint128,
         enabled: bool,
+        /// Epoch start time when the deposit was created (required to identify the deposit)
+        epoch_start_time: u64,
     },
     /// Add bad debt to an LTV queue (CDP contract only)
     AddBadDebt {
@@ -175,10 +248,15 @@ pub enum ExecuteMsg {
         activation_window: Option<u64>,
         oracle_contract: Option<String>,
         chain_proxy_contract: Option<String>,
+        emissions_voting_contract: Option<String>,
         lock_duration_ceiling: Option<u64>,
         affiliate_fee: Option<Decimal>,
         max_management_fee: Option<Decimal>,
         ltv_delta_minimum: Option<Decimal>,
+        points_system_contract: Option<String>,
+        revenue_distributor: Option<String>,
+        auction_contract: Option<String>,
+        mbrn_denom: Option<String>,
     },
     // /// Post a deposit tracker entry for base token tracking
     // PostDepositTrackerEntry {
@@ -201,6 +279,8 @@ pub enum ExecuteMsg {
         ltv: Decimal,
         max_borrow_ltv: Decimal,
         deposit_id: Uint128,
+        /// Epoch start time when the deposit was created (required to identify the deposit)
+        epoch_start_time: u64,
     },
     /// Set affiliate for a user
     SetAffiliate {
@@ -215,6 +295,13 @@ pub enum ExecuteMsg {
     /// Clean manager fee state for a manager with no deposits (permissionless)
     CleanManagerFee {
         manager: String,
+    },
+    /// Add deposit token revenue from auction with per-asset distribution
+    /// Adds to total_deposit_tokens to compound for all depositors
+    /// Callable by auction contract only
+    AddDepositTokenRevenue {
+        /// Distribution: which collateral assets earned this revenue
+        per_asset_distribution: Vec<crate::types::Asset>,
     },
 }
 
@@ -444,6 +531,8 @@ pub struct Config {
     pub oracle_contract: Addr,
     /// Chain proxy contract for executing swaps to convert collateral to CDT
     pub chain_proxy_contract: Addr,
+    /// Emissions Voting contract address
+    pub emissions_voting_contract: Option<Addr>,
     /// Lock duration ceiling in days (max days you can lock)
     pub lock_duration_ceiling: u64,
     /// Affiliate fee percentage (default 1%)
@@ -452,6 +541,14 @@ pub struct Config {
     pub max_management_fee: Decimal,
     /// LTV delta minimum for historical tracking (default 1%)
     pub ltv_delta_minimum: Decimal,
+    /// Points system contract address (optional, for awarding points to managers)
+    pub points_system_contract: Option<Addr>,
+    /// Revenue distributor contract address (for querying epoch information)
+    pub revenue_distributor: Option<Addr>,
+    /// Auction contract address (for receiving MBRN revenue)
+    pub auction_contract: Option<Addr>,
+    /// MBRN denom (for validating MBRN revenue)
+    pub mbrn_denom: Option<String>,
 }
 
 #[cw_serde]
@@ -515,6 +612,17 @@ pub struct MaxBorrowLTVGroup {
     pub total_vault_tokens: Uint128,
     /// Total locked vault tokens for this group (sum of all deposits' locked_vault_tokens)
     pub total_locked_vault_tokens: Uint128,
+    /// Total unused locked vault tokens (lost weight from late deposits + contract deposits)
+    /// This tracks locked vault tokens that should be excluded from revenue distribution:
+    /// 1. Lost weight from deposits made late in the epoch (time penalty)
+    /// 2. Full weight of contract-owned deposits (from early withdrawal penalties)
+    /// This field resets to zero at the start of each new epoch
+    pub total_unused_locked_vault_tokens: Uint128,
+    /// Epoch start time for which total_unused_locked_vault_tokens applies
+    /// When this changes, we know a new epoch started
+    pub effective_epoch_start: Option<u64>,
+    /// LVT tracking for calculating LVT at any timestamp
+    pub lvt_tracking: GroupLVTTracking,
 }
 
 /// Backing deposit similar to Bid but for LTV slots
@@ -534,6 +642,9 @@ pub struct BackingDeposit {
     pub locked: Option<Locked>,
     /// Timestamp when deposit was created (for boost calculations)
     pub start_time: u64,
+    /// Timestamp when deposit was made within the current epoch (for epoch-based discounting)
+    /// None for deposits made before epoch tracking was implemented
+    pub deposit_time: Option<u64>,
     /// Whether to automatically compound claimed revenue back into this deposit
     /// 
     /// If true, this deposit will automatically compound its claimed revenue on every claim.
@@ -551,6 +662,8 @@ pub struct BackingDeposit {
     /// Whether withdrawals are enabled for this deposit
     /// Only the depositor can toggle this setting
     pub withdrawals_enabled: bool,
+    /// LVT tracking for calculating this deposit's LVT at any timestamp
+    pub lvt_tracking: DepositLVTTracking,
 }
 
 /// Input for creating a backing deposit
@@ -562,6 +675,9 @@ pub struct BackingDepositInput {
     pub ltv: Decimal,
     /// Chosen max borrow LTV
     pub max_borrow_ltv: Decimal,
+    /// Epoch start time for deposit key creation and lookup
+    /// If None, will be queried from revenue distributor or use current time
+    pub epoch_start_time: Option<u64>,
 }
 
 /// Revenue tracking entry with timestamp
@@ -577,6 +693,10 @@ pub struct RevenueTrackingEntry {
 #[cw_serde]
 pub struct RevenueEvent {
     pub timestamp: u64,
+    /// Epoch start time when this event was created (for claim-time discount logic)
+    pub epoch_start: u64,
+    /// Epoch end time when this event was created (to check if deposit was made within this epoch)
+    pub epoch_end: u64,
     // Revenue per 1 locked vault token
     pub amount_per_locked_vt: Decimal,
     // Remaining total to be claimed from this event

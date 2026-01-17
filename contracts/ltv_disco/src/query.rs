@@ -21,32 +21,110 @@ pub fn query_config(deps: Deps) -> StdResult<Config> {
 }
 
 /// Query LTV queue for an asset
-pub fn query_ltv_queue(deps: Deps, asset: String) -> StdResult<LTVQueueResponse> {
-    let queue = LTV_QUEUES.load(deps.storage, asset)?;
+/// Adjusts effective_locked_vault_tokens based on current epoch
+pub fn query_ltv_queue(deps: Deps, env: Env, asset: String) -> StdResult<LTVQueueResponse> {
+    use membrane::revenue_distributor::{QueryMsg as RevenueDistributorQueryMsg, EpochCountdownResponse};
+
+    let mut queue = LTV_QUEUES.load(deps.storage, asset)?;
+    let config = CONFIG.load(deps.storage)?;
+
+    // Query current epoch from revenue distributor if available
+    let epoch_info = if let Some(revenue_distributor_addr) = &config.revenue_distributor {
+        deps.querier.query_wasm_smart::<EpochCountdownResponse>(
+            revenue_distributor_addr,
+            &RevenueDistributorQueryMsg::EpochCountdown {},
+        ).ok().map(|countdown| (countdown.epoch_start, countdown.epoch_end))
+    } else {
+        None
+    };
+
+    // Adjust unused totals if epoch has changed
+    if let Some((epoch_start, _)) = epoch_info {
+        for slot in &mut queue.slots {
+            for group in &mut slot.deposit_groups {
+                // If epoch has changed, reset unused total to zero
+                if group.effective_epoch_start.map(|e| e != epoch_start).unwrap_or(true) {
+                    group.total_unused_locked_vault_tokens = Uint128::zero();
+                    group.effective_epoch_start = Some(epoch_start);
+                }
+            }
+        }
+    }
+
     Ok(LTVQueueResponse { queue })
 }
 
 /// Query backing deposit by user, group, and deposit_id
+/// Tries multiple epoch_timestamps to find the deposit (0 for old deposits, or actual epoch timestamps)
 pub fn query_backing_deposit(
-    deps: Deps, 
-    user: String, 
-    asset: String, 
-    ltv: Decimal, 
+    deps: Deps,
+    user: String,
+    asset: String,
+    ltv: Decimal,
     max_borrow_ltv: Decimal,
     deposit_id: Uint128,
 ) -> StdResult<BackingDepositResponse> {
+    use membrane::revenue_distributor::{QueryMsg as RevenueDistributorQueryMsg, EpochCountdownResponse};
+
     let user_addr = deps.api.addr_validate(&user)?;
-    let deposit_key = crate::execute::make_deposit_key(
+    let config = CONFIG.load(deps.storage)?;
+
+    // Try epoch_timestamp = 0 first (for backward compatibility with old deposits)
+    let deposit_key_0 = crate::execute::make_deposit_key(
         &asset,
         &ltv.to_string(),
         &max_borrow_ltv.to_string(),
         &user_addr.to_string(),
         &deposit_id,
+        0,
     );
-    
-    let deposit = BACKING_DEPOSITS.load(deps.storage, deposit_key)?;
 
-    Ok(BackingDepositResponse { deposit })
+    if let Ok(deposit) = BACKING_DEPOSITS.load(deps.storage, deposit_key_0.clone()) {
+        return Ok(BackingDepositResponse { deposit });
+    }
+
+    // If not found with epoch_timestamp=0, try current and recent epoch timestamps
+    if let Some(revenue_distributor_addr) = &config.revenue_distributor {
+        if let Ok(countdown) = deps.querier.query_wasm_smart::<EpochCountdownResponse>(
+            revenue_distributor_addr,
+            &RevenueDistributorQueryMsg::EpochCountdown {},
+        ) {
+            // Try current epoch
+            let deposit_key_current = crate::execute::make_deposit_key(
+                &asset,
+                &ltv.to_string(),
+                &max_borrow_ltv.to_string(),
+                &user_addr.to_string(),
+                &deposit_id,
+                countdown.epoch_start,
+            );
+
+            if let Ok(deposit) = BACKING_DEPOSITS.load(deps.storage, deposit_key_current) {
+                return Ok(BackingDepositResponse { deposit });
+            }
+
+            // Try previous epoch (assuming epoch duration is consistent)
+            let epoch_duration = countdown.epoch_end.saturating_sub(countdown.epoch_start);
+            if epoch_duration > 0 {
+                let prev_epoch_start = countdown.epoch_start.saturating_sub(epoch_duration);
+                let deposit_key_prev = crate::execute::make_deposit_key(
+                    &asset,
+                    &ltv.to_string(),
+                    &max_borrow_ltv.to_string(),
+                    &user_addr.to_string(),
+                    &deposit_id,
+                    prev_epoch_start,
+                );
+
+                if let Ok(deposit) = BACKING_DEPOSITS.load(deps.storage, deposit_key_prev) {
+                    return Ok(BackingDepositResponse { deposit });
+                }
+            }
+        }
+    }
+
+    // If still not found, return error
+    Err(StdError::not_found("Deposit not found"))
 }
 
 /// Query backing deposits by user
@@ -276,13 +354,13 @@ pub fn query_pending_claims(
     for deposit_key_str in deposit_keys {
         // deposit_key is "asset:ltv:max_borrow_ltv:user"
         if let Ok(deposit) = BACKING_DEPOSITS.load(deps.storage, deposit_key_str.clone()) {
-            // Parse LTV values from key string
-            let parts: Vec<&str> = deposit_key_str.split(':').collect();
-            if parts.len() != 5 {
-                continue;
-            }
-            let max_ltv = Decimal::from_str(parts[1])?;
-            let max_borrow_ltv = Decimal::from_str(parts[2])?;
+        // Parse LTV values from key string
+        let parts: Vec<&str> = deposit_key_str.split(':').collect();
+        if parts.len() < 5 {
+            continue;
+        }
+        let max_ltv = Decimal::from_str(parts[1])?;
+        let max_borrow_ltv = Decimal::from_str(parts[2])?;
             
             let pending = calculate_pending_revenue(
                 deps.storage,

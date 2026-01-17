@@ -49,3 +49,4 @@ pub mod transmuter_lockdrop;
 pub mod yield_arb;
 pub mod mars_mirror;
 pub mod mars_params;
+pub mod emissions_voting;

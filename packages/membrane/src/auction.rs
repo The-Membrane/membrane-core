@@ -26,7 +26,13 @@ pub struct InstantiateMsg {
     /// Timeframe for increase of discount in seconds
     pub discount_increase_timeframe: u64,
     /// Increase in discount per unit of timeframe
-    pub discount_increase: Decimal, 
+    pub discount_increase: Decimal,
+    /// Delay window in minutes before auctions can start (default: 60)
+    pub delay_window_minutes: Option<u64>,
+    /// Revenue distributor contract address (for CDT proceeds)
+    pub revenue_distributor_contract: Option<String>,
+    /// LTV Disco contract address (for MBRN proceeds)
+    pub ltv_disco_contract: Option<String>,
 }
 
 #[cw_serde]
@@ -41,6 +47,8 @@ pub enum ExecuteMsg {
         /// If CDT, recapitalize bad debt
         /// If not, use auction to sell fees for a desired asset
         auction_asset: Asset,
+        /// Per-asset distribution for tracking which collaterals earned this revenue
+        per_asset_distribution: Option<Vec<Asset>>,
     },
     /// Swap for discounted MBRN in any open CDT debt auction
     SwapForMBRN {},
@@ -99,7 +107,12 @@ pub struct Config {
     pub discount_increase: Decimal,
     /// Toggle sending FeeAuction assets to stakers instead of governance
     pub send_to_stakers: bool,
-    
+    /// Delay window in minutes before auctions can start (default: 60, 0 for MBRN)
+    pub delay_window_minutes: u64,
+    /// Revenue distributor contract address (for CDT proceeds)
+    pub revenue_distributor_contract: Option<Addr>,
+    /// LTV Disco contract address (for MBRN proceeds)
+    pub ltv_disco_contract: Option<Addr>,
 }
 
 #[cw_serde]
@@ -132,6 +145,12 @@ pub struct UpdateConfig {
     pub discount_increase: Option<Decimal>,
     /// Toggle sending FeeAuction assets to stakers instead of governance
     pub send_to_stakers: Option<bool>,
+    /// Delay window in minutes before auctions can start
+    pub delay_window_minutes: Option<u64>,
+    /// Revenue distributor contract address (for CDT proceeds)
+    pub revenue_distributor_contract: Option<String>,
+    /// LTV Disco contract address (for MBRN proceeds)
+    pub ltv_disco_contract: Option<String>,
 }
 
 #[cw_serde]

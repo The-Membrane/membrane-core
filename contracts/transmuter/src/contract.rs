@@ -298,6 +298,7 @@ pub fn execute(
             recipient,
             withdraw_as,
         } => execute_exit_vault(deps, env, info.clone(), recipient, withdraw_as),
+        ExecuteMsg::UnlockVaultTokens { amount } => execute_unlock_vault_tokens(deps, env, info.clone(), amount),
         ExecuteMsg::Transmute { recipient } => execute_transmute(deps, env, info.clone(), recipient),
         ExecuteMsg::UpdateVolumeWindow {} => execute_update_volume_window(deps, env),
         ExecuteMsg::RateAssurance {} => execute_rate_assurance(deps, env, info.clone()),
@@ -587,9 +588,17 @@ fn execute_enter_vault(
     // println!("vault_supply: {:?}", vault_supply);
 
     //Calc & save base token rates for rate assurance
+    // If vault is empty, existing_deposits should be zero (first deposit)
+    // Otherwise, subtract user's deposit from total to get existing deposits
+    let existing_deposits = if vault_supply.is_zero() {
+        Uint128::zero()
+    } else {
+        total_deposits.checked_sub(user_deposit_value)
+            .map_err(|_| ContractError::Validation("total_deposits < user_deposit_value: logic error".into()))?
+    };
     let pre_btokens_per_one = calculate_base_tokens(
         Uint128::new(1_000_000_000_000), 
-        total_deposits - user_deposit_value, 
+        existing_deposits, 
         vault_supply
     )?;
     TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
@@ -598,7 +607,7 @@ fn execute_enter_vault(
 
     //Add rate assurance callback msg
     if !total_deposits.is_zero() && !vault_supply.is_zero() {
-        println!("adding rate assurance callback msg");
+        // println!("adding rate assurance callback msg");
         messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
             msg: to_json_binary(&ExecuteMsg::RateAssurance {})?,
@@ -610,8 +619,8 @@ fn execute_enter_vault(
     //Calc the amount of vault tokens to mint
     let vault_tokens_to_mint = calculate_vault_tokens(
         user_deposit_value,
-         total_deposits - user_deposit_value,
-          vault_supply
+        existing_deposits,
+        vault_supply
     )?;
 
     //Get the recipient address
@@ -662,6 +671,8 @@ fn execute_enter_vault(
                 locked_tokens.push(crate::state::LockedVaultToken {
                     amount: vault_tokens_to_mint,
                     locked_until,
+                    intended_lock_days: lock_days,
+                    lock_start_time: env.block.time.seconds(),
                 });
                 crate::state::LOCKED_VAULT_TOKENS.save(deps.storage, recipient_addr.to_string(), &locked_tokens)?;
             }
@@ -726,6 +737,270 @@ fn execute_deposit_fee(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Re
     ]))
 }
 
+fn execute_unlock_vault_tokens(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    amount: Option<Uint128>,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let user_key = info.sender.to_string();
+    let mut locked_tokens = crate::state::LOCKED_VAULT_TOKENS
+        .may_load(deps.storage, user_key.clone())?
+        .unwrap_or_default();
+    
+    if locked_tokens.is_empty() {
+        return Err(ContractError::Validation("No locked tokens to unlock".into()));
+    }
+    
+    let current_time = env.block.time.seconds();
+    const SECONDS_PER_DAY: u64 = 86_400;
+    let mut still_locked = Vec::new();
+    let mut total_unlocked = Uint128::zero();
+    let mut total_early_withdrawal_returned = Uint128::zero();
+    let mut total_lost_to_contract = Uint128::zero(); // Fee for early withdrawal
+    let mut messages: Vec<CosmosMsg> = vec![];
+    
+    // Calculate total available to unlock (expired + early withdrawal returns)
+    // This is the maximum amount the user can unlock
+    let mut total_available_to_unlock = Uint128::zero();
+    for locked in &locked_tokens {
+        if locked.locked_until > current_time {
+            // Early withdrawal: calculate proportional return
+            // Math: returned = locked.amount * (fulfilled_days / intended_days)
+            // Example: If 50 days fulfilled out of 100 intended, return 50% of locked amount
+            let fulfilled_seconds = current_time.saturating_sub(locked.lock_start_time);
+            let fulfilled_days = fulfilled_seconds / SECONDS_PER_DAY;
+            let intended_days = locked.intended_lock_days;
+            
+            // Calculate the ratio: fulfilled_days / intended_days
+            // This ratio represents what fraction of the lock period has been completed
+            let ratio = if intended_days > 0 {
+                let ratio_decimal = Decimal::from_ratio(fulfilled_days, intended_days);
+                ratio_decimal.min(Decimal::one()) // Cap at 1.0 (100%) - can't return more than locked
+            } else {
+                Decimal::one() // If no intended days, treat as fully fulfilled
+            };
+            
+            // Calculate how much would be returned if we withdrew this entire entry
+            // Formula: returned = locked.amount * ratio
+            let returned = Decimal::from_ratio(locked.amount, Uint128::one()) * ratio;
+            total_available_to_unlock += returned.to_uint_floor();
+
+        } else {
+            // Expired - can unlock fully (100% return, no loss)
+            total_available_to_unlock += locked.amount;
+        }
+    }
+    
+    // Determine how much to unlock: use provided amount or all available
+    let unlock_amount = amount.unwrap_or(total_available_to_unlock).min(total_available_to_unlock);
+    
+    if unlock_amount.is_zero() {
+        return Err(ContractError::Validation("No tokens available to unlock".into()));
+    }
+    
+    // Process locked tokens to unlock the requested amount
+    // We iterate through locked entries and unlock from them until we've unlocked the requested amount
+    let mut remaining_to_unlock = unlock_amount;
+    
+    for locked in locked_tokens.iter() {
+        if remaining_to_unlock.is_zero() {
+            // We've unlocked enough, keep remaining locked tokens as still_locked
+            still_locked.push(locked.clone());
+            continue;
+        }
+        
+        if locked.locked_until > current_time {
+            // ========== EARLY WITHDRAWAL CALCULATION ==========
+            // Math explanation for early withdrawal:
+            // 1. Calculate the return ratio: fulfilled_days / intended_days (same as above)
+            // 2. For full unlock: returned = locked.amount * ratio
+            // 3. For partial unlock: We need to work backwards from the unlock amount
+            
+            let fulfilled_seconds = current_time.saturating_sub(locked.lock_start_time);
+            let fulfilled_days = fulfilled_seconds / SECONDS_PER_DAY;
+            let intended_days = locked.intended_lock_days;
+            
+            // Calculate return ratio: fulfilled_days / intended_days
+            // Example: 50 days fulfilled / 100 days intended = 0.5 (50% return rate)
+            let ratio = if intended_days > 0 {
+                let ratio_decimal = Decimal::from_ratio(fulfilled_days, intended_days);
+                ratio_decimal.min(Decimal::one())
+            } else {
+                Decimal::one()
+            };
+            
+            // Calculate how much would be returned if we unlocked this entire entry
+            // Formula: returned = locked.amount * ratio
+            // Example: 1000 tokens * 0.5 ratio = 500 tokens returned
+            let returned = Decimal::from_ratio(locked.amount, Uint128::one()) * ratio;
+            let returned = returned.to_uint_floor();
+            
+            // Calculate the fee (lost amount) for unlocking this entire entry
+            // Formula: lost_amount = locked.amount - returned
+            // Example: 1000 tokens - 500 tokens = 500 tokens lost as fee
+            let lost_amount = locked.amount.checked_sub(returned)
+                .map_err(|_| ContractError::Validation("locked.amount < returned: logic error in early withdrawal calculation".into()))?;
+            
+            if returned <= remaining_to_unlock {
+                // ========== FULL UNLOCK OF THIS ENTRY ==========
+                // We can unlock this entire entry and still need more
+                // Example: Entry returns 500, we need 800 total -> unlock all 500 from this entry
+                total_early_withdrawal_returned += returned;
+                total_lost_to_contract += lost_amount; // Fee stays in contract
+                remaining_to_unlock = remaining_to_unlock.checked_sub(returned)
+                    .map_err(|_| ContractError::Validation("remaining_to_unlock < returned: logic error".into()))?;
+            } else {
+                // ========== PARTIAL UNLOCK OF THIS ENTRY ==========
+                // We only need part of what this entry can provide
+                // Math explanation:
+                // - We want to unlock `unlock_from_this` tokens (which equals `remaining_to_unlock`)
+                // - But we need to calculate: what original locked amount corresponds to this unlock?
+                // - Since: returned = original_locked * ratio
+                // - Then: original_locked = returned / ratio
+                // - So: original_unlocked = unlock_from_this / ratio
+                // - The fee for this partial unlock: partial_lost = original_unlocked - unlock_from_this
+                
+                let unlock_from_this = remaining_to_unlock;
+                total_early_withdrawal_returned += unlock_from_this;
+                
+                // Calculate the original locked amount that corresponds to unlock_from_this
+                // Formula: original_unlocked = unlock_from_this / ratio
+                // Example: If we want 250 tokens returned and ratio is 0.5:
+                //   original_unlocked = 250 / 0.5 = 500 tokens
+                //   This means we're unlocking from 500 original tokens, getting 250 back
+                let original_unlocked = if !ratio.is_zero() {
+                    Decimal::from_ratio(unlock_from_this, Uint128::one()) / ratio
+                } else {
+                    Decimal::zero() // If ratio is zero, can't unlock anything
+                };
+                let original_unlocked = original_unlocked.to_uint_floor();
+                
+                // Calculate the fee (lost amount) for this partial unlock
+                // Formula: partial_lost = original_unlocked - unlock_from_this
+                // Example: 500 original - 250 returned = 250 tokens lost as fee
+                let partial_lost = original_unlocked.checked_sub(unlock_from_this)
+                    .map_err(|_| ContractError::Validation("original_unlocked < unlock_from_this: logic error in partial unlock calculation".into()))?;
+                total_lost_to_contract += partial_lost; // Fee stays in contract
+                
+                // Keep the remaining locked portion
+                // Formula: remaining_locked = locked.amount - original_unlocked
+                // Example: 1000 total - 500 unlocked = 500 tokens still locked
+                if locked.amount > original_unlocked {
+                    still_locked.push(crate::state::LockedVaultToken {
+                        amount: locked.amount.checked_sub(original_unlocked)
+                            .map_err(|_| ContractError::Validation("locked.amount < original_unlocked: logic error".into()))?,
+                        locked_until: locked.locked_until,
+                        intended_lock_days: locked.intended_lock_days,
+                        lock_start_time: locked.lock_start_time,
+                    });
+                }
+                
+                remaining_to_unlock = Uint128::zero();
+            }
+        } else {
+            // ========== EXPIRED LOCK (NO FEE) ==========
+            // Lock has expired, can unlock fully with no loss
+            // Math: returned = locked.amount (100% return, no fee)
+            
+            if locked.amount <= remaining_to_unlock {
+                // Unlock this entire expired entry
+                total_unlocked += locked.amount;
+                remaining_to_unlock = remaining_to_unlock.checked_sub(locked.amount)
+                    .map_err(|_| ContractError::Validation("remaining_to_unlock < locked.amount: logic error".into()))?;
+            } else {
+                // Partial unlock of expired entry (no fee since it's expired)
+                total_unlocked += remaining_to_unlock;
+                // Keep the remaining portion
+                still_locked.push(crate::state::LockedVaultToken {
+                    amount: locked.amount.checked_sub(remaining_to_unlock)
+                        .map_err(|_| ContractError::Validation("locked.amount < remaining_to_unlock: logic error".into()))?,
+                    locked_until: locked.locked_until,
+                    intended_lock_days: locked.intended_lock_days,
+                    lock_start_time: locked.lock_start_time,
+                });
+                remaining_to_unlock = Uint128::zero();
+            }
+        }
+    }
+    
+    let total_to_transfer = total_unlocked + total_early_withdrawal_returned;
+    
+    if total_to_transfer.is_zero() {
+        return Err(ContractError::Validation("No tokens available to unlock".into()));
+    }
+    
+    // Get contract's vault token balance
+    let contract_balance = deps.querier.query_balance(
+        &env.contract.address,
+        &config.vault_token
+    )?.amount;
+    
+    if total_to_transfer > contract_balance {
+        return Err(ContractError::Validation(
+            format!("Insufficient contract balance to unlock: need {}, have {}", 
+                total_to_transfer, contract_balance)
+        ));
+    }
+    
+    // Transfer unlocked tokens from contract to user
+    // Note: The lost amount (total_lost_to_contract) stays in the contract as a fee
+    if !total_to_transfer.is_zero() {
+        messages.push(BankMsg::Send {
+            to_address: user_key.clone(),
+            amount: vec![coin(total_to_transfer.u128(), config.vault_token.clone())],
+        }.into());
+    }
+    
+    // Add lost amount to contract's locked vault tokens (as a fee)
+    if !total_lost_to_contract.is_zero() {
+        let contract_key = env.contract.address.to_string();
+        let mut contract_locked_tokens = crate::state::LOCKED_VAULT_TOKENS
+            .may_load(deps.storage, contract_key.clone())?
+            .unwrap_or_default();
+        
+        // Use a far future lock date (effectively permanent) since this is a fee
+        let lock_until = current_time
+            .checked_add(365 * 86400 * 100) // 100 years in the future (effectively permanent)
+            .unwrap_or(u64::MAX);
+        
+        // Check if contract already has a locked vault token entry for fees
+        // Identify fee entries by intended_lock_days == 36500 (100 years marker)
+        // If so, add to it; otherwise create a new one
+        if let Some(fee_entry) = contract_locked_tokens.iter_mut().find(|entry| {
+            entry.intended_lock_days == 36500
+        }) {
+            // Add to existing fee entry
+            fee_entry.amount = fee_entry.amount.checked_add(total_lost_to_contract)
+                .unwrap_or(fee_entry.amount);
+        } else {
+            // Create new fee entry
+            contract_locked_tokens.push(crate::state::LockedVaultToken {
+                amount: total_lost_to_contract,
+                locked_until: lock_until,
+                intended_lock_days: 36500, // 100 years - used as marker for fee entries
+                lock_start_time: current_time,
+            });
+        }
+        
+        crate::state::LOCKED_VAULT_TOKENS.save(deps.storage, contract_key, &contract_locked_tokens)?;
+    }
+    
+    // Save remaining still_locked tokens (if partial unlock was requested)
+    crate::state::LOCKED_VAULT_TOKENS.save(deps.storage, user_key.clone(), &still_locked)?;
+    
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attributes(vec![
+            attr("action", "unlock_vault_tokens"),
+            attr("unlocked_expired", total_unlocked),
+            attr("unlocked_early_withdrawal", total_early_withdrawal_returned),
+            attr("early_withdrawal_fee", total_lost_to_contract), // Fee that stays in contract
+            attr("still_locked_count", still_locked.len().to_string()),
+        ]))
+}
+
 fn execute_exit_vault(
     deps: DepsMut,
     env: Env,
@@ -753,85 +1028,8 @@ fn execute_exit_vault(
         });
     }
 
-    // Check for locked vault tokens
-    let user_key = info.sender.to_string();
-    let mut locked_tokens = crate::state::LOCKED_VAULT_TOKENS
-        .may_load(deps.storage, user_key.clone())?
-        .unwrap_or_default();
     
-    // Calculate total locked amount (tokens that are still locked)
-    let current_time = env.block.time.seconds();
-    let mut total_locked: Uint128 = Uint128::zero();
-    let mut expired_locked: Uint128 = Uint128::zero();
     
-    // Separate expired and still-locked tokens
-    let mut still_locked = Vec::new();
-    for locked in locked_tokens.iter() {
-        if locked.locked_until > current_time {
-            total_locked = total_locked.checked_add(locked.amount)
-                .unwrap_or(total_locked);
-            still_locked.push(locked.clone());
-        } else {
-            // Lock has expired - these can be exited
-            expired_locked = expired_locked.checked_add(locked.amount)
-                .unwrap_or(expired_locked);
-        }
-    }
-    
-    // Update locked tokens list to only include still-locked ones
-    crate::state::LOCKED_VAULT_TOKENS.save(deps.storage, user_key.clone(), &still_locked)?;
-    
-    // Get user's vault token balance
-    let user_balance = deps.querier.query_balance(
-        &deps.api.addr_validate(&user_key)?,
-        &config.vault_token
-    )?.amount;
-    
-    // Get contract's vault token balance (for expired locked tokens)
-    let contract_balance = deps.querier.query_balance(
-        &env.contract.address,
-        &config.vault_token
-    )?.amount;
-    
-    // Available balance = user balance + expired locked tokens in contract
-    // (still-locked tokens are not available)
-    let available_balance = user_balance
-        .checked_add(expired_locked)
-        .unwrap_or(user_balance);
-    
-    // Check if user is trying to exit more than available
-    if vault_tokens > available_balance {
-        return Err(ContractError::Validation(
-            format!("Cannot exit {} vault tokens: only {} available ({} still locked until expiration)", 
-                vault_tokens, available_balance, total_locked)
-        ));
-    }
-    
-    // If user needs expired locked tokens from contract, transfer them first
-    if vault_tokens > user_balance {
-        let needed_from_contract = vault_tokens.checked_sub(user_balance)
-            .unwrap_or(Uint128::zero());
-        
-        if needed_from_contract > expired_locked {
-            return Err(ContractError::Validation(
-                format!("Cannot exit {} vault tokens: insufficient expired locked tokens available", 
-                    vault_tokens)
-            ));
-        }
-        
-        if needed_from_contract > contract_balance {
-            return Err(ContractError::Validation(
-                format!("Cannot exit {} vault tokens: contract balance insufficient", 
-                    vault_tokens)
-            ));
-        }
-        
-        // Transfer expired locked tokens from contract to user before exit
-        messages.push(BankMsg::Send {
-            to_address: user_key.clone(),
-            amount: vec![coin(needed_from_contract.u128(), config.vault_token.clone())],
-        }.into());
-    }
 
     //Calc & save base token rates for rate assurance
     let pre_btokens_per_one = calculate_base_tokens(
@@ -1355,6 +1553,8 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
                 locked_tokens: locked_tokens.into_iter().map(|t| membrane::transmuter::LockedVaultToken {
                     amount: t.amount,
                     locked_until: t.locked_until,
+                    intended_lock_days: t.intended_lock_days,
+                    lock_start_time: t.lock_start_time,
                 }).collect()
             })
         }

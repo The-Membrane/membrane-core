@@ -98,6 +98,12 @@ pub enum ExecuteMsg {
         astroport_router: Option<String>,
         /// Enable dynamic routing
         enable_dynamic_routing: Option<bool>,
+        /// Supply thresholds for transmuting (minimum supply required before transmuting is enabled)
+        transmute_supply_thresholds: Option<Vec<TransmuteSupplyThresholdEntry>>,
+        /// Vesting contract address
+        vesting_contract: Option<String>,
+        /// Vesting period for transmutations
+        vesting_period: Option<crate::types::VestingPeriod>,
     },
     /// Create Astroport PCL (concentrated liquidity) pair
     // CreatePclPair {
@@ -223,6 +229,10 @@ pub struct Config {
     pub astroport_router: Option<Addr>,
     /// Enable dynamic routing (query both DEXes and choose best)
     pub enable_dynamic_routing: bool,
+    /// Vesting contract address for post-threshold transmutations
+    pub vesting_contract: Option<Addr>,
+    /// Default vesting period (180 day cliff, 180 day linear)
+    pub vesting_period: Option<crate::types::VestingPeriod>,
 }
 
 
@@ -233,6 +243,16 @@ pub struct NeutronOwnerEntry {
     /// Remove
     pub remove: bool,
 
+}
+
+#[cw_serde]
+pub struct TransmuteSupplyThresholdEntry {
+    /// Token denom
+    pub denom: String,
+    /// Supply threshold (None to remove)
+    pub threshold: Option<Uint128>,
+    /// Remove flag
+    pub remove: bool,
 }
 //Taken from https://github.com/mars-protocol/core-contracts/blob/6af9a00dd322f3a4ecc6ebbc5808669b0de00a89/packages/types/src/swapper.rs#L8
 #[cw_serde]

@@ -928,6 +928,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "emissions_voting"
+version = "0.1.0"
+dependencies = [
+ "cosmwasm-schema",
+ "cosmwasm-std",
+ "cosmwasm-storage",
+ "cw-multi-test 1.2.0",
+ "cw-storage-plus 1.2.0",
+ "cw2 0.13.4",
+ "membrane",
+ "schemars",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
 name = "ff"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

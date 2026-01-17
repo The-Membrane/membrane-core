@@ -1,18 +1,31 @@
 use cosmwasm_std::{
     entry_point, to_json_binary, BankMsg, CosmosMsg, DepsMut, Env, MessageInfo, Response,
-    StdResult, SubMsg, WasmMsg, Reply, Uint128, Decimal, Coin,
+    StdResult, Storage, SubMsg, WasmMsg, Reply, Uint128, Decimal, Coin, QueryRequest, WasmQuery,
 };
 use membrane::revenue_distributor::{Config, RevenueDestination, RevenuePromise, ExecuteMsg, InstantiateMsg, QueryMsg, RDVaultInfoMessage};
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::math::decimal_multiplication;
-use membrane::types::Asset;
+use membrane::types::{Asset, AssetInfo};
+use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
+use membrane::ltv_disco::{QueryMsg as LTVDiscoQueryMsg, LTVQueueResponse};
+use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 
 use crate::error::ContractError;
+use crate::query::{
+    query_config,
+    query_promises,
+    query_failed_distributions,
+    query_pending_distributions,
+    query_current_epoch_revenue,
+    query_epoch_countdown,
+};
 use crate::reply::{
     DISTRIBUTION_REPLY_ID,
     REVENUE_DESTINATION_REPLY_ID,
+    TAKE_REVENUE_REPLY_ID,
     handle_distribution_reply,
     handle_revenue_destination_reply,
+    handle_take_revenue_reply,
 };
 use crate::state::{
     CONFIG,
@@ -20,6 +33,8 @@ use crate::state::{
     FAILED_DISTRIBUTIONS,
     PROMISES,
     LTV_DISCO_DISTRIBUTION,
+    LAST_DISTRIBUTION_TIME,
+    EPOCH_REVENUE_ACCUMULATION,
 };
 
 use cw2::set_contract_version;
@@ -29,6 +44,12 @@ use cw2::set_contract_version;
 const CONTRACT_NAME: &str = "crates.io:revenue-distributor";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+
+///NOTES:
+/// The promises work through the CDP contract by it sending promises for the affiliates 
+/// and then sending the per-asset distribution ratio as ltv_distributions. 
+/// The revenue contract then uses the ltv_Distributions to send the revenue to the Disco ONLY IF its added as a destination.
+/// Otherwise it does the normal splits to the other destinations. The Disco simply has special logic to handle its distributions.
 
 /// Contract instantiation
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -50,6 +71,22 @@ pub fn instantiate(
             deposit_token: msg.transmuter_vault.deposit_token,
             vault_token: msg.transmuter_vault.vault_token,
         },
+        points_system_contract: msg.points_system_contract
+            .map(|addr| deps.api.addr_validate(&addr))
+            .transpose()?,
+        cdp_contract: msg.cdp_contract
+            .map(|addr| deps.api.addr_validate(&addr))
+            .transpose()?,
+        revenue_dispersal_window: msg.revenue_dispersal_window,
+        transmuter_lockdrop_contract: msg.transmuter_lockdrop_contract
+            .map(|addr| deps.api.addr_validate(&addr))
+            .transpose()?,
+        ltv_disco_contract: msg.ltv_disco_contract
+            .map(|addr| deps.api.addr_validate(&addr))
+            .transpose()?,
+        auction_contract: msg.auction_contract
+            .map(|addr| deps.api.addr_validate(&addr))
+            .transpose()?,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -76,10 +113,22 @@ pub fn execute(
             revenue_destinations,
             ltv_disco,
             transmuter_vault,
-        } => update_config(deps, env, info, revenue_destinations, ltv_disco, transmuter_vault),
+            points_system_contract,
+            cdp_contract,
+            revenue_dispersal_window,
+            transmuter_lockdrop_contract,
+            ltv_disco_contract,
+            auction_contract,
+        } => update_config(deps, env, info, revenue_destinations, ltv_disco, transmuter_vault, points_system_contract, cdp_contract, revenue_dispersal_window, transmuter_lockdrop_contract, ltv_disco_contract, auction_contract),
+        ExecuteMsg::TakeRevenueFromBasket {} => {
+            take_revenue_from_basket(deps, env, info)
+        }
+        ExecuteMsg::ExecuteRevenueDistribution {} => execute_revenue_distribution(deps, env, info),
+        // ExecuteMsg::UpdateDispersalWindow { window_days } => update_dispersal_window(deps, env, info, window_days),
         ExecuteMsg::ClearFailedDistributions {} => clear_failed_distributions(deps, env, info),
         ExecuteMsg::ClearPendingDistributions {} => clear_pending_distributions(deps, env, info),
         ExecuteMsg::RetryFailedDistribute { limit } => retry_failed_distribute(deps, env, info, limit),
+        ExecuteMsg::AddNonCdtRevenue { per_asset_distribution } => add_non_cdt_revenue(deps, env, info, per_asset_distribution),
     }
 }
 
@@ -137,7 +186,13 @@ pub fn set_promises(
         for asset in distributions.iter() {
             let key = asset.info.to_string();
             let current = LTV_DISCO_DISTRIBUTION.load(deps.storage, key.clone()).unwrap_or_else(|_| Uint128::zero());
-            LTV_DISCO_DISTRIBUTION.save(deps.storage, key, &(current + asset.amount))?;
+            LTV_DISCO_DISTRIBUTION.save(deps.storage, key.clone(), &(current + asset.amount))?;
+            
+            // Accumulate revenue in current epoch
+            let epoch_current = EPOCH_REVENUE_ACCUMULATION
+                .may_load(deps.storage, key.clone())?
+                .unwrap_or_else(Uint128::zero);
+            EPOCH_REVENUE_ACCUMULATION.save(deps.storage, key, &(epoch_current + asset.amount))?;
         }
     }
 
@@ -160,7 +215,10 @@ pub fn set_promises(
 }
 
 /// Distribute all current promises and clear them
-/// Uses reply_on_error for failed distributions to continue with others
+/// Uses reply_on_error for failed distributions to continue with others.
+/// Checks revenue dispersal window if configured.
+/// 
+/// 
 pub fn distribute_promises(
     mut deps: DepsMut,
     env: Env,
@@ -168,6 +226,28 @@ pub fn distribute_promises(
     limit: Option<u32>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
+    
+    // Check if window has passed if window is configured
+    if let Some(window_days) = config.revenue_dispersal_window {
+        let current_time = env.block.time.seconds();
+        let last_distribution = LAST_DISTRIBUTION_TIME.may_load(deps.storage)?
+            .unwrap_or(0u64);
+        let window_seconds = window_days * 24 * 60 * 60; // Convert days to seconds
+        
+        // Only check window if we've distributed before (last_distribution > 0)
+        // First distribution should always be allowed
+        if last_distribution > 0 && current_time < last_distribution + window_seconds {
+            // Window hasn't passed yet
+            return Ok(Response::new()
+                .add_attribute("method", "distribute_promises")
+                .add_attribute("status", "window_not_passed")
+                .add_attribute("current_time", current_time.to_string())
+                .add_attribute("last_distribution", last_distribution.to_string())
+                .add_attribute("window_seconds", window_seconds.to_string())
+                .add_attribute("next_distribution", (last_distribution + window_seconds).to_string()));
+        }
+    }
+    
     // Load current promises
     let promises = PROMISES.load(deps.storage)?;
     // if promises.is_empty() {
@@ -296,6 +376,19 @@ pub fn distribute_promises(
     }
 
     // Note: Promises will be cleared in the reply handler based on success/failure
+    // Update last distribution time if we're actually distributing
+    if !messages.is_empty() {
+        LAST_DISTRIBUTION_TIME.save(deps.storage, &env.block.time.seconds())?;
+        
+        // Clear epoch revenue accumulation for new epoch
+        let all_assets: Vec<String> = EPOCH_REVENUE_ACCUMULATION
+            .keys(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+            .map(|kv| kv.unwrap())
+            .collect();
+        for asset_key in all_assets {
+            EPOCH_REVENUE_ACCUMULATION.remove(deps.storage, asset_key);
+        }
+    }
 
     Ok(Response::new()
         .add_submessages(messages)
@@ -313,6 +406,12 @@ pub fn update_config(
     revenue_destinations: Option<Vec<RevenueDestination>>,
     ltv_disco: Option<String>,
     transmuter_vault: Option<RDVaultInfoMessage>,
+    points_system_contract: Option<String>,
+    cdp_contract: Option<String>,
+    revenue_dispersal_window: Option<u64>,
+    transmuter_lockdrop_contract: Option<String>,
+    ltv_disco_contract: Option<String>,
+    auction_contract: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -330,6 +429,24 @@ pub fn update_config(
             deposit_token: v.deposit_token,
             vault_token: v.vault_token,
         };
+    }
+    if let Some(pts) = points_system_contract {
+        config.points_system_contract = Some(deps.api.addr_validate(&pts)?);
+    }
+    if let Some(cdp) = cdp_contract {
+        config.cdp_contract = Some(deps.api.addr_validate(&cdp)?);
+    }
+    if let Some(window) = revenue_dispersal_window {
+        update_dispersal_window(deps.storage, _env, info, window)?;
+    }
+    if let Some(lockdrop) = transmuter_lockdrop_contract {
+        config.transmuter_lockdrop_contract = Some(deps.api.addr_validate(&lockdrop)?);
+    }
+    if let Some(disco) = ltv_disco_contract {
+        config.ltv_disco_contract = Some(deps.api.addr_validate(&disco)?);
+    }
+    if let Some(auction) = auction_contract {
+        config.auction_contract = Some(deps.api.addr_validate(&auction)?);
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -470,6 +587,69 @@ pub fn retry_failed_distribute(
         .add_attribute("status", "retrying"))
 }
 
+/// Route non-CDT revenue (collateral fees) to auction
+/// Accepts any non-CDT asset and sends it to the auction contract via StartAuction
+pub fn add_non_cdt_revenue(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    per_asset_distribution: Vec<Asset>,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // Validate auction contract is configured
+    let auction_contract = config.auction_contract
+        .ok_or_else(|| ContractError::Std(cosmwasm_std::StdError::GenericErr {
+            msg: "Auction contract not configured".to_string(),
+        }))?;
+
+    // Validate that funds are provided
+    if info.funds.is_empty() {
+        return Err(ContractError::Std(cosmwasm_std::StdError::GenericErr {
+            msg: "No funds provided".to_string(),
+        }));
+    }
+
+    if info.funds.len() > 1 {
+        return Err(ContractError::Std(cosmwasm_std::StdError::GenericErr {
+            msg: "Only one asset type allowed per call".to_string(),
+        }));
+    }
+
+    let coin = &info.funds[0];
+    
+    // Validate it's not CDT (canonical asset)
+    if coin.denom == config.canonical_asset.info.to_string() {
+        return Err(ContractError::Std(cosmwasm_std::StdError::GenericErr {
+            msg: "CDT revenue should use SetPromises instead".to_string(),
+        }));
+    }
+
+    // Send to auction via StartAuction
+    // The auction will initialize a FeeAuction for this asset
+    let msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: auction_contract.to_string(),
+        msg: to_json_binary(&AuctionExecuteMsg::StartAuction {
+            repayment_position_info: None,
+            send_to: None,
+            auction_asset: Asset {
+                info: AssetInfo::NativeToken { 
+                    denom: coin.denom.clone() 
+                },
+                amount: coin.amount,
+            },
+            per_asset_distribution: Some(per_asset_distribution),
+        })?,
+        funds: vec![coin.clone()],
+    });
+
+    Ok(Response::new()
+        .add_message(msg)
+        .add_attribute("method", "add_non_cdt_revenue")
+        .add_attribute("asset", coin.denom.clone())
+        .add_attribute("amount", coin.amount.to_string())
+        .add_attribute("routed_to_auction", "true"))
+}
 
 /// Directly send CDT to LTV Disco via AddRevenue (no vault entry needed)
 fn ltv_disco_add_revenue_msgs(
@@ -491,6 +671,7 @@ fn ltv_disco_add_revenue_msgs(
     }
 
     // Build AddRevenue messages for each asset, sending CDT directly
+    // Only send revenue if there are deposits in the disco for that asset
     let mut msgs: Vec<CosmosMsg> = vec![];
     for (asset_denom, asset_total) in all_assets {
         //Add the proportional split for any excess revenue not sent to promises
@@ -499,6 +680,32 @@ fn ltv_disco_add_revenue_msgs(
             Decimal::from_ratio(asset_total, total)
         )?.to_uint_floor();
         if portion.is_zero() { continue; }
+
+        // Check if there are deposits in the disco for this asset
+        let has_deposits = match deps.querier.query_wasm_smart::<LTVQueueResponse>(
+            config.ltv_disco.clone(),
+            &LTVDiscoQueryMsg::GetLTVQueue { 
+                asset: asset_denom.clone() 
+            },
+        ) {
+            Ok(queue_response) => {
+                // Sum total_deposit_tokens across all slots
+                let total_deposits: Uint128 = queue_response.queue.slots
+                    .iter()
+                    .map(|slot| slot.total_deposit_tokens)
+                    .sum();
+                !total_deposits.is_zero()
+            },
+            Err(_) => {
+                // If query fails, skip this asset to be safe
+                false
+            }
+        };
+
+        // Only send revenue if there are deposits
+        if !has_deposits {
+            continue;
+        }
 
         let add_revenue = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: config.ltv_disco.to_string(),
@@ -516,24 +723,203 @@ fn ltv_disco_add_revenue_msgs(
     Ok(msgs)
 }
 
+/// Take revenue from CDP Basket's pending_revenue
+/// Always takes ALL available revenue and maintains per-asset attribution
+fn take_revenue_from_basket(
+    deps: DepsMut,
+    env: Env,
+    _info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    // Get CDP contract address from config
+    let cdp_addr = config.cdp_contract
+        .ok_or_else(|| ContractError::Std(cosmwasm_std::StdError::GenericErr {
+            msg: "CDP contract address must be configured".to_string(),
+        }))?;
+    
+    // Save current CDT balance before calling TakeRevenue
+    let current_balance = deps.querier.query_balance(
+        env.contract.address.clone(),
+        config.canonical_asset.info.to_string(),
+    )?.amount;
+    crate::state::PRE_TAKE_REVENUE_BALANCE.save(deps.storage, &current_balance)?;
+    
+    // Query CDP for basket to get per_asset_rev before calling TakeRevenue
+    let basket: membrane::types::Basket = deps.querier.query(&QueryRequest::Wasm(
+        WasmQuery::Smart {
+            contract_addr: cdp_addr.to_string(),
+            msg: to_json_binary(&CDPQueryMsg::GetBasket {})?,
+        }
+    ))?;
+    
+    // Save per_asset_rev before calling TakeRevenue
+    let per_asset_rev = basket.pending_revenue.per_asset_rev.clone();
+    crate::state::PRE_TAKE_REVENUE_PER_ASSET.save(deps.storage, &per_asset_rev)?;
+    
+    // Call CDP's TakeRevenue (which takes all available revenue)
+    let take_revenue_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: cdp_addr.to_string(),
+        msg: to_json_binary(&CDPExecuteMsg::TakeRevenue {})?,
+        funds: vec![],
+    });
+    
+    Ok(Response::new()
+        .add_submessage(SubMsg::reply_on_success(take_revenue_msg, TAKE_REVENUE_REPLY_ID))
+        .add_attribute("method", "take_revenue_from_basket")
+        .add_attribute("pre_balance", current_balance.to_string()))
+}
+
+/// Permissionless execution to pull revenue and distribute within window
+/// Checks if window has passed, then calls TakeRevenueFromBasket and DistributePromises
+pub fn execute_revenue_distribution(
+    deps: DepsMut,
+    env: Env,
+    _info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let contract_addr = env.contract.address.clone();
+    let current_time = env.block.time.seconds();
+    
+    // Check if window has passed if window is configured
+    if let Some(window_days) = config.revenue_dispersal_window {
+        let last_distribution = LAST_DISTRIBUTION_TIME.may_load(deps.storage)?
+            .unwrap_or(0u64);
+        let window_seconds = window_days * 24 * 60 * 60; // Convert days to seconds
+        
+        // Only check window if we've distributed before (last_distribution > 0)
+        // First distribution should always be allowed
+        // Use <= to ensure we block if exactly at the window boundary
+        if last_distribution > 0 && current_time <= last_distribution + window_seconds {
+            // Window hasn't passed yet
+            return Ok(Response::new()
+                .add_attribute("method", "execute_revenue_distribution")
+                .add_attribute("status", "window_not_passed")
+                .add_attribute("current_time", current_time.to_string())
+                .add_attribute("last_distribution", last_distribution.to_string())
+                .add_attribute("window_seconds", window_seconds.to_string())
+                .add_attribute("next_distribution", (last_distribution + window_seconds + 1).to_string()));
+        }
+    }
+    
+    // Window has passed (or not configured), proceed with revenue pull and distribution
+    // First call TakeRevenueFromBasket, which will trigger DistributePromises via reply
+    take_revenue_from_basket(deps, env, MessageInfo {
+        sender: contract_addr,
+        funds: vec![],
+    })
+}
+
+/// Update dispersal window and synchronize with lockdrop and disco (admin only)
+/// Updates: revenue_dispersal_window, lockdrop minimum_lock_days and periods, disco dispersal_window
+pub fn update_dispersal_window(
+    storage: &mut dyn Storage,
+    _env: Env,
+    info: MessageInfo,
+    window_days: u64,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(storage)?;
+    
+    // Only owner can update
+    if info.sender != config.owner {
+        return Err(ContractError::Unauthorized {});
+    }
+    
+    if window_days == 0 {
+        return Err(ContractError::Std(cosmwasm_std::StdError::GenericErr {
+            msg: "Window days must be greater than zero".to_string(),
+        }));
+    }
+    
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    
+    // Update self: revenue_dispersal_window
+    let mut updated_config = config.clone();
+    updated_config.revenue_dispersal_window = Some(window_days);
+    CONFIG.save(storage, &updated_config)?;
+    
+    // Update LTV Disco: dispersal_window (convert days to hours)
+    if let Some(disco_addr) = &config.ltv_disco_contract {
+        let disco_window_hours = window_days * 24;
+        let update_disco_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: disco_addr.to_string(),
+                msg: to_json_binary(&membrane::ltv_disco::ExecuteMsg::UpdateConfig {
+                    owner: None,
+                    cdp_contract: None,
+                    deposit_denom: None,
+                    cdt_denom: None,
+                    minimum_deposit: None,
+                    percent_to_disperse: None,
+                    dispersal_window: Some(disco_window_hours),
+                    activation_window: None,
+                    oracle_contract: None,
+                    chain_proxy_contract: None,
+                    emissions_voting_contract: None,
+                    revenue_distributor: None,
+                    lock_duration_ceiling: None,
+                    affiliate_fee: None,
+                    max_management_fee: None,
+                    ltv_delta_minimum: None,
+                    points_system_contract: None,
+                    auction_contract: None,
+                    mbrn_denom: None,
+                })?,
+            funds: vec![],
+        });
+        msgs.push(update_disco_msg);
+    }
+    
+    // Update Lockdrop: minimum_lock_days and periods (using 5:2 ratio)
+    if let Some(lockdrop_addr) = &config.transmuter_lockdrop_contract {
+        let deposit_period = (window_days * 5) / 7;
+        let withdrawal_period = (window_days * 2) / 7;
+        
+        // Ensure at least 1 day for each period
+        let deposit_period = deposit_period.max(1);
+        let withdrawal_period = withdrawal_period.max(1);
+        
+        let update_lockdrop_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: lockdrop_addr.to_string(),
+            msg: to_json_binary(&membrane::transmuter_lockdrop::ExecuteMsg::UpdateConfig {
+                owner: None,
+                transmuter_contract: None,
+                neutron_proxy: None,
+                lockdrop_incentive_size: None,
+                deposit_period_days: Some(deposit_period),
+                withdrawal_period_days: Some(withdrawal_period),
+                deposit_token: None,
+                minimum_deposit: None,
+                mbrn_denom: None,
+                staking_contract: None,
+                mars_mirror_contract: None,
+                ltv_disco_contract: None,
+                discounts_contract: None,
+                maximum_boost: None,
+                minimum_lock_days: Some(window_days),
+                emissions_voting_contract: None,
+            })?,
+            funds: vec![],
+        });
+        msgs.push(update_lockdrop_msg);
+    }
+    
+    Ok(Response::new()
+        .add_messages(msgs)
+        .add_attribute("method", "update_dispersal_window")
+        .add_attribute("window_days", window_days.to_string())
+        .add_attribute("disco_window_hours", (window_days * 24).to_string()))
+}
 
 /// Contract queries
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: cosmwasm_std::Deps, _env: Env, msg: QueryMsg) -> StdResult<cosmwasm_std::Binary> {
+pub fn query(deps: cosmwasm_std::Deps, env: Env, msg: QueryMsg) -> StdResult<cosmwasm_std::Binary> {
     match msg {
-        QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
-        QueryMsg::Promises {} => to_json_binary(&PROMISES.load(deps.storage)?),
-        QueryMsg::FailedDistributions {} => {
-            let failed_distributions: Vec<(String, Uint128)> = FAILED_DISTRIBUTIONS
-                .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
-                .map(|item| {
-                    let (key, value) = item.unwrap();
-                    (key, Uint128::from(value))
-                })
-                .collect();
-            to_json_binary(&failed_distributions)
-        },
-        QueryMsg::PendingDistributions {} => to_json_binary(&DISTRIBUTION_PROP.load(deps.storage)?),
+        QueryMsg::Config {} => query_config(deps),
+        QueryMsg::Promises {} => query_promises(deps),
+        QueryMsg::FailedDistributions {} => query_failed_distributions(deps),
+        QueryMsg::PendingDistributions {} => query_pending_distributions(deps),
+        QueryMsg::CurrentEpochRevenue {} => query_current_epoch_revenue(deps),
+        QueryMsg::EpochCountdown {} => query_epoch_countdown(deps, env),
     }
 }
 
@@ -543,6 +929,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> Result<Response, ContractEr
     match msg.id {
         DISTRIBUTION_REPLY_ID => handle_distribution_reply(deps, env, msg),
         REVENUE_DESTINATION_REPLY_ID => handle_revenue_destination_reply(deps, env, msg),
+        TAKE_REVENUE_REPLY_ID => handle_take_revenue_reply(deps, env, msg),
         _ => Err(ContractError::Std(cosmwasm_std::StdError::GenericErr {
             msg: "Unknown reply ID".to_string(),
         })),

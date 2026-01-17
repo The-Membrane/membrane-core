@@ -1,5 +1,5 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
-use cosmwasm_std::{Uint128, Addr, Decimal};
+use cosmwasm_std::{Uint128, Addr};
 use crate::types::{Asset, VaultInfo};
 
 /// Revenue promise for distribution
@@ -25,6 +25,18 @@ pub struct Config {
     pub ltv_disco: Addr,
     /// Transmuter vault info used for EnterVault and VT denom
     pub transmuter_vault: VaultInfo,
+    /// Points system contract address (optional, for awarding points to affiliates)
+    pub points_system_contract: Option<Addr>,
+    /// CDP contract address (for TakeRevenueFromBasket)
+    pub cdp_contract: Option<Addr>,
+    /// Revenue dispersal window in days (optional, if set, distributions only occur within this window)
+    pub revenue_dispersal_window: Option<u64>,
+    /// Transmuter lockdrop contract address (optional, for synchronized parameter updates)
+    pub transmuter_lockdrop_contract: Option<Addr>,
+    /// LTV Disco contract address (optional, for synchronized parameter updates)
+    pub ltv_disco_contract: Option<Addr>,
+    /// Auction contract address (for routing non-CDT revenue)
+    pub auction_contract: Option<Addr>,
 }
 
 /// Revenue destination configuration
@@ -66,6 +78,10 @@ pub enum ExecuteMsg {
         /// Optional limit on number of promises to distribute
         limit: Option<u32>,
     },
+    /// Take revenue from CDP Basket's pending_revenue
+    /// Always takes ALL available revenue and maintains per-asset attribution
+    /// Uses CDP contract address from config
+    TakeRevenueFromBasket {},
     /// Update contract configuration (admin only)
     UpdateConfig {
         /// New revenue destinations
@@ -74,7 +90,22 @@ pub enum ExecuteMsg {
         ltv_disco: Option<String>,
         /// Update transmuter vault info
         transmuter_vault: Option<RDVaultInfoMessage>,
+        /// Update points system contract address
+        points_system_contract: Option<String>,
+        /// Update CDP contract address
+        cdp_contract: Option<String>,
+        /// Update revenue dispersal window (in days)
+        revenue_dispersal_window: Option<u64>,
+        /// Update transmuter lockdrop contract address
+        transmuter_lockdrop_contract: Option<String>,
+        /// Update LTV Disco contract address (for synchronized updates)
+        ltv_disco_contract: Option<String>,
+        /// Update auction contract address (for routing non-CDT revenue)
+        auction_contract: Option<String>,
     },
+    /// Permissionless execution to pull revenue and distribute within window
+    /// Calls TakeRevenueFromBasket then DistributePromises if window has passed
+    ExecuteRevenueDistribution {},
     /// Clear failed distributions (admin only)
     ClearFailedDistributions {},
     /// Clear pending distributions (admin only)
@@ -83,6 +114,12 @@ pub enum ExecuteMsg {
     RetryFailedDistribute {
         /// Optional limit on number of failed distributions to retry
         limit: Option<u32>,
+    },
+    /// Route non-CDT revenue (collateral fees) to auction
+    /// Accepts any non-CDT asset and sends it to the auction contract via StartAuction
+    AddNonCdtRevenue {
+        /// Which collateral assets earned this revenue
+        per_asset_distribution: Vec<crate::types::Asset>,
     },
 }
 
@@ -102,6 +139,32 @@ pub enum QueryMsg {
     /// Get pending distribution promises
     #[returns(Vec<RevenuePromise>)]
     PendingDistributions {},
+    /// Get current epoch revenue accumulation per asset
+    #[returns(CurrentEpochRevenueResponse)]
+    CurrentEpochRevenue {},
+    /// Get countdown until next epoch/distribution (in seconds)
+    #[returns(EpochCountdownResponse)]
+    EpochCountdown {},
+}
+
+/// Response for current epoch revenue accumulation
+#[cw_serde]
+pub struct CurrentEpochRevenueResponse {
+    /// Per-asset revenue accumulation: (asset_denom, accumulated_amount)
+    pub revenue: Vec<(String, Uint128)>,
+}
+
+/// Response for epoch countdown
+#[cw_serde]
+pub struct EpochCountdownResponse {
+    /// Seconds until next distribution/epoch end
+    pub seconds_remaining: u64,
+    /// Epoch start timestamp
+    pub epoch_start: u64,
+    /// Epoch end timestamp
+    pub epoch_end: u64,
+    /// Current timestamp
+    pub current_time: u64,
 }
 
 /// Instantiate message for the revenue distributor contract
@@ -117,4 +180,16 @@ pub struct InstantiateMsg {
     pub ltv_disco: String,
     /// Transmuter vault info used for EnterVault and VT denom
     pub transmuter_vault: RDVaultInfoMessage,
+    /// Points system contract address (optional)
+    pub points_system_contract: Option<String>,
+    /// CDP contract address (optional, for TakeRevenueFromBasket)
+    pub cdp_contract: Option<String>,
+    /// Revenue dispersal window in days (optional)
+    pub revenue_dispersal_window: Option<u64>,
+    /// Transmuter lockdrop contract address (optional, for synchronized parameter updates)
+    pub transmuter_lockdrop_contract: Option<String>,
+    /// LTV Disco contract address (optional, for synchronized parameter updates)
+    pub ltv_disco_contract: Option<String>,
+    /// Auction contract address (optional, for routing non-CDT revenue)
+    pub auction_contract: Option<String>,
 }

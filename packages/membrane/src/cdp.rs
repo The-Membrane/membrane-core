@@ -187,6 +187,10 @@ pub enum ExecuteMsg {
         /// Collateral denoms to check (empty means check all)
         collateral_denoms: Option<Vec<String>>,
     },
+    /// Take revenue from Basket's pending_revenue
+    /// Only callable by the revenue distributor contract
+    /// Takes ALL available revenue and maintains per-asset attribution
+    TakeRevenue {},
     //Callbacks; Only callable by the contract
     Callback(CallbackMsg),
 }

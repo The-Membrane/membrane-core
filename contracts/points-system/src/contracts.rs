@@ -8,7 +8,7 @@ use cw2::set_contract_version;
 
 use cw_storage_plus::Bound;
 use membrane::oracle::PriceResponse;
-use membrane::points_system::{ClaimCheck, Config, ExecuteMsg, InstantiateMsg, QueryMsg, VaultConversionRate, UserConversionResponse, UserStats, UserStatsResponse};
+use membrane::points_system::{ClaimCheck, Config, ExecuteMsg, InstantiateMsg, QueryMsg, VaultConversionRate, UserConversionResponse, UserStats, UserStatsResponse, PointsMultipliersResponse};
 use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::cdp::{ExecuteMsg as CDP_ExecuteMsg, MigrateMsg, QueryMsg as CDP_QueryMsg};
 use membrane::stability_pool::{QueryMsg as SP_QueryMsg, ClaimsResponse};
@@ -18,6 +18,7 @@ use membrane::oracle::QueryMsg as Oracle_QueryMsg;
 use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::staking::ExecuteMsg as Staking_ExecuteMsg;
 use membrane::types::{AssetInfo, Basket, UserInfo, PointsMultipliers, VaultMultiplier};
+use membrane::emissions_voting::{QueryMsg as EmissionsVotingQueryMsg, ExecuteMsg as EmissionsVotingExecuteMsg, GraphType};
 use membrane::range_bound_lp_vault::QueryMsg as RB_QueryMsg;
 use membrane::system_discounts::{QueryMsg as SystemDiscounts_QueryMsg, UserBoostResponse};
 use membrane::transmuter::ExecuteMsg as Transmuter_ExecuteMsg;
@@ -67,6 +68,8 @@ pub fn instantiate(
         transmuter_contract: None,
         ltv_disco_contract: None,
         system_discounts_contract: None,
+        emissions_voting_contract: None,
+        revenue_distributor_contract: None,
         mbrn_per_point: Decimal::from_ratio(1_000_000u128, 1u128), //1
         total_mbrn_distribution: Uint128::zero(), 
         max_mbrn_distribution: Uint128::new(100_000_000000u128), //100_000
@@ -107,7 +110,7 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::UpdateConfig { owner, cdt_denom, mbrn_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, transmuter_contract, ltv_disco_contract, system_discounts_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar, points_multipliers } => update_config(deps, info, owner, cdt_denom, mbrn_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, transmuter_contract, ltv_disco_contract, system_discounts_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar, points_multipliers),
+        ExecuteMsg::UpdateConfig { owner, cdt_denom, mbrn_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, transmuter_contract, ltv_disco_contract, system_discounts_contract, emissions_voting_contract, revenue_distributor_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar, points_multipliers } => update_config(deps, env, info, owner, cdt_denom, mbrn_denom, oracle_contract, positions_contract, stability_pool_contract, liq_queue_contract, governance_contract, osmosis_proxy_contract, transmuter_contract, ltv_disco_contract, system_discounts_contract, emissions_voting_contract, revenue_distributor_contract, mbrn_per_point, max_mbrn_distribution, points_per_dollar, points_multipliers),
         ExecuteMsg::Liquidate { position_id, position_owner } => liquidate_for_user(deps, env, info, position_id, position_owner),
         ExecuteMsg::CheckClaims { sp_claims, lq_claims, vote } => check_claims(deps, env, info, sp_claims, lq_claims, vote),
         ExecuteMsg::RepayAndGivePoints { position_id, position_owner, send_excess_to } => repay_and_give_points(deps, env, info, position_id, position_owner, send_excess_to),
@@ -115,6 +118,15 @@ pub fn execute(
         ExecuteMsg::TransmuteAndGivePoints { recipient } => transmute_and_give_points(deps, env, info, recipient),
         ExecuteMsg::GivePoints { sp_claims, lq_claims, vote } => give_points(deps, env, info, sp_claims, lq_claims, vote),
         ExecuteMsg::ClaimMBRN {} => claim_mbrn_from_points(deps, env, info),
+        ExecuteMsg::ReceiveVotingResult { label, result_uint128, result_decimal } => {
+            execute_receive_voting_result(deps, info, label, result_uint128, result_decimal)
+        }
+        ExecuteMsg::GivePointsForAffiliateFee { affiliate, fee_amount } => {
+            give_points_for_affiliate_fee(deps, env, info, affiliate, fee_amount)
+        }
+        ExecuteMsg::GivePointsForManagerFee { manager, fee_amount } => {
+            give_points_for_manager_fee(deps, env, info, manager, fee_amount)
+        }
     }
 }
 
@@ -963,6 +975,7 @@ fn allocate_points(
 /// Update contract configuration
 fn update_config(
     deps: DepsMut,
+    env: Env,
     info: MessageInfo,
     owner: Option<String>,
     cdt_denom: Option<String>,
@@ -976,6 +989,8 @@ fn update_config(
     transmuter_contract: Option<String>,
     ltv_disco_contract: Option<String>,
     system_discounts_contract: Option<String>,
+    emissions_voting_contract: Option<String>,
+    revenue_distributor_contract: Option<String>,
     mbrn_per_point: Option<Decimal>,
     max_mbrn_distribution: Option<Uint128>,
     points_per_dollar: Option<Decimal>,  
@@ -1046,6 +1061,14 @@ fn update_config(
         config.system_discounts_contract = Some(deps.api.addr_validate(&addr)?);
         attrs.push(attr("system_discounts_contract", addr));
     }
+    if let Some(addr) = emissions_voting_contract {
+        config.emissions_voting_contract = Some(deps.api.addr_validate(&addr)?);
+        attrs.push(attr("emissions_voting_contract", addr));
+    }
+    if let Some(addr) = revenue_distributor_contract {
+        config.revenue_distributor_contract = Some(deps.api.addr_validate(&addr)?);
+        attrs.push(attr("revenue_distributor_contract", addr));
+    }
     if let Some(amount) = mbrn_per_point {
         config.mbrn_per_point = amount;
         attrs.push(attr("mbrn_per_point", amount.to_string()));
@@ -1059,15 +1082,77 @@ fn update_config(
         attrs.push(attr("points_per_dollar", amount.to_string()));
     }        
     if let Some(multipliers) = points_multipliers {
+        // Get old multipliers to compare vault_yields
+        let old_multipliers = POINTS_MULTIPLIERS.may_load(deps.storage)?.unwrap_or(PointsMultipliers {
+            interest_rate: Decimal::one(),
+            vault_yields: vec![],
+            liquidation_execution: Decimal::one(),
+            liquidation_claims: Decimal::one(),
+            governance_votes: Decimal::one(),
+            transmuter_swap_fees: Decimal::one(),
+            disco_revenue: Decimal::one(),
+        });
+
+        // Find new vaults that don't exist in old multipliers
+        let old_vault_addresses: Vec<String> = old_multipliers.vault_yields.iter()
+            .map(|v| v.vault_address.clone())
+            .collect();
+        
+        let new_vaults: Vec<&VaultMultiplier> = multipliers.vault_yields.iter()
+            .filter(|v| !old_vault_addresses.contains(&v.vault_address))
+            .collect();
+
+        // Create graphs for new vaults if emissions_voting_contract is set
+        let mut graph_msgs: Vec<CosmosMsg> = vec![];
+        if let Some(emissions_voting_addr) = &config.emissions_voting_contract {
+            for vault in new_vaults {
+                // Check if graph already exists by querying
+                let graph_exists = deps.querier.query::<membrane::emissions_voting::GraphResponse>(
+                    &QueryRequest::Wasm(WasmQuery::Smart {
+                        contract_addr: emissions_voting_addr.to_string(),
+                        msg: to_json_binary(&EmissionsVotingQueryMsg::Graph {
+                            label: vault.vault_address.clone(),
+                        })?,
+                    })
+                ).is_ok();
+
+                // Only create if graph doesn't exist
+                if !graph_exists {
+                    graph_msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: emissions_voting_addr.to_string(),
+                        msg: to_json_binary(&EmissionsVotingExecuteMsg::CreateGraph {
+                            label: vault.vault_address.clone(),
+                            graph_type: GraphType::Decimal,
+                            range_min: "1.0".to_string(),
+                            range_max: "10.0".to_string(),
+                            period_days: 7,
+                            callback_contract: env.contract.address.to_string(),
+                        })?,
+                        funds: vec![],
+                    }));
+                }
+            }
+        }
+
         POINTS_MULTIPLIERS.save(deps.storage, &multipliers)?;
         attrs.push(attr("points_multipliers", format!("{:?}", multipliers)));
+
+        // Save Config
+        CONFIG.save(deps.storage, &config)?;
+        attrs.push(attr("updated_config", format!("{:?}", config)));
+
+        let mut response = Response::new().add_attributes(attrs);
+        if !graph_msgs.is_empty() {
+            response = response.add_messages(graph_msgs);
+        }
+        Ok(response)
+    } else {
+        //Save Config
+        CONFIG.save(deps.storage, &config)?;
+        attrs.push(attr("updated_config", format!("{:?}", config)));
+
+        Ok(Response::new().add_attributes(attrs))
     }
-
-    //Save Config
-    CONFIG.save(deps.storage, &config)?;
-    attrs.push(attr("updated_config", format!("{:?}", config)));
-
-    Ok(Response::new().add_attributes(attrs))
 }
 
 
@@ -1432,6 +1517,9 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::ClaimCheck {} => to_json_binary(&CLAIM_CHECK.load(deps.storage)?),
         QueryMsg::UserStats { user, limit, start_after } => to_json_binary(&query_user_stats(deps, user, limit, start_after)?),
         QueryMsg::UserConversionRates { user, limit, start_after } => to_json_binary(&query_user_conversion_rates(deps, user, limit, start_after)?),
+        QueryMsg::PointsMultipliers {} => to_json_binary(&membrane::points_system::PointsMultipliersResponse {
+            points_multipliers: POINTS_MULTIPLIERS.load(deps.storage)?,
+        }),
     }
 }
 
@@ -1516,6 +1604,233 @@ fn query_user_conversion_rates(
     }
 
     Ok(user_rates)
+}
+
+/// Handle voting result from emissions voting contract
+/// Updates the corresponding PointsMultipliers field based on the graph label
+fn execute_receive_voting_result(
+    deps: DepsMut,
+    info: MessageInfo,
+    label: String,
+    _result_uint128: Option<Uint128>,
+    result_decimal: Option<Decimal>,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    // Authorization: Only emissions_voting_contract can call this
+    let emissions_voting = config.emissions_voting_contract.clone()
+        .ok_or_else(|| ContractError::Unauthorized {})?;
+    if info.sender != emissions_voting {
+        return Err(ContractError::Unauthorized {});
+    }
+    
+    // Get the decimal result (all points multiplier graphs are Decimal type)
+    let new_value = result_decimal
+        .ok_or_else(|| ContractError::Std(StdError::generic_err(
+            "PointsMultipliers graphs must return Decimal result"
+        )))?;
+    
+    // Load current multipliers
+    let mut multipliers = POINTS_MULTIPLIERS.load(deps.storage)?;
+    
+    // Match label to the corresponding field
+    let field_updated = match label.as_str() {
+        "interest_rate" => {
+            multipliers.interest_rate = new_value;
+            true
+        }
+        "liquidation_execution" => {
+            multipliers.liquidation_execution = new_value;
+            true
+        }
+        "liquidation_claims" => {
+            multipliers.liquidation_claims = new_value;
+            true
+        }
+        "governance_votes" => {
+            multipliers.governance_votes = new_value;
+            true
+        }
+        "transmuter_swap_fees" => {
+            multipliers.transmuter_swap_fees = new_value;
+            true
+        }
+        "disco_revenue" => {
+            multipliers.disco_revenue = new_value;
+            true
+        }
+        _ => false, // Unknown label, ignore
+    };
+    
+    if !field_updated {
+        return Ok(Response::new()
+            .add_attribute("action", "receive_voting_result")
+            .add_attribute("status", "ignored")
+            .add_attribute("label", label));
+    }
+    
+    // Save updated multipliers
+    POINTS_MULTIPLIERS.save(deps.storage, &multipliers)?;
+    
+    Ok(Response::new()
+        .add_attribute("action", "receive_voting_result")
+        .add_attribute("label", label)
+        .add_attribute("new_value", new_value.to_string())
+    )
+}
+
+/// Give points for affiliate fee distribution
+fn give_points_for_affiliate_fee(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    affiliate: String,
+    fee_amount: Uint128,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // Validate that the caller is the revenue distributor contract
+    let revenue_distributor = config.revenue_distributor_contract
+        .ok_or_else(|| ContractError::Std(StdError::generic_err("Revenue distributor contract not configured")))?;
+    if info.sender != revenue_distributor {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let querier = deps.querier;
+    let storage = deps.storage;
+    
+    // Validate affiliate address
+    let affiliate_addr = deps.api.addr_validate(&affiliate)?;
+    
+    // Get CDT price
+    let basket: Basket = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.positions_contract.to_string(),
+        msg: to_json_binary(&CDP_QueryMsg::GetBasket {})?,
+    }))?;
+    let cdt_price: PriceResponse = basket.credit_price;
+    
+    // Load points multipliers
+    let points_multipliers = POINTS_MULTIPLIERS.load(storage)?;
+    
+    // Calculate value: fee_amount * multiplier (using interest_rate multiplier for affiliates)
+    let fee_value = decimal_multiplication(
+        cdt_price.get_value(fee_amount)?,
+        points_multipliers.interest_rate.clone()
+    )?;
+    
+    // Calculate base points
+    let base_points = decimal_multiplication(fee_value, config.points_per_dollar)?;
+    
+    // Apply boost multiplier if system_discounts contract is configured
+    let points = if let Some(discounts_addr) = &config.system_discounts_contract {
+        // Query user's boost
+        let boost_response: UserBoostResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: discounts_addr.to_string(),
+            msg: to_json_binary(&SystemDiscounts_QueryMsg::UserBoost {
+                user: affiliate.clone(),
+            })?,
+        }))?;
+        
+        // Calculate boost multiplier: 1 + boost_percentage
+        let boost_multiplier = Decimal::one() + boost_response.boost;
+        
+        // Apply boost to points
+        decimal_multiplication(base_points, boost_multiplier)?
+    } else {
+        base_points
+    };
+    
+    // Save points to affiliate
+    let mut user_stats = USER_STATS.may_load(storage, affiliate_addr.clone())?
+        .unwrap_or(UserStats {
+            total_points: Decimal::zero(),
+            claimable_points: Decimal::zero(),
+        });
+    user_stats.total_points += points;
+    user_stats.claimable_points += points;
+    USER_STATS.save(storage, affiliate_addr, &user_stats)?;
+    
+    Ok(Response::new()
+        .add_attribute("method", "give_points_for_affiliate_fee")
+        .add_attribute("affiliate", affiliate)
+        .add_attribute("fee_amount", fee_amount.to_string())
+        .add_attribute("points", points.to_string()))
+}
+
+/// Give points for manager fee distribution
+fn give_points_for_manager_fee(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    manager: String,
+    fee_amount: Uint128,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // Validate that the caller is the disco contract
+    if info.sender != config.ltv_disco_contract.unwrap() {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let querier = deps.querier;
+    let storage = deps.storage;
+    
+    // Validate manager address
+    let manager_addr = deps.api.addr_validate(&manager)?;
+    
+    // Get CDT price
+    let basket: Basket = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: config.positions_contract.to_string(),
+        msg: to_json_binary(&CDP_QueryMsg::GetBasket {})?,
+    }))?;
+    let cdt_price: PriceResponse = basket.credit_price;
+    
+    // Load points multipliers
+    let points_multipliers = POINTS_MULTIPLIERS.load(storage)?;
+    
+    // Calculate value: fee_amount * multiplier (using disco_revenue multiplier for disco managers)
+    let fee_value = decimal_multiplication(
+        cdt_price.get_value(fee_amount)?,
+        points_multipliers.disco_revenue.clone()
+    )?;
+    
+    // Calculate base points
+    let base_points = decimal_multiplication(fee_value, config.points_per_dollar)?;
+    
+    // Apply boost multiplier if system_discounts contract is configured
+    let points = if let Some(discounts_addr) = &config.system_discounts_contract {
+        // Query user's boost
+        let boost_response: UserBoostResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: discounts_addr.to_string(),
+            msg: to_json_binary(&SystemDiscounts_QueryMsg::UserBoost {
+                user: manager.clone(),
+            })?,
+        }))?;
+        
+        // Calculate boost multiplier: 1 + boost_percentage
+        let boost_multiplier = Decimal::one() + boost_response.boost;
+        
+        // Apply boost to points
+        decimal_multiplication(base_points, boost_multiplier)?
+    } else {
+        base_points
+    };
+    
+    // Save points to manager
+    let mut user_stats = USER_STATS.may_load(storage, manager_addr.clone())?
+        .unwrap_or(UserStats {
+            total_points: Decimal::zero(),
+            claimable_points: Decimal::zero(),
+        });
+    user_stats.total_points += points;
+    user_stats.claimable_points += points;
+    USER_STATS.save(storage, manager_addr, &user_stats)?;
+    
+    Ok(Response::new()
+        .add_attribute("method", "give_points_for_manager_fee")
+        .add_attribute("manager", manager)
+        .add_attribute("fee_amount", fee_amount.to_string())
+        .add_attribute("points", points.to_string()))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

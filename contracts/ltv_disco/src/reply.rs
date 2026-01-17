@@ -159,7 +159,7 @@ pub fn handle_compound_swap_reply(deps: DepsMut, env: Env, _msg: Reply) -> Resul
     for (deposit_key_str, cdt_contribution) in propagation.deposit_contributions {
         // Parse deposit key to extract components
         let parts: Vec<&str> = deposit_key_str.split(':').collect();
-        if parts.len() != 5 {
+        if parts.len() != 5 && parts.len() != 6 {
             continue; // Skip invalid keys
         }
         
@@ -168,6 +168,11 @@ pub fn handle_compound_swap_reply(deps: DepsMut, env: Env, _msg: Reply) -> Resul
         let max_borrow_ltv_str = parts[2];
         let user_str = parts[3].to_string();
         let deposit_id_str = parts[4];
+        let epoch_start_time = if parts.len() == 6 {
+            u64::from_str(parts[5]).ok()
+        } else {
+            None
+        };
         
         let ltv = Decimal::from_str(ltv_str)
             .map_err(|_| ContractError::CustomError { val: "Invalid LTV format".to_string() })?;
@@ -196,6 +201,7 @@ pub fn handle_compound_swap_reply(deps: DepsMut, env: Env, _msg: Reply) -> Resul
                     asset: asset_str.clone(),
                     ltv,
                     max_borrow_ltv,
+                    epoch_start_time,
                 },
                 deposit_owner: Some(user_str), // Specify the owner
                 locked: None, // Don't change lock status

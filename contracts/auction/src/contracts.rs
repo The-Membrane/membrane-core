@@ -13,6 +13,8 @@ use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
 use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, DebtAuction, FeeAuction};
 use membrane::helpers::withdrawal_msg;
+use membrane::revenue_distributor::ExecuteMsg as RevenueDistributorExecuteMsg;
+use membrane::ltv_disco::ExecuteMsg as LtvDiscoExecuteMsg;
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, DEBT_AUCTION, FEE_AUCTIONS, OWNERSHIP_TRANSFER};
@@ -48,6 +50,13 @@ pub fn instantiate(
         discount_increase_timeframe: msg.discount_increase_timeframe,
         discount_increase: msg.discount_increase,
         send_to_stakers: false,
+        delay_window_minutes: msg.delay_window_minutes.unwrap_or(60u64),
+        revenue_distributor_contract: msg.revenue_distributor_contract
+            .map(|addr| deps.api.addr_validate(&addr))
+            .transpose()?,
+        ltv_disco_contract: msg.ltv_disco_contract
+            .map(|addr| deps.api.addr_validate(&addr))
+            .transpose()?,
     };
 
     if let Some(owner) = msg.owner {
@@ -82,7 +91,8 @@ pub fn execute(
             repayment_position_info,
             send_to,
             auction_asset,
-        } => start_auction(deps, env, info, repayment_position_info, send_to, auction_asset),
+            per_asset_distribution,
+        } => start_auction(deps, env, info, repayment_position_info, send_to, auction_asset, per_asset_distribution),
         ExecuteMsg::SwapForMBRN { } => swap_for_mbrn(deps, info, env),
         ExecuteMsg::SwapForFee { auction_asset } => swap_with_the_contracts_desired_asset(deps, info, env, auction_asset),
         ExecuteMsg::RemoveAuction { } => remove_auction(deps, info),
@@ -190,6 +200,15 @@ fn update_config(
     if let Some(send_to_stakers) = update.send_to_stakers {
         config.send_to_stakers = send_to_stakers;
     }
+    if let Some(delay_window_minutes) = update.delay_window_minutes {
+        config.delay_window_minutes = delay_window_minutes;
+    }
+    if let Some(addr) = update.revenue_distributor_contract {
+        config.revenue_distributor_contract = Some(deps.api.addr_validate(&addr)?);
+    }
+    if let Some(addr) = update.ltv_disco_contract {
+        config.ltv_disco_contract = Some(deps.api.addr_validate(&addr)?);
+    }
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
@@ -209,6 +228,7 @@ fn start_auction(
     user_info: Option<UserInfo>,
     send_to: Option<String>,
     mut auction_asset: Asset,
+    per_asset_distribution: Option<Vec<Asset>>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -236,6 +256,22 @@ fn start_auction(
                 Some(mut auction) => {
                     //If Some, add to Auction asset amount
                     auction.auction_asset.amount += auction_asset.clone().amount;
+                    // Merge per_asset_distribution if both exist
+                    if let Some(new_dist) = per_asset_distribution.clone() {
+                        if let Some(existing_dist) = &mut auction.per_asset_distribution {
+                            // Merge: add amounts for matching assets, append new ones
+                            for new_asset in new_dist {
+                                if let Some(existing) = existing_dist.iter_mut()
+                                    .find(|a| a.info == new_asset.info) {
+                                    existing.amount += new_asset.amount;
+                                } else {
+                                    existing_dist.push(new_asset);
+                                }
+                            }
+                        } else {
+                            auction.per_asset_distribution = Some(new_dist);
+                        }
+                    }
 
                     Ok(auction)
                 },
@@ -244,6 +280,7 @@ fn start_auction(
                     Ok(FeeAuction {
                         auction_asset,
                         auction_start_time: env.block.time.seconds(),
+                        per_asset_distribution: per_asset_distribution.clone(),
                     })
                 }
             }
@@ -385,6 +422,20 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
     //Get FeeAuction
     let mut auction = FEE_AUCTIONS.load(deps.storage, auction_asset.clone().to_string())?;
 
+    // Check delay based on desired_asset: 0 for MBRN, configured delay for others
+    let delay_window_seconds = if config.desired_asset == config.mbrn_denom {
+        0u64
+    } else {
+        //Delay minutes to seconds
+        config.delay_window_minutes * 60
+    };
+    let earliest_swap_time = auction.auction_start_time + delay_window_seconds;
+    if env.block.time.seconds() < earliest_swap_time {
+        return Err(ContractError::Std(StdError::GenericErr { 
+            msg: format!("Auction delay not passed. Can swap at timestamp: {}", earliest_swap_time)
+        }));
+    }
+
     //If the auction is active, i.e. there is still debt to be repaid & auction has started
     //...swap for auctioned asset
     if !auction.auction_asset.amount.is_zero() && auction.auction_start_time <= env.block.time.seconds() {
@@ -458,26 +509,55 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
             FEE_AUCTIONS.remove(deps.storage, auction_asset.clone().to_string());
         }
 
-        //Send desired asset to Governance or deposit to Stakers
-        if coin.amount - overpay > Uint128::zero(){
-            if config.send_to_stakers {
-                //Staking DepositFee
+        //Send desired asset based on type
+        let proceeds_amount = coin.amount - overpay;
+        if proceeds_amount > Uint128::zero() {
+            if config.desired_asset == config.mbrn_denom {
+                // MBRN proceeds go to LTV Disco with per_asset_distribution
+                if let Some(ltv_disco) = config.ltv_disco_contract.clone() {
+                    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: ltv_disco.to_string(),
+                        msg: to_json_binary(&LtvDiscoExecuteMsg::AddDepositTokenRevenue {
+                            per_asset_distribution: auction.per_asset_distribution.clone().unwrap_or_default(),
+                        })?,
+                        funds: vec![Coin {
+                            denom: config.mbrn_denom.clone(),
+                            amount: proceeds_amount,
+                        }],
+                    }));
+                }
+            } else if config.desired_asset == config.cdt_denom {
+                // CDT proceeds go to revenue distributor with per_asset_distribution
+                if let Some(revenue_distributor) = config.revenue_distributor_contract.clone() {
+                    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                        contract_addr: revenue_distributor.to_string(),
+                        msg: to_json_binary(&RevenueDistributorExecuteMsg::SetPromises {
+                            promises: vec![],
+                            ltv_disco_distribution: auction.per_asset_distribution.clone(),
+                        })?,
+                        funds: vec![Coin {
+                            denom: config.cdt_denom.clone(),
+                            amount: proceeds_amount,
+                        }],
+                    }));
+                }
+            } else if config.send_to_stakers {
+                //Staking DepositFee (fallback for other desired assets)
                 msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.clone().staking_contract.to_string(),
                     msg: to_json_binary(&StakingExecuteMsg::DepositFee { })?,
                     funds: vec![Coin {
                         denom: config.clone().desired_asset,
-                        amount: coin.amount - overpay,
+                        amount: proceeds_amount,
                     }],
                 }));
-
             } else {
-                //Governance
+                //Governance (fallback)
                 msgs.push(CosmosMsg::Bank(BankMsg::Send {
                     to_address: config.clone().governance_contract.to_string(),
                     amount: vec![Coin {
                         denom: config.clone().desired_asset,
-                        amount: coin.amount - overpay,
+                        amount: proceeds_amount,
                     }],
                 }));
             }
@@ -519,15 +599,26 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
 }
 
 
-/// Get swap discount based on time elapsed since auction start
+/// Get swap discount based on time elapsed since auction start (after delay window)
 fn get_discount_ratio(
     env: Env,
     auction_start_time: u64,
     config: Config,
 ) -> StdResult<Decimal> {
+    // If desired_asset is MBRN, use 0 delay; otherwise use configured delay
+    let delay_window_seconds = if config.desired_asset == config.mbrn_denom {
+        0u64
+    } else {
+        //Delay minutes to seconds
+        config.delay_window_minutes * 60
+    };
+    
+    // Calculate time elapsed AFTER the delay window has passed
+    // If still in delay window, time_elapsed_for_discount = 0
+    let time_since_start = env.block.time.seconds().saturating_sub(auction_start_time);
+    let time_elapsed = time_since_start.saturating_sub(delay_window_seconds);
 
-    //Get discount
-    let time_elapsed = env.block.time.seconds() - auction_start_time;
+    //Get discount based on elapsed time (after delay)
     let discount_multiplier = time_elapsed / config.discount_increase_timeframe;
     let current_discount_increase = decimal_multiplication(
         Decimal::from_ratio(
@@ -569,6 +660,21 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
 
     //Get DebtAuction
     let mut auction = DEBT_AUCTION.load(deps.storage)?;
+
+    // Check delay based on desired_asset: 0 for MBRN, configured delay for others
+    // For debt auctions, users pay CDT and get MBRN (minted), so desired_asset check applies
+    let delay_window_seconds = if config.desired_asset == config.mbrn_denom {
+        0u64
+    } else {
+        //Delay minutes to seconds
+        config.delay_window_minutes * 60
+    };
+    let earliest_swap_time = auction.auction_start_time + delay_window_seconds;
+    if env.block.time.seconds() < earliest_swap_time {
+        return Err(ContractError::Std(StdError::GenericErr { 
+            msg: format!("Auction delay not passed. Can swap at timestamp: {}", earliest_swap_time)
+        }));
+    }
 
     //If the auction is active, i.e. there is still debt to be repaid, swap for MBRN
     if !auction.remaining_recapitalization.is_zero() {

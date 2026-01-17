@@ -106,6 +106,10 @@ pub enum ExecuteMsg {
         recipient: Option<String>,
         withdraw_as: Option<String>,
     },
+    UnlockVaultTokens {
+        /// Amount of locked vault tokens to unlock (None = unlock all available)
+        amount: Option<Uint128>,
+    },
     Transmute {
         recipient: Option<String>,
     },
@@ -309,6 +313,8 @@ pub struct GlobalRateLimitResponse {
 pub struct LockedVaultToken {
     pub amount: Uint128,
     pub locked_until: u64,
+    pub intended_lock_days: u64,
+    pub lock_start_time: u64,
 }
 
 #[cw_serde]

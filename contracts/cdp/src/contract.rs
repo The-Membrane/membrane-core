@@ -265,6 +265,9 @@ pub fn execute(
         ExecuteMsg::FulfillBadDebt { } => {
             fulfill_bad_debt(deps, env, info)
         },
+        ExecuteMsg::TakeRevenue {} => {
+            take_revenue(deps, env, info)
+        },
         ExecuteMsg::CollateralRateAssurance { collateral_denoms } => {
             collateral_rate_assurance(deps, env, info, collateral_denoms)
         },
@@ -338,6 +341,57 @@ fn fulfill_bad_debt(
     BASKET.save(deps.storage, &basket)?;
 
     Ok(Response::new().add_messages(msgs))
+}
+
+/// Take revenue from Basket's pending_revenue
+/// Only callable by the revenue distributor contract
+/// Takes ALL available revenue and maintains per-asset attribution
+fn take_revenue(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let config: Config = CONFIG.load(deps.storage)?;
+    let mut basket: Basket = BASKET.load(deps.storage)?;
+    
+    // Validate caller is the revenue distributor contract
+    let revenue_distributor = config.revenue_distributor
+        .ok_or_else(|| ContractError::CustomError {
+            val: "Revenue distributor not configured".to_string(),
+        })?;
+    
+    if info.sender != revenue_distributor {
+        return Err(ContractError::Unauthorized {
+            owner: revenue_distributor.to_string(),
+        });
+    }
+    
+    // Take all available revenue
+    let total_revenue = basket.pending_revenue.total_pending;
+    
+    // Clear pending revenue
+    basket.pending_revenue.total_pending = Uint128::zero();
+    basket.pending_revenue.per_asset_rev.clear();
+    
+    // Save updated basket
+    BASKET.save(deps.storage, &basket)?;
+    
+    // Send CDT to revenue distributor
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    if !total_revenue.is_zero() {
+        msgs.push(CosmosMsg::Bank(BankMsg::Send {
+            to_address: revenue_distributor.to_string(),
+            amount: vec![Coin {
+                denom: basket.credit_asset.info.to_string(),
+                amount: total_revenue,
+            }],
+        }));
+    }
+    
+    Ok(Response::new()
+        .add_messages(msgs)
+        .add_attribute("method", "take_revenue")
+        .add_attribute("total_revenue", total_revenue.to_string()))
 }
 
 /// Helper to align collateral_types and collateral_supply_caps by asset_info
@@ -811,6 +865,7 @@ fn check_and_fulfill_bad_debt(
                     info: basket.clone().credit_asset.info,
                 },
                 send_to: None,
+                per_asset_distribution: None, // Bad debt auction doesn't track per-asset distribution
             };
 
             messages.push(CosmosMsg::Wasm(WasmMsg::Execute {

@@ -4,7 +4,7 @@ use cosmwasm_std::{Uint128, Decimal, Addr, Coin};
 use cw_storage_plus::{Item, Map};
 
 use membrane::neutron_proxy::{Config, DexPreference};
-use membrane::types::{SwapRoute, TransmutationPair};
+use membrane::types::SwapRoute;
 
 #[cw_serde]
 pub struct TokenInfo {
@@ -40,3 +40,5 @@ pub const SWAP_ROUTES: Item<Vec<SwapRoute>> = Item::new("swap_routes");
 pub const SWAP_INFO: Item<SwapInfo> = Item::new("swap_info");
 // Map: (token_in, token_out) -> DexPreference
 pub const SWAP_ROUTE_CONFIG: Map<(String, String), DexPreference> = Map::new("swap_route_config");
+// Map: token denom -> supply threshold (minimum supply required before transmuting is enabled)
+pub const TRANSMUTE_SUPPLY_THRESHOLDS: Map<String, Uint128> = Map::new("transmute_supply_thresholds");

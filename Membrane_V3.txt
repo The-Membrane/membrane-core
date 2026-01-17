@@ -8,6 +8,7 @@ CDP SUPERVAULTS
 - WE can use supervaults as the base structure
 - Create an inApp visual for the routing between them all and the transmuter
 - "No IL for senior tranche LPs" as a USP (experimental)
+- Batch trade for effieicny but likely only possible with the CronModule
 
 
 ***********V3***************

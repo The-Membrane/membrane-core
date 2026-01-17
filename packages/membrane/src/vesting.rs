@@ -22,6 +22,10 @@ pub struct InstantiateMsg {
     pub osmosis_proxy: String,
     /// Staking contract address
     pub staking_contract: String,
+    /// Neutron Proxy contract address (for vesting minting)
+    pub neutron_proxy: Option<String>,
+    /// Old MBRN denom (token received from users)
+    pub old_mbrn_denom: Option<String>,
 }
 
 
@@ -88,7 +92,19 @@ pub enum ExecuteMsg {
         staking_contract: Option<String>,
         /// Additional allocation for the contract to distribute
         additional_allocation: Option<Uint128>,
+        /// Neutron Proxy contract address
+        neutron_proxy: Option<String>,
+        /// Old MBRN denom
+        old_mbrn_denom: Option<String>,
     },
+    /// Accept vested transmutation from neutron-proxy (auth required)
+    AddVestedTransmutation {
+        recipient: String,
+        amount_to_mint: Uint128,
+        vesting_period: VestingPeriod,
+    },
+    /// Withdraw unlocked MBRN from weekly vesting schedules
+    WithdrawVestedUnlocked {},
 }
 
 #[cw_serde]
@@ -112,6 +128,14 @@ pub enum QueryMsg {
     },
     /// Returns all recipients
     Recipients {},
+    /// Query all vesting schedules for a user
+    VestingSchedules { user: String },
+    /// Query specific schedule
+    VestingSchedule { user: String, week_id: u64 },
+    /// Query total unlocked across all schedules
+    TotalVestedUnlocked { user: String },
+    /// Query global vesting stats
+    VestingStats {},
 }
 
 #[cw_serde]
@@ -126,6 +150,10 @@ pub struct Config {
     pub osmosis_proxy: Addr,
     /// Staking contract address
     pub staking_contract: Addr,
+    /// Neutron Proxy contract address (for vesting minting)
+    pub neutron_proxy: Option<Addr>,
+    /// Old MBRN denom (token received from users)
+    pub old_mbrn_denom: Option<String>,
 }
 
 #[cw_serde]
@@ -180,3 +208,26 @@ impl RecipientsResponse {
 
 #[cw_serde]
 pub struct MigrateMsg {}
+
+#[cw_serde]
+pub struct VestingSchedulesResponse {
+    pub schedules: Vec<VestingScheduleInfo>,
+}
+
+#[cw_serde]
+pub struct VestingScheduleInfo {
+    pub week_id: u64,
+    pub mbrn_to_mint: Uint128,
+    pub amount_withdrawn: Uint128,
+    pub start_time: u64,
+    pub vesting_period: VestingPeriod,
+    pub transmutation_count: u64,
+    pub unlocked_amount: Uint128,
+}
+
+#[cw_serde]
+pub struct VestingStatsResponse {
+    pub total_old_mbrn_received: Uint128,
+    pub total_schedules: u64,
+    pub total_users: u64,
+}

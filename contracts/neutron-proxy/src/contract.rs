@@ -9,15 +9,15 @@ use cosmwasm_std::{
     attr, to_json_binary, BankMsg, Addr, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg
 };
 use membrane::neutron_proxy::{
-    Config, ContractDenomsResponse, DualityRoute, ExecuteMsg, GetDenomResponse, InstantiateMsg, MigrateMsg, QueryMsg, TokenInfoResponse, NeutronOwnerEntry, NeutronMsg
+    Config, ContractDenomsResponse, DualityRoute, ExecuteMsg, GetDenomResponse, InstantiateMsg, MigrateMsg, QueryMsg, TokenInfoResponse, NeutronOwnerEntry, NeutronMsg, TransmuteSupplyThresholdEntry
 };
 use membrane::{mars_vault_token, transmuter};
-use membrane::types::{AssetInfo, NeutronOwner, TransmutationPairEntry, VaultEntry};
+use membrane::types::{AssetInfo, NeutronOwner, TransmutationPair, TransmutationPairEntry, VaultEntry, VestingPeriod};
 use membrane::helpers::get_contract_balances;
 use cw2::set_contract_version;
 
 use crate::error::TokenFactoryError;
-use crate::state::{PendingTokenInfo, TokenInfo, SwapInfo, CONFIG, PENDING, TOKENS, SWAP_ROUTES, SWAP_INFO, SWAP_ROUTE_CONFIG};
+use crate::state::{PendingTokenInfo, TokenInfo, SwapInfo, CONFIG, PENDING, TOKENS, SWAP_ROUTES, SWAP_INFO, SWAP_ROUTE_CONFIG, TRANSMUTE_SUPPLY_THRESHOLDS};
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse, MsgCreateDenomResponse};
 
 // version info for migration info
@@ -73,7 +73,7 @@ pub fn instantiate(
         owners: vec![
             NeutronOwner {
                 owner: info.sender.clone(),
-                non_token_contract_auth: true, 
+                non_token_contract_auth: true,
             }],
         debt_auction: None,
         transmutation_pairs: vec![],
@@ -84,6 +84,8 @@ pub fn instantiate(
         astroport_factory,
         astroport_router,
         enable_dynamic_routing: msg.enable_dynamic_routing.unwrap_or(false),
+        vesting_contract: None,
+        vesting_period: None,
     };
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
     CONFIG.save(deps.storage, &config)?;
@@ -145,7 +147,10 @@ pub fn execute(
             astroport_factory,
             astroport_router,
             enable_dynamic_routing,
-        } => update_config(deps, info, owners, debt_auction, transmutation_pairs, transmuter_contract, vaults, astroport_factory, astroport_router, enable_dynamic_routing),
+            transmute_supply_thresholds,
+            vesting_contract,
+            vesting_period,
+        } => update_config(deps, info, owners, debt_auction, transmutation_pairs, transmuter_contract, vaults, astroport_factory, astroport_router, enable_dynamic_routing, transmute_supply_thresholds, vesting_contract, vesting_period),
         // ExecuteMsg::CreatePclPair { asset_infos, params } => {
         //     execute_create_pcl_pair(deps, env, info, asset_infos, params)
         // },
@@ -206,20 +211,42 @@ fn transmute_tokens(
                 .add_attribute("transmutation_pair", format!("{:?}", transmutation_pair_clone))
                 .add_attribute("amount_to_send", amount_to_send)
                 .add_message(send_tokens_msg))
-        } else {    
+        } else {
+            //Check if there's a supply threshold for this token
+            if let Some(threshold) = TRANSMUTE_SUPPLY_THRESHOLDS.may_load(deps.storage, transmutation_pair.token_to_mint.clone())? {
+                //Load token info to check current supply
+                let token_info = TOKENS.load(deps.storage, transmutation_pair.token_to_mint.clone())?;
+
+                //CRITICAL: Check if threshold crossed
+                if token_info.current_supply >= threshold {
+                    // POST-THRESHOLD: Redirect to vesting
+                    return execute_vesting_transmutation(
+                        deps, env, info, config, transmutation_pair
+                    );
+                } else {
+                    // PRE-THRESHOLD: Block transmutation
+                    return Err(TokenFactoryError::CustomError {
+                        val: format!(
+                            "Transmuting not yet enabled. Current supply: {}, required threshold: {}",
+                            token_info.current_supply,
+                            threshold
+                        )
+                    });
+                }
+            }
 
             //Calculate amount to mint
             let amount_to_mint = info.funds[0].amount * transmutation_pair.mint_ratio;
 
             //Mint tokens
             let mint_tokens_msg: CosmosMsg<NeutronMsg> = TokenFactory::MsgMint {
-                sender: env.contract.address.to_string(), 
+                sender: env.contract.address.to_string(),
                 amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin {
                     denom: transmutation_pair.token_to_mint.clone(),
                     amount: amount_to_mint.to_string(),
-                }), 
+                }),
                 mint_to_address: info.sender.to_string(),
-            }.into();  
+            }.into();
 
 
             Ok(Response::<NeutronMsg>::new()
@@ -232,7 +259,45 @@ fn transmute_tokens(
 
 }
 
+/// Execute vesting transmutation (post-threshold)
+fn execute_vesting_transmutation(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    config: Config,
+    transmutation_pair: TransmutationPair,
+) -> Result<Response<NeutronMsg>, TokenFactoryError> {
+    // Validate vesting config
+    let vesting_contract = config.vesting_contract
+        .ok_or(TokenFactoryError::CustomError {
+            val: "Vesting contract not configured".to_string()
+        })?;
 
+    let vesting_period = config.vesting_period
+        .ok_or(TokenFactoryError::CustomError {
+            val: "Vesting period not configured".to_string()
+        })?;
+
+    // Calculate amount to vest
+    let amount_to_vest = info.funds[0].amount * transmutation_pair.mint_ratio;
+
+    // Forward to vesting contract
+    let vesting_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: vesting_contract.to_string(),
+        msg: to_json_binary(&membrane::vesting::ExecuteMsg::AddVestedTransmutation {
+            recipient: info.sender.to_string(),
+            amount_to_mint: amount_to_vest,
+            vesting_period,
+        })?,
+        funds: info.funds.clone(), // Forward oldMBRN
+    });
+
+    Ok(Response::<NeutronMsg>::new()
+        .add_attribute("method", "vesting_transmutation")
+        .add_attribute("user", info.sender)
+        .add_attribute("amount_to_vest", amount_to_vest)
+        .add_message(vesting_msg))
+}
 
 /// Execute a swap to token out 
 fn execute_swaps(
@@ -503,6 +568,9 @@ fn update_config(
     astroport_factory: Option<String>,
     astroport_router: Option<String>,
     enable_dynamic_routing: Option<bool>,
+    transmute_supply_thresholds: Option<Vec<TransmuteSupplyThresholdEntry>>,
+    vesting_contract: Option<String>,
+    vesting_period: Option<VestingPeriod>,
 ) -> Result<Response<NeutronMsg>, TokenFactoryError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -606,6 +674,31 @@ fn update_config(
     //Edit Dynamic Routing
     if let Some(enabled) = enable_dynamic_routing {
         config.enable_dynamic_routing = enabled;
+    }
+
+    //Edit Transmute Supply Thresholds
+    if let Some(thresholds) = transmute_supply_thresholds {
+        for threshold_entry in thresholds {
+            if threshold_entry.remove {
+                // Remove threshold
+                TRANSMUTE_SUPPLY_THRESHOLDS.remove(deps.storage, threshold_entry.denom);
+            } else if let Some(threshold) = threshold_entry.threshold {
+                // Validate denom format
+                validate_denom(threshold_entry.denom.clone())?;
+                // Save threshold
+                TRANSMUTE_SUPPLY_THRESHOLDS.save(deps.storage, threshold_entry.denom, &threshold)?;
+            }
+        }
+    }
+
+    //Edit Vesting Contract
+    if let Some(vesting) = vesting_contract {
+        config.vesting_contract = Some(deps.api.addr_validate(&vesting)?);
+    }
+
+    //Edit Vesting Period
+    if let Some(period) = vesting_period {
+        config.vesting_period = Some(period);
     }
 
     //Save Config

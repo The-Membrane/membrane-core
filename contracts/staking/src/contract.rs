@@ -10,6 +10,7 @@ use cosmwasm_std::{
 };
 use cw2::set_contract_version;
 
+use membrane::emissions_voting::{HasAnyVotesResponse, QueryMsg as EmissionsVotingQueryMsg};
 use membrane::governance::{QueryMsg as Gov_QueryMsg, ProposalListResponse, ProposalStatus};
 use membrane::helpers::{assert_sent_native_token_balance, validate_position_owner, asset_to_coin, query_basket};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
@@ -120,6 +121,7 @@ pub fn instantiate(
             vesting_contract: None,
             governance_contract: None,
             osmosis_proxy: None,
+            emissions_voting_contract: None,
             incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
                 rate: Decimal::percent(9),
                 duration: 240,
@@ -139,6 +141,7 @@ pub fn instantiate(
             vesting_contract: None,
             governance_contract: None,
             osmosis_proxy: None,
+            emissions_voting_contract: None,
             incentive_schedule: msg.incentive_schedule.unwrap_or_else(|| StakeDistribution {
                 rate: Decimal::percent(9),
                 duration: 240,
@@ -167,6 +170,9 @@ pub fn instantiate(
     };
     if let Some(osmosis_proxy) = msg.osmosis_proxy {
         config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
+    };
+    if let Some(emissions_voting_contract) = msg.emissions_voting_contract {
+        config.emissions_voting_contract = Some(deps.api.addr_validate(&emissions_voting_contract)?);
     };
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -230,6 +236,7 @@ pub fn execute(
             vesting_contract,
             governance_contract,
             osmosis_proxy,
+            emissions_voting_contract,
             positions_contract,
             auction_contract,
             incentive_schedule,
@@ -248,6 +255,7 @@ pub fn execute(
             vesting_contract,
             governance_contract,
             osmosis_proxy,
+            emissions_voting_contract,
             mbrn_denom,
             incentive_schedule,
             unstaking_period,
@@ -392,6 +400,7 @@ fn update_config(
     vesting_contract: Option<String>,
     governance_contract: Option<String>,
     osmosis_proxy: Option<String>,
+    emissions_voting_contract: Option<String>,
     mbrn_denom: Option<String>,
     incentive_schedule: Option<StakeDistribution>,
     unstaking_period: Option<u64>,
@@ -464,6 +473,9 @@ fn update_config(
     };
     if let Some(osmosis_proxy) = osmosis_proxy {
         config.osmosis_proxy = Some(deps.api.addr_validate(&osmosis_proxy)?);
+    };
+    if let Some(emissions_voting_contract) = emissions_voting_contract {
+        config.emissions_voting_contract = Some(deps.api.addr_validate(&emissions_voting_contract)?);
     };
     if let Some(buyback_and_burn) = buyback_and_burn {
         BUYBACK_AND_BURN.save(deps.storage, &buyback_and_burn)?;
@@ -557,6 +569,8 @@ fn add_staking_deposit(
                 return Err(StdError::generic_err(format!("Perpetual lock duration can't exceed lock ceiling of {} days", config.lock_duration_ceiling)));
             }
         }
+        // Set intended_lock_days
+        locked.intended_lock_days = Some(lock_duration_days);
         Some(locked)
     } else {
         None
@@ -616,6 +630,19 @@ pub fn unstake(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
+    // Block unstaking if user has active emissions votes
+    if let Some(emissions_voting_contract) = &config.emissions_voting_contract {
+        let has_votes_response: HasAnyVotesResponse = deps.querier.query_wasm_smart(
+            emissions_voting_contract.to_string(),
+            &EmissionsVotingQueryMsg::HasAnyVotes { user: info.sender.to_string() },
+        )?;
+        if has_votes_response.has_votes {
+            return Err(ContractError::CustomError {
+                val: String::from("Cannot unstake while you have active emissions votes. Remove your votes first."),
+            });
+        }
+    }
+
     //Restrict unstaking
     if config.governance_contract.is_some() {
         can_this_addr_unstake(deps.querier, info.clone().sender, config.clone())?;
@@ -652,7 +679,7 @@ pub fn unstake(
     let mut withdraw_amount = mbrn_withdraw_amount.unwrap_or(total_stake).min(total_stake);
 
     //info.sender is user
-    let (claimables, accrued_interest, withdrawable_amount) = withdraw_from_state(
+    let (claimables, accrued_interest, withdrawable_amount, total_lost_amount) = withdraw_from_state(
         deps.storage,
         env.clone(),
         info.clone().sender,
@@ -682,9 +709,10 @@ pub fn unstake(
     // println!("new_total_staked {:?}", new_total_staked);
     // println!("withdrawable_amount {:?}", withdrawable_amount);
     //if withdrawable_amount is greater than total stake or there is a stake discrepancy, error
-    if withdrawable_amount > total_stake || withdrawable_amount + new_total_staked != total_stake {
+    if withdrawable_amount > total_stake || withdrawable_amount + new_total_staked + total_lost_amount != total_stake {
         return Err(ContractError::CustomError {
-            val: format!("Invalid withdrawable amount: {}", withdrawable_amount),
+            val: format!("Invalid withdrawable amount: {}, withdrawable: {}, new_staked: {}, lost: {}, total: {}", 
+                withdrawable_amount, withdrawable_amount, new_total_staked, total_lost_amount, total_stake),
         });
     }
 
@@ -1912,13 +1940,13 @@ fn withdraw_from_state(
     env: Env,
     staker: Addr,
     mut withdrawal_amount: Uint128,
-) -> StdResult<(Vec<Asset>, Uint128, Uint128)> {
+) -> StdResult<(Vec<Asset>, Uint128, Uint128, Uint128)> {
     let config = CONFIG.load(storage)?;
     let deposits = STAKED.load(storage, staker.clone())?;
 
     let error: Option<StdError> = None;
     let mut returning_deposits: Vec<StakeDeposit> = vec![];
-
+    let mut total_lost_amount = Uint128::zero(); // Track lost amounts from early withdrawals
 
     //Find withdrawable deposits
     let withdrawable_deposits: Vec<StakeDeposit> = deposits
@@ -1939,25 +1967,70 @@ fn withdraw_from_state(
     } else {
         withdrawal_amount = Uint128::zero();
     }
-    //Only look at deposits that are not unstaking && aren't locked
+    //Only look at deposits that are not unstaking (locked deposits can be withdrawn early with loss)
     let staked_deposits: Vec<StakeDeposit> = deposits
         .clone()
         .into_iter()
-        .filter(|deposit| deposit.unstake_start_time.is_none() 
-        && (deposit.locked.is_none() || (deposit.locked.is_some() && env.block.time.seconds() > deposit.locked.as_ref().unwrap().locked_until)) )
+        .filter(|deposit| deposit.unstake_start_time.is_none())
         .collect::<Vec<StakeDeposit>>();
 
     //Iterate through deposits
     let mut new_deposits: Vec<StakeDeposit> = staked_deposits.clone()
         .into_iter()
         .map(|mut deposit| {
-
+            // Calculate early withdrawal ratio for locked deposits
+            let early_withdrawal_ratio = if let Some(ref lock_info) = deposit.locked {
+                if lock_info.locked_until > env.block.time.seconds() {
+                    // Early withdrawal: calculate proportional loss
+                    let current_time = env.block.time.seconds();
+                    let lock_start_time = deposit.stake_time; // Use stake_time as lock start
+                    
+                    // Calculate fulfilled days
+                    let fulfilled_seconds = current_time.saturating_sub(lock_start_time);
+                    let fulfilled_days = fulfilled_seconds / SECONDS_PER_DAY;
+                    
+                    // Get intended lock days
+                    let intended_days = if let Some(perpetual_days) = lock_info.perpetual_lock {
+                        perpetual_days
+                    } else if let Some(intended) = lock_info.intended_lock_days {
+                        intended
+                    } else {
+                        // Fallback: calculate from locked_until - stake_time
+                        (lock_info.locked_until - lock_start_time) / SECONDS_PER_DAY
+                    };
+                    
+                    // Calculate ratio (capped at 1.0)
+                    if intended_days > 0 {
+                        let ratio_decimal = Decimal::from_ratio(fulfilled_days, intended_days);
+                        Some(ratio_decimal.min(Decimal::one()))
+                    } else {
+                        Some(Decimal::one())
+                    }
+                } else {
+                    // Lock expired, no loss
+                    None
+                }
+            } else {
+                // Not locked, no loss
+                None
+            };
             
             //Subtract from each deposit until there is none left to withdraw or begin to unstake
             if withdrawal_amount != Uint128::zero() && deposit.amount > withdrawal_amount {
                {
+                    // Calculate early withdrawal loss if applicable
+                    let (effective_withdrawal, _) = if let Some(ratio) = early_withdrawal_ratio {
+                        let effective = Decimal::from_ratio(withdrawal_amount, Uint128::one()) * ratio;
+                        let effective = effective.to_uint_floor();
+                        let lost = withdrawal_amount.checked_sub(effective).unwrap_or(Uint128::zero());
+                        total_lost_amount += lost;
+                        (effective, lost)
+                    } else {
+                        (withdrawal_amount, Uint128::zero())
+                    };
+                    
                     //Since we claimed rewards
-                    deposit.last_accrued = Some(env.block.time.seconds());                    
+                    deposit.last_accrued = Some(env.block.time.seconds());
                     
                     //Create a StakeDeposit object for the amount not getting unstaked
                     returning_deposits.push(StakeDeposit {
@@ -1966,8 +2039,8 @@ fn withdraw_from_state(
                         ..deposit.clone()
                     });
                     
-                    //Set new deposit amount
-                    deposit.amount = withdrawal_amount;                       
+                    //Set new deposit amount (this is the amount that will be unstaking, after early withdrawal loss)
+                    deposit.amount = effective_withdrawal;                       
 
                     //Set the unstaking_start_time 
                     if deposit.unstake_start_time.is_none() {
@@ -1981,6 +2054,17 @@ fn withdraw_from_state(
             } else if withdrawal_amount != Uint128::zero() && deposit.amount <= withdrawal_amount {
                 
                 {
+                    // Calculate early withdrawal loss if applicable
+                    let (_, withdrawal_lost) = if let Some(ratio) = early_withdrawal_ratio {
+                        let effective = Decimal::from_ratio(deposit.amount, Uint128::one()) * ratio;
+                        let effective = effective.to_uint_floor();
+                        let lost = deposit.amount.checked_sub(effective).unwrap_or(Uint128::zero());
+                        total_lost_amount += lost;
+                        (effective, lost)
+                    } else {
+                        (deposit.amount, Uint128::zero())
+                    };
+                    
                     //if stake time is some but can't be withdrawn (i.e. made it within this conditional but skips the next)
                     // we don't count that towards the withdrawal_amount tally.
 
@@ -1993,6 +2077,9 @@ fn withdraw_from_state(
                     }
                     //Since we claimed rewards
                     deposit.last_accrued = Some(env.block.time.seconds());
+                    
+                    // Reduce deposit by amount lost due to early withdrawal
+                    deposit.amount -= withdrawal_lost;
                 }
         
             }
@@ -2017,19 +2104,39 @@ fn withdraw_from_state(
     if error.is_some() {
         return Err(error.unwrap());
     }
-    //Add any returning_deposits
+    //Add any returning_deposits to new_deposits
     new_deposits.extend(returning_deposits);
+    
     //Filter for deposits that are unstaking but not yet withdrawable.
-    //Also filter for deposits that are locked and not yet unlocked
     let mut unstaking_deposits: Vec<StakeDeposit> = deposits
         .clone()
         .into_iter()
         .filter(|deposit| 
             deposit.unstake_start_time.is_some() && env.block.time.seconds() - deposit.unstake_start_time.unwrap() < config.unstaking_period * SECONDS_PER_DAY
-            || (deposit.locked.is_some() && env.block.time.seconds() < deposit.locked.as_ref().unwrap().locked_until))
+            // || (deposit.locked.is_some() && env.block.time.seconds() < deposit.locked.as_ref().unwrap().locked_until)
+        )
         .collect::<Vec<StakeDeposit>>();
     //Aggregate deposits
     unstaking_deposits.extend(new_deposits.clone());
+
+    // Add lost amounts from early withdrawals to contract's stake
+    if !total_lost_amount.is_zero() {
+        let contract_addr = env.contract.address.clone();
+        let mut contract_deposits = STAKED.may_load(storage, contract_addr.clone())?.unwrap_or_default();
+        
+        // Add lost amount to contract's stake
+        contract_deposits.push(StakeDeposit {
+            staker: contract_addr.clone(),
+            amount: total_lost_amount,
+            stake_time: env.block.time.seconds(),
+            unstake_start_time: None,
+            last_accrued: None,
+            locked: None,
+        });
+        
+        STAKED.save(storage, contract_addr.clone(), &contract_deposits)?;
+        // Note: STAKING_TOTALS doesn't need to be updated as it tracks stakers count, not total staked amount
+    }
 
     //Before we save, claim rewards for the staker
     let (claimables, accrued_interest) = get_user_claimables(
@@ -2041,7 +2148,7 @@ fn withdraw_from_state(
     //Save new deposit stack
     STAKED.save(storage, staker.clone(), &unstaking_deposits)?;
 
-    Ok((claimables, accrued_interest, total_withdrawable))
+    Ok((claimables, accrued_interest, total_withdrawable, total_lost_amount))
 }
 
 
@@ -2460,7 +2567,10 @@ fn lock_stake(
 
             //Update the deposit
             deposit.amount = amount_to_lock;
-            deposit.locked = Some(locked.clone());
+            let intended_lock_days = (locked.locked_until - env.block.time.seconds()) / SECONDS_PER_DAY;
+            let mut locked_with_intended = locked.clone();
+            locked_with_intended.intended_lock_days = Some(intended_lock_days);
+            deposit.locked = Some(locked_with_intended);
             locked_amount += amount_to_lock;
 
             //Add the new deposit

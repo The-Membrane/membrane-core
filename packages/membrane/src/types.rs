@@ -224,6 +224,8 @@ pub struct Locked {
     pub locked_until: u64,
     /// Perpetual lock duration in days (if set, lock refreshes on each execute)
     pub perpetual_lock: Option<u64>,
+    /// Intended lock duration in days when lock was created (for early withdrawal calculation)
+    pub intended_lock_days: Option<u64>,
 }
 
 #[cw_serde]
@@ -792,6 +794,8 @@ pub struct FeeAuction {
     pub auction_asset: Asset,
     /// Auction start time
     pub auction_start_time: u64,
+    /// Per-asset distribution (passed to Disco when MBRN swap completes)
+    pub per_asset_distribution: Option<Vec<Asset>>,
 }
 
 #[cw_serde]
@@ -2009,4 +2013,20 @@ pub struct TransmutationPairEntry {
     pub transmutation_pair: TransmutationPair,
     /// Remove
     pub remove: bool,
+}
+
+/// Standardized message for receiving voting results from the emissions voting contract.
+/// Consumer contracts (Points System, Transmuter Lockdrop, etc.) should implement this
+/// execute variant to receive and parse voting results based on the label.
+#[cw_serde]
+pub enum VotingResultMsg {
+    /// Receive voting result from emissions voting contract
+    ReceiveVotingResult {
+        /// Graph label to identify which parameter this result is for
+        label: String,
+        /// Result as Uint128 (for Uint128 graphs, e.g., emission rates)
+        result_uint128: Option<Uint128>,
+        /// Result as Decimal (for Decimal graphs, e.g., multipliers)
+        result_decimal: Option<Decimal>,
+    },
 }

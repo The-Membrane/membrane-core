@@ -17,6 +17,8 @@ pub struct InstantiateMsg {
     pub governance_contract: Option<String>,
     /// Osmosis Proxy contract address
     pub osmosis_proxy: Option<String>,
+    /// Emissions Voting contract address
+    pub emissions_voting_contract: Option<String>,
     /// Incentive scheduling
     pub incentive_schedule: Option<StakeDistribution>,
     /// Unstaking period in days
@@ -40,6 +42,8 @@ pub enum ExecuteMsg {
         governance_contract: Option<String>,
         /// Osmosis Proxy contract address
         osmosis_proxy: Option<String>,
+        /// Emissions Voting contract address
+        emissions_voting_contract: Option<String>,
         /// MBRN denom
         mbrn_denom: Option<String>,
         /// Incentive scheduling
@@ -230,6 +234,8 @@ pub struct Config {
     pub governance_contract: Option<Addr>,
     /// Osmosis Proxy contract address
     pub osmosis_proxy: Option<Addr>,
+    /// Emissions Voting contract address
+    pub emissions_voting_contract: Option<Addr>,
 }
 
 #[cw_serde]

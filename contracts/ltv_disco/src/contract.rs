@@ -14,7 +14,7 @@ use crate::execute::{
     create_queue, update_queue, submit_deposit, withdraw_deposit, 
     add_bad_debt, add_revenue, claim_revenue_for_user, disperse_revenue, update_config,
     execute_rate_assurance, lock_deposit, move_deposit, update_manager, toggle_withdrawals, execute_set_affiliate,
-    set_manager_fee, clean_manager_fee
+    set_manager_fee, clean_manager_fee, add_deposit_token_revenue
 };
 use crate::query::{
     query_config, query_ltv_queue, query_backing_deposit,
@@ -59,6 +59,22 @@ pub fn instantiate(
         });
     }
 
+    let emissions_voting_contract = msg.emissions_voting_contract
+        .map(|addr| deps.api.addr_validate(&addr))
+        .transpose()?;
+
+    let points_system_contract = msg.points_system_contract
+        .map(|addr| deps.api.addr_validate(&addr))
+        .transpose()?;
+
+    let revenue_distributor = msg.revenue_distributor
+        .map(|addr| deps.api.addr_validate(&addr))
+        .transpose()?;
+
+    let auction_contract = msg.auction_contract
+        .map(|addr| deps.api.addr_validate(&addr))
+        .transpose()?;
+
     if msg.owner.is_some() {
         config = Config {
             owner: deps.api.addr_validate(&msg.owner.unwrap())?,
@@ -72,10 +88,15 @@ pub fn instantiate(
             activation_window: msg.activation_window,
             oracle_contract,
             chain_proxy_contract,
+            emissions_voting_contract,
             lock_duration_ceiling,
             affiliate_fee,
             max_management_fee,
             ltv_delta_minimum,
+            points_system_contract,
+            revenue_distributor,
+            auction_contract,
+            mbrn_denom: msg.mbrn_denom,
         };
     } else {
         config = Config {
@@ -90,10 +111,15 @@ pub fn instantiate(
             activation_window: msg.activation_window,
             oracle_contract,
             chain_proxy_contract,
+            emissions_voting_contract,
             lock_duration_ceiling,
             affiliate_fee,
             max_management_fee,
             ltv_delta_minimum,
+            points_system_contract,
+            revenue_distributor,
+            auction_contract,
+            mbrn_denom: msg.mbrn_denom,
         };
     }
 
@@ -123,23 +149,23 @@ pub fn execute(
         ExecuteMsg::SubmitDeposit { deposit_input, deposit_owner, locked, deposit_id, manager, affiliate_address } => {
             submit_deposit(deps, env, info, deposit_input, deposit_owner, locked, deposit_id, manager, affiliate_address)
         }
-        ExecuteMsg::WithdrawDeposit { asset, ltv, max_borrow_ltv, deposit_id, amount } => {
-            withdraw_deposit(deps, env, info, asset, ltv, max_borrow_ltv, deposit_id, amount)
+        ExecuteMsg::WithdrawDeposit { asset, ltv, max_borrow_ltv, deposit_id, amount, epoch_start_time } => {
+            withdraw_deposit(deps, env, info, asset, ltv, max_borrow_ltv, deposit_id, amount, epoch_start_time)
         }
-        ExecuteMsg::Lock { asset, ltv, max_borrow_ltv, deposit_id, locked, amount } => {
-            lock_deposit(deps, env, info, asset, ltv, max_borrow_ltv, deposit_id, locked, amount)
+        ExecuteMsg::Lock { asset, ltv, max_borrow_ltv, deposit_id, locked, amount, epoch_start_time } => {
+            lock_deposit(deps, env, info, asset, ltv, max_borrow_ltv, deposit_id, locked, amount, epoch_start_time)
         }
-        ExecuteMsg::RefreshLock { user, asset, ltv, max_borrow_ltv, deposit_id } => {
-            refresh_lock(deps, env, info, user, asset, ltv, max_borrow_ltv, deposit_id)
+        ExecuteMsg::RefreshLock { user, asset, ltv, max_borrow_ltv, deposit_id, epoch_start_time } => {
+            refresh_lock(deps, env, info, user, asset, ltv, max_borrow_ltv, deposit_id, epoch_start_time)
         }
-        ExecuteMsg::MoveDeposit { asset, ltv, max_borrow_ltv, deposit_id, destination, amount, user } => {
-            move_deposit(deps, env, info, asset, ltv, max_borrow_ltv, deposit_id, destination, amount, user)
+        ExecuteMsg::MoveDeposit { asset, ltv, max_borrow_ltv, deposit_id, destination, amount, user, epoch_start_time } => {
+            move_deposit(deps, env, info, asset, ltv, max_borrow_ltv, deposit_id, destination, amount, user, epoch_start_time)
         }
-        ExecuteMsg::UpdateManager { asset, ltv, max_borrow_ltv, deposit_id, manager } => {
-            update_manager(deps, env, info, asset, ltv, max_borrow_ltv, deposit_id, manager)
+        ExecuteMsg::UpdateManager { asset, ltv, max_borrow_ltv, deposit_id, manager, epoch_start_time } => {
+            update_manager(deps, env, info, asset, ltv, max_borrow_ltv, deposit_id, manager, epoch_start_time)
         }
-        ExecuteMsg::ToggleWithdrawals { user, asset, ltv, max_borrow_ltv, deposit_id, enabled } => {
-            toggle_withdrawals(deps, info, user, asset, ltv, max_borrow_ltv, deposit_id, enabled)
+        ExecuteMsg::ToggleWithdrawals { user, asset, ltv, max_borrow_ltv, deposit_id, enabled, epoch_start_time } => {
+            toggle_withdrawals(deps, info, user, asset, ltv, max_borrow_ltv, deposit_id, enabled, epoch_start_time)
         }
         ExecuteMsg::AddBadDebt { asset, amount } => {
             add_bad_debt(deps, env, info, asset, amount)
@@ -156,7 +182,7 @@ pub fn execute(
         // ExecuteMsg::RetryFailedBadDebt { asset } => {
         //     retry_failed_bad_debt(deps, env, info, asset)
         // }
-        ExecuteMsg::UpdateConfig { owner, cdp_contract, deposit_denom, cdt_denom, minimum_deposit, percent_to_disperse, dispersal_window, activation_window, oracle_contract, chain_proxy_contract, lock_duration_ceiling, affiliate_fee, max_management_fee, ltv_delta_minimum } => {
+        ExecuteMsg::UpdateConfig { owner, cdp_contract, deposit_denom, cdt_denom, minimum_deposit, percent_to_disperse, dispersal_window, activation_window, oracle_contract, chain_proxy_contract, emissions_voting_contract, lock_duration_ceiling, affiliate_fee, max_management_fee, ltv_delta_minimum, points_system_contract, revenue_distributor, auction_contract, mbrn_denom } => {
             update_config(
                 deps, 
                 info, 
@@ -170,10 +196,15 @@ pub fn execute(
                 activation_window, 
                 oracle_contract, 
                 chain_proxy_contract, 
+                emissions_voting_contract,
                 lock_duration_ceiling,
                 affiliate_fee,
                 max_management_fee,
-                ltv_delta_minimum
+                ltv_delta_minimum,
+                points_system_contract,
+                revenue_distributor,
+                auction_contract,
+                mbrn_denom
             )
         }
         ExecuteMsg::SetAffiliate { user, affiliate_address, label } => {
@@ -184,6 +215,9 @@ pub fn execute(
         }
         ExecuteMsg::CleanManagerFee { manager } => {
             clean_manager_fee(deps, info, manager)
+        }
+        ExecuteMsg::AddDepositTokenRevenue { per_asset_distribution } => {
+            add_deposit_token_revenue(deps, env, info, per_asset_distribution)
         }
         // ExecuteMsg::PostDepositTrackerEntry { asset, max_ltv, max_borrow_ltv } => {
         //     post_deposit_tracker_entry(deps, env, info, asset, max_ltv, max_borrow_ltv)
@@ -198,7 +232,7 @@ pub fn execute(
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_json_binary(&query_config(deps)?),
-        QueryMsg::GetLTVQueue { asset } => to_json_binary(&query_ltv_queue(deps, asset)?),
+        QueryMsg::GetLTVQueue { asset } => to_json_binary(&query_ltv_queue(deps, env, asset)?),
         QueryMsg::GetBackingDeposit { user, asset, ltv, max_borrow_ltv, deposit_id } => {
             to_json_binary(&query_backing_deposit(deps, user, asset, ltv, max_borrow_ltv, deposit_id)?)
         }

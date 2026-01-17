@@ -2799,6 +2799,7 @@ pub fn edit_basket(
         VOLATILITY.save(deps.storage, new_cAsset.clone().asset.info.to_string(), &CollateralVolatility {
             index: Decimal::one(),
             volatility_list: vec![],
+            raw_volatility_list: vec![],
         })?;
     }
     
@@ -2885,9 +2886,10 @@ pub fn edit_basket(
                         Ok(vol)
                     },
                     None => {
-                        let mut vol = CollateralVolatility {
+                        let vol = CollateralVolatility {
                             index: Decimal::one(),
                             volatility_list: vec![],
+                            raw_volatility_list: vec![],
                         };
                         Ok(vol)
                     }
@@ -2905,9 +2907,10 @@ pub fn edit_basket(
                             Ok(vol)
                         },
                         None => {
-                            let mut vol = CollateralVolatility {
+                            let vol = CollateralVolatility {
                                 index: Decimal::one(),
                                 volatility_list: vec![],
+                                raw_volatility_list: vec![],
                             };
                             Ok(vol)
                         }

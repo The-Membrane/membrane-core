@@ -10,6 +10,94 @@ RUST_OPTIMIZER_VERSION = "0.17.0"
 RUST_VERSION = "1.85.0"
 NIGHTLY_VERSION = "nightly-2023-08-29"
 
+# RECOMMENDED: Manual build without Docker (avoids --locked issues)
+# Run: cargo make build-wasm-exclude
+[tasks.build-wasm-exclude]
+cwd = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
+script = """
+# Create backups
+cp Cargo.toml Cargo.toml.backup
+cp Cargo.lock Cargo.lock.backup 2>/dev/null || true
+
+# Create modified Cargo.toml
+cat > Cargo.toml << 'EOF'
+[workspace]
+resolver = "2"
+members = [
+    "packages/membrane",
+    "contracts/auction",
+    "contracts/cdp",
+    "contracts/liq-queue",
+    "contracts/mars-vault-token",
+    "contracts/oracle",
+    "contracts/points-system",
+    "contracts/staking",
+    "contracts/system_discounts",
+    "contracts/tokenfactory",
+    "contracts/vesting",
+]
+
+exclude = [
+    "my_scripts", 
+    "artifacts", 
+    "contracts/cdp/src/testing/*", 
+    "contracts/target/*"
+]
+
+[workspace.dependencies]
+base64ct = "=1.7.3"
+neutron-sdk = "0.11.1"
+
+[profile.release]
+codegen-units = 1
+debug = false
+debug-assertions = false
+incremental = false
+lto = true
+opt-level = 'z'
+overflow-checks = true
+panic = 'abort'
+rpath = false
+EOF
+
+# Generate fresh lockfile
+cargo generate-lockfile
+
+# Build all contracts
+echo "Building WASM contracts..."
+RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown \
+    -p auction \
+    -p cdp \
+    -p liq-queue \
+    -p mars-vault-token \
+    -p oracle \
+    -p points-system \
+    -p staking \
+    -p system_discounts \
+    -p tokenfactory \
+    -p vesting
+
+# Optimize with wasm-opt
+mkdir -p artifacts
+echo "Optimizing WASM files..."
+for wasm in target/wasm32-unknown-unknown/release/*.wasm; do
+    filename=$(basename "$wasm")
+    echo "  Optimizing $filename..."
+    wasm-opt -Os --signext-lowering "$wasm" -o "artifacts/$filename"
+done
+
+# Generate checksums
+cd artifacts
+sha256sum *.wasm > checksums.txt
+echo "Checksums:"
+cat checksums.txt
+cd ..
+
+# Restore originals
+mv Cargo.toml.backup Cargo.toml
+mv Cargo.lock.backup Cargo.lock 2>/dev/null || true
+echo "Done! Artifacts are in ./artifacts/"
+"""
 
 [tasks.rust-optimizer]
 cwd = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"

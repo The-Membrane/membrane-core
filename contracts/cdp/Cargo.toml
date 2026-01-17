@@ -18,7 +18,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 # for more explicit tests, cargo test --features=backtraces
-backtraces = ["cosmwasm-std/backtraces"]
+backtraces = []
 # use library feature to disable all instantiate/execute/query exports
 library = []
 
@@ -26,7 +26,7 @@ library = []
 [dependencies]
 membrane = { path = "../../packages/membrane" }
 osmosis-std = { version = "0.15.2" }
-cosmwasm-std = { version = "1.0.0", default-features = false, features = ["cosmwasm_1_1"] }
+cosmwasm-std = { version = "2.3.0", default-features = false, features = ["cosmwasm_1_1"] }
 cosmwasm-schema = "1.1.0"
 cw-storage-plus = "0.13.2"
 serde = { version = "1.0.137", default-features = false, features = ["derive"] }

@@ -88,7 +88,10 @@ pub struct Timer {
 #[cw_serde]
 pub struct CollateralVolatility {
     pub index: Decimal,
+    /// Speed of volatility (price_change / time_elapsed) - used for index calculation
     pub volatility_list: Vec<Decimal>,
+    /// Raw price change percentages - used for comparative rate calculation
+    pub raw_volatility_list: Vec<Decimal>,
 }
 
 #[cw_serde]

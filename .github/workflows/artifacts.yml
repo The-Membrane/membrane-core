@@ -27,7 +27,7 @@ jobs:
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.89.0
+          toolchain: stable
           target: wasm32-unknown-unknown
           override: true
 
@@ -47,15 +47,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y binaryen
 
-      - name: Install cw-optimizoor
-        run: cargo install cw-optimizoor
-
-      - name: Create temporary workspace for selected contracts
+      - name: Create temporary workspace
         run: |
-          # Backup original Cargo.toml
           cp Cargo.toml Cargo.toml.backup
-          
-          # Create modified Cargo.toml with only the contracts we want to build
           cat > Cargo.toml << 'EOF'
           [workspace]
           resolver = "2"
@@ -96,14 +90,44 @@ jobs:
           rpath = false
           EOF
 
-      - name: Update Cargo.lock for modified workspace
+      - name: Generate lockfile
         run: cargo generate-lockfile
 
-      - name: Build optimized WASM contracts
-        run: cargo cw-optimizoor
+      - name: Build WASM contracts
+        run: |
+          RUSTFLAGS='-C link-arg=-s' cargo build --release --target wasm32-unknown-unknown \
+            -p auction \
+            -p cdp \
+            -p liq-queue \
+            -p mars-vault-token \
+            -p oracle \
+            -p points-system \
+            -p staking \
+            -p system_discounts \
+            -p tokenfactory \
+            -p vesting
+
+      - name: Optimize WASM files
+        run: |
+          mkdir -p artifacts
+          for wasm in target/wasm32-unknown-unknown/release/*.wasm; do
+            filename=$(basename "$wasm")
+            echo "Optimizing $filename..."
+            wasm-opt -Os --signext-lowering "$wasm" -o "artifacts/$filename"
+          done
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum *.wasm > checksums.txt
+          cat checksums.txt
 
       - name: Restore original Cargo.toml
-        run: mv Cargo.toml.backup Cargo.toml
+        if: always()
+        run: |
+          if [ -f Cargo.toml.backup ]; then
+            mv Cargo.toml.backup Cargo.toml
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

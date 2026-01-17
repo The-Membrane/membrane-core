@@ -239,7 +239,7 @@ name = "auction"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -394,7 +394,7 @@ version = "0.1.0"
 dependencies = [
  "apollo-cw-asset",
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cw-multi-test 0.13.4",
  "cw-storage-plus 0.13.4",
  "membrane",
@@ -1191,7 +1191,7 @@ name = "emissions_voting"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -1427,7 +1427,7 @@ name = "liq-queue"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -1444,7 +1444,7 @@ name = "ltv_disco"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -1461,7 +1461,7 @@ name = "mars-mirror"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
  "cw-utils 1.0.3",
@@ -1478,7 +1478,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -1497,7 +1497,7 @@ name = "membrane"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cw-coins",
  "cw-storage-plus 1.2.0",
  "cw721",
@@ -1528,7 +1528,7 @@ dependencies = [
  "astroport-factory",
  "astroport-router",
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -1570,7 +1570,7 @@ version = "0.1.0"
 dependencies = [
  "apollo-cw-asset",
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -1644,7 +1644,7 @@ name = "oracle"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -1786,7 +1786,7 @@ version = "0.1.0"
 dependencies = [
  "apollo-cw-asset",
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -2040,7 +2040,7 @@ name = "revenue-distributor"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cw-multi-test 0.16.5",
  "cw-storage-plus 1.2.0",
  "cw-utils 1.0.3",
@@ -2340,7 +2340,7 @@ name = "staking"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -2422,7 +2422,7 @@ name = "system_discounts"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -2524,7 +2524,7 @@ name = "tokenfactory"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -2550,7 +2550,7 @@ name = "transmuter"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -2568,7 +2568,7 @@ name = "transmuter-lockdrop"
 version = "0.1.0"
 dependencies = [
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",
@@ -2640,7 +2640,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cosmwasm-schema 1.5.11",
- "cosmwasm-std 1.5.11",
+ "cosmwasm-std 2.3.0",
  "cosmwasm-storage",
  "cw-multi-test 1.2.0",
  "cw-storage-plus 1.2.0",

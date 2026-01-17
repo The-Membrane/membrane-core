@@ -392,6 +392,7 @@ pub fn get_cAsset_ratios(
                     Err(_) => CollateralVolatility {
                         index: Decimal::one(),
                         volatility_list: vec![],
+                        raw_volatility_list: vec![],
                     },
                 };
                 //Get new volatility %
@@ -403,11 +404,17 @@ pub fn get_cAsset_ratios(
                     //In case the time elapsed is so large it errors
                     Err(_) => Decimal::zero(),
                 };
-                //Add new volatility to the list
+                //Add speed of volatility to the list (for index calculation)
                 volatility_store.volatility_list.push(speed_of_volatility);
                 //If the list is at the limit, remove the first element
                 if volatility_store.volatility_list.len() > VOLATILITY_LIST_LIMIT as usize {
                     volatility_store.volatility_list.remove(0);
+                }
+                //Add raw volatility % to the list (for comparative rate calculation)
+                volatility_store.raw_volatility_list.push(new_volatility);
+                //If the list is at the limit, remove the first element
+                if volatility_store.raw_volatility_list.len() > VOLATILITY_LIST_LIMIT as usize {
+                    volatility_store.raw_volatility_list.remove(0);
                 }
                 //Find the current average volatility
                 let mut avg_volatility: Decimal = volatility_store.volatility_list.iter().sum();

@@ -203,7 +203,10 @@ mod tests {
                         },
                         liq_queue: None,
                         base_interest_rate: Decimal::zero(),
-                        pending_revenue: Uint128::zero(),
+                        pending_revenue: membrane::types::PendingRevenue {
+                            total_pending: Uint128::zero(),
+                            per_asset_rev: vec![],
+                        },
                         negative_rates: true,
                         cpc_margin_of_error: Decimal::zero(),
                         multi_asset_supply_caps: vec![],
@@ -225,7 +228,10 @@ mod tests {
                                         cAsset_ratios: vec![], 
                                         credit_amount: Uint128::zero(), 
                                         avg_borrow_LTV: Decimal::zero(), 
-                                        avg_max_LTV: Decimal::zero()
+                                        avg_max_LTV: Decimal::zero(),
+                                        deployed_to: vec![],
+                                        pending_interest: Uint128::zero(),
+                                        total_interest_accrued: Uint128::zero(),
                                     }
                                 ]
                             }
@@ -331,6 +337,9 @@ mod tests {
             initial_discount: Decimal::percent(1),
             discount_increase_timeframe: 60u64,
             discount_increase: Decimal::percent(1),
+            delay_window_minutes: Some(0), // No delay for tests
+            revenue_distributor_contract: None,
+            ltv_disco_contract: None,
         };
 
         let debt_contract_addr = app
@@ -368,6 +377,7 @@ mod tests {
                     },
                     amount: Uint128::new(100u128),
                 },
+                per_asset_distribution: None,
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
@@ -385,6 +395,7 @@ mod tests {
                     },
                     amount: Uint128::new(100u128),
                 },
+                per_asset_distribution: None,
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -423,6 +434,7 @@ mod tests {
                     },
                     amount: Uint128::new(100u128),
                 },
+                per_asset_distribution: None,
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.set_block(BlockInfo {
@@ -472,6 +484,7 @@ mod tests {
                     },
                     amount: Uint128::new(100u128),
                 },
+                per_asset_distribution: None,
             };
             let cosmos_msg = debt_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -503,6 +516,7 @@ mod tests {
                     },
                     amount: Uint128::new(100u128),
                 },
+                per_asset_distribution: None,
             };
             let cosmos_msg = debt_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
             app.set_block(BlockInfo {
@@ -545,6 +559,7 @@ mod tests {
                     },
                     amount: Uint128::new(100_000u128),
                 },
+                per_asset_distribution: None,
             };
             let cosmos_msg = debt_contract.call(msg, vec![coin(100_000, "fee_asset")]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -658,6 +673,7 @@ mod tests {
                     },
                     amount: Uint128::new(100_000u128),
                 },
+                per_asset_distribution: None,
             };
             let cosmos_msg = debt_contract.call(msg, vec![coin(100_000, "fee_asset")]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -708,6 +724,7 @@ mod tests {
                     },
                     amount: Uint128::new(100_000u128),
                 },
+                per_asset_distribution: None,
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -771,6 +788,7 @@ mod tests {
                     },
                     amount: Uint128::new(100_000u128),
                 },
+                per_asset_distribution: None,
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -864,6 +882,7 @@ mod tests {
                     },
                     amount: Uint128::new(100u128),
                 },
+                per_asset_distribution: None,
             };
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -903,6 +922,9 @@ mod tests {
                 discount_increase_timeframe: None,
                 discount_increase: None,
                 send_to_stakers: None,
+                delay_window_minutes: None,
+                revenue_distributor_contract: None,
+                ltv_disco_contract: None,
             });
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -935,6 +957,9 @@ mod tests {
                 discount_increase_timeframe: Some(61u64), 
                 discount_increase: Some(Decimal::percent(4)), 
                 send_to_stakers: Some(true),
+                delay_window_minutes: None,
+                revenue_distributor_contract: None,
+                ltv_disco_contract: None,
             });
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -955,6 +980,9 @@ mod tests {
                 discount_increase_timeframe: None,
                 discount_increase: Some(Decimal::percent(5)),
                 send_to_stakers: None,
+                delay_window_minutes: None,
+                revenue_distributor_contract: None,
+                ltv_disco_contract: None,
             });
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
@@ -984,6 +1012,9 @@ mod tests {
                     discount_increase_timeframe: 61u64, 
                     discount_increase: Decimal::percent(5), 
                     send_to_stakers: true,
+                    delay_window_minutes: 0,
+                    revenue_distributor_contract: None,
+                    ltv_disco_contract: None,
                 },
             );
         }

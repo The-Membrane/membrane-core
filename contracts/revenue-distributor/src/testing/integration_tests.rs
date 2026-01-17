@@ -408,6 +408,7 @@ mod tests {
             revenue_dispersal_window: None,
             transmuter_lockdrop_contract: None,
             ltv_disco_contract: None,
+            auction_contract: None,
         };
 
         let revenue_distributor_addr = app
@@ -536,6 +537,7 @@ mod tests {
             revenue_dispersal_window: None,
             transmuter_lockdrop_contract: None,
             ltv_disco_contract: None,
+            auction_contract: None,
         };
 
         let revenue_distributor_addr = app
@@ -765,6 +767,7 @@ mod tests {
             revenue_dispersal_window: None,
             transmuter_lockdrop_contract: None,
             ltv_disco_contract: None,
+            auction_contract: None,
         };
 
         // Only admin can update config
@@ -804,6 +807,7 @@ mod tests {
             revenue_dispersal_window: None,
             transmuter_lockdrop_contract: None,
             ltv_disco_contract: None,
+            auction_contract: None,
         };
 
         // Non-admin cannot update config
@@ -1861,6 +1865,7 @@ mod tests {
             revenue_dispersal_window: Some(window_days),
             transmuter_lockdrop_contract: None,
             ltv_disco_contract: None,
+            auction_contract: None,
         };
         app.execute_contract(
             Addr::unchecked(ADMIN),
@@ -2048,6 +2053,7 @@ mod tests {
             revenue_dispersal_window: None,
             transmuter_lockdrop_contract: None,
             ltv_disco_contract: None,
+            auction_contract: None,
         };
         app.execute_contract(
             Addr::unchecked(ADMIN),
@@ -2275,5 +2281,195 @@ mod tests {
             .find(|a| a.key == "status");
         assert!(status_attr.is_some());
         assert_eq!(status_attr.unwrap().value, "window_not_passed");
+    }
+
+    #[test]
+    fn test_add_non_cdt_revenue_routes_to_auction() {
+        let mut app = setup_app();
+        let (revenue_distributor_addr, _staking_addr, _ltv_addr, _transmuter_addr, _cdp_addr) = 
+            setup_contracts_with_window(&mut app, 7);
+
+        // Deploy mock auction contract
+        let auction_id = app.store_code(auction_contract());
+        let auction_addr = app
+            .instantiate_contract(
+                auction_id,
+                Addr::unchecked(ADMIN),
+                &Empty {},
+                &[],
+                "auction",
+                None,
+            )
+            .unwrap();
+
+        // Update config to set auction contract
+        let msg = ExecuteMsg::UpdateConfig {
+            revenue_destinations: None,
+            ltv_disco: None,
+            transmuter_vault: None,
+            points_system_contract: None,
+            cdp_contract: None,
+            revenue_dispersal_window: None,
+            transmuter_lockdrop_contract: None,
+            ltv_disco_contract: None,
+            auction_contract: Some(auction_addr.to_string()),
+        };
+        app.execute_contract(
+            Addr::unchecked(ADMIN),
+            revenue_distributor_addr.clone(),
+            &msg,
+            &[],
+        ).unwrap();
+
+        // Add non-CDT revenue (e.g., ATOM from liquidation fees)
+        let per_asset_distribution = vec![
+            membrane::types::Asset {
+                info: membrane::types::AssetInfo::NativeToken { denom: "uatom".to_string() },
+                amount: Uint128::new(1000),
+            },
+        ];
+
+        let msg = ExecuteMsg::AddNonCdtRevenue {
+            per_asset_distribution: per_asset_distribution.clone(),
+        };
+        let result = app.execute_contract(
+            Addr::unchecked(USER),
+            revenue_distributor_addr.clone(),
+            &msg,
+            &[coin(1000, "uatom")],
+        );
+
+        // Should succeed and route to auction
+        assert!(result.is_ok());
+        let response = result.unwrap();
+        
+        // Check that routed_to_auction attribute is present
+        assert!(response.events.iter().any(|e| {
+            e.attributes.iter().any(|attr| 
+                attr.key == "routed_to_auction" && attr.value == "true"
+            )
+        }));
+    }
+
+    #[test]
+    fn test_add_non_cdt_revenue_rejects_cdt() {
+        let mut app = setup_app();
+        let (revenue_distributor_addr, _staking_addr, _ltv_addr, _transmuter_addr, _cdp_addr) = 
+            setup_contracts_with_window(&mut app, 7);
+
+        // Deploy mock auction contract
+        let auction_id = app.store_code(auction_contract());
+        let auction_addr = app
+            .instantiate_contract(
+                auction_id,
+                Addr::unchecked(ADMIN),
+                &Empty {},
+                &[],
+                "auction",
+                None,
+            )
+            .unwrap();
+
+        // Update config to set auction contract
+        let msg = ExecuteMsg::UpdateConfig {
+            revenue_destinations: None,
+            ltv_disco: None,
+            transmuter_vault: None,
+            points_system_contract: None,
+            cdp_contract: None,
+            revenue_dispersal_window: None,
+            transmuter_lockdrop_contract: None,
+            ltv_disco_contract: None,
+            auction_contract: Some(auction_addr.to_string()),
+        };
+        app.execute_contract(
+            Addr::unchecked(ADMIN),
+            revenue_distributor_addr.clone(),
+            &msg,
+            &[],
+        ).unwrap();
+
+        // Try to add CDT as non-CDT revenue - should fail
+        let per_asset_distribution = vec![
+            membrane::types::Asset {
+                info: membrane::types::AssetInfo::NativeToken { denom: "uusdc".to_string() }, // CDT/canonical asset
+                amount: Uint128::new(1000),
+            },
+        ];
+
+        let msg = ExecuteMsg::AddNonCdtRevenue {
+            per_asset_distribution,
+        };
+        let result = app.execute_contract(
+            Addr::unchecked(USER),
+            revenue_distributor_addr.clone(),
+            &msg,
+            &[coin(1000, "uusdc")], // Sending CDT
+        );
+
+        // Should fail because CDT should use SetPromises
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.root_cause().to_string().contains("CDT revenue should use SetPromises"));
+    }
+
+    #[test]
+    fn test_add_non_cdt_revenue_requires_auction_contract() {
+        let mut app = setup_app();
+        let (revenue_distributor_addr, _staking_addr, _ltv_addr, _transmuter_addr, _cdp_addr) = 
+            setup_contracts_with_window(&mut app, 7);
+
+        // Don't set auction contract - should fail
+        let per_asset_distribution = vec![
+            membrane::types::Asset {
+                info: membrane::types::AssetInfo::NativeToken { denom: "uatom".to_string() },
+                amount: Uint128::new(1000),
+            },
+        ];
+
+        let msg = ExecuteMsg::AddNonCdtRevenue {
+            per_asset_distribution,
+        };
+        let result = app.execute_contract(
+            Addr::unchecked(USER),
+            revenue_distributor_addr.clone(),
+            &msg,
+            &[coin(1000, "uatom")],
+        );
+
+        // Should fail because auction contract is not configured
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.root_cause().to_string().contains("Auction contract not configured"));
+    }
+
+    // Mock Auction Contract for testing
+    #[cosmwasm_schema::cw_serde]
+    pub enum MockAuctionExecuteMsg {
+        StartAuction {
+            repayment_position_info: Option<membrane::types::UserInfo>,
+            send_to: Option<String>,
+            auction_asset: membrane::types::Asset,
+            per_asset_distribution: Option<Vec<membrane::types::Asset>>,
+        },
+    }
+
+    pub fn auction_contract() -> Box<dyn Contract<Empty>> {
+        let contract = ContractWrapper::new_with_empty(
+            |_deps, _env, _info, msg: MockAuctionExecuteMsg| -> StdResult<Response> {
+                match msg {
+                    MockAuctionExecuteMsg::StartAuction { .. } => {
+                        Ok(Response::new().add_attribute("method", "start_auction"))
+                    }
+                }
+            },
+            |_deps, _env, _info, _msg: Empty| -> StdResult<Response> {
+                Ok(Response::new().add_attribute("method", "instantiate"))
+            },
+            |_deps, _env, _msg: Empty| -> StdResult<Binary> {
+                Ok(to_json_binary(&Empty {})?)
+            },
+        );
+        Box::new(contract)
     }
 }

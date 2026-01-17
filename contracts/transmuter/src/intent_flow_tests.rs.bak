@@ -1,0 +1,1043 @@
+#![allow(unused_imports)]
+use cosmwasm_std::{
+    testing::{mock_dependencies, mock_dependencies_with_balances, mock_env, mock_info},
+    coin, Decimal, Uint128, WasmMsg, CosmosMsg, to_json_binary, WasmQuery, QueryRequest, SystemResult, ContractResult,
+};
+use membrane::system_discounts::{QueryMsg as SystemsDiscountsQueryMsg, UserBoostResponse};
+// Note: USER_INCENTIVES, INCENTIVE_EVENTS, INTENT_FLOW_METRICS, USER_INTENT_HISTORY, UserIncentives, IncentiveEvent have been removed
+// use crate::state::{
+//     USER_INCENTIVES, INCENTIVE_EVENTS, INTENT_FLOW_METRICS, USER_INTENT_HISTORY,
+//     UserIncentives, IncentiveEvent,
+// };
+use membrane::transmuter::{
+    InstantiateMsg as TInstantiate, ExecuteMsg as TExecute, AssetPair,
+    // MbrnClaimIntent, MbrnIntentOption, MbrnIntentType, // These have been removed
+};
+use membrane::types::Locked;
+use crate::contract::{instantiate, execute};
+use crate::error::ContractError;
+
+fn default_instantiate_msg() -> TInstantiate {
+    TInstantiate {
+        owner: Some("owner".to_string()),
+        tokenfactory_contract: None,
+        cdp_contract: "cdp".to_string(),
+        discounts_contract: "discounts".to_string(),
+        vault_subdenom: "vt".to_string(),
+        deposit_pair: AssetPair {
+            cdt: "cdt".to_string(),
+            paired_asset: "usdc".to_string(),
+        },
+        composition_leeway: Decimal::percent(5),
+        asset_a_to_b_rate: Decimal::one(),
+        target_ratio: Decimal::zero(),
+        usage_fee: Some(Decimal::zero()),
+        swap_history_cap: 50,
+        volume_history_cap: 50,
+        rate_limit_window_secs: Some(60),
+        rate_limit_threshold: Some(Decimal::percent(10)),
+        revenue_distributor_addr: "rev".to_string(),
+        revenue_distributions: None,
+        allowlist: None,
+        allowlist_rate_limit_threshold: None,
+        global_rate_limit_window_secs: Some(3600),
+        global_rate_limit_threshold: Some(Decimal::percent(10)),
+        monthly_incentive_max: Some(Uint128::new(1_000_000)),
+        incentive_denom: Some("mbrn".to_string()),
+        neutron_proxy: Some("neutron-proxy".to_string()),
+        staking_contract: Some("staking".to_string()),
+        mars_mirror_contract: Some("mars-mirror".to_string()),
+        affiliate_fee: Decimal::percent(1),
+    }
+}
+
+fn setup_instantiate(
+    deps: &mut cosmwasm_std::OwnedDeps<
+        cosmwasm_std::MemoryStorage,
+        cosmwasm_std::testing::MockApi,
+        cosmwasm_std::testing::MockQuerier<cosmwasm_std::Empty>,
+    >,
+) {
+    // Mock discounts contract query to return zero boost
+    deps.querier.update_wasm(|_| {
+        SystemResult::Ok(ContractResult::Ok(
+            to_json_binary(&UserBoostResponse {
+                user: "".to_string(),
+                boost: Decimal::zero(),
+            }).unwrap()
+        ))
+    });
+    
+    let env = mock_env();
+    let info = mock_info("owner", &[]);
+    let msg = default_instantiate_msg();
+    let res = instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+    assert_eq!(res.messages.len(), 1); // create denom
+}
+
+fn setup_user_with_incentives(
+    deps: &mut cosmwasm_std::OwnedDeps<
+        cosmwasm_std::MemoryStorage,
+        cosmwasm_std::testing::MockApi,
+        cosmwasm_std::testing::MockQuerier<cosmwasm_std::Empty>,
+    >,
+    user: &str,
+    vault_tokens: Uint128,
+    claimable_amount: Uint128,
+) {
+    // Mock discounts contract query to return zero boost
+    deps.querier.update_wasm(|_| {
+        SystemResult::Ok(ContractResult::Ok(
+            to_json_binary(&UserBoostResponse {
+                user: "".to_string(),
+                boost: Decimal::zero(),
+            }).unwrap()
+        ))
+    });
+    let env = mock_env();
+    USER_INCENTIVES
+        .save(
+            &mut deps.storage,
+            user.into(),
+            &UserIncentives {
+                total_claimed: Uint128::zero(),
+                vault_tokens_in_contract: vault_tokens,
+                last_accrued: 0,
+                mbrn_intents: None,
+            },
+        )
+        .unwrap();
+    crate::state::VAULT_TOKEN_SUPPLY
+        .save(&mut deps.storage, &Uint128::new(1_000_000))
+        .unwrap();
+    INCENTIVE_EVENTS
+        .save(
+            &mut deps.storage,
+            &vec![IncentiveEvent {
+                amount_per_vt: Decimal::from_ratio(claimable_amount, vault_tokens),
+                time_of_event: env.block.time.seconds(),
+                amount_left_to_claim: claimable_amount,
+            }],
+        )
+        .unwrap();
+}
+
+#[test]
+fn test_claim_without_intent_tracks_metrics() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: None,
+        },
+    )
+    .unwrap();
+
+    // Should have mint message for remaining amount (no intent used)
+    assert_eq!(res.messages.len(), 1);
+    match &res.messages[0].msg {
+        CosmosMsg::Wasm(WasmMsg::Execute { contract_addr, .. }) => {
+            assert_eq!(contract_addr, "neutron-proxy");
+        }
+        _ => panic!("Expected WasmMsg::Execute to neutron-proxy"),
+    }
+
+    // Check metrics
+    let metrics = INTENT_FLOW_METRICS.may_load(&deps.storage).unwrap().unwrap_or_else(|| membrane::transmuter::IntentFlowMetrics {
+        total_claims: Uint128::zero(),
+        total_no_intent_claims: Uint128::zero(),
+        global_intent_totals: Vec::new(),
+    });
+    assert_eq!(metrics.total_claims, Uint128::new(10000));
+    assert_eq!(metrics.total_no_intent_claims, Uint128::new(10000));
+
+    // Check user history
+    let history = USER_INTENT_HISTORY.load(&deps.storage, "user".into()).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].amount, Uint128::new(10000));
+    assert!(history[0].intents.is_none());
+}
+
+#[test]
+fn test_claim_with_stake_intent_one_time() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: false,
+        intents: vec![MbrnIntentOption {
+            intent_type: MbrnIntentType::Stake {},
+            ratio: Decimal::one(),
+            lock: None,
+        }],
+    };
+
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent.clone()),
+        },
+    )
+    .unwrap();
+
+    // Should have stake message
+    assert_eq!(res.messages.len(), 1);
+    match &res.messages[0].msg {
+        CosmosMsg::Wasm(WasmMsg::Execute { contract_addr, msg: _, funds }) => {
+            assert_eq!(contract_addr, "staking");
+            assert_eq!(funds[0].amount, Uint128::new(10000));
+            assert_eq!(funds[0].denom, "mbrn");
+        }
+        _ => panic!("Expected WasmMsg::Execute"),
+    }
+
+    // Check metrics
+    let metrics = INTENT_FLOW_METRICS.may_load(&deps.storage).unwrap().unwrap_or_else(|| membrane::transmuter::IntentFlowMetrics {
+        total_claims: Uint128::zero(),
+        total_no_intent_claims: Uint128::zero(),
+        global_intent_totals: Vec::new(),
+    });
+    assert_eq!(metrics.total_claims, Uint128::new(10000));
+    assert_eq!(metrics.total_no_intent_claims, Uint128::zero());
+    assert_eq!(metrics.global_intent_totals.len(), 1);
+    assert_eq!(
+        metrics.global_intent_totals[0].total_amount,
+        Uint128::new(10000)
+    );
+
+    // Check user didn't save ongoing intent
+    let user = USER_INCENTIVES.load(&deps.storage, "user".into()).unwrap();
+    assert!(user.mbrn_intents.is_none());
+}
+
+#[test]
+fn test_claim_with_stake_intent_set_ongoing() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: true,
+        intents: vec![MbrnIntentOption {
+            intent_type: MbrnIntentType::Stake {},
+            ratio: Decimal::one(),
+            lock: None,
+        }],
+    };
+
+    let _res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent.clone()),
+        },
+    )
+    .unwrap();
+
+    // Check user saved ongoing intent
+    let user = USER_INCENTIVES.load(&deps.storage, "user".into()).unwrap();
+    assert!(user.mbrn_intents.is_some());
+    assert_eq!(user.mbrn_intents.as_ref().unwrap().len(), 1);
+
+    // Second claim should use ongoing intent
+    // Need to create a new event that's after the user's last_accrued time
+    let mut user = USER_INCENTIVES.load(&deps.storage, "user".into()).unwrap();
+    user.vault_tokens_in_contract = Uint128::new(1000); // Keep VT balance
+    USER_INCENTIVES.save(&mut deps.storage, "user".into(), &user).unwrap();
+    
+    // Mock discounts query for second claim
+    deps.querier.update_wasm(|_| {
+        SystemResult::Ok(ContractResult::Ok(
+            to_json_binary(&UserBoostResponse {
+                user: "".to_string(),
+                boost: Decimal::zero(),
+            }).unwrap()
+        ))
+    });
+    
+    // Create a new event after last_accrued
+    let mut env2 = mock_env();
+    env2.block.time = env2.block.time.plus_seconds(10);
+    INCENTIVE_EVENTS.save(
+        &mut deps.storage,
+        &vec![IncentiveEvent {
+            amount_per_vt: Decimal::from_ratio(Uint128::new(5000), Uint128::new(1000)),
+            time_of_event: env2.block.time.seconds(),
+            amount_left_to_claim: Uint128::new(5000),
+        }],
+    )
+    .unwrap();
+    let info2 = mock_info("caller", &[]);
+    let res2 = execute(
+        deps.as_mut(),
+        env2,
+        info2,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: None, // No intent provided, should use ongoing
+        },
+    )
+    .unwrap();
+
+    // Should still stake
+    assert_eq!(res2.messages.len(), 1);
+    match &res2.messages[0].msg {
+        CosmosMsg::Wasm(WasmMsg::Execute { funds, .. }) => {
+            assert_eq!(funds[0].amount, Uint128::new(5000));
+        }
+        _ => panic!("Expected WasmMsg::Execute"),
+    }
+}
+
+#[test]
+fn test_claim_with_mars_mirror_deposit_intent() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: false,
+        intents: vec![MbrnIntentOption {
+            intent_type: MbrnIntentType::DepositViaMarsMirror {
+                asset: "usdc".to_string(),
+                target_ltv: Some(Decimal::percent(75)),
+                target_max_borrow_ltv: Some(Decimal::percent(70)),
+            },
+            ratio: Decimal::one(),
+            lock: None,
+        }],
+    };
+
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent),
+        },
+    )
+    .unwrap();
+
+    // Should have deposit message
+    assert_eq!(res.messages.len(), 1);
+    match &res.messages[0].msg {
+        CosmosMsg::Wasm(WasmMsg::Execute { contract_addr, funds, .. }) => {
+            assert_eq!(contract_addr, "mars-mirror");
+            assert_eq!(funds[0].amount, Uint128::new(10000));
+            assert_eq!(funds[0].denom, "mbrn");
+        }
+        _ => panic!("Expected WasmMsg::Execute"),
+    }
+
+    // Check metrics
+    let metrics = INTENT_FLOW_METRICS.may_load(&deps.storage).unwrap().unwrap_or_else(|| membrane::transmuter::IntentFlowMetrics {
+        total_claims: Uint128::zero(),
+        total_no_intent_claims: Uint128::zero(),
+        global_intent_totals: Vec::new(),
+    });
+    assert_eq!(metrics.global_intent_totals.len(), 1);
+    assert!(matches!(
+        &metrics.global_intent_totals[0].intent_type,
+        MbrnIntentType::DepositViaMarsMirror { asset, .. } if asset == "usdc"
+    ));
+}
+
+#[test]
+fn test_claim_with_multiple_intents_ratios() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: false,
+        intents: vec![
+            MbrnIntentOption {
+                intent_type: MbrnIntentType::Stake {},
+                ratio: Decimal::percent(60),
+                lock: None,
+            },
+            MbrnIntentOption {
+                intent_type: MbrnIntentType::DepositViaMarsMirror {
+                    asset: "usdc".to_string(),
+                    target_ltv: None,
+                    target_max_borrow_ltv: None,
+                },
+                ratio: Decimal::percent(40),
+                lock: None,
+            },
+        ],
+    };
+
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent),
+        },
+    )
+    .unwrap();
+
+    // Should have 2 messages (stake + deposit)
+    assert_eq!(res.messages.len(), 2);
+
+    // Check amounts (60% stake, 40% deposit)
+    let mut stake_amount = Uint128::zero();
+    let mut deposit_amount = Uint128::zero();
+    for msg in &res.messages {
+        match &msg.msg {
+            CosmosMsg::Wasm(WasmMsg::Execute { contract_addr, funds, .. }) => {
+                if contract_addr == "staking" {
+                    stake_amount = funds[0].amount;
+                } else if contract_addr == "mars-mirror" {
+                    deposit_amount = funds[0].amount;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    assert_eq!(stake_amount, Uint128::new(6000)); // 60% of 10000
+    assert_eq!(deposit_amount, Uint128::new(4000)); // 40% of 10000
+
+    // Check metrics
+    let metrics = INTENT_FLOW_METRICS.may_load(&deps.storage).unwrap().unwrap_or_else(|| membrane::transmuter::IntentFlowMetrics {
+        total_claims: Uint128::zero(),
+        total_no_intent_claims: Uint128::zero(),
+        global_intent_totals: Vec::new(),
+    });
+    assert_eq!(metrics.global_intent_totals.len(), 2);
+}
+
+#[test]
+fn test_claim_with_locked_stake() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    let lock = Locked {
+        locked_until: env.block.time.seconds() + 86400,
+        perpetual_lock: None,
+    };
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: false,
+        intents: vec![MbrnIntentOption {
+            intent_type: MbrnIntentType::Stake {},
+            ratio: Decimal::one(),
+            lock: Some(lock.clone()),
+        }],
+    };
+
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent),
+        },
+    )
+    .unwrap();
+
+    // Check stake message includes lock
+    match &res.messages[0].msg {
+        CosmosMsg::Wasm(WasmMsg::Execute { msg, .. }) => {
+            // The msg should contain the lock information
+            // This is tested via the contract logic, so we just verify the message exists
+            assert!(!msg.to_vec().is_empty());
+        }
+        _ => panic!("Expected WasmMsg::Execute"),
+    }
+}
+
+#[test]
+fn test_claim_with_locked_mars_mirror_deposit() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    let lock = Locked {
+        locked_until: env.block.time.seconds() + 86400,
+        perpetual_lock: None,
+    };
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: false,
+        intents: vec![MbrnIntentOption {
+            intent_type: MbrnIntentType::DepositViaMarsMirror {
+                asset: "usdc".to_string(),
+                target_ltv: None,
+                target_max_borrow_ltv: None,
+            },
+            ratio: Decimal::one(),
+            lock: Some(lock),
+        }],
+    };
+
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent),
+        },
+    )
+    .unwrap();
+
+    // Should have deposit message with lock
+    assert_eq!(res.messages.len(), 1);
+}
+
+#[test]
+fn test_invalid_ratio_validation() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: false,
+        intents: vec![
+            MbrnIntentOption {
+                intent_type: MbrnIntentType::Stake {},
+                ratio: Decimal::percent(60),
+                lock: None,
+            },
+            MbrnIntentOption {
+                intent_type: MbrnIntentType::Stake {},
+                ratio: Decimal::percent(50), // Total is 110%, should fail
+                lock: None,
+            },
+        ],
+    };
+
+    let res = execute(
+        deps.as_mut(),
+        env,
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent),
+        },
+    );
+
+    assert!(res.is_err());
+    match res.unwrap_err() {
+        ContractError::Validation(msg) => {
+            assert!(msg.contains("ratios must sum"));
+        }
+        _ => panic!("Expected Validation error"),
+    }
+}
+
+#[test]
+fn test_ratio_within_tolerance() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    // Total is 99.5% - should be within 1% tolerance
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: false,
+        intents: vec![MbrnIntentOption {
+            intent_type: MbrnIntentType::Stake {},
+            ratio: Decimal::percent(99) + Decimal::from_ratio(5u128, 1000u128), // 99.5%
+            lock: None,
+        }],
+    };
+
+    let res = execute(
+        deps.as_mut(),
+        env,
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent),
+        },
+    );
+
+    // Should succeed
+    assert!(res.is_ok());
+}
+
+#[test]
+fn test_apply_now_without_set_ongoing() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: false,
+        intents: vec![MbrnIntentOption {
+            intent_type: MbrnIntentType::Stake {},
+            ratio: Decimal::one(),
+            lock: None,
+        }],
+    };
+
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent),
+        },
+    )
+    .unwrap();
+
+    // Should apply intent
+    assert_eq!(res.messages.len(), 1);
+
+    // But should not save as ongoing
+    let user = USER_INCENTIVES.load(&deps.storage, "user".into()).unwrap();
+    assert!(user.mbrn_intents.is_none());
+}
+
+#[test]
+fn test_set_ongoing_without_apply_now() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    let intent = MbrnClaimIntent {
+        apply_now: false,
+        set_ongoing: true,
+        intents: vec![MbrnIntentOption {
+            intent_type: MbrnIntentType::Stake {},
+            ratio: Decimal::one(),
+            lock: None,
+        }],
+    };
+
+    let res = execute(
+        deps.as_mut(),
+        env.clone(),
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent),
+        },
+    )
+    .unwrap();
+
+    // Should save as ongoing and apply it (because we just saved it, so record.mbrn_intents.as_ref() gets it)
+    let user = USER_INCENTIVES.load(&deps.storage, "user".into()).unwrap();
+    assert!(user.mbrn_intents.is_some());
+
+    // The intent should be applied (stake message) + mint for remaining (if any)
+    // Since we used 100% for intent, there should be no remaining, so only 1 message (stake)
+    assert_eq!(res.messages.len(), 1);
+    match &res.messages[0].msg {
+        CosmosMsg::Wasm(WasmMsg::Execute { contract_addr, funds, .. }) => {
+            assert_eq!(contract_addr, "staking");
+            assert_eq!(funds[0].amount, Uint128::new(10000));
+        }
+        _ => panic!("Expected WasmMsg::Execute to staking"),
+    }
+}
+
+#[test]
+fn test_user_intent_history_limit() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+
+    // Create many claims to exceed history limit
+    let limit = crate::state::USER_INTENT_HISTORY_LIMIT;
+    for i in 0..(limit + 10) {
+        setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(1000));
+        // Mock discounts query
+        deps.querier.update_wasm(|_| {
+            SystemResult::Ok(ContractResult::Ok(
+                to_json_binary(&UserBoostResponse {
+                    user: "".to_string(),
+                    boost: Decimal::zero(),
+                }).unwrap()
+            ))
+        });
+        let mut env = mock_env();
+        env.block.time = env.block.time.plus_seconds(i as u64);
+        let info = mock_info("caller", &[]);
+        // Update last_accrued to ensure events are claimable
+        let mut user = USER_INCENTIVES.load(&deps.storage, "user".into()).unwrap();
+        user.last_accrued = if i == 0 { 0 } else { env.block.time.seconds() - 1 };
+        USER_INCENTIVES.save(&mut deps.storage, "user".into(), &user).unwrap();
+        let _ = execute(
+            deps.as_mut(),
+            env,
+            info,
+            TExecute::ClaimIncentivesForUser {
+                user: "user".into(),
+                limit: Some(10),
+                mbrn_intent: None,
+            },
+        )
+        .unwrap();
+    }
+
+    // History should be capped at limit
+    let history = USER_INTENT_HISTORY.load(&deps.storage, "user".into()).unwrap();
+    assert_eq!(history.len(), limit);
+}
+
+#[test]
+fn test_intent_flow_metrics_aggregation() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+
+    // Multiple users with different intents
+    let users = vec!["user1", "user2", "user3"];
+    for (i, user) in users.iter().enumerate() {
+        setup_user_with_incentives(
+            &mut deps,
+            user,
+            Uint128::new(1000),
+            Uint128::new(10000).checked_add(Uint128::new(i as u128 * 1000)).unwrap(),
+        );
+        let mut env = mock_env();
+        env.block.time = env.block.time.plus_seconds(i as u64 * 10);
+        let info = mock_info("caller", &[]);
+
+        let intent = if i == 0 {
+            // User1: Stake
+            Some(MbrnClaimIntent {
+                apply_now: true,
+                set_ongoing: false,
+                intents: vec![MbrnIntentOption {
+                    intent_type: MbrnIntentType::Stake {},
+                    ratio: Decimal::one(),
+                    lock: None,
+                }],
+            })
+        } else if i == 1 {
+            // User2: Mars Mirror deposit
+            Some(MbrnClaimIntent {
+                apply_now: true,
+                set_ongoing: false,
+                intents: vec![MbrnIntentOption {
+                    intent_type: MbrnIntentType::DepositViaMarsMirror {
+                        asset: "usdc".to_string(),
+                        target_ltv: None,
+                        target_max_borrow_ltv: None,
+                    },
+                    ratio: Decimal::one(),
+                    lock: None,
+                }],
+            })
+        } else {
+            // User3: No intent
+            None
+        };
+
+        let _ = execute(
+            deps.as_mut(),
+            env,
+            info,
+            TExecute::ClaimIncentivesForUser {
+                user: user.to_string(),
+                limit: Some(10),
+                mbrn_intent: intent,
+            },
+        )
+        .unwrap();
+    }
+
+    // Check aggregated metrics
+    let metrics = INTENT_FLOW_METRICS.load(&deps.storage).unwrap();
+    assert_eq!(metrics.global_intent_totals.len(), 2); // Stake + Deposit
+    assert!(metrics.total_claims > Uint128::zero());
+    assert!(metrics.total_no_intent_claims > Uint128::zero());
+}
+
+#[test]
+fn test_intent_updates_global_totals() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: false,
+        intents: vec![MbrnIntentOption {
+            intent_type: MbrnIntentType::Stake {},
+            ratio: Decimal::one(),
+            lock: None,
+        }],
+    };
+
+    // First claim
+    let info1 = mock_info("caller", &[]);
+    let _ = execute(
+        deps.as_mut(),
+        env.clone(),
+        info1,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent.clone()),
+        },
+    )
+    .unwrap();
+
+    let metrics1 = INTENT_FLOW_METRICS.load(&deps.storage).unwrap();
+    let stake_total1 = metrics1
+        .global_intent_totals
+        .iter()
+        .find(|t| matches!(t.intent_type, MbrnIntentType::Stake {}))
+        .unwrap()
+        .total_amount;
+
+    // Second claim
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(5000));
+    let mut env2 = mock_env();
+    env2.block.time = env2.block.time.plus_seconds(10);
+    let info2 = mock_info("caller", &[]);
+    let _ = execute(
+        deps.as_mut(),
+        env2,
+        info2,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent),
+        },
+    )
+    .unwrap();
+
+    let metrics2 = INTENT_FLOW_METRICS.load(&deps.storage).unwrap();
+    let stake_total2 = metrics2
+        .global_intent_totals
+        .iter()
+        .find(|t| matches!(t.intent_type, MbrnIntentType::Stake {}))
+        .unwrap()
+        .total_amount;
+
+    // Should have increased
+    assert_eq!(stake_total2, stake_total1 + Uint128::new(5000));
+}
+
+#[test]
+fn test_claim_without_intent_contracts_configured() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+    let info = mock_info("owner", &[]);
+    let mut msg = default_instantiate_msg();
+    msg.staking_contract = None;
+    msg.mars_mirror_contract = None;
+    instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
+
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: false,
+        intents: vec![MbrnIntentOption {
+            intent_type: MbrnIntentType::Stake {},
+            ratio: Decimal::one(),
+            lock: None,
+        }],
+    };
+
+    let info = mock_info("caller", &[]);
+    let res = execute(
+        deps.as_mut(),
+        env,
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent),
+        },
+    )
+    .unwrap();
+
+    // Contract doesn't error when staking_contract is None - it just skips creating the stake message
+    // The remaining amount (100%) should try to mint
+    assert_eq!(res.messages.len(), 1);
+    match &res.messages[0].msg {
+        CosmosMsg::Wasm(WasmMsg::Execute { contract_addr, .. }) => {
+            assert_eq!(contract_addr, "neutron-proxy");
+        }
+        _ => panic!("Expected WasmMsg::Execute to neutron-proxy"),
+    }
+}
+
+#[test]
+fn test_remaining_amount_minted_after_intents() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    // Use 60% for stake intent, 40% for mars mirror, so 100% is used for intents
+    // Actually, let's use 60% stake and 40% mars mirror to test multiple intents
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: false,
+        intents: vec![
+            MbrnIntentOption {
+                intent_type: MbrnIntentType::Stake {},
+                ratio: Decimal::percent(60),
+                lock: None,
+            },
+            MbrnIntentOption {
+                intent_type: MbrnIntentType::DepositViaMarsMirror {
+                    asset: "usdc".to_string(),
+                    target_ltv: None,
+                    target_max_borrow_ltv: None,
+                },
+                ratio: Decimal::percent(40),
+                lock: None,
+            },
+        ],
+    };
+
+    let res = execute(
+        deps.as_mut(),
+        env,
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent),
+        },
+    )
+    .unwrap();
+
+    // Should have both stake message (60%) and mars mirror deposit message (40%)
+    // No mint message since 100% is used for intents
+    assert_eq!(res.messages.len(), 2);
+
+    let mut stake_amount = Uint128::zero();
+    let mut deposit_amount = Uint128::zero();
+    for submsg in &res.messages {
+        match &submsg.msg {
+            CosmosMsg::Wasm(WasmMsg::Execute { contract_addr, funds, .. }) => {
+                if contract_addr == "staking" {
+                    stake_amount = funds[0].amount;
+                    assert_eq!(funds[0].denom, "mbrn");
+                } else if contract_addr == "mars-mirror" {
+                    deposit_amount = funds[0].amount;
+                    assert_eq!(funds[0].denom, "mbrn");
+                }
+            }
+            _ => {}
+        }
+    }
+
+    assert_eq!(stake_amount, Uint128::new(6000)); // 60% of 10000
+    assert_eq!(deposit_amount, Uint128::new(4000)); // 40% of 10000
+}
+
+#[test]
+fn test_remaining_amount_minted_when_intent_less_than_100_percent() {
+    let mut deps = mock_dependencies();
+    setup_instantiate(&mut deps);
+    setup_user_with_incentives(&mut deps, "user", Uint128::new(1000), Uint128::new(10000));
+
+    let env = mock_env();
+    let info = mock_info("caller", &[]);
+    // Use 99% for stake intent (within 1% tolerance), 1% should be minted
+    let intent = MbrnClaimIntent {
+        apply_now: true,
+        set_ongoing: false,
+        intents: vec![MbrnIntentOption {
+            intent_type: MbrnIntentType::Stake {},
+            ratio: Decimal::percent(99),
+            lock: None,
+        }],
+    };
+
+    let res = execute(
+        deps.as_mut(),
+        env,
+        info,
+        TExecute::ClaimIncentivesForUser {
+            user: "user".into(),
+            limit: Some(10),
+            mbrn_intent: Some(intent),
+        },
+    )
+    .unwrap();
+
+    // Should have both stake message (99%) and mint message (1%)
+    assert_eq!(res.messages.len(), 2);
+
+    let mut stake_amount = Uint128::zero();
+    let mut has_mint = false;
+    for submsg in &res.messages {
+        match &submsg.msg {
+            CosmosMsg::Wasm(WasmMsg::Execute { contract_addr, funds, .. }) => {
+                if contract_addr == "staking" {
+                    stake_amount = funds[0].amount;
+                    assert_eq!(funds[0].denom, "mbrn");
+                } else if contract_addr == "neutron-proxy" {
+                    has_mint = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    assert_eq!(stake_amount, Uint128::new(9900)); // 99% of 10000
+    assert!(has_mint, "Should have mint message for remaining 1%");
+}
+

@@ -45,8 +45,6 @@ members = [
     "contracts/auction",
     "contracts/cdp",
     "contracts/discount_vault",
-    "contracts/governance",
-    "contracts/launch",
     "contracts/liq-queue",
     "contracts/mars-vault-token",
     "contracts/oracle",

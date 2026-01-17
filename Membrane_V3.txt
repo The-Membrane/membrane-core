@@ -1,4 +1,4 @@
-EMISSIONS VOTING FOR THE LOCKDROP 
+EMISSIONS VOTING FOR THE LOCKDROP (done)
 - create a scale from 0-1M and have MBRN vote per week 
 - that means one lockdrop a week 
 - "emissions are protocol-ownership redistribution"
@@ -10,6 +10,14 @@ CDP SUPERVAULTS
 - "No IL for senior tranche LPs" as a USP (experimental)
 - Batch trade for effieicny but likely only possible with the CronModule
 
+ISOLATED MARKETS
+- migrate and polish 
+- managers will test collateral that gets pulled into the Minting mechanism with usage history
+-- we'll need a way to align managers bc we'll eventually take their initial business line if we take their collateral
+--- some version of points
+- These isolated markets also give Disco voters more internal collateral risk data to use
+- Make the mechanistic operations modular and create templates that users can use as foundations to vibe code off of
+-- could just be the main cdp's contract as a template, but we need to give users the right instantiation params and help 
 
 ***********V3***************
 Points system

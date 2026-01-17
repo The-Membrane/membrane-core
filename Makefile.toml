@@ -24,8 +24,12 @@ docker run --rm -v "$(pwd)":/code \
 [tasks.rust-optimizer-exclude]
 cwd = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
 script = """
-# Create a temporary Cargo.toml that only includes safe contracts
+# Create backups of workspace files
 cp Cargo.toml Cargo.toml.backup
+cp Cargo.lock Cargo.lock.backup 2>/dev/null || true
+
+# Remove Cargo.lock so the optimizer can generate a fresh one inside the container
+rm -f Cargo.lock
 
 # Create the modified Cargo.toml with only contracts that don't have problematic dependencies
 cat > Cargo.toml << 'EOF'
@@ -79,7 +83,8 @@ docker run --rm -v "$(pwd)":/code \
   --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
   cosmwasm/optimizer:${RUST_OPTIMIZER_VERSION}
 
-# Restore original Cargo.toml
+# Restore original workspace files
 mv Cargo.toml.backup Cargo.toml
-echo "Restored original Cargo.toml"
+mv Cargo.lock.backup Cargo.lock 2>/dev/null || true
+echo "Restored original Cargo.toml and Cargo.lock"
 """

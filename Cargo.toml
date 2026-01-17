@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "packages/membrane",
-    "contracts/auction",
     "contracts/cdp",
     "contracts/liq-queue",
     "contracts/ltv_disco",
@@ -12,7 +11,6 @@ members = [
     "contracts/staking",
     "contracts/system_discounts",
     "contracts/tokenfactory",
-    "contracts/vesting",
     "contracts/revenue-distributor",
     "contracts/neutron-proxy",
     "contracts/transmuter",
@@ -46,4 +44,5 @@ rpath = false
 
 [workspace.dependencies]
 base64ct = "=1.7.3"
+osmo-bindings = { git = "https://github.com/osmosis-labs/bindings.git", rev = "531cf7bd58d90ce4681de84556cc9bda428aec68" }
 

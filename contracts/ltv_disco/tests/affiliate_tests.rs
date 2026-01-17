@@ -103,8 +103,10 @@ let msg = InstantiateMsg {
     ltv_delta_minimum: Some(Decimal::percent(1)),
     emissions_voting_contract: None,
     points_system_contract: None,
-    revenue_distributor: None,
-};
+        revenue_distributor: None,
+        auction_contract: None,
+        mbrn_denom: None,
+    };
 
 instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
 }
@@ -905,8 +907,10 @@ let mut msg = InstantiateMsg {
     ltv_delta_minimum: Some(Decimal::percent(1)),
     emissions_voting_contract: None,
     points_system_contract: None,
-    revenue_distributor: None,
-};
+        revenue_distributor: None,
+        auction_contract: None,
+        mbrn_denom: None,
+    };
 
 instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
 

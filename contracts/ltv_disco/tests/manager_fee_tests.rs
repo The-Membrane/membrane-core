@@ -104,6 +104,8 @@ fn setup_instantiate(
         emissions_voting_contract: None,
         points_system_contract: None,
         revenue_distributor: None,
+        auction_contract: None,
+        mbrn_denom: None,
     };
 
     instantiate(deps.as_mut(), env, info, msg).unwrap();

@@ -103,6 +103,8 @@ fn instantiate_contract() -> (cosmwasm_std::OwnedDeps<cosmwasm_std::MemoryStorag
         emissions_voting_contract: None,
         points_system_contract: None,
         revenue_distributor: None,
+        auction_contract: None,
+        mbrn_denom: None,
     };
     
     let info = mock_info("owner", &[]);

@@ -32,6 +32,8 @@ fn create_test_config(deps: &mut OwnedDeps<MemoryStorage, MockApi, MockQuerier>)
         emissions_voting_contract: None,
         points_system_contract: None,
         revenue_distributor: None,
+        auction_contract: None,
+        mbrn_denom: None,
     };
     
     let info = mock_info("creator", &[]);

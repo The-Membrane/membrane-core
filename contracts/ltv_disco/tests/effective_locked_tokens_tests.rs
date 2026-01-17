@@ -134,6 +134,8 @@ pub fn instantiate_contract_with_epoch(
         revenue_distributor: Some("revenue_distributor".to_string()),
         emissions_voting_contract: None,
         points_system_contract: None,
+        auction_contract: None,
+        mbrn_denom: None,
     };
     
     let info = mock_info("owner", &[]);

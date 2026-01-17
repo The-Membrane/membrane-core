@@ -52,12 +52,10 @@ members = [
     "contracts/oracle",
     "contracts/osmosis-proxy",
     "contracts/points-system",
-    "contracts/race-engine",
     "contracts/staking",
     "contracts/system_discounts",
     "contracts/tokenfactory",
     "contracts/vesting",
-    "contracts/vol-earn-vault",
 ]
 
 exclude = [

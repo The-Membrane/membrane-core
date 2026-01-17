@@ -1615,6 +1615,7 @@ fn deposit_fee(
                             repayment_position_info: None, 
                             send_to: None, 
                             auction_asset: asset.clone(),
+                            per_asset_distribution: None, //REvenue doesnt come thru here anymore, may need to update later
                         })?,
                         funds: vec![asset_to_coin(asset)?],
                     });

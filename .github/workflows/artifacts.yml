@@ -33,8 +33,10 @@ jobs:
       - name: Install cargo make
         uses: davidB/rust-cargo-make@v1
 
-      - name: Compile contracts to wasm
-        run: cargo make rust-optimizer-exclude
+      - name: Regenerate Cargo.lock and compile contracts
+        run: |
+          cargo generate-lockfile
+          cargo make rust-optimizer-exclude
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

@@ -447,7 +447,7 @@ mod tests {
                 .init_balance(
                     storage,
                     &Addr::unchecked(USER),
-                    vec![coin(1000000, "uusdc")],
+                    vec![coin(1000000, "uusdc"), coin(1000000, "uatom")],
                 )
                 .unwrap();
             router
@@ -455,7 +455,7 @@ mod tests {
                 .init_balance(
                     storage,
                     &Addr::unchecked(ADMIN),
-                    vec![coin(1000000, "uusdc"), coin(1000000, "vt")],
+                    vec![coin(1000000, "uusdc"), coin(1000000, "vt"), coin(1000000, "uatom")],
                 )
                 .unwrap();
         })
@@ -2288,6 +2288,13 @@ mod tests {
         let mut app = setup_app();
         let (revenue_distributor_addr, _staking_addr, _ltv_addr, _transmuter_addr, _cdp_addr) = 
             setup_contracts_with_window(&mut app, 7);
+        
+        // Fund USER with uatom for the test (send from ADMIN who has funds)
+        app.send_tokens(
+            Addr::unchecked(ADMIN),
+            Addr::unchecked(USER),
+            &[coin(1000000, "uatom")],
+        ).unwrap();
 
         // Deploy mock auction contract
         let auction_id = app.store_code(auction_contract());
@@ -2356,6 +2363,8 @@ mod tests {
         let mut app = setup_app();
         let (revenue_distributor_addr, _staking_addr, _ltv_addr, _transmuter_addr, _cdp_addr) = 
             setup_contracts_with_window(&mut app, 7);
+        
+        // USER already has uusdc from setup_app, so no need to fund
 
         // Deploy mock auction contract
         let auction_id = app.store_code(auction_contract());
@@ -2418,6 +2427,13 @@ mod tests {
         let mut app = setup_app();
         let (revenue_distributor_addr, _staking_addr, _ltv_addr, _transmuter_addr, _cdp_addr) = 
             setup_contracts_with_window(&mut app, 7);
+        
+        // Fund USER with uatom for the test (send from ADMIN who has funds)
+        app.send_tokens(
+            Addr::unchecked(ADMIN),
+            Addr::unchecked(USER),
+            &[coin(1000000, "uatom")],
+        ).unwrap();
 
         // Don't set auction contract - should fail
         let per_asset_distribution = vec![
@@ -2444,23 +2460,15 @@ mod tests {
     }
 
     // Mock Auction Contract for testing
-    #[cosmwasm_schema::cw_serde]
-    pub enum MockAuctionExecuteMsg {
-        StartAuction {
-            repayment_position_info: Option<membrane::types::UserInfo>,
-            send_to: Option<String>,
-            auction_asset: membrane::types::Asset,
-            per_asset_distribution: Option<Vec<membrane::types::Asset>>,
-        },
-    }
-
+    // Use the real ExecuteMsg from membrane::auction so it matches what revenue-distributor sends
     pub fn auction_contract() -> Box<dyn Contract<Empty>> {
         let contract = ContractWrapper::new_with_empty(
-            |_deps, _env, _info, msg: MockAuctionExecuteMsg| -> StdResult<Response> {
+            |_deps, _env, _info, msg: membrane::auction::ExecuteMsg| -> StdResult<Response> {
                 match msg {
-                    MockAuctionExecuteMsg::StartAuction { .. } => {
+                    membrane::auction::ExecuteMsg::StartAuction { .. } => {
                         Ok(Response::new().add_attribute("method", "start_auction"))
                     }
+                    _ => Err(cosmwasm_std::StdError::generic_err("Unexpected message type")),
                 }
             },
             |_deps, _env, _info, _msg: Empty| -> StdResult<Response> {

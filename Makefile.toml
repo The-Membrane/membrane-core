@@ -3,8 +3,8 @@ default_to_workspace = false
 skip_core_tasks = true
 
 [env]
-# If you bump this version, verify RUST_VERSION correctness
-RUST_OPTIMIZER_VERSION = "0.13.0"
+# Updated to new unified cosmwasm/optimizer (replaces deprecated workspace-optimizer)
+RUST_OPTIMIZER_VERSION = "0.17.0"
 # Use rust version from rust-optimizer Dockerfile (see https://github.com/CosmWasm/rust-optimizer/blob/main/Dockerfile#L1)
 # to be sure that we compile / test against the same version
 RUST_VERSION = "1.85.0"
@@ -14,32 +14,23 @@ NIGHTLY_VERSION = "nightly-2023-08-29"
 [tasks.rust-optimizer]
 cwd = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
 script = """
-if [[ $(arch) == "arm64" ]]; then
-  image="cosmwasm/workspace-optimizer-arm64:${RUST_OPTIMIZER_VERSION}"
-else
-  image="cosmwasm/workspace-optimizer:${RUST_OPTIMIZER_VERSION}"
-fi
+# New unified optimizer handles architecture automatically
 docker run --rm -v "$(pwd)":/code \
-  --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \
+  --mount type=volume,source="$(basename "$(pwd)")_cache",target=/target \
   --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
-  ${image}
+  cosmwasm/optimizer:${RUST_OPTIMIZER_VERSION}
 """
 
 [tasks.rust-optimizer-exclude]
 cwd = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
 script = """
-if [[ $(arch) == "arm64" ]]; then
-  image="cosmwasm/workspace-optimizer-arm64:${RUST_OPTIMIZER_VERSION}"
-else
-  image="cosmwasm/workspace-optimizer:${RUST_OPTIMIZER_VERSION}"
-fi
-
 # Create a temporary Cargo.toml that only includes safe contracts
 cp Cargo.toml Cargo.toml.backup
 
 # Create the modified Cargo.toml with only contracts that don't have problematic dependencies
 cat > Cargo.toml << 'EOF'
 [workspace]
+resolver = "2"
 members = [
     "packages/membrane",
     "contracts/auction",
@@ -82,14 +73,11 @@ EOF
 echo "Modified Cargo.toml contents:"
 cat Cargo.toml
 
-# Clear any existing registry cache to force fresh downloads
-rm -rf ~/.cargo/registry/src/index.crates.io-* ~/.cargo/registry/index/* 2>/dev/null || true
-
-# Run the optimizer with the modified workspace
+# Run the new unified optimizer
 docker run --rm -v "$(pwd)":/code \
-  --mount type=volume,source="$(basename "$(pwd)")_cache",target=/code/target \
+  --mount type=volume,source="$(basename "$(pwd)")_cache",target=/target \
   --mount type=volume,source=registry_cache,target=/usr/local/cargo/registry \
-  ${image}
+  cosmwasm/optimizer:${RUST_OPTIMIZER_VERSION}
 
 # Restore original Cargo.toml
 mv Cargo.toml.backup Cargo.toml

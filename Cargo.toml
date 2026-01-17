@@ -45,4 +45,5 @@ rpath = false
 [workspace.dependencies]
 base64ct = "=1.7.3"
 osmo-bindings = { git = "https://github.com/osmosis-labs/bindings.git", rev = "531cf7bd58d90ce4681de84556cc9bda428aec68" }
+neutron-sdk = { git = "https://github.com/neutron-org/neutron-sdk", rev = "98d81ea" }
 

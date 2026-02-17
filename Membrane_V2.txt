@@ -5,71 +5,65 @@ FUZZ AND AI AUDITS.
 
 
 TODO:
-    Points
-    - Everything in the flywheel (like swap fees, but since we may toggle swap fees off if there aren't other point sources we can skip this)
-    - CDP revenue using the revenue attribute add in the Responses
-    - Use the boost tier to boost points (extra points for status tiers and loyalty levels)
+    (Retention incentives & Redemptions)
+   (done) - ReAdd forced redemptions to marsUSDC 
+   (done) - Add deposits in the transmuter to the discount calculation but give it a boost over 1:1, 2x count but a max discount of 75%. So $50 in the transmuter should give 75% yield boost to $100 in the Manic, making it more effective to have both than just the one.
+   -- Edit: Timed discount curve that builds up over 3 months year to a max 75% discount
+   --- the curve gives 60% of the benefit in the first month 
+   -- so discountable debt =  18x the transmuter balance
+   (done) - Create a toggle that gives a % of transmuter swap fees to the revenue_distributor (0% = none). Default to 20%.
+   (done) - Move transmuter max lock to 4 years
+   (done) - change marsUSDC dispersal to 5% instead of 10%
+   (done) - Have MBRN tiers also give DISCOUNTS thru a timed-curve but with a non-100% max since MBRN doesn't enable trades (can just keep the 25% that is used for the boost max)
+   -- This can be stacked towards the max, but the 75% max still stands.
+   (done) - Ensure the transmuter vault has the message structs setup to be a deployment vault, allowing liquidations to pull from it
 
-- faq and protocol walkthrough in ditto
-- execution querys
-- points and lockdrop emissions voting 
+   (NO) - Add emissions boost to the transmuter timed-curve users as well. (No, those users are more likely to sell emissions to compound & they already split current emissions based on transmuter deposits)
+    (NOT YET) - Enable the transmuter to redeem for marsUSDC -> USDC to fulfill a swap 
+        -- Only transmuter LP withdrawals & CDP mint -> transmute can use this.
+        --- CDP mint can't be done without intents and may need to rethink logic if we create an intent contract/remove intents from the cdp contract
+        -- We are trying to disable regular swaps and loop theifs from using this
+   
+   (Acquistion Emissions + Retention Emissions Overhaul) - we can use this separation to measure cost for both
+   - Have MBRN boost work for emissions
+   - The Acquisition flow is now: 
+   //users go thru the lcokdrop process,
+   // get their allocation minted to the Disco but owned by the contract so they can manage it and get yield but they can' withdraw yet
+   // if they withdraw before the cliff ends, we burn thei rMBRN and return their full transmuter deposit
+   // if they wait til post-cliff, we give them owernship over the transmuter and Disco deposits
 
 
-TODO: 
-    Transmuter
-    - global rate limit (done)
 
-    SYSTEM DISCOUNTS
-    - Add logic to handle timed free sample periods (done)
+  (Winning Vol -> Stable Borrowers)
+  (open, holding, managing (ltv/rate/param changes), adjusting, exiting, liquidations)
+  (done) - Reduce rate volatility by removing supply cap effect on rates
+  - to make management easier, only block new mints when an asset is over the supply cap, nothing else.
+  -- We will also block new deposits and mainly use supply caps for riskier assets but eventually push them all to 100%.
+  - add 1-hr oracle to our prices since we don't have TWAPs anymore, gives users a chance to repay
+  - Product wise: liquidaion prices/simulations
 
-    CDP
-    - ClosePosition needs to exit thru deployments before selling collateral (done)
+  Rates:
+  (done) -- Fixed rate terms 1,3,6M. 
+  --- Cap at 20% of total debt each, 6M at 10%.
+  --- Rates are multipliers of base: 1.1 - 1.3 - 1.7
+  
+  (no) -- Floating Rate discounts at low LTVs to isolate risk pricing to the user's risk ("LTV utiliation curve")
+  --- This will likely also use a kink at 80% where post-kink the rates increase above base. 
+  (kinda, we're moving this to a new debt type) -- Floating rate will use base rate * util multiplier which will be two_slope, with the kink at 80%. Util is amount of liquidity available for the current supply to repay.
 
-    Osmosis Proxy 
-    - Disable new non-transmuter portal Mints (TEST AND FIX GLOBAL CONTRACT ERRORS)
-    - Disable supply tracking so discrepencies don't cause full closes to error (done)
 
-    Oracle
-    - basic functionality, won't launch without either TWAPs or circuit breakers
+ (Additional systemDiscounts will discount at the end of this main rate calc logic)
+ (Consider a separate contract if necessary)
+  
 
-    Misc
-    - Create first deployment venue (Mars USDC) (doneish)
-    - ensure (collateral) rate assurances are in place everywhere
+  - Make sure liquidations fallback to AMM
+  - Make sure circuit breakers don't block management
+  (-------------------------------------------------------------------)
 
-    CDP
-    -- accrue positive growth to config LTV with the Disco's avg LTV (done)
-    -- have downside per update limit & update stepwise to the downside (done)
+   
+   We need deposits in each leg of the flywheel to boost the others.
+   - "Oh you already have deposits here, your max is higher now in the Manic" (?) 
 
-    - Create a post-liq check instead of a circuit breaker  (We simulate a swap w/ the position total assets to check price) 
-    -- (We can add a callback that sims the swap so we can reply_on_always to the callback while the msg the callback sends replys_on success as well to invert the outcome. If the swap works, we error to revert & then catch the error to continue. If the swap fails, we error)
-    -- Add a post-mint check as well that acts as a circuit breaker for overpricing. 
-    - Save on-deployment base collateral so we can create collateral growth graphs as well. (done in individual deployment venues)
-
-    LTV Disco
-    - Historical bad debt per asset tracker
-
-    Metrics
-    Profit metrics will be: (idk if these go in the deployment venue or the CDP)
-        - profit in deployment asset
-        - profit in collateral asset(s)
-        - current collateral prices 
-
-- Mars Risk Mirror contract (done)
-- Test deployment venue fail logic (done)
-- Test active deployment venues (done)
-- Test fee to the transmuter for any usage that isn't from the CDP or a deployable venue. (done)
--- We don't want this used as an LP.
-- Add state tracker for total deployed USDC (Asset A) (done)
--- so instead of a ratio of assets, we can make sure we attract enough CDT back to fulfill recoveries (done)
-- Revenue contract needs to send as VT to the disco. (done)
-- Add revenue paid to repay attributes to make points easier (done)
-- Add LTV usage from LTV Disco to CDP (done)
-
-- CDP profit tracking (doneish ?)
--- Tracking interesrt accrued on a position to track costs
--- Track profits in a deployment venue to track profits
-
-- All deployment vaults (+ Disco) need profit tracking (done)
 
 
 
@@ -93,7 +87,7 @@ Risk Management
 
 LTV Disco
 - Check how the CDP will send the bad debt, we'll likely have to make the bad debt fulfillment thru the LTVDisco async for cost savings. (done)
--- uf async, we'll need a lgobal total deposit store that accounts for pending bad debt to make the decision to send bad debt to the disco low cost. Sync, we do balance. Async we do the GTD query.
+-- if async, we'll need a global total deposit store that accounts for pending bad debt to make the decision to send bad debt to the disco low cost. Sync, we do balance. Async we do the GTD query.
 - Create a Disco queue on asset addition in the CDP (done)
 - The Disco needs to save a % of revenue to disperse over a time period once liquidations begin (done)
 -- the rest will be sent as it comes (this is so we are paying alpha seekers for risk parms & junior tranches for liq backstop without having to lock capital)

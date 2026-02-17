@@ -1,11 +1,11 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Int128, StdError, StdResult, Storage, Timestamp, Uint128};
+use cosmwasm_std::{Decimal, Int128, StdError, StdResult, Storage, Timestamp, Uint128};
 use cw_storage_plus::{Item, Map};
 
 use membrane::transmuter::{Config, VolumeWindow, RateHistoryEntry};
 
 pub const CONFIG: Item<Config> = Item::new("config");
-pub const VAULT_TOKEN_SUPPLY: Item<Uint128> = Item::new("vault_token_supply");
+pub const DEPOSIT_TOTAL: Item<Uint128> = Item::new("deposit_total");
 pub const TOKEN_RATE_ASSURANCE: Item<TokenRateAssurance> = Item::new("token_rate_assurance");
 pub const CUMULATIVE_VOLUME: Item<Uint128> = Item::new("cumulative_volume");
 
@@ -26,20 +26,6 @@ pub const GLOBAL_RATE_LIMIT_FLOWS: Item<Vec<FlowEntry>> = Item::new("global_rate
 
 // Tracks accumulated fees (in paired_asset) that couldn't be converted to CDT yet
 pub const PENDING_REVENUE: Item<Uint128> = Item::new("pending_revenue");
-
-// ================= Locked Vault Tokens =================
-#[cw_serde]
-pub struct LockedVaultToken {
-    pub amount: Uint128,
-    pub locked_until: u64,
-    /// Intended lock duration in days when lock was created (for early withdrawal calculation)
-    pub intended_lock_days: u64,
-    /// Timestamp when lock was created (for early withdrawal calculation)
-    pub lock_start_time: u64,
-}
-
-/// User address -> Vec<LockedVaultToken>
-pub const LOCKED_VAULT_TOKENS: Map<String, Vec<LockedVaultToken>> = Map::new("locked_vault_tokens");
 
 // ================= Affiliates =================
 /// Affiliates map: user address -> Vec<AffiliateData>
@@ -65,12 +51,88 @@ pub struct FlowEntry {
 
 #[cw_serde]
 pub struct TokenRateAssurance {
-    pub pre_btokens_per_one: Uint128,
+    pub pre_deposit_total: Uint128,
+}
+
+/// Emissions event (similar to RevenueEvent in ltv_disco)
+#[cw_serde]
+pub struct EmissionsEvent {
+    pub timestamp: u64,
+    /// Emissions per 1 unit of retention weight
+    pub amount_per_weight: Decimal,
+    /// Remaining total to be claimed from this event
+    pub amount_to_be_claimed: Uint128,
+}
+
+/// Time cliff representing a change in daily weight delta
+#[cw_serde]
+pub struct WeightTimeCliff {
+    /// Timestamp when this cliff becomes active
+    pub timestamp: u64,
+    /// Daily delta change at this cliff (can be positive or negative)
+    pub delta_change: Int128,
+}
+
+/// Tracks retention weight changes over time for a user
+#[cw_serde]
+pub struct RetentionWeightTracking {
+    /// Base weight at reference_time
+    pub base_weight: Uint128,
+    /// Reference timestamp for base_weight and daily_delta calculations
+    pub reference_time: u64,
+    /// Daily delta at reference_time
+    pub daily_delta: Int128,
+    /// Time cliffs for this user (sorted by timestamp)
+    pub time_cliffs: Vec<WeightTimeCliff>,
 }
 
 // ================= Rate History =================
 pub const RATE_HISTORY: Item<Vec<RateHistoryEntry>> = Item::new("rate_history");
 pub const LAST_RATE_UPDATE: Item<Timestamp> = Item::new("last_rate_update");
+
+// ================= User Deposits for Discount Tracking =================
+#[cw_serde]
+pub struct UserDeposit {
+    /// Deposit ID (unique identifier for this deposit)
+    pub deposit_id: Uint128,
+    /// Deposit amount (1:1 tracking, CDT + paired asset)
+    pub amount: Uint128,
+    /// Timestamp when deposit was made
+    pub deposit_time: u64,
+    /// Lock information (similar to ltv_disco structure)
+    pub locked: Option<membrane::types::Locked>,
+    /// Timestamp when deposit/lock was created (for discount curve calculation)
+    pub start_time: u64,
+}
+
+/// User address -> Vec<UserDeposit>
+pub const USER_DEPOSITS: Map<String, Vec<UserDeposit>> = Map::new("user_deposits");
+
+// Constants for deposit management
+pub const MIN_DEPOSIT_AMOUNT: Uint128 = Uint128::new(5);
+pub const MAX_DEPOSITS_PER_USER: usize = 100;
+pub const DEPOSIT_CONSOLIDATION_WINDOW_SECS: u64 = 604_800; // 1 week
+
+// Deposit ID tracking
+pub const CURRENT_DEPOSIT_ID: Item<Uint128> = Item::new("current_deposit_id");
+
+// ================= Retention Emissions =================
+/// RevenueEvent system (similar to ltv_disco)
+pub const EMISSIONS_EVENTS: Item<Vec<EmissionsEvent>> = Item::new("emissions_events");
+
+/// Time-based weight tracking for accurate denominators
+/// Key: user address
+pub const RETENTION_WEIGHT_TRACKING: Map<String, RetentionWeightTracking> = Map::new("retention_weight_tracking");
+
+/// Global retention weight tracking (aggregates all users, similar to GroupLVTTracking in ltv_disco)
+pub const GLOBAL_RETENTION_WEIGHT_TRACKING: Item<RetentionWeightTracking> = Item::new("global_retention_weight_tracking");
+
+/// Track last emissions distribution to ensure events are created before claims
+pub const LAST_EMISSIONS_DISTRIBUTION: Item<Timestamp> = Item::new("last_emissions_distribution");
+
+/// User's last claimed timestamp per deposit (for emissions)
+/// Key: (user_address, deposit_index)
+pub const USER_EMISSIONS_LAST_CLAIMED: Map<(String, u64), u64> = Map::new("user_emissions_last_claimed");
 
 
 pub fn new_volume_window(now: Timestamp, cumulative_volume: Uint128) -> VolumeWindow {

@@ -159,31 +159,32 @@ mod tests {
     use super::*;
 
     fn setup_test_app() -> App {
-        AppBuilder::new().build(|router, _api, storage| {
+        AppBuilder::new().build(|router, api, storage| {
+            // Pre-fund bigger_bank (like in integration_tests.rs)
             router
                 .bank
                 .init_balance(
                     storage,
-                    &Addr::unchecked(USER),
+                    &api.addr_make("bigger_bank"),
                     vec![
-                        coin(1000000, "denom1"),
-                        coin(1000000, "denom2"),
-                        coin(1000000, "lp_denom"),
-                        coin(1000000, "credit_fulldenom"),
+                        coin(100_000_000_000, "denom1"),
+                        coin(100_000_000_000, "denom2"),
+                        coin(100_000_000_000, "lp_denom"),
+                        coin(100_000_000_000, "credit_fulldenom"),
                     ],
                 )
                 .unwrap();
         })
     }
 
-    fn instantiate_cdp_contract(app: &mut App, oracle_addr: Addr) -> Addr {
+    fn instantiate_cdp_contract(app: &mut App, oracle_addr: Addr, admin_addr: Addr) -> Addr {
         let cdp_code_id = app.store_code(cdp_contract());
         let ltv_disco_code_id = app.store_code(ltv_disco_contract());
         
         let ltv_disco_addr = app
             .instantiate_contract(
                 ltv_disco_code_id,
-                Addr::unchecked(ADMIN),
+                admin_addr.clone(),
                 &LTVDisco_MockInstantiateMsg {},
                 &[],
                 "ltv_disco",
@@ -200,7 +201,7 @@ mod tests {
             base_debt_cap_multiplier: Uint128::new(1),
             collateral_twap_timeframe: 300,
             credit_twap_timeframe: 300,
-            owner: Some(ADMIN.to_string()),
+            owner: Some(admin_addr.to_string()),
             staking_contract: None,
             oracle_contract: Some(oracle_addr.to_string()),
             chain_proxy: None,
@@ -219,7 +220,8 @@ mod tests {
                         max_LTV: Decimal::percent(80),
                         pool_info: None,
                         rate_index: Decimal::one(),
-                        individual_cost: None,
+                        peg_rate_index: Decimal::one(),
+                        force_redemptions: None,
                     },
                     cAsset {
                         asset: Asset {
@@ -230,7 +232,8 @@ mod tests {
                         max_LTV: Decimal::percent(80),
                         pool_info: None,
                         rate_index: Decimal::one(),
-                        individual_cost: None,
+                        peg_rate_index: Decimal::one(),
+                        force_redemptions: None,
                     },
                 ],
                 credit_asset: Asset {
@@ -246,7 +249,7 @@ mod tests {
 
         app.instantiate_contract(
             cdp_code_id,
-            Addr::unchecked(ADMIN),
+            admin_addr,
             &msg,
             &[],
             "cdp",
@@ -258,11 +261,25 @@ mod tests {
     #[test]
     fn test_historical_oracle_updates_on_deposit() {
         let mut app = setup_test_app();
+        let admin_addr = app.api().addr_make(ADMIN);
+        let user_addr = app.api().addr_make(USER);
+        
+        // Fund user from bigger_bank (per debugging guide)
+        app.send_tokens(
+            app.api().addr_make("bigger_bank"),
+            user_addr.clone(),
+            &[
+                coin(100_000_000_000, "denom1"),
+                coin(100_000_000_000, "denom2"),
+            ],
+        )
+        .unwrap();
+        
         let oracle_code_id = app.store_code(oracle_contract());
         let oracle_addr = app
             .instantiate_contract(
                 oracle_code_id,
-                Addr::unchecked(ADMIN),
+                admin_addr.clone(),
                 &Oracle_MockInstantiateMsg {},
                 &[],
                 "oracle",
@@ -270,7 +287,7 @@ mod tests {
             )
             .unwrap();
 
-        let cdp_addr = instantiate_cdp_contract(&mut app, oracle_addr.clone());
+        let cdp_addr = instantiate_cdp_contract(&mut app, oracle_addr.clone(), admin_addr.clone());
 
         // Check initial state - no historical prices
         let historical_prices: HistoricalOraclePricesResponse = app
@@ -287,13 +304,13 @@ mod tests {
 
         // Perform deposit operation
         let deposit_msg = ExecuteMsg::Deposit {
-            position_owner: Some(USER.to_string()),
+            position_owner: Some(user_addr.to_string()),
             position_id: None,
             affiliate_address: None,
         };
 
         let result = app.execute_contract(
-            Addr::unchecked(USER),
+            user_addr.clone(),
             cdp_addr.clone(),
             &deposit_msg,
             &[coin(1000, "denom1"), coin(1000, "denom2")],
@@ -336,11 +353,25 @@ mod tests {
     fn test_historical_oracle_only_collateral_assets() {
         // This test verifies that only collateral assets are stored, not credit assets
         let mut app = setup_test_app();
+        let admin_addr = app.api().addr_make(ADMIN);
+        let user_addr = app.api().addr_make(USER);
+        
+        // Fund user from bigger_bank (per debugging guide)
+        app.send_tokens(
+            app.api().addr_make("bigger_bank"),
+            user_addr.clone(),
+            &[
+                coin(100_000_000_000, "denom1"),
+                coin(100_000_000_000, "denom2"),
+            ],
+        )
+        .unwrap();
+        
         let oracle_code_id = app.store_code(oracle_contract());
         let oracle_addr = app
             .instantiate_contract(
                 oracle_code_id,
-                Addr::unchecked(ADMIN),
+                admin_addr.clone(),
                 &Oracle_MockInstantiateMsg {},
                 &[],
                 "oracle",
@@ -348,17 +379,17 @@ mod tests {
             )
             .unwrap();
 
-        let cdp_addr = instantiate_cdp_contract(&mut app, oracle_addr.clone());
+        let cdp_addr = instantiate_cdp_contract(&mut app, oracle_addr.clone(), admin_addr.clone());
 
         // Deposit operation should only store collateral asset prices, not credit asset prices
         let deposit_msg = ExecuteMsg::Deposit {
-            position_owner: Some(USER.to_string()),
+            position_owner: Some(user_addr.to_string()),
             position_id: None,
             affiliate_address: None,
         };
 
         app.execute_contract(
-            Addr::unchecked(USER),
+            user_addr.clone(),
             cdp_addr.clone(),
             &deposit_msg,
             &[coin(1000, "denom1"), coin(1000, "denom2")],
@@ -395,11 +426,25 @@ mod tests {
     #[test]
     fn test_historical_oracle_only_stores_fresh_prices() {
         let mut app = setup_test_app();
+        let admin_addr = app.api().addr_make(ADMIN);
+        let user_addr = app.api().addr_make(USER);
+        
+        // Fund user from bigger_bank (per debugging guide)
+        app.send_tokens(
+            app.api().addr_make("bigger_bank"),
+            user_addr.clone(),
+            &[
+                coin(100_000_000_000, "denom1"),
+                coin(100_000_000_000, "denom2"),
+            ],
+        )
+        .unwrap();
+        
         let oracle_code_id = app.store_code(oracle_contract());
         let oracle_addr = app
             .instantiate_contract(
                 oracle_code_id,
-                Addr::unchecked(ADMIN),
+                admin_addr.clone(),
                 &Oracle_MockInstantiateMsg {},
                 &[],
                 "oracle",
@@ -407,17 +452,17 @@ mod tests {
             )
             .unwrap();
 
-        let cdp_addr = instantiate_cdp_contract(&mut app, oracle_addr.clone());
+        let cdp_addr = instantiate_cdp_contract(&mut app, oracle_addr.clone(), admin_addr.clone());
 
         // First deposit - should store fresh prices
         let deposit_msg = ExecuteMsg::Deposit {
-            position_owner: Some(USER.to_string()),
+            position_owner: Some(user_addr.to_string()),
             position_id: None,
             affiliate_address: None,
         };
 
         app.execute_contract(
-            Addr::unchecked(USER),
+            user_addr.clone(),
             cdp_addr.clone(),
             &deposit_msg,
             &[coin(1000, "denom1"), coin(1000, "denom2")],
@@ -443,7 +488,7 @@ mod tests {
         });
 
         app.execute_contract(
-            Addr::unchecked(USER),
+            user_addr.clone(),
             cdp_addr.clone(),
             &deposit_msg,
             &[coin(500, "denom1")],

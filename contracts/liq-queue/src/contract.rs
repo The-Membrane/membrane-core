@@ -15,7 +15,7 @@ use membrane::types::{Asset, AssetInfo, PremiumSlot, Queue, Basket};
 use crate::bid::{claim_liquidations, execute_liquidation, retract_bid, submit_bid};
 use crate::error::ContractError;
 use crate::query::{
-    query_bid, query_bids_by_user, query_liquidatible, query_premium_slot,
+    query_bid, query_bids_by_user, query_liquidatible, query_collateral_for_debt, query_premium_slot,
     query_premium_slots, query_queues, query_user_claims,
 };
 use crate::state::{CONFIG, QUEUES, OWNERSHIP_TRANSFER};
@@ -377,6 +377,20 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
             bid_for,
             collateral_price,
             collateral_amount,
+            credit_info,
+            credit_price,
+        )?),
+        QueryMsg::CollateralForDebt {
+            bid_for,
+            collateral_price,
+            debt_amount,
+            credit_info,
+            credit_price,
+        } => to_binary(&query_collateral_for_debt(
+            deps,
+            bid_for,
+            collateral_price,
+            debt_amount,
             credit_info,
             credit_price,
         )?),

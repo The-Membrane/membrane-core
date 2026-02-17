@@ -9,7 +9,7 @@ use cosmwasm_std::{
     attr, to_json_binary, BankMsg, Addr, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg
 };
 use membrane::neutron_proxy::{
-    Config, ContractDenomsResponse, DualityRoute, ExecuteMsg, GetDenomResponse, InstantiateMsg, MigrateMsg, QueryMsg, TokenInfoResponse, NeutronOwnerEntry, NeutronMsg, TransmuteSupplyThresholdEntry
+    Config, ContractDenomsResponse, DexChoice, DualityRoute, ExecuteMsg, GetDenomResponse, HopConfig, InstantiateMsg, MigrateMsg, QueryMsg, TokenInfoResponse, NeutronOwnerEntry, NeutronMsg, TransmuteSupplyThresholdEntry
 };
 use membrane::{mars_vault_token, transmuter};
 use membrane::types::{AssetInfo, NeutronOwner, TransmutationPair, TransmutationPairEntry, VaultEntry, VestingPeriod};
@@ -30,6 +30,7 @@ const MAX_LIMIT: u32 = 64;
 const CREATE_DENOM_REPLY_ID: u64 = 1u64;
 const SWAP_REPLY_ID: u64 = 2u64;
 const USE_BALANCE_SWAP_REPLY_ID: u64 = 3u64;
+const MULTIHOP_REPLY_ID: u64 = 4u64;
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
@@ -299,6 +300,121 @@ fn execute_vesting_transmutation(
         .add_message(vesting_msg))
 }
 
+/// Validate multi-hop route configuration
+/// Ensures path consistency, no loops, and DEX availability
+fn validate_multihop_route(
+    hops: &[HopConfig],
+    token_in: &str,
+    token_out: &str,
+    config: &Config,
+) -> Result<(), TokenFactoryError> {
+    // Minimum 1 hop required (creates 2-token path)
+    if hops.is_empty() {
+        return Err(TokenFactoryError::InvalidMultiHopPath {
+            reason: "Empty hop list - at least 1 hop required".to_string(),
+        });
+    }
+
+    // Build full path: [token_in, hop[0].intermediate, hop[1].intermediate, ..., token_out]
+    let mut path = vec![token_in.to_string()];
+    for hop in hops {
+        path.push(hop.intermediate_token.clone());
+    }
+    path.push(token_out.to_string());
+
+    // Check for loops - each token should appear only once
+    let mut seen_tokens = std::collections::HashSet::new();
+    for token in &path {
+        if !seen_tokens.insert(token.clone()) {
+            return Err(TokenFactoryError::InvalidMultiHopPath {
+                reason: format!("Loop detected: token {} appears twice in path", token),
+            });
+        }
+    }
+
+    // Verify DEX availability for each hop
+    for hop in hops {
+        match hop.dex {
+            DexChoice::Astroport => {
+                if config.astroport_factory.is_none() {
+                    return Err(TokenFactoryError::RouterNotConfigured {});
+                }
+            }
+            DexChoice::Duality => {
+                // Duality is always available on Neutron
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Analyze multi-hop configuration to determine execution strategy
+/// Returns (is_pure_duality, is_pure_astroport)
+fn analyze_multihop(hops: &[HopConfig]) -> (bool, bool) {
+    let all_duality = hops.iter().all(|h| matches!(h.dex, DexChoice::Duality));
+    let all_astroport = hops.iter().all(|h| matches!(h.dex, DexChoice::Astroport));
+    (all_duality, all_astroport)
+}
+
+/// Execute pure Duality multi-hop swap
+/// All hops use Duality DEX, executed as single atomic transaction
+fn execute_duality_multihop(
+    coin_in: &Coin,
+    hops: &[HopConfig],
+    token_out: String,
+    min_receive: Uint128,
+    env: &Env,
+    querier: &cosmwasm_std::QuerierWrapper,
+) -> Result<CosmosMsg<NeutronMsg>, TokenFactoryError> {
+    // Build swap_denoms: [token_in, hop[0].intermediate, hop[1].intermediate, ..., token_out]
+    let mut swap_denoms = vec![coin_in.denom.clone()];
+    for hop in hops {
+        swap_denoms.push(hop.intermediate_token.clone());
+    }
+    swap_denoms.push(token_out.clone());
+
+    // Use existing DualityRoute infrastructure
+    let route = DualityRoute {
+        from: coin_in.denom.clone(),
+        to: token_out,
+        swap_denoms,
+    };
+
+    // Validate route
+    route.validate(querier, &coin_in.denom, &route.to)?;
+
+    // Build message (Duality natively handles multi-hop)
+    route.build_exact_in_swap_msg(querier, env, coin_in, min_receive)
+}
+
+/// Execute pure Astroport multi-hop swap via router
+/// All hops use Astroport, executed as single atomic transaction
+fn execute_astroport_multihop(
+    coin_in: &Coin,
+    hops: &[HopConfig],
+    token_out: String,
+    min_receive: Uint128,
+    env: &Env,
+    router_addr: &Addr,
+) -> Result<CosmosMsg<NeutronMsg>, TokenFactoryError> {
+    // Build operations from hops
+    let operations = crate::astroport_helpers::build_astroport_operations(
+        hops,
+        coin_in.denom.clone(),
+        token_out,
+    )?;
+
+    // Build router message
+    crate::astroport_helpers::build_astroport_multihop_msg(
+        router_addr,
+        coin_in,
+        operations,
+        min_receive,
+        env.contract.address.clone(),
+    )
+}
+
 /// Execute a swap to token out 
 fn execute_swaps(
     deps: DepsMut,
@@ -511,12 +627,45 @@ fn execute_swaps(
                     )?;
                     msgs.push(SubMsg::reply_on_success(swap_msg, SWAP_REPLY_ID));
                 }
-                Some(membrane::neutron_proxy::DexPreference::MultiHop(_hops)) => {
-                    // Multi-hop routing - for now, fall back to simple route
-                    // TODO: Implement multi-hop with per-hop DEX selection
-                    return Err(TokenFactoryError::InvalidRouteConfig {
-                        reason: "Multi-hop routing not yet implemented".to_string(),
-                    });
+                Some(membrane::neutron_proxy::DexPreference::MultiHop(hops)) => {
+                    // Validate multi-hop route
+                    validate_multihop_route(&hops, &coin.denom, &token_out, &config)?;
+
+                    // Analyze route to determine execution strategy
+                    let (is_pure_duality, is_pure_astroport) = analyze_multihop(&hops);
+
+                    if is_pure_duality {
+                        // Strategy A: Single Duality multi-hop (atomic)
+                        let swap_msg = execute_duality_multihop(
+                            &coin,
+                            &hops,
+                            token_out.clone(),
+                            min_receive,
+                            &env,
+                            &deps.querier,
+                        )?;
+                        msgs.push(SubMsg::reply_on_success(swap_msg, SWAP_REPLY_ID));
+                    } else if is_pure_astroport {
+                        // Strategy B: Astroport router multi-hop (atomic)
+                        let router = config.astroport_router.as_ref().ok_or(
+                            TokenFactoryError::RouterNotConfigured {},
+                        )?;
+                        let swap_msg = execute_astroport_multihop(
+                            &coin,
+                            &hops,
+                            token_out.clone(),
+                            min_receive,
+                            &env,
+                            router,
+                        )?;
+                        msgs.push(SubMsg::reply_on_success(swap_msg, SWAP_REPLY_ID));
+                    } else {
+                        // Strategy C: Mixed DEX multi-hop (sequential)
+                        // TODO: Implement execute_mixed_multihop in Phase 5
+                        return Err(TokenFactoryError::InvalidRouteConfig {
+                            reason: "Mixed DEX multi-hop not yet implemented".to_string(),
+                        });
+                    }
                 }
                 None => {
                     // No route config - default to Duality (backward compatible)
@@ -1320,6 +1469,164 @@ fn get_swap_route_config(
 }
 
 /// Simulate swap on both DEXes
+/// Simulate multi-hop swap
+/// Returns (total_output, per_hop_breakdown)
+fn simulate_multihop(
+    deps: &Deps,
+    config: &Config,
+    hops: &[HopConfig],
+    amount_in: Uint128,
+    token_in: String,
+    token_out: String,
+) -> StdResult<(Uint128, Vec<membrane::neutron_proxy::HopSimulation>)> {
+    use membrane::neutron_proxy::HopSimulation;
+
+    // Check if all hops are Astroport - use router simulation if so
+    let all_astroport = hops.iter().all(|h| matches!(h.dex, DexChoice::Astroport));
+
+    if all_astroport {
+        // Use Astroport router's SimulateSwapOperations for atomic simulation
+        if let Some(router) = &config.astroport_router {
+            let operations = crate::astroport_helpers::build_astroport_operations(
+                hops,
+                token_in.clone(),
+                token_out.clone(),
+            )
+            .map_err(|e| StdError::generic_err(e.to_string()))?;
+
+            // Get total output from router
+            let total_output = crate::astroport_helpers::simulate_astroport_multihop(
+                &deps.querier,
+                router,
+                amount_in,
+                operations.clone(),
+            )
+            .map_err(|e| StdError::generic_err(e.to_string()))?;
+
+            // Build per-hop breakdown by simulating each hop individually
+            let mut breakdown = Vec::new();
+            let mut current_amount = amount_in;
+            let mut current_token = token_in;
+
+            for (i, hop) in hops.iter().enumerate() {
+                let next_token = if i == hops.len() - 1 {
+                    token_out.clone()
+                } else {
+                    hop.intermediate_token.clone()
+                };
+
+                let factory = config
+                    .astroport_factory
+                    .as_ref()
+                    .ok_or_else(|| StdError::generic_err("Astroport factory not configured"))?;
+
+                let asset_in = AssetInfo::NativeToken {
+                    denom: current_token.clone(),
+                };
+                let asset_out = AssetInfo::NativeToken {
+                    denom: next_token.clone(),
+                };
+
+                let pair_addr = crate::astroport_helpers::resolve_astroport_pair(
+                    &deps.querier,
+                    factory,
+                    &[asset_in.clone(), asset_out.clone()],
+                )
+                .map_err(|e| StdError::generic_err(e.to_string()))?;
+
+                let hop_output = crate::astroport_helpers::query_astroport_swap_output(
+                    &deps.querier,
+                    &pair_addr,
+                    &Coin {
+                        denom: current_token.clone(),
+                        amount: current_amount,
+                    },
+                    &asset_out,
+                )
+                .map_err(|e| StdError::generic_err(e.to_string()))?;
+
+                breakdown.push(HopSimulation {
+                    dex: DexChoice::Astroport,
+                    token_in: current_token.clone(),
+                    token_out: next_token.clone(),
+                    amount_in: current_amount,
+                    amount_out: hop_output,
+                });
+
+                current_amount = hop_output;
+                current_token = next_token;
+            }
+
+            return Ok((total_output, breakdown));
+        }
+    }
+
+    // For routes with any Duality hops, we cannot simulate
+    // Duality DEX does not provide a simulation endpoint
+    let has_duality = hops.iter().any(|h| matches!(h.dex, DexChoice::Duality));
+    if has_duality {
+        return Err(StdError::generic_err(
+            "Cannot simulate multi-hop routes with Duality hops - Duality DEX does not support simulation",
+        ));
+    }
+
+    // Iterative simulation for pure Astroport without router
+    let mut breakdown = Vec::new();
+    let mut current_amount = amount_in;
+    let mut current_token = token_in;
+
+    for (i, hop) in hops.iter().enumerate() {
+        let next_token = if i == hops.len() - 1 {
+            token_out.clone()
+        } else {
+            hop.intermediate_token.clone()
+        };
+
+        let factory = config
+            .astroport_factory
+            .as_ref()
+            .ok_or_else(|| StdError::generic_err("Astroport factory not configured"))?;
+
+        let asset_in = AssetInfo::NativeToken {
+            denom: current_token.clone(),
+        };
+        let asset_out = AssetInfo::NativeToken {
+            denom: next_token.clone(),
+        };
+
+        let pair_addr = crate::astroport_helpers::resolve_astroport_pair(
+            &deps.querier,
+            factory,
+            &[asset_in.clone(), asset_out.clone()],
+        )
+        .map_err(|e| StdError::generic_err(e.to_string()))?;
+
+        let hop_output = crate::astroport_helpers::query_astroport_swap_output(
+            &deps.querier,
+            &pair_addr,
+            &Coin {
+                denom: current_token.clone(),
+                amount: current_amount,
+            },
+            &asset_out,
+        )
+        .map_err(|e| StdError::generic_err(e.to_string()))?;
+
+        breakdown.push(HopSimulation {
+            dex: hop.dex.clone(),
+            token_in: current_token.clone(),
+            token_out: next_token.clone(),
+            amount_in: current_amount,
+            amount_out: hop_output,
+        });
+
+        current_amount = hop_output;
+        current_token = next_token;
+    }
+
+    Ok((current_amount, breakdown))
+}
+
 fn simulate_swap(
     deps: Deps,
     _env: Env,
@@ -1328,7 +1635,22 @@ fn simulate_swap(
     amount_in: Uint128,
 ) -> StdResult<membrane::neutron_proxy::SimulateSwapResponse> {
     let config = CONFIG.load(deps.storage)?;
-    
+
+    // Check for multi-hop route configuration
+    let route_pref = SWAP_ROUTE_CONFIG
+        .may_load(deps.storage, (token_in.clone(), token_out.clone()))?;
+
+    // Simulate multi-hop if configured
+    let (multihop_output, hop_breakdown) = match route_pref {
+        Some(membrane::neutron_proxy::DexPreference::MultiHop(hops)) => {
+            match simulate_multihop(&deps, &config, &hops, amount_in, token_in.clone(), token_out.clone()) {
+                Ok((output, breakdown)) => (Some(output), Some(breakdown)),
+                Err(_) => (None, None), // Gracefully handle simulation errors (e.g., Duality hops)
+            }
+        }
+        _ => (None, None),
+    };
+
     let coin_in = Coin {
         denom: token_in.clone(),
         amount: amount_in,
@@ -1337,7 +1659,7 @@ fn simulate_swap(
     // Query Duality output (not available, return None)
     let duality_output: Option<Uint128> = None;
 
-    // Query Astroport output
+    // Query Astroport output (single-hop)
     let astroport_output = if let Some(ref factory) = config.astroport_factory {
         let asset_in = AssetInfo::NativeToken {
             denom: token_in.clone(),
@@ -1345,7 +1667,7 @@ fn simulate_swap(
         let asset_out = AssetInfo::NativeToken {
             denom: token_out.clone(),
         };
-        
+
         match crate::astroport_helpers::resolve_astroport_pair(
             &deps.querier,
             factory,
@@ -1365,7 +1687,7 @@ fn simulate_swap(
         None
     };
 
-    // Determine best DEX
+    // Determine best DEX (single-hop only)
     let best_dex = crate::astroport_helpers::choose_best_dex(
         duality_output,
         astroport_output,
@@ -1375,6 +1697,8 @@ fn simulate_swap(
         duality_output,
         astroport_output,
         best_dex,
+        multihop_output,
+        hop_breakdown,
     })
 }
 

@@ -56,4 +56,13 @@ pub enum TokenFactoryError {
 
     #[error("Duplicate assets in pair")]
     DuplicateAssets {},
+
+    #[error("Multi-hop routing failed at hop {hop_index}: {reason}")]
+    MultiHopFailed { hop_index: usize, reason: String },
+
+    #[error("Multi-hop path invalid: {reason}")]
+    InvalidMultiHopPath { reason: String },
+
+    #[error("Cannot simulate multi-hop: {reason}")]
+    SimulationFailed { reason: String },
 }

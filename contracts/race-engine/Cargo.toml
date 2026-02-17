@@ -7,13 +7,13 @@ edition = "2018"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-cosmwasm-schema = "1.4"
-cosmwasm-std = { version = "2.3.0", default-features = false, features = ["cosmwasm_1_1"] }
-cw-storage-plus = "1.0.3"
+cosmwasm-schema = "2.0.4"
+cosmwasm-std = { version = "2.0.4", default-features = false, features = ["cosmwasm_2_0", "stargate"] }
+cw-storage-plus = "2.0.0"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 thiserror = "1.0"
 membrane = { path = "../../packages/membrane" }
 blake2 = "0.10.6"
 
 [dev-dependencies]
-cw-multi-test = "1.0.3" 
+cw-multi-test = "2.0.0" 

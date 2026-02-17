@@ -30,7 +30,6 @@ Basket {
         max_borrow_LTV: Decimal::percent(30),
         rate_index: Decimal::zero(),
         pool_info: None,
-        individual_cost: None,
     }],
     collateral_supply_caps: vec![],
     lastest_collateral_rates: vec![],

@@ -2,8 +2,8 @@ pub mod contract;
 pub mod error;
 pub mod state;
 
-// #[cfg(test)]
-// mod contract_tests;
+#[cfg(test)]
+mod contract_tests;
 
 // #[cfg(test)]
 // mod pending_revenue_tests;
@@ -16,3 +16,9 @@ pub mod state;
 
 #[cfg(test)]
 mod early_withdrawal_tests;
+
+#[cfg(test)]
+mod emissions_tests;
+
+// #[cfg(test)]
+// mod user_deposits_tests; // Tests moved to contract_tests.rs

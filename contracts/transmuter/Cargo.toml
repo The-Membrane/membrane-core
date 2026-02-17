@@ -20,17 +20,17 @@ optimize = """docker run --rm -v \"$(pwd)\":/code \
 
 [dependencies]
 membrane = { path = "../../packages/membrane" }
-osmosis-std = { version = "0.16.1" }
-cosmwasm-std = { version = "2.3.0", default-features = false, features = ["cosmwasm_1_1"] }
+osmosis-std = { version = "0.27.0" }
+cosmwasm-std = { version = "2.0.4", default-features = false, features = ["cosmwasm_2_0", "stargate"] }
 cosmwasm-storage = "1.0.0"
-cosmwasm-schema = "1.0.0"
-cw-storage-plus = "1.0.3"
-cw-utils = "1.0.1"
-cw2 = "0.13.2"
+cosmwasm-schema = "2.0.4"
+cw-storage-plus = "2.0.0"
+cw-utils = "2.0.0"
+cw2 = "2.0.0"
 schemars = "0.8.8"
 serde = { version = "1.0.137", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0.31" }
 
 [dev-dependencies]
-cosmwasm-schema = "1.0.0"
-cw-multi-test = "1.0.3"
+cosmwasm-schema = "2.0.4"
+cw-multi-test = "2.1.0"

@@ -8,6 +8,7 @@ use crate::types::{AssetInfo, Asset, PoolStateResponse, AssetPool, Basket};
 use crate::osmosis_proxy::{QueryMsg as OsmoQueryMsg, OwnerResponse};
 use crate::liquidity_check::{QueryMsg as LiquidityQueryMsg, LiquidityResponse};
 use crate::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg, PositionResponse, BasketPositionsResponse};
+use crate::math::decimal_multiplication;
 
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
@@ -333,7 +334,8 @@ pub fn accumulate_interest(base: Uint128, rate: Decimal, time_elapsed: u64) -> S
         Uint128::from(SECONDS_PER_YEAR),
     ))?;
 
-    Ok(base * applied_rate)
+    let accrued = decimal_multiplication(Decimal::from_ratio(base, Uint128::one()), applied_rate)?;
+    Ok(accrued.to_uint_floor())
 }
 
 /// Return liquidity multiplier & SP cap ratio for an owner of the Osmosis Proxy contract

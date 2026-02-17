@@ -22,10 +22,14 @@ mod tests {
         let (mut app, cdp_contract, _lq_contract) =
             proper_instantiate(false, false, false, false);
 
+        // Use app.api().addr_make() for valid bech32 addresses (per debugging guide)
+        let admin_addr = app.api().addr_make(ADMIN);
+        let user_addr = app.api().addr_make(USER);
+
         // Give ADMIN some CDT tokens for venue instantiation
         app.send_tokens(
-            Addr::unchecked("bigger_bank"),
-            Addr::unchecked(ADMIN),
+            app.api().addr_make("bigger_bank"),
+            admin_addr.clone(),
             &[coin(10000_000_000, "credit_fulldenom")],
         )
         .unwrap();
@@ -35,7 +39,7 @@ mod tests {
         let venue = app
             .instantiate_contract(
                 venue_code_id,
-                Addr::unchecked(ADMIN),
+                admin_addr.clone(),
                 &DeploymentVenue_MockInstantiateMsg {},
                 &[coin(10000_000_000, "credit_fulldenom")], // Give venue initial CDT tokens
                 "deployment_venue",
@@ -54,7 +58,7 @@ mod tests {
             .unwrap(),
             funds: vec![coin(10000_000_000, "debit")], // More collateral to support higher debt
         });
-        app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+        app.execute(user_addr.clone(), cosmos_msg).unwrap();
 
         // Increase debt
         let cosmos_msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -63,20 +67,23 @@ mod tests {
                 position_id: Uint128::new(1),
                 amount: Some(Uint128::new(2000_000_000)), // 2000 CDT (meets minimum)
                 LTV: None,
-                mint_to_addr: Some(USER.to_string()),
+                mint_to_addr: Some(user_addr.to_string()),
                 deployment_intent: None,
+                debt_split: None,
+                rollover_updates: None,
+                peg_debt: None,
             })
             .unwrap(),
             funds: vec![],
         });
-        app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+        app.execute(user_addr.clone(), cosmos_msg).unwrap();
 
         // Set deployment intent to deploy some debt to the venue
         let cosmos_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: cdp_contract.addr().to_string(),
             msg: to_json_binary(&ExecuteMsg::SetUserIntents {
                 deployment_intent: DeploymentIntent {
-                    user: USER.to_string(),
+                    user: user_addr.to_string(),
                     position_id: Uint128::new(1),
                     ltv_to_mint: Decimal::from_ratio(20u128, 100u128), // 20% LTV (800 CDT)
                     destination: venue.to_string(),
@@ -85,11 +92,11 @@ mod tests {
             .unwrap(),
             funds: vec![],
         });
-        app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+        app.execute(user_addr.clone(), cosmos_msg).unwrap();
 
         // Send CDT tokens to the CDP contract for deployment
         app.send_tokens(
-            Addr::unchecked("bigger_bank"),
+            app.api().addr_make("bigger_bank"),
             cdp_contract.addr(),
             &[coin(5000_000_000, "credit_fulldenom")],
         )
@@ -99,25 +106,25 @@ mod tests {
         let cosmos_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: cdp_contract.addr().to_string(),
             msg: to_json_binary(&ExecuteMsg::FulfillIntents {
-                users: vec![USER.to_string()],
+                users: vec![user_addr.to_string()],
             })
             .unwrap(),
             funds: vec![],
         });
-        app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+        app.execute(admin_addr.clone(), cosmos_msg).unwrap();
 
         // Give ADMIN some CDT tokens for sending to user
         app.send_tokens(
-            Addr::unchecked("bigger_bank"),
-            Addr::unchecked(ADMIN),
+            app.api().addr_make("bigger_bank"),
+            admin_addr.clone(),
             &[coin(2000_000_000, "credit_fulldenom")],
         )
         .unwrap();
 
         // Send some CDT to the user for closing
         app.send_tokens(
-            Addr::unchecked(ADMIN),
-            Addr::unchecked(USER),
+            admin_addr.clone(),
+            user_addr.clone(),
             &[coin(1500_000_000, "credit_fulldenom")],
         )
         .unwrap();
@@ -136,13 +143,13 @@ mod tests {
                 position_id: Uint128::new(1),
                 close_percentage: Some(Decimal::from_ratio(50u128, 100u128)), // Close 50% instead of 100%
                 max_spread: Decimal::from_ratio(5u128, 100u128), // 5% max spread
-                send_to: Some(USER.to_string()),
+                send_to: Some(user_addr.to_string()),
             })
             .unwrap(),
             funds: vec![coin(1500_000_000, "credit_fulldenom")], // Send CDT for repayment
         });
 
-        let result = app.execute(Addr::unchecked(USER), cosmos_msg);
+        let result = app.execute(user_addr.clone(), cosmos_msg);
         
         // Print the error if it fails
         if let Err(e) = &result {
@@ -252,10 +259,14 @@ mod tests {
         let (mut app, cdp_contract, _lq_contract) =
             proper_instantiate(false, false, false, false);
 
+        // Use app.api().addr_make() for valid bech32 addresses (per debugging guide)
+        let admin_addr = app.api().addr_make(ADMIN);
+        let user_addr = app.api().addr_make(USER);
+
         // Give ADMIN some CDT tokens for venue instantiation
         app.send_tokens(
-            Addr::unchecked("bigger_bank"),
-            Addr::unchecked(ADMIN),
+            app.api().addr_make("bigger_bank"),
+            admin_addr.clone(),
             &[coin(10000_000_000, "credit_fulldenom")],
         )
         .unwrap();
@@ -265,7 +276,7 @@ mod tests {
         let venue = app
             .instantiate_contract(
                 venue_code_id,
-                Addr::unchecked(ADMIN),
+                admin_addr.clone(),
                 &DeploymentVenue_MockInstantiateMsg {},
                 &[coin(10000_000_000, "credit_fulldenom")], // Give venue initial CDT tokens
                 "deployment_venue",
@@ -284,7 +295,7 @@ mod tests {
             .unwrap(),
             funds: vec![coin(10000_000_000, "debit")], // More collateral to support higher debt
         });
-        app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+        app.execute(user_addr.clone(), cosmos_msg).unwrap();
 
         // Increase debt
         let cosmos_msg = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -293,20 +304,23 @@ mod tests {
                 position_id: Uint128::new(1),
                 amount: Some(Uint128::new(2000_000_000)), // 2000 CDT (meets minimum)
                 LTV: None,
-                mint_to_addr: Some(USER.to_string()),
+                mint_to_addr: Some(user_addr.to_string()),
                 deployment_intent: None,
+                debt_split: None,
+                rollover_updates: None,
+                peg_debt: None,
             })
             .unwrap(),
             funds: vec![],
         });
-        app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+        app.execute(user_addr.clone(), cosmos_msg).unwrap();
 
         // Set deployment intent to deploy some debt to the venue
         let cosmos_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: cdp_contract.addr().to_string(),
             msg: to_json_binary(&ExecuteMsg::SetUserIntents {
                 deployment_intent: DeploymentIntent {
-                    user: USER.to_string(),
+                    user: user_addr.to_string(),
                     position_id: Uint128::new(1),
                     ltv_to_mint: Decimal::from_ratio(20u128, 100u128), // 20% LTV (800 CDT)
                     destination: venue.to_string(),
@@ -315,11 +329,11 @@ mod tests {
             .unwrap(),
             funds: vec![],
         });
-        app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+        app.execute(user_addr.clone(), cosmos_msg).unwrap();
 
         // Send CDT tokens to the CDP contract for deployment
         app.send_tokens(
-            Addr::unchecked("bigger_bank"),
+            app.api().addr_make("bigger_bank"),
             cdp_contract.addr(),
             &[coin(5000_000_000, "credit_fulldenom")],
         )
@@ -329,25 +343,25 @@ mod tests {
         let cosmos_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: cdp_contract.addr().to_string(),
             msg: to_json_binary(&ExecuteMsg::FulfillIntents {
-                users: vec![USER.to_string()],
+                users: vec![user_addr.to_string()],
             })
             .unwrap(),
             funds: vec![],
         });
-        app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
+        app.execute(admin_addr.clone(), cosmos_msg).unwrap();
 
         // Give ADMIN some CDT tokens for sending to user
         app.send_tokens(
-            Addr::unchecked("bigger_bank"),
-            Addr::unchecked(ADMIN),
+            app.api().addr_make("bigger_bank"),
+            admin_addr.clone(),
             &[coin(500_000_000, "credit_fulldenom")],
         )
         .unwrap();
 
         // Send some CDT to the user for closing
         app.send_tokens(
-            Addr::unchecked(ADMIN),
-            Addr::unchecked(USER),
+            admin_addr.clone(),
+            user_addr.clone(),
             &[coin(300_000_000, "credit_fulldenom")],
         )
         .unwrap();
@@ -359,13 +373,13 @@ mod tests {
                 position_id: Uint128::new(1),
                 close_percentage: Some(Decimal::from_ratio(50u128, 100u128)), // Close 50% instead of 100%
                 max_spread: Decimal::from_ratio(5u128, 100u128), // 5% max spread
-                send_to: Some(USER.to_string()),
+                send_to: Some(user_addr.to_string()),
             })
             .unwrap(),
             funds: vec![], // No CDT sent - should trigger collateral selling
         });
 
-        let result = app.execute(Addr::unchecked(USER), cosmos_msg);
+        let result = app.execute(user_addr.clone(), cosmos_msg);
         
         // The test should pass - collateral should be sold
         assert!(result.is_ok());

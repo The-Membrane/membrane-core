@@ -76,6 +76,7 @@ pub fn execute(
             range_max,
             period_days,
             callback_contract,
+            persistent_voting,
         } => execute_create_graph(
             deps,
             env,
@@ -86,6 +87,7 @@ pub fn execute(
             range_max,
             period_days,
             callback_contract,
+            persistent_voting,
         ),
         ExecuteMsg::Vote {
             graph_label,
@@ -101,7 +103,8 @@ pub fn execute(
             label,
             period_days,
             callback_contract,
-        } => execute_update_graph(deps, info, label, period_days, callback_contract),
+            persistent_voting,
+        } => execute_update_graph(deps, info, label, period_days, callback_contract, persistent_voting),
         ExecuteMsg::RemoveGraph { label } => execute_remove_graph(deps, info, label),
         ExecuteMsg::RemoveVote { graph_label } => execute_remove_vote(deps, env, info, graph_label),
     }
@@ -118,6 +121,7 @@ fn execute_create_graph(
     range_max: String,
     period_days: u64,
     callback_contract: String,
+    persistent_voting: Option<bool>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -162,6 +166,7 @@ fn execute_create_graph(
                 period_days,
                 current_period_start: current_time,
                 callback_contract: callback_addr,
+                persistent_voting: persistent_voting.unwrap_or(false),
             })
         }
         GraphType::Decimal => {
@@ -188,6 +193,7 @@ fn execute_create_graph(
                 period_days,
                 current_period_start: current_time,
                 callback_contract: callback_addr,
+                persistent_voting: persistent_voting.unwrap_or(false),
             })
         }
     };
@@ -431,8 +437,10 @@ fn execute_end_voting(
     }
     PERIOD_HISTORY.save(deps.storage, &graph_label, &history)?;
 
-    // Clear all votes for this graph
-    clear_graph_votes(deps.storage, &graph_label, &graph)?;
+    // Clear all votes for this graph only if persistent_voting is false
+    if !graph.persistent_voting() {
+        clear_graph_votes(deps.storage, &graph_label, &graph)?;
+    }
 
     // Start new period
     graph.set_period_start(current_time);
@@ -533,6 +541,7 @@ fn execute_update_graph(
     label: String,
     period_days: Option<u64>,
     callback_contract: Option<String>,
+    persistent_voting: Option<bool>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -555,6 +564,9 @@ fn execute_update_graph(
             if let Some(callback) = callback_contract {
                 g.callback_contract = deps.api.addr_validate(&callback)?;
             }
+            if let Some(persistent) = persistent_voting {
+                g.persistent_voting = persistent;
+            }
         }
         Graph::Decimal(g) => {
             if let Some(days) = period_days {
@@ -565,6 +577,9 @@ fn execute_update_graph(
             }
             if let Some(callback) = callback_contract {
                 g.callback_contract = deps.api.addr_validate(&callback)?;
+            }
+            if let Some(persistent) = persistent_voting {
+                g.persistent_voting = persistent;
             }
         }
     }

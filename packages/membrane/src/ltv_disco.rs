@@ -150,6 +150,8 @@ pub enum ExecuteMsg {
         manager: Option<String>,
         /// Optional affiliate address to set when depositing
         affiliate_address: Option<String>,
+        /// Optional revenue destination address (if set, claimed revenue goes here instead of deposit.user)
+        revenue_destination: Option<String>,
     },
     /// Withdraw a backing deposit (by group)
     WithdrawDeposit {
@@ -186,15 +188,19 @@ pub enum ExecuteMsg {
         /// Epoch start time when the source deposit was created (required to identify the deposit)
         epoch_start_time: u64,
     },
-    /// Update or remove manager for a deposit
-    /// Only the deposit owner can update the manager
-    UpdateManager {
+    /// Update deposit settings (owner, manager, revenue_destination)
+    /// Only the deposit owner can update these settings
+    UpdateDeposit {
         asset: String,
         ltv: Decimal,
         max_borrow_ltv: Decimal,
         deposit_id: Uint128,
+        /// Deposit owner address (Some = update owner, None = no change)
+        deposit_owner: Option<String>,
         /// Manager address (Some = set/update manager, None = remove manager)
         manager: Option<String>,
+        /// Revenue destination address (Some = set/update revenue_destination, None = remove revenue_destination)
+        revenue_destination: Option<String>,
         /// Epoch start time when the deposit was created (required to identify the deposit)
         epoch_start_time: u64,
     },
@@ -310,8 +316,14 @@ pub enum ExecuteMsg {
 pub enum QueryMsg {
     /// Get contract configuration
     Config {},
-    /// Get LTV queue for an asset
-    GetLTVQueue { asset: String },
+    /// Get LTV queue(s) for asset(s)
+    /// If `assets` is non-empty, returns queues for those specific assets.
+    /// If `assets` is empty, returns all queues (paginated with `limit`/`start_after`).
+    GetLTVQueue {
+        assets: Vec<String>,
+        limit: Option<u32>,
+        start_after: Option<String>,
+    },
     /// Get backing deposit by group and deposit ID
     GetBackingDeposit { 
         user: String, 
@@ -356,6 +368,8 @@ pub enum QueryMsg {
     UserTotalDeposits { user: String },
     /// Get user's locked deposits
     GetLockedDeposits { user: String },
+    /// Get all user deposits across all assets
+    GetAllUserDeposits { user: String },
     /// Get affiliates for a user
     GetAffiliates { user: String },
     /// Convert vault tokens to deposit tokens for a specific deposit group
@@ -385,12 +399,16 @@ pub enum QueryMsg {
     GetManagerFee {
         manager: String,
     },
+    /// Get daily insurance tracker history for an asset
+    GetDailyInsurance {
+        asset: String,
+    },
 }
 
 /// Response for LTV queue query
 #[cw_serde]
 pub struct LTVQueueResponse {
-    pub queue: LTVQueue,
+    pub queues: Vec<(String, LTVQueue)>,
 }
 
 /// Response for backing deposit query
@@ -664,6 +682,9 @@ pub struct BackingDeposit {
     pub withdrawals_enabled: bool,
     /// LVT tracking for calculating this deposit's LVT at any timestamp
     pub lvt_tracking: DepositLVTTracking,
+    /// Optional revenue destination address
+    /// If set, claimed revenue will be sent to this address instead of deposit.user
+    pub revenue_destination: Option<Addr>,
 }
 
 /// Input for creating a backing deposit
@@ -725,6 +746,16 @@ pub struct LTVEntry {
     pub average_max_borrow_ltv: Decimal,
 }
 
+/// Insurance tracking entry per asset (raw components, no oracle conversion)
+#[cw_serde]
+pub struct InsuranceEntry {
+    pub timestamp: u64,
+    /// Pending CDT from this asset's dispersal (active undisbursed + pending)
+    pub pending_cdt: Uint128,
+    /// Total deposit tokens backing this asset
+    pub deposit_tokens: Uint128,
+}
+
 /// Response for assets query
 #[cw_serde]
 pub struct AssetsResponse {
@@ -741,6 +772,12 @@ pub struct DailyTVLResponse {
 #[cw_serde]
 pub struct DailyLTVResponse {
     pub entries: Vec<LTVEntry>,
+}
+
+/// Response for daily insurance query
+#[cw_serde]
+pub struct DailyInsuranceResponse {
+    pub entries: Vec<InsuranceEntry>,
 }
 
 /// Response for user total deposits query
@@ -768,4 +805,27 @@ pub struct LockedDeposit {
 #[cw_serde]
 pub struct LockedDepositsResponse {
     pub locked_deposits: Vec<LockedDeposit>,
+}
+
+/// Response for all user deposits query
+#[cw_serde]
+pub struct AllUserDepositsResponse {
+    pub deposits: Vec<UserDepositInfo>,
+}
+
+/// User deposit information with identifying details
+#[cw_serde]
+pub struct UserDepositInfo {
+    /// Asset identifier
+    pub asset: String,
+    /// LTV value for this deposit
+    pub ltv: Decimal,
+    /// Max borrow LTV for this deposit
+    pub max_borrow_ltv: Decimal,
+    /// Deposit ID
+    pub deposit_id: Uint128,
+    /// The backing deposit
+    pub deposit: BackingDeposit,
+    /// Deposit tokens (converted from vault tokens)
+    pub deposit_tokens: Uint128,
 }

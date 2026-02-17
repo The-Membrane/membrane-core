@@ -77,7 +77,7 @@ pub fn instantiate(
         cdp_contract: msg.cdp_contract
             .map(|addr| deps.api.addr_validate(&addr))
             .transpose()?,
-        revenue_dispersal_window: msg.revenue_dispersal_window,
+        revenue_dispersal_window: msg.revenue_dispersal_window.or(Some(7)),
         transmuter_lockdrop_contract: msg.transmuter_lockdrop_contract
             .map(|addr| deps.api.addr_validate(&addr))
             .transpose()?,
@@ -684,17 +684,23 @@ fn ltv_disco_add_revenue_msgs(
         // Check if there are deposits in the disco for this asset
         let has_deposits = match deps.querier.query_wasm_smart::<LTVQueueResponse>(
             config.ltv_disco.clone(),
-            &LTVDiscoQueryMsg::GetLTVQueue { 
-                asset: asset_denom.clone() 
+            &LTVDiscoQueryMsg::GetLTVQueue {
+                assets: vec![asset_denom.clone()],
+                limit: None,
+                start_after: None,
             },
         ) {
             Ok(queue_response) => {
-                // Sum total_deposit_tokens across all slots
-                let total_deposits: Uint128 = queue_response.queue.slots
-                    .iter()
-                    .map(|slot| slot.total_deposit_tokens)
-                    .sum();
-                !total_deposits.is_zero()
+                // Sum total_deposit_tokens across all slots for the returned queue
+                queue_response.queues.first()
+                    .map(|(_, queue)| {
+                        let total_deposits: Uint128 = queue.slots
+                            .iter()
+                            .map(|slot| slot.total_deposit_tokens)
+                            .sum();
+                        !total_deposits.is_zero()
+                    })
+                    .unwrap_or(false)
             },
             Err(_) => {
                 // If query fails, skip this asset to be safe

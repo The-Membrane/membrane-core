@@ -2,6 +2,9 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, Timestamp, Uint128};
 use crate::types::LiqAsset;
 
+/// Standardized graph labels for emissions-voting
+pub const TOTAL_EMISSIONS_GRAPH_LABEL: &str = "transmuter_total_emissions";
+pub const ACQUISITION_PERCENTAGE_GRAPH_LABEL: &str = "transmuter_acquisition_percentage";
 
 ///This follows PSM risk insofar as if USDC depegs, this transmuter will become USDC only.
 /// In the event that arbitragers use this to arb during a depeg, which is possible.
@@ -25,12 +28,12 @@ pub struct InstantiateMsg {
     pub tokenfactory_contract: Option<Addr>,
     pub discounts_contract: String,
     pub cdp_contract: String,
-    pub vault_subdenom: String,
     pub deposit_pair: AssetPair,
     pub composition_leeway: Decimal,
-    pub asset_a_to_b_rate: Decimal,
     pub cdt_target_ratio: Decimal, //probably set to 0%, which means no CDT needed.
     pub usage_fee: Option<Decimal>,
+    /// Paired asset utilization threshold at which usage_fee activates (default 90%)
+    pub usage_fee_utilization_threshold: Option<Decimal>,
     pub swap_history_cap: u32,
     pub volume_history_cap: u32,
     /// Optional per-address sliding window in seconds (default 8 hours)
@@ -55,6 +58,10 @@ pub struct InstantiateMsg {
     pub affiliate_fee: Decimal,
     /// Whether to send swap fees to revenue distributor (true) or keep them in contract (false)
     pub send_swap_fee: Option<bool>,
+    /// Percentage of swap fees to send to revenue distributor (0% = none, 100% = all). Default 20%
+    pub revenue_distributor_fee_percentage: Option<Decimal>,
+    /// Optional emissions voting contract address
+    pub emissions_voting_contract: Option<String>,
 }
 
 #[cw_serde]
@@ -63,12 +70,13 @@ pub enum ExecuteMsg {
         owner: Option<String>,
         deposit_pair: Option<AssetPair>,
         composition_leeway: Option<Decimal>,
-        asset_a_to_b_rate: Option<Decimal>,
         cdt_target_ratio: Option<Decimal>,
         tokenfactory_contract: Option<Addr>,
         discounts_contract: Option<String>,
         cdp_contract: Option<String>,
         usage_fee: Option<Decimal>,
+        /// Paired asset utilization threshold at which usage_fee activates
+        usage_fee_utilization_threshold: Option<Decimal>,
         swap_history_cap: Option<u32>,
         volume_history_cap: Option<u32>,
         /// Optional per-address sliding window in seconds
@@ -93,6 +101,10 @@ pub enum ExecuteMsg {
         affiliate_fee: Decimal,
         /// Whether to send swap fees to revenue distributor (true) or keep them in contract (false)
         send_swap_fee: Option<bool>,
+        /// Percentage of swap fees to send to revenue distributor (0% = none, 100% = all). Default 20%
+        revenue_distributor_fee_percentage: Option<Decimal>,
+        /// Optional emissions voting contract address
+        emissions_voting_contract: Option<String>,
     },
     EnterVault {
         recipient: Option<String>,
@@ -105,10 +117,18 @@ pub enum ExecuteMsg {
     ExitVault {
         recipient: Option<String>,
         withdraw_as: Option<String>,
-    },
-    UnlockVaultTokens {
-        /// Amount of locked vault tokens to unlock (None = unlock all available)
+        /// Optional user address to exit for (only contract can use this)
+        user: Option<String>,
+        /// Optional deposit ID to withdraw from (if provided, withdraws only from this deposit)
+        deposit_id: Option<Uint128>,
+        /// Optional amount to withdraw (only used when deposit_id is provided)
         amount: Option<Uint128>,
+    },
+    Lock {
+        /// Amount of deposits to lock (locks across deposits starting from oldest first)
+        amount: Uint128,
+        /// Number of days to lock the deposits (must be <= lock_ceiling)
+        lock_days: u64,
     },
     Transmute {
         recipient: Option<String>,
@@ -125,14 +145,29 @@ pub enum ExecuteMsg {
     },
     /// Add current vault token conversion rate to history
     AddToRateHistory {},
+    /// Repay user debt (for deployable venue interface)
+    RepayUserDebt {
+        /// User info
+        user_info: crate::types::UserInfo,
+        /// Repayment amount
+        repayment: Uint128,
+    },
+    /// Distribute retention emissions (creates daily event)
+    DistributeRetentionEmissions {},
+    /// Claim accumulated retention emissions rewards
+    ClaimRetentionEmissions {},
+    /// Transfer ownership of a deposit from one user to another
+    TransferDepositOwnership {
+        user: String,
+        deposit_id: Uint128,
+        new_owner: String,
+    },
 }
 
 #[cw_serde]
 pub enum QueryMsg {
     Config {},
     VaultInfo {},
-    VaultTokenUnderlying { vault_token_amount: Uint128 },
-    DepositTokenConversion { deposit_token_amount: Uint128 },
     TransmuteHistory { start_after: Option<u64>, limit: Option<u32> },
     VolumeHistory { start_after: Option<u64>, limit: Option<u32> },
     VolumeWindow {},
@@ -144,12 +179,24 @@ pub enum QueryMsg {
     RateLimitMany { addresses: Option<Vec<String>>, start_after: Option<u64>, limit: Option<u32> },
     /// Current global rate limit status for all non-whitelisted addresses
     GlobalRateLimit {},
-    /// Get locked vault tokens for a user
-    LockedVaultTokens { user: String },
     /// Get affiliates for a user
     GetAffiliates { user: String },
     /// Get vault token conversion rate history
     RateHistory { start_after: Option<u64>, limit: Option<u32> },
+    /// Get user deposits with timestamps and lock information
+    UserDeposits { user: String },
+    /// Get user's retrievable CDT (for deployable venue interface)
+    RetrievableCDT { user: String },
+    /// Get user's retention emissions claimable amount
+    UserRetentionEmissions { user: String },
+    /// Get global retention weight
+    GlobalRetentionWeight {},
+    /// Get emissions configuration
+    EmissionsConfig {},
+    /// Get current deposit ID for a user (next ID that will be assigned)
+    CurrentDepositId { user: String },
+    /// Get deposit by ID for a user
+    DepositById { user: String, deposit_id: Uint128 },
 }
 
 #[cw_serde]
@@ -159,20 +206,22 @@ pub struct Config {
     // System discounts contract
     pub discounts_contract: String,
     pub cdp_contract: String,
-    pub vault_token: String,
     pub deposit_pair: AssetPair,
     pub composition_leeway: Decimal,
-    pub asset_a_to_b_rate: Decimal,
     /// Target ratio for CDT of total deposits
     /// If the target ratio is 0%, then we will not require any CDT on deposits...
     /// ...unless the deployed paired asset is greater than 0.
     pub cdt_target_ratio: Decimal,
-    /// Usage fee for any usage that isn't from the CDP or a deployable venue.
-    /// This fee is set bc we don't want this to be used as an LP/arbitrage tool.
-    /// -- Issue with this is that without arb usage it won't be able to sustain itself.
-    /// -- But if we allow arbs, then CDT will track USDC's price. Is this bad?
-    /// The fee creates a price floor though so if its set to 100% we'll just block any non-deployable venue usage.
+    /// Usage fee applied only to CDT→paired_asset swaps when paired_asset utilization
+    /// exceeds the threshold. We're adding friction once LP inventory gets low to try
+    /// and retain optional exit for LPs. Slows the velocity of liquidity consumption
+    /// & compensates LPs for being last in line.
+    /// If set to 100% it blocks non-CDP & non-deployable venue CDT→paired_asset usage entirely.
     pub usage_fee: Decimal,
+    /// Paired asset utilization threshold (0-1) at which usage_fee activates. Default 90%.
+    /// Utilization = 1 - (paired_asset_balance / total_deposit_value).
+    /// Fee only kicks in when paired_asset is scarce (utilization >= this value).
+    pub usage_fee_utilization_threshold: Decimal,
     pub swap_history_cap: u32,
     pub volume_history_cap: u32,
     /// Per-address sliding-window rate limit configuration
@@ -195,6 +244,10 @@ pub struct Config {
     pub affiliate_fee: Decimal,
     /// Whether to send swap fees to revenue distributor (true) or keep them in contract (false)
     pub send_swap_fee: bool,
+    /// Percentage of swap fees to send to revenue distributor (0% = none, 100% = all). Default 20%
+    pub revenue_distributor_fee_percentage: Decimal,
+    /// Optional emissions voting contract address
+    pub emissions_voting_contract: Option<Addr>,
 }
 
 
@@ -233,7 +286,7 @@ pub struct RateHistoryEntry {
 #[cw_serde]
 pub struct VaultInfoResponse {
     pub total_deposit_value: Uint128,
-    pub vault_token_supply: Uint128,
+    pub deposit_total: Uint128,
     pub cdt_balance: Uint128,
     pub paired_asset_balance: Uint128,
 }
@@ -310,14 +363,45 @@ pub struct GlobalRateLimitResponse {
 }
 
 #[cw_serde]
-pub struct LockedVaultToken {
+pub struct UserDeposit {
+    /// Deposit ID (unique identifier for this deposit)
+    pub deposit_id: Uint128,
+    /// Deposit amount (1:1 tracking, CDT + paired asset)
     pub amount: Uint128,
-    pub locked_until: u64,
-    pub intended_lock_days: u64,
-    pub lock_start_time: u64,
+    /// Timestamp when deposit was made
+    pub deposit_time: u64,
+    /// Lock information (similar to ltv_disco structure)
+    pub locked: Option<crate::types::Locked>,
+    /// Timestamp when deposit/lock was created (for discount curve calculation)
+    pub start_time: u64,
 }
 
 #[cw_serde]
-pub struct LockedVaultTokensResponse {
-    pub locked_tokens: Vec<LockedVaultToken>,
+pub struct UserDepositsResponse {
+    pub deposits: Vec<UserDeposit>,
+}
+
+#[cw_serde]
+pub struct UserRetentionEmissionsResponse {
+    pub claimable: Uint128,
+}
+
+#[cw_serde]
+pub struct GlobalRetentionWeightResponse {
+    pub weight: Uint128,
+}
+
+#[cw_serde]
+pub struct EmissionsConfigResponse {
+    pub emissions_voting_contract: Option<Addr>,
+}
+
+#[cw_serde]
+pub struct CurrentDepositIdResponse {
+    pub deposit_id: Uint128,
+}
+
+#[cw_serde]
+pub struct DepositByIdResponse {
+    pub deposit: UserDeposit,
 }

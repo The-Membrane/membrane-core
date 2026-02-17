@@ -9,7 +9,7 @@ use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::types::{AssetInfo, BidInput};
 use membrane::oracle::PriceResponse;
 
-use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
+use cosmwasm_std::testing::{mock_dependencies, mock_env, message_info};
 use cosmwasm_std::{
     attr, from_binary, to_binary, BankMsg, Coin, CosmosMsg, Decimal, StdError, SubMsg, Uint128,
     WasmMsg, Addr,
@@ -21,14 +21,14 @@ fn proper_initialization() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("addr0000", &[]);
+    let info = message_info(&deps.api.addr_make("addr"), &[]);
 
     // we can just call .unwrap() to assert this was a success
     let res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
@@ -40,9 +40,9 @@ fn proper_initialization() {
     assert_eq!(
         value,
         Config {
-            owner: Addr::unchecked("addr0000"),
-            positions_contract: Addr::unchecked("positions_contract"),
-            osmosis_proxy_contract: Addr::unchecked("osmosis_proxy_contract"),
+            owner: deps.api.addr_make("addr"),
+            positions_contract: deps.api.addr_make("positions"),
+            osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy"),
             waiting_period: 60u64,
             added_assets: Some(vec![]),
             bid_asset: AssetInfo::NativeToken {
@@ -60,19 +60,19 @@ fn update_config() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("addr0000", &[]);
+    let info = message_info(&deps.api.addr_make("addr"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     // update owner
     let msg = ExecuteMsg::UpdateConfig {
-        owner: Some("owner0001".to_string()),
+        owner: Some(deps.api.addr_make("owner1").to_string()),
         positions_contract: None,
         osmosis_proxy_contract: None,
         waiting_period: None,
@@ -89,9 +89,9 @@ fn update_config() {
     assert_eq!(
         value,
         Config {
-            owner: Addr::unchecked("addr0000"),
-            positions_contract: Addr::unchecked("positions_contract"),
-            osmosis_proxy_contract: Addr::unchecked("osmosis_proxy_contract"),
+            owner: deps.api.addr_make("addr"),
+            positions_contract: deps.api.addr_make("positions"),
+            osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy"),
             waiting_period: 60u64,
             added_assets: Some(vec![]),
             bid_asset: AssetInfo::NativeToken {
@@ -103,11 +103,11 @@ fn update_config() {
     );
 
     // Update remaining items
-    let info = mock_info("addr0000", &[]);
+    let info = message_info(&deps.api.addr_make("addr"), &[]);
     let msg = ExecuteMsg::UpdateConfig {
         owner: None,
-        positions_contract: Some("new_positions_contract".to_string()),
-        osmosis_proxy_contract: Some("new_osmosis_proxy_contract".to_string()),
+        positions_contract: Some(deps.api.addr_make("new_positions").to_string()),
+        osmosis_proxy_contract: Some(deps.api.addr_make("new_osmosis_proxy").to_string()),
         waiting_period: Some(100u64),
         minimum_bid: Some(Uint128::one()),
         maximum_waiting_bids: Some(10),
@@ -122,9 +122,9 @@ fn update_config() {
     assert_eq!(
         value,
         Config {
-            owner: Addr::unchecked("addr0000"),
-            positions_contract: Addr::unchecked("new_positions_contract"),
-            osmosis_proxy_contract: Addr::unchecked("new_osmosis_proxy_contract"),
+            owner: deps.api.addr_make("addr"),
+            positions_contract: deps.api.addr_make("new_positions"),
+            osmosis_proxy_contract: deps.api.addr_make("new_osmosis_proxy"),
             waiting_period: 100u64,
             added_assets: Some(vec![]),
             bid_asset: AssetInfo::NativeToken {
@@ -136,9 +136,9 @@ fn update_config() {
     );
 
     // Unauthorized err
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let msg = ExecuteMsg::UpdateConfig {
-        owner: Some("addr0000".to_string()),
+        owner: Some(deps.api.addr_make("addr").to_string()),
         positions_contract: None,
         osmosis_proxy_contract: None,
         waiting_period: Some(60u64),
@@ -157,7 +157,7 @@ fn update_config() {
     }
 
      // Accept ownership transfer
-     let info = mock_info("owner0001", &[]);
+     let info = message_info(&deps.api.addr_make("owner1"), &[]);
      let msg = ExecuteMsg::UpdateConfig {
          owner: None,
          positions_contract: None,
@@ -176,9 +176,9 @@ fn update_config() {
      assert_eq!(
          value,
          Config {
-             owner: Addr::unchecked("owner0001"),
-             positions_contract: Addr::unchecked("new_positions_contract"),
-             osmosis_proxy_contract: Addr::unchecked("new_osmosis_proxy_contract"),
+             owner: deps.api.addr_make("owner1"),
+             positions_contract: deps.api.addr_make("new_positions"),
+             osmosis_proxy_contract: deps.api.addr_make("new_osmosis_proxy"),
              waiting_period: 100u64,
              added_assets: Some(vec![]),
              bid_asset: AssetInfo::NativeToken {
@@ -196,14 +196,14 @@ fn submit_bid() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::new(2),
         maximum_waiting_bids: 0u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -213,7 +213,7 @@ fn submit_bid() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000u128),
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     //Invalid bid_for
@@ -227,7 +227,7 @@ fn submit_bid() {
         bid_owner: None,
     };
 
-    let info = mock_info("addr0000", &[]);
+    let info = message_info(&deps.api.addr_make("addr"), &[]);
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(err, ContractError::InvalidAsset {});
 
@@ -242,34 +242,40 @@ fn submit_bid() {
         bid_owner: None,
     };
 
-    let info = mock_info("addr0000", &[]);
+    let info = message_info(&deps.api.addr_make("addr"), &[]);
     let err = execute(deps.as_mut(), mock_env(), info, msg.clone()).unwrap_err();
-    assert_eq!(
-        err,
-        ContractError::Std(StdError::GenericErr {
-            msg: "No asset provided, only bid asset allowed".to_string()
-        })
+    assert!(
+        matches!(err, ContractError::Std(_)),
+        "Expected StdError"
+    );
+    assert!(
+        err.to_string().contains("No asset provided, only bid asset allowed"),
+        "Error message mismatch: {}",
+        err
     );
 
     //Invalid Bid Asset sent
-    let info = mock_info(
-        "addr0000",
+    let info = message_info(
+        &deps.api.addr_make("addr"),
         &[Coin {
             denom: "osmo".to_string(),
             amount: Uint128::from(1000000u128),
         }],
     );
     let err = execute(deps.as_mut(), mock_env(), info, msg.clone()).unwrap_err();
-    assert_eq!(
-        err,
-        ContractError::Std(StdError::GenericErr {
-            msg: "Invalid asset provided, only bid asset allowed".to_string()
-        })
+    assert!(
+        matches!(err, ContractError::Std(_)),
+        "Expected StdError"
+    );
+    assert!(
+        err.to_string().contains("Invalid asset provided, only bid asset allowed"),
+        "Error message mismatch: {}",
+        err
     );
 
     //Invalid Bid Asset sent alongside valid asset
-    let info = mock_info(
-        "addr0000",
+    let info = message_info(
+        &deps.api.addr_make("addr"),
         &[
             Coin {
                 denom: "cdt".to_string(),
@@ -282,11 +288,14 @@ fn submit_bid() {
         ],
     );
     let err = execute(deps.as_mut(), mock_env(), info, msg.clone()).unwrap_err();
-    assert_eq!(
-        err,
-        ContractError::Std(StdError::GenericErr {
-            msg: "Invalid asset provided, only bid asset allowed".to_string()
-        })
+    assert!(
+        matches!(err, ContractError::Std(_)),
+        "Expected StdError"
+    );
+    assert!(
+        err.to_string().contains("Invalid asset provided, only bid asset allowed"),
+        "Error message mismatch: {}",
+        err
     );
 
     //Invalid Bid amount
@@ -300,8 +309,8 @@ fn submit_bid() {
         bid_owner: None,
     };
 
-    let info = mock_info(
-        "addr0000",
+    let info = message_info(
+        &deps.api.addr_make("addr"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1u128),
@@ -309,11 +318,14 @@ fn submit_bid() {
     );
 
     let err = execute(deps.as_mut(), mock_env(), info.clone(), invalid_msg).unwrap_err();
-    assert_eq!(
-        err,
-        ContractError::Std(StdError::GenericErr {
-            msg: "Bid amount too small, minimum is 2".to_string()
-        })
+    assert!(
+        matches!(err, ContractError::Std(_)),
+        "Expected StdError"
+    );
+    assert!(
+        err.to_string().contains("Bid amount too small, minimum is 2"),
+        "Error message mismatch: {}",
+        err
     );
 
     //Invalid Premium
@@ -327,8 +339,8 @@ fn submit_bid() {
         bid_owner: None,
     };
 
-    let info = mock_info(
-        "addr0000",
+    let info = message_info(
+        &deps.api.addr_make("addr"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1000000u128),
@@ -347,7 +359,7 @@ fn submit_bid() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(0u128),
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     execute(deps.as_mut(), mock_env(), info, queue_msg).unwrap();
     let waiting_msg = ExecuteMsg::SubmitBid {
         bid_input: BidInput {
@@ -359,8 +371,8 @@ fn submit_bid() {
         bid_owner: None,
     };
 
-    let info = mock_info(
-        "addr0000",
+    let info = message_info(
+        &deps.api.addr_make("addr"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1_000_000u128),
@@ -373,8 +385,8 @@ fn submit_bid() {
     //Successful Bid for the queue with a threshold
     let env = mock_env();
     let wait_end = env.block.time.plus_seconds(60u64);
-    let info = mock_info(
-        "addr0000",
+    let info = message_info(
+        &deps.api.addr_make("addr"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1_000_001u128),
@@ -403,7 +415,7 @@ fn submit_bid() {
         bid_response,
         BidResponse {
             id: Uint128::from(1u128),
-            user: "addr0000".to_string(),
+            user: deps.api.addr_make("addr").to_string(),
             amount: Uint256::from(1000001u128),
             liq_premium: 10u8,
             product_snapshot: Decimal256::one(),
@@ -423,7 +435,7 @@ fn submit_bid() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000u128),
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     execute(deps.as_mut(), mock_env(), info, queue_msg).unwrap();
 
     //Change config to allow 1 waiting bid
@@ -436,7 +448,7 @@ fn submit_bid() {
         minimum_bid: None,
         
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     execute(deps.as_mut(), mock_env(), info, config_msg).unwrap();
 
     //Successful Bid that should create 1 active and 1 waiting bid at the minimum bid amount
@@ -451,8 +463,8 @@ fn submit_bid() {
     };
     let env = mock_env();
     let wait_end = env.block.time.plus_seconds(60u64);
-    let info = mock_info(
-        "addr0000",
+    let info = message_info(
+        &deps.api.addr_make("addr"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1_000_002u128),
@@ -479,7 +491,7 @@ fn submit_bid() {
         bid_response,
         BidResponse {
             id: Uint128::from(1u128),
-            user: "addr0000".to_string(),
+            user: deps.api.addr_make("addr").to_string(),
             amount: Uint256::from(1_000_000u128),
             liq_premium: 10u8,
             product_snapshot: Decimal256::one(),
@@ -510,7 +522,7 @@ fn submit_bid() {
         bid_response,
         BidResponse {
             id: Uint128::from(2u128),
-            user: "addr0000".to_string(),
+            user: deps.api.addr_make("addr").to_string(),
             amount: Uint256::from(2u128),
             liq_premium: 10u8,
             product_snapshot: Decimal256::one(),
@@ -529,14 +541,14 @@ fn retract_bid() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::new(2),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -546,7 +558,7 @@ fn retract_bid() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     let msg = ExecuteMsg::SubmitBid {
@@ -558,8 +570,8 @@ fn retract_bid() {
         },
         bid_owner: None,
     };
-    let info = mock_info(
-        "addr0000",
+    let info = message_info(
+        &deps.api.addr_make("addr"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1000000u128),
@@ -577,13 +589,16 @@ fn retract_bid() {
         },
         amount: None,
     };
-    let info = mock_info("addr0000", &[]);
+    let info = message_info(&deps.api.addr_make("addr"), &[]);
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(
-        err,
-        ContractError::Std(StdError::GenericErr {
-            msg: "Bid not found".to_string()
-        })
+    assert!(
+        matches!(err, ContractError::Std(_)),
+        "Expected StdError"
+    );
+    assert!(
+        err.to_string().contains("Bid not found"),
+        "Error message mismatch: {}",
+        err
     );
 
     //Withdrawal too small
@@ -594,7 +609,7 @@ fn retract_bid() {
         },
         amount: Some(Uint256::from(999999u128)),
     };
-    let info = mock_info("addr0000", &[]);
+    let info = message_info(&deps.api.addr_make("addr"), &[]);
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(
         err,
@@ -609,12 +624,12 @@ fn retract_bid() {
         },
         amount: None,
     };
-    let info = mock_info("addr0000", &[]);
+    let info = message_info(&deps.api.addr_make("addr"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.messages,
         vec![SubMsg::new(CosmosMsg::Bank(BankMsg::Send {
-            to_address: "addr0000".to_string(),
+            to_address: deps.api.addr_make("addr").to_string(),
             amount: vec![Coin {
                 denom: "cdt".to_string(),
                 amount: Uint128::from(1000000u128),
@@ -630,13 +645,16 @@ fn retract_bid() {
         },
         amount: None,
     };
-    let info = mock_info("addr0000", &[]);
+    let info = message_info(&deps.api.addr_make("addr"), &[]);
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(
-        err,
-        ContractError::Std(StdError::GenericErr {
-            msg: "Bid not found".to_string()
-        })
+    assert!(
+        matches!(err, ContractError::Std(_)),
+        "Expected StdError"
+    );
+    assert!(
+        err.to_string().contains("Bid not found"),
+        "Error message mismatch: {}",
+        err
     );
 }
 
@@ -646,14 +664,14 @@ fn execute_bid() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -663,7 +681,7 @@ fn execute_bid() {
         max_premium: Uint128::new(10u128), //A slot for each premium is created when queue is created
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     execute(deps.as_mut(), mock_env(), info, msg).unwrap();
 
     let msg = ExecuteMsg::SubmitBid {
@@ -675,8 +693,8 @@ fn execute_bid() {
         },
         bid_owner: None,
     };
-    let info = mock_info(
-        "owner0000",
+    let info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(500_000u128),
@@ -706,7 +724,7 @@ fn execute_bid() {
     };
 
     // unauthorized attempt
-    let unauth_info = mock_info("asset0000", &[]); // only owner or positions can execute
+    let unauth_info = message_info(&deps.api.addr_make("asset"), &[]); // only owner or positions can execute
     let env = mock_env();
     let err = execute(
         deps.as_mut(),
@@ -716,8 +734,8 @@ fn execute_bid() {
     )
     .unwrap_err();
     assert_eq!(err, ContractError::Unauthorized {},);    
-    let info = mock_info(
-        "positions_contract",
+    let info = message_info(
+        &deps.api.addr_make("positions"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(500_000u128),
@@ -727,11 +745,11 @@ fn execute_bid() {
     assert_eq!(
         res.messages,
         vec![SubMsg::new(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: "osmosis_proxy_contract".to_string(),
+            contract_addr: deps.api.addr_make("osmosis_proxy").to_string(),
             msg: to_binary(&OP_ExecuteMsg::BurnTokens {
                 denom: String::from("cdt"),
                 amount: Uint128::from(495000u128),
-                burn_from_address: "cosmos2contract".to_string(),
+                burn_from_address: mock_env().contract.address.to_string(),
             })
             .unwrap(),
             funds: vec![],
@@ -782,14 +800,14 @@ fn claim_liquidations() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -811,8 +829,8 @@ fn claim_liquidations() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1_000_000u128),
@@ -838,11 +856,11 @@ fn claim_liquidations() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
     /////////
     
-    let query_msg = QueryMsg::UserClaims { user: String::from("owner0000") };
+    let query_msg = QueryMsg::UserClaims { user: deps.api.addr_make("owner").to_string() };
     let claims: Vec<ClaimsResponse> = from_binary(&query(deps.as_ref(), mock_env(), query_msg.clone()).unwrap()).unwrap();
     assert_eq!(
         claims,
@@ -860,7 +878,7 @@ fn claim_liquidations() {
         },
         bid_ids: Some(vec![Uint128::new(1u128), Uint128::new(1u128)]),
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
     assert_eq!(err.to_string(), String::from("Custom Error val: \"Duplicate bid ids\""));
 
@@ -870,7 +888,7 @@ fn claim_liquidations() {
         },
         bid_ids: Some(vec![Uint128::new(1u128)]),
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -888,14 +906,14 @@ fn update_queue() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("addr0000", &[]);
+    let info = message_info(&deps.api.addr_make("addr"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -906,7 +924,7 @@ fn update_queue() {
         bid_threshold: Uint256::from(1_000_000_000u128),
     };
     //Unauthorized
-    let unauth_info = mock_info("owner0000", &[]);
+    let unauth_info = message_info(&deps.api.addr_make("owner"), &[]);
     let err = execute(deps.as_mut(), mock_env(), unauth_info, msg.clone()).unwrap_err();
     assert_eq!(err, ContractError::Unauthorized {});
 

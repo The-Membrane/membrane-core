@@ -15,6 +15,8 @@ pub enum ExecuteMsg {
     },
     /// Repay user debt.
     // RepayUserDebt needs repay whatever is possible.
+    // This is normally only called by the CDP contract...
+    // but allowing users to call it for themselves allows them to test the recall function/
     RepayUserDebt {
         /// User info
         user_info: UserInfo,

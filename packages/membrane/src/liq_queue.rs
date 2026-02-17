@@ -142,6 +142,19 @@ pub enum QueryMsg {
         /// Credit price
         credit_price: PriceResponse,
     },
+    /// Calculate collateral needed for a given debt amount, accounting for premiums. Returns CollateralForDebtResponse.
+    CollateralForDebt {
+        /// Bid for asset
+        bid_for: AssetInfo,
+        /// Collateral price
+        collateral_price: PriceResponse,
+        /// Debt amount to repay (in credit asset terms)
+        debt_amount: Uint256,
+        /// Credit asset info
+        credit_info: AssetInfo,
+        /// Credit price
+        credit_price: PriceResponse,
+    },
     /// Returns User's claimable assetss
     UserClaims {
         /// User address
@@ -249,6 +262,14 @@ pub struct LiquidatibleResponse {
     pub leftover_collateral: String,
     /// Total debt repaid
     pub total_debt_repaid: String,
+}
+
+#[cw_serde]
+pub struct CollateralForDebtResponse {
+    /// Total collateral needed to repay the requested debt amount
+    pub collateral_needed: String,
+    /// Debt amount that couldn't be covered (if insufficient liquidity in queue)
+    pub leftover_debt: String,
 }
 
 #[cw_serde]

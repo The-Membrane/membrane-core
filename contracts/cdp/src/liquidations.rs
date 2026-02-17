@@ -12,18 +12,20 @@ use membrane::oracle::PriceResponse;
 use membrane::range_bound_lp_vault::{ExecuteMsg as RBLP_ExecuteMsg, QueryMsg as RBLP_QueryMsg, UserIntentResponse};
 use membrane::osmosis_proxy::QueryMsg as OsmoQueryMsg;
 use membrane::stability_pool::{LiquidatibleResponse as SP_LiquidatibleResponse, ExecuteMsg as SP_ExecuteMsg, QueryMsg as SP_QueryMsg};
-use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse};
+use membrane::liq_queue::{ExecuteMsg as LQ_ExecuteMsg, QueryMsg as LQ_QueryMsg, LiquidatibleResponse as LQ_LiquidatibleResponse, CollateralForDebtResponse as LQ_CollateralForDebtResponse};
 use membrane::revenue_distributor::ExecuteMsg as RevenueDistributorExecuteMsg;
 use membrane::deployable_venue::{ExecuteMsg as DeployableVenue_ExecuteMsg, QueryMsg as DeployableVenue_QueryMsg};
 use membrane::chain_proxy::ExecuteMsg as ChainProxyExecuteMsg;
-use membrane::types::{cAsset, Asset, AssetInfo, AssetPool, Basket, DeploymentVenue, PoolStateResponse, Position, StringEntry, UserInfo};
+use membrane::types::{cAsset, Asset, AssetInfo, AssetPool, Basket, DeploymentVenue, PoolStateResponse, Position, Rates, RateSegment, StringEntry, UserInfo};
 
 use crate::contract::set_active_deployment_venues;
 use crate::error::ContractError; 
 use crate::positions::{BAD_DEBT_REPLY_ID, DEPLOYABLE_VENUE_REPLY_ID, LIQ_QUEUE_REPLY_ID, SELL_COLLATERAL_REPLY_ID};
 use crate::query::{insolvency_check, get_cAsset_ratios};
+use crate::debt_manager::{repay_segments_default_order, apply_delta_to_regular_debt, apply_delta_to_peg_debt, apply_delta_to_caps};
+use crate::rates::{get_total_debt_from_segments, get_total_position_debt};
 use crate::risk_engine::update_basket_tally;
-use crate::state::{create_collateral_rate_assurance, get_target_position, update_position, DeployableVenuePropagation, LiquidationPropagation, LiquidationStat, SellCollateralPropagation, Timer, BASKET, CONFIG, DEPLOYABLE_VENUE, FREEZE_TIMER, LIQUIDATION, LIQUIDATION_STATS, SELL_COLLATERAL};
+use crate::state::{create_collateral_rate_assurance, get_target_position, update_position, DeployableVenuePropagation, LiquidationPropagation, LiquidationStat, SellCollateralPropagation, Timer, BASKET, CONFIG, DEPLOYABLE_VENUE, FREEZE_TIMER, LIQUIDATION, LIQUIDATION_STATS, RATES, SELL_COLLATERAL};
 use crate::circuit_breaker::check_assets_not_frozen;
 
 pub const SECONDS_PER_DAY: u64 = 86400;
@@ -59,7 +61,9 @@ pub fn liquidate(
     //     Err(_) => (),
     // };
 
+
     let mut basket: Basket = BASKET.load(storage)?;
+    let mut rates: Rates = RATES.load(storage)?;
     //Check if frozen
     if basket.frozen {
         return Err(ContractError::Frozen {});
@@ -74,7 +78,7 @@ pub fn liquidate(
         },
     };
     if (env.block.time.seconds().checked_sub(freeze_timer.end_time).unwrap_or_else(|| SECONDS_PER_DAY/24)) < (SECONDS_PER_DAY/24){ //1 hour grace
-        return Err(ContractError::Std(StdError::GenericErr { msg: format!("You can liquidate in {} seconds, there is a post-freeze grace period", (SECONDS_PER_DAY/24) - (env.block.time.seconds() - freeze_timer.end_time)) }));
+        return Err(ContractError::Std(StdError::generic_err(format!("You can liquidate in {} seconds, there is a post-freeze grace period", (SECONDS_PER_DAY/24) - (env.block.time.seconds() - freeze_timer.end_time)))));
     }
 
     //Load state
@@ -86,7 +90,7 @@ pub fn liquidate(
         storage,
         valid_position_owner.clone(),
         position_id,
-    )?;
+    )?; 
 
     // Circuit breaker: block liquidations when any collateral asset is frozen due to price deviation.
     // This preserves liveness while avoiding acting on potentially bad oracle data.
@@ -108,7 +112,7 @@ pub fn liquidate(
         querier,
         Some(basket.clone()),
         target_position.clone().collateral_assets,
-        target_position.clone().credit_amount,
+        get_total_position_debt(&target_position),
         basket.clone().credit_price,
         false,
         config.clone(),
@@ -230,21 +234,25 @@ pub fn liquidate(
 
     //If caller fee * repay_value is greater than the leftover_position_value, hardcode it to 1%
     //This is to prevent the caller fee from being greater than the value of the position
+    let mut protocol_fee_value = match decimal_multiplication(config.liq_fee, repay_value){
+        Ok(value) => value,
+        Err(_) => return Err(ContractError::CustomError { val: "Protocol fee calculation failed".to_string() }),
+    };
     let caller_fee_value = match decimal_multiplication(caller_fee, repay_value){
         Ok(value) => value,
         Err(_) => return Err(ContractError::CustomError { val: "Caller fee calculation failed".to_string() }),
     };
-    let protocol_fee_value = match decimal_multiplication(config.liq_fee, repay_value){
-        Ok(value) => value,
-        Err(_) => return Err(ContractError::CustomError { val: "Protocol fee calculation failed".to_string() }),
-    };
     if caller_fee_value + protocol_fee_value > leftover_position_value {
-        caller_fee = min(
+        caller_fee = std::cmp::min(
             BAD_DEBT_CALLER_FEE, 
             decimal_division(leftover_position_value, repay_value)?,
         );
         config.liq_fee = Decimal::zero();
     }
+    protocol_fee_value = match decimal_multiplication(config.liq_fee, repay_value){
+        Ok(value) => value,
+        Err(_) => return Err(ContractError::CustomError { val: "Protocol fee calculation failed".to_string() }),
+    };
 
     // Create collateral rate assurance for liquidated assets
     let collateral_denoms: Vec<String> = liquidated_assets.iter()
@@ -297,15 +305,33 @@ pub fn liquidate(
     //If the user repaid the whole liquidation from user funds or the LQ isn't used, we need to update the position here
     if leftover_repayment.is_zero() && user_repay_amount >= pre_user_repay_repay_amount 
     || per_asset_repayment.is_empty() {
-        //Update the credit
-        target_position.credit_amount = match target_position.credit_amount.checked_sub(pre_user_repay_repay_amount.to_uint_floor()){
-            Ok(diff) => diff,
-            Err(_) => Uint128::zero(),
-        };
+        //Update the credit - repay from rate segments using debt_manager
+        let liq_repay_amount = pre_user_repay_repay_amount.to_uint_floor();
+
+        // Regular pool first, then peg pool
+        let (regular_applied, regular_deltas) = repay_segments_default_order(
+            &mut target_position.rate_segments,
+            liq_repay_amount,
+        );
+        let remaining_for_peg = liq_repay_amount
+            .checked_sub(regular_applied)
+            .unwrap_or(Uint128::zero());
+        let (_peg_applied, peg_deltas) = repay_segments_default_order(
+            &mut target_position.peg_rate_segments,
+            remaining_for_peg,
+        );
+
+        // Apply deltas to basket
+        apply_delta_to_regular_debt(&mut basket.credit_asset, &regular_deltas);
+        apply_delta_to_peg_debt(&mut basket.credit_asset, &peg_deltas);
+        apply_delta_to_caps(&mut rates.fixed_rate_caps, &regular_deltas);
+        apply_delta_to_caps(&mut rates.fixed_rate_caps, &peg_deltas);
+
+        let total_debt_after = get_total_position_debt(&target_position);
         //Collateral from fees is updated above
 
         //Update supply caps
-        if target_position.credit_amount.is_zero(){
+        if total_debt_after.is_zero(){
             //Remove position's assets from Supply caps 
             match update_basket_tally(
                 storage, 
@@ -338,8 +364,9 @@ pub fn liquidate(
                 Err(err) => return Err(err),
             };
         }            
-        //Update Basket
+        //Update Basket & Rates
         BASKET.save(storage, &basket)?;
+        RATES.save(storage, &rates)?;
 
         //Update position w/ new credit amount
         update_position(storage, valid_position_owner.clone(), target_position.clone())?;      
@@ -437,7 +464,7 @@ fn get_repay_quantities(
 ) -> Result<(Decimal, Decimal), ContractError>{
     
     // max_borrow_LTV/ current_LTV, * current_loan_value, current_loan_value - __ = value of loan amount
-    let loan_value = basket.credit_price.get_value(target_position.credit_amount)?;
+    let loan_value = basket.credit_price.get_value(get_total_position_debt(&target_position))?;
 
     //repay value = the % of the loan insolvent. Insolvent is anything between current and max borrow LTV.
     //IE, repay what to get the position down to borrow LTV
@@ -475,9 +502,9 @@ fn get_repay_quantities(
         //Repay amount has to be above 0, or there is nothing to liquidate and there was a mistake prior
         x if x <= Uint128::zero() => return Err(ContractError::PositionSolvent {}),
         //Can't repay more than the debt
-        x if x > target_position.credit_amount =>
+        x if x > get_total_position_debt(&target_position) =>
         {
-            target_position.credit_amount
+            get_total_position_debt(&target_position)
         }
         x => x,
     };
@@ -663,7 +690,7 @@ pub fn get_deployable_venues_user_repay_amount(
             //Subtract Repay amount from credit_repay_amount for the liquidation
             *credit_repay_amount = match decimal_subtraction(*credit_repay_amount, user_repay_amount){
                 Ok(res) => res,
-                Err(_) => return Err(StdError::GenericErr { msg: format!("Deployable Venue {:?} credit repay amount calculation failed", deployable_venue.address.to_string()).to_string() }),
+                Err(_) => return Err(StdError::generic_err(format!("Deployable Venue {:?} credit repay amount calculation failed", deployable_venue.address.to_string()))),
             };
         }
     }
@@ -717,20 +744,26 @@ fn per_asset_fulfillments(
     ////CALLER AND PROTOCOL FEE COLLECTIONS////
     for (num, cAsset) in collateral_assets.clone().iter().enumerate() {
 
-        let repay_amount_per_asset = fn_repayment * cAsset_ratios[num];
+        let repay_amount_per_asset = decimal_multiplication(
+            Decimal::from_ratio(fn_repayment, Uint128::one()),
+            cAsset_ratios[num]
+        )?.to_uint_floor();
         
         let collateral_price = cAsset_prices[num].clone();
         let collateral_repay_value = match decimal_multiplication(pre_user_repay_repay_value, cAsset_ratios[num]){
             Ok(res) => res,
-            Err(_) => return Err(StdError::GenericErr { msg: "Collateral repay value (for fee) calculation failed".to_string() }),
+            Err(_) => return Err(StdError::generic_err("Collateral repay value (for fee) calculation failed")),
         };
         let pre_user_repay_collateral_repay_amount: Uint128 = match collateral_price.get_amount(collateral_repay_value){
             Ok(res) => res,
-            Err(_) => return Err(StdError::GenericErr { msg: "Collateral repay amount (for fee) calculation failed".to_string() }),
+            Err(_) => return Err(StdError::generic_err("Collateral repay amount (for fee) calculation failed")),
         };
 
         //Subtract Caller fee from Position's claims
-        let mut caller_fee_in_collateral_amount = pre_user_repay_collateral_repay_amount * caller_fee;
+        let mut caller_fee_in_collateral_amount = decimal_multiplication(
+            Decimal::from_ratio(pre_user_repay_collateral_repay_amount, Uint128::one()),
+            caller_fee
+        )?.to_uint_floor();
 
         //If the caller fee is greater than the amount of collateral the Position has, set it to 0 
         //This is to prevent the caller fee from being greater than the value of the position
@@ -741,14 +774,14 @@ fn per_asset_fulfillments(
         //Add to caller_fee_value_paid
         let fee_value = match collateral_price.get_value(caller_fee_in_collateral_amount){
             Ok(res) => res,
-            Err(_) => return Err(StdError::GenericErr { msg: "Caller fee value calculation failed".to_string() }),
+            Err(_) => return Err(StdError::generic_err("Caller fee value calculation failed")),
         };
         *caller_fee_value_paid = *caller_fee_value_paid + fee_value;
 
         //Update collateral_assets to reflect the fee
         collateral_assets[num].asset.amount = match collateral_assets[num].asset.amount.checked_sub(caller_fee_in_collateral_amount){
             Ok(res) => res,
-            Err(_) => return Err(StdError::GenericErr { msg: "Collateral fee amount calculation failed".to_string() }),
+            Err(_) => return Err(StdError::generic_err("Collateral fee amount calculation failed")),
         };
         //Add to list of liquidated assets
         if caller_fee_in_collateral_amount > Uint128::zero() {
@@ -764,7 +797,10 @@ fn per_asset_fulfillments(
         }
         
         //Subtract Protocol fee from Position's claims
-        let mut protocol_fee_in_collateral_amount = pre_user_repay_collateral_repay_amount * config.clone().liq_fee;
+        let mut protocol_fee_in_collateral_amount = decimal_multiplication(
+            Decimal::from_ratio(pre_user_repay_collateral_repay_amount, Uint128::one()),
+            config.clone().liq_fee
+        )?.to_uint_floor();
 
         //If the protocol fee is greater than the amount of collateral the Position has, set it to 0
         //This is to prevent the protocol fee from being greater than the value of the position
@@ -775,7 +811,7 @@ fn per_asset_fulfillments(
         //Update collateral_assets to reflect the fee
         collateral_assets[num].asset.amount = match collateral_assets[num].asset.amount.checked_sub(protocol_fee_in_collateral_amount) {
             Ok(res) => res,
-            Err(_) => return Err(StdError::GenericErr { msg: "Protocol fee amount calculation failed".to_string() }),
+            Err(_) => return Err(StdError::generic_err("Protocol fee amount calculation failed")),
         };
         //Add to list of liquidated assets
         if protocol_fee_in_collateral_amount > Uint128::zero() {
@@ -797,12 +833,12 @@ fn per_asset_fulfillments(
         //Remove fee_value from leftover_position_value
         *leftover_position_value = match decimal_subtraction(*leftover_position_value, fee_value){
             Ok(res) => res,
-            Err(_) => return Err(StdError::GenericErr { msg: "Leftover position value calculation (for fee) failed".to_string() }),
+            Err(_) => return Err(StdError::generic_err("Leftover position value calculation (for fee) failed")),
         };
         
         //Create msgs to caller as well as to liq_queue if.is_some()
         match cAsset.clone().asset.info {
-            AssetInfo::Token { address: _ } => { return Err(StdError::GenericErr { msg: String::from("Cw20 assets aren't allowed") }) },
+            AssetInfo::Token { address: _ } => { return Err(StdError::generic_err("Cw20 assets aren't allowed")) },
             AssetInfo::NativeToken { denom: _ } => {
                 let asset = Asset {
                     amount: caller_fee_in_collateral_amount,
@@ -828,11 +864,11 @@ fn per_asset_fulfillments(
             let collateral_price = cAsset_prices[num].clone();
             let collateral_repay_value = match decimal_multiplication(repay_value, cAsset_ratios[num]){
                 Ok(res) => res,
-                Err(_) => return Err(StdError::GenericErr { msg: "Collateral repay value calculation (for liq) failed".to_string() }),
+                Err(_) => return Err(StdError::generic_err("Collateral repay value calculation (for liq) failed")),
             };
             let mut collateral_repay_amount: Uint128 = match collateral_price.get_amount(collateral_repay_value){
                 Ok(res) => res,
-                Err(_) => return Err(StdError::GenericErr { msg: "Collateral repay amount calculation (for liq) failed".to_string() }),
+                Err(_) => return Err(StdError::generic_err("Collateral repay amount calculation (for liq) failed")),
             };
                         
             //if collateral repay amount is more than the Position has in assets, 
@@ -841,40 +877,64 @@ fn per_asset_fulfillments(
                 collateral_repay_amount = collateral_assets[num].asset.amount;
             }
             
-            //We're asking: "For this collateral amount, how can debt can you (the LQ) liquidate?"
-            // This is ineffiecient bc the LQ will never pay 100% of the debt required, leaving the premium as leftover.
-            let res: LQ_LiquidatibleResponse =
+            //We're asking: "For this collateral amount, how much debt can you (the LQ) liquidate?"
+            // This is inefficient bc the LQ will never pay 100% of the debt required, leaving the premium as leftover.
+
+            // TODO: Use the new CollateralForDebt query instead:
+            let res: LQ_CollateralForDebtResponse =
                 match querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
                     contract_addr: basket.clone().liq_queue.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                    msg: to_json_binary(&LQ_QueryMsg::CheckLiquidatible {
+                    msg: to_json_binary(&LQ_QueryMsg::CollateralForDebt {
                         bid_for: cAsset.clone().asset.info,
                         collateral_price: collateral_price.clone(),
-                        collateral_amount: Uint256::from(
-                            (collateral_repay_amount).u128(),
-                        ),
+                        debt_amount: Uint256::from(repay_amount_per_asset.u128()),
                         credit_info: basket.clone().credit_asset.info,
                         credit_price: basket.clone().credit_price,
                     })?,
                 })){
                     Ok(res) => res,
-                    //If this errors we go to the next asset.
-                    //If they all error, the SP will get an initial call instead of waiting for the reply.
-                    Err(_) => {
-                        // println!("Error in liq_queue query");
-                        continue;
-                    }, 
+                    Err(_) => continue,
+                };
+            let mut collateral_repay_amount = Uint128::from_str(&res.collateral_needed)?;
+            //Calculate how much the queue repaid in credit
+            let queue_credit_repaid = match repay_amount_per_asset.checked_sub(Uint128::from_str(&res.leftover_debt)?){
+                Ok(res) => res,
+                Err(_) => return Err(StdError::generic_err("Queue credit repaid calculation (for liq) failed")),
+            };
+
+            //if collateral repay amount is more than the Position has in assets, 
+            //Set collateral_repay_amount to the amount the Position has in assets
+            if collateral_repay_amount > collateral_assets[num].asset.amount {
+                collateral_repay_amount = collateral_assets[num].asset.amount;
+            }
+
+            // let res: LQ_LiquidatibleResponse =
+            //     match querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+            //         contract_addr: basket.clone().liq_queue.unwrap_or_else(|| Addr::unchecked("")).to_string(),
+            //         msg: to_json_binary(&LQ_QueryMsg::CheckLiquidatible {
+            //             bid_for: cAsset.clone().asset.info,
+            //             collateral_price: collateral_price.clone(),
+            //             collateral_amount: Uint256::from(
+            //                 (collateral_repay_amount).u128(),
+            //             ),
+            //             credit_info: basket.clone().credit_asset.info,
+            //             credit_price: basket.clone().credit_price,
+            //         })?,
+            //     })){
+            //         Ok(res) => res,
+            //         //If this errors we go to the next asset.
+            //         //If they all error, the SP will get an initial call instead of waiting for the reply.
+            //         Err(_) => {
+            //             // println!("Error in liq_queue query");
+            //             continue;
+            //         }, 
                 
-                };
-            //Calculate how much collateral we are sending to the liq_queue to liquidate
-            let leftover: Uint128 = Uint128::from_str(&res.leftover_collateral)?;
-            let queue_asset_amount_paid: Uint128 = match 
-                collateral_repay_amount.checked_sub(leftover){
-                    Ok(res) => res,
-                    Err(_) => return Err(StdError::GenericErr { msg: "Queue asset amount paid calculation (for liq) failed".to_string() }),
-                };
+            //     };
+            //Set how much collateral we are sending to the liq_queue to liquidate
+            let queue_asset_amount_paid: Uint128 = collateral_repay_amount;
 
             //Don't send a message if the amount is 0
-            if queue_asset_amount_paid.is_zero() || Uint128::from_str(&res.total_debt_repaid)?.is_zero(){
+            if Uint128::from_str(&res.collateral_needed)?.is_zero() || queue_credit_repaid.is_zero(){
                 continue;
             }
             //Call Liq Queue::Liquidate for the asset
@@ -891,16 +951,14 @@ fn per_asset_fulfillments(
 
             *leftover_position_value = match decimal_subtraction(*leftover_position_value, value_paid_to_queue){
                 Ok(res) => res,
-                Err(_) => return Err(StdError::GenericErr { msg: "Leftover position value calculation (for liq) failed".to_string() }),
+                Err(_) => return Err(StdError::generic_err("Leftover position value calculation (for liq) failed")),
             };
             
-            //Calculate how much the queue repaid in credit
-            let queue_credit_repaid = Uint128::from_str(&res.total_debt_repaid)?;
             //Subtract that from the running total for potential leftovers
             //i.e. after this function is over, this value will be the amount of credit that was not repaid
             leftover_repayment = match leftover_repayment.checked_sub(queue_credit_repaid){
                 Ok(res) => res,
-                Err(_) => return Err(StdError::GenericErr { msg: "Leftover repayment calculation (for liq) failed".to_string() }),
+                Err(_) => return Err(StdError::generic_err("Leftover repayment calculation (for liq) failed")),
             };
             //The LQ has repaid more than the query returned in the past so we'll handle any possible excess from the SP in the liq_repay
             
@@ -934,11 +992,11 @@ fn per_asset_fulfillments(
             let collateral_price = cAsset_prices[num].clone();
             let collateral_sell_value = match decimal_multiplication(Decimal::from_ratio(leftover_repayment, Uint128::one()), cAsset_ratios[num]){
                 Ok(res) => res,
-                Err(_) => return Err(StdError::GenericErr { msg: "Collateral sell value calculation (for liq) failed in sell block".to_string() }),
+                Err(_) => return Err(StdError::generic_err("Collateral sell value calculation (for liq) failed in sell block")),
             };
             let mut collateral_sell_amount: Uint128 = match collateral_price.get_amount(collateral_sell_value){
                 Ok(res) => res,
-                Err(_) => return Err(StdError::GenericErr { msg: "Collateral sell amount calculation (for liq) failed in sell block".to_string() }),
+                Err(_) => return Err(StdError::generic_err("Collateral sell amount calculation (for liq) failed in sell block")),
             };
 
             // println!("leftover_position_value: {:?}, collateral_sell_value: {:?}", leftover_position_value, collateral_sell_value);
@@ -991,7 +1049,8 @@ fn per_asset_fulfillments(
     // println!("caller_coins: {:?}", caller_coins);
     // println!("protocol_coins: {:?}", protocol_coins);
 
-    if !protocol_coins.is_empty() {
+    // Only send protocol fees if the user didn't repay the whole liquidation from user funds
+    if !protocol_coins.is_empty() && repay_value > Decimal::zero() {
         // All protocol fees are collateral (non-CDT), route to revenue-distributor for auction
         let mut protocol_fee_msgs: Vec<CosmosMsg> = vec![];
 
@@ -1018,6 +1077,68 @@ fn per_asset_fulfillments(
         Ok((vec![], leftover_repayment))
     }
 
+}
+
+/// Simulate liquidation market sales to estimate slippage cost
+/// Returns (total_input_value, total_output_value, slippage_cost)
+///
+/// **Note**: Uses Astroport simulation only. Duality routes cannot be simulated.
+/// The slippage cost is the difference between input and expected output values.
+pub fn simulate_liquidation_sales(
+    querier: &QuerierWrapper,
+    chain_proxy: Addr,
+    collateral_to_sell: Vec<Coin>,
+    target_denom: String,
+    credit_price: PriceResponse,
+) -> StdResult<(Decimal, Decimal, Decimal)> {
+    use membrane::neutron_proxy::{QueryMsg as ChainProxyQueryMsg, SimulateSwapResponse};
+
+    let mut total_input_value = Decimal::zero();
+    let mut total_expected_output = Uint128::zero();
+
+    for coin in collateral_to_sell {
+        // Query simulation from chain proxy (neutron-proxy)
+        let sim_response: SimulateSwapResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: chain_proxy.to_string(),
+            msg: to_json_binary(&ChainProxyQueryMsg::SimulateSwap {
+                token_in: coin.denom.clone(),
+                token_out: target_denom.clone(),
+                amount_in: coin.amount,
+            })?,
+        }))?;
+
+        // Use multihop_output if available (multi-hop route configured)
+        // Otherwise use astroport_output (single-hop)
+        // If neither available, skip this collateral (cannot simulate)
+        let expected_output = sim_response.multihop_output
+            .or(sim_response.astroport_output)
+            .unwrap_or(Uint128::zero());
+
+        if expected_output.is_zero() {
+            // Cannot simulate this swap (likely Duality route or no liquidity)
+            // Return error to indicate simulation not possible
+            return Err(StdError::generic_err(format!(
+                "Cannot simulate swap for {} - no simulation available (Duality route or no liquidity)*",
+                coin.denom
+            )));
+        }
+
+        // Accumulate expected outputs
+        total_expected_output = total_expected_output.checked_add(expected_output)?;
+
+        // Calculate input value (approximate using amount as value)
+        // Note: For accurate value, should query oracle price
+        total_input_value += Decimal::from_ratio(coin.amount, Uint128::one());
+    }
+
+    // Calculate output value using credit price
+    let total_output_value = credit_price.get_value(total_expected_output)?;
+
+    // Calculate slippage cost (value lost)
+    let slippage_cost = decimal_subtraction(total_input_value, total_output_value)
+        .unwrap_or(Decimal::zero());
+
+    Ok((total_input_value, total_output_value, slippage_cost))
 }
 
 // This function is used to build (sub)messages for the Stability Pool.

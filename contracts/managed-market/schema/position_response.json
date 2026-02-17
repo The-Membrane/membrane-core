@@ -229,6 +229,13 @@
             "null"
           ]
         },
+        "force_redemptions": {
+          "description": "Force redemptions for positions using this asset",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "max_LTV": {
           "description": "Liquidation LTV",
           "allOf": [

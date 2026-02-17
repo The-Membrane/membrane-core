@@ -95,7 +95,7 @@ mod tests {
     // Mock CDP Basket query for LTV Disco
     fn setup_ltv_disco_mock_cdp_query(deps: &mut cosmwasm_std::OwnedDeps<cosmwasm_std::MemoryStorage, cosmwasm_std::testing::MockApi, cosmwasm_std::testing::MockQuerier>, cdp_addr: String) {
         use membrane::cdp::QueryMsg as CDP_QueryMsg;
-        use membrane::types::{Basket, Asset, cAsset, PendingRevenue};
+        use membrane::types::{Basket, Asset, CreditAssetBreakdown, cAsset, PendingRevenue};
         
         deps.querier.update_wasm(move |query| {
             match query {
@@ -108,8 +108,8 @@ mod tests {
                                 current_position_id: Uint128::one(),
                                 collateral_types: vec![cAsset {
                                     asset: Asset {
-                                        info: AssetInfo::NativeToken { 
-                                            denom: "collateral".to_string() 
+                                        info: AssetInfo::NativeToken {
+                                            denom: "collateral".to_string()
                                         },
                                         amount: Uint128::zero(),
                                     },
@@ -117,33 +117,34 @@ mod tests {
                                     max_LTV: Decimal::percent(75),
                                     pool_info: None,
                                     rate_index: Decimal::one(),
-                                    individual_cost: None,
+                                    peg_rate_index: Decimal::one(),
                                 }],
                                 collateral_supply_caps: vec![],
-                                lastest_collateral_rates: vec![],
                                 multi_asset_supply_caps: vec![],
-                                credit_asset: Asset {
-                                    info: AssetInfo::NativeToken { denom: "cdt".to_string() },
-                                    amount: Uint128::zero(),
+                                credit_asset: CreditAssetBreakdown {
+                                    asset: Asset {
+                                        info: AssetInfo::NativeToken { denom: "cdt".to_string() },
+                                        amount: Uint128::zero(),
+                                    },
+                                    variable_amount: Uint128::zero(),
+                                    one_month_amount: Uint128::zero(),
+                                    three_month_amount: Uint128::zero(),
+                                    six_month_amount: Uint128::zero(),
+                                    peg_amount: Uint128::zero(),
                                 },
                                 credit_price: membrane::oracle::PriceResponse {
                                     prices: vec![],
                                     price: Decimal::one(),
                                     decimals: 6,
                                 },
-                                base_interest_rate: Decimal::zero(),
                                 pending_revenue: PendingRevenue {
                                     total_pending: Uint128::zero(),
                                     per_asset_rev: vec![],
                                 },
                                 pending_bad_debt: Uint128::zero(),
-                                credit_last_accrued: 0,
-                                rates_last_accrued: 0,
                                 oracle_set: true,
-                                negative_rates: false,
                                 frozen: false,
                                 distribute_revenue: true,
-                                cpc_margin_of_error: Decimal::zero(),
                                 liq_queue: None,
                             };
                             return cosmwasm_std::SystemResult::Ok(cosmwasm_std::ContractResult::Ok(
@@ -170,12 +171,12 @@ mod tests {
         let mut app = AppBuilder::new().build(|router, _, storage| {
             router.bank.init_balance(
                 storage,
-                &Addr::unchecked(USER),
+                &app.api().addr_make(USER),
                 coins(1_000_000_000, "collateral"),
             ).unwrap();
             router.bank.init_balance(
                 storage,
-                &Addr::unchecked(ADMIN),
+                &app.api().addr_make(ADMIN),
                 coins(1_000_000_000, "cdt"),
             ).unwrap();
         });
@@ -189,7 +190,7 @@ mod tests {
         // Instantiate LTV Disco
         let ltv_disco_addr = app.instantiate_contract(
             ltv_disco_code_id,
-            Addr::unchecked(ADMIN),
+            app.api().addr_make(ADMIN),
             &LTVDisco_InstantiateMsg {
                 owner: Some(ADMIN.to_string()),
                 cdp_contract: "cdp_contract".to_string(), // Will be updated after CDP instantiation
@@ -218,7 +219,7 @@ mod tests {
         // Instantiate Oracle
         let oracle_addr = app.instantiate_contract(
             oracle_code_id,
-            Addr::unchecked(ADMIN),
+            app.api().addr_make(ADMIN),
             &Empty {},
             &[],
             "oracle",
@@ -228,7 +229,7 @@ mod tests {
         // Instantiate Chain Proxy
         let chain_proxy_addr = app.instantiate_contract(
             chain_proxy_code_id,
-            Addr::unchecked(ADMIN),
+            app.api().addr_make(ADMIN),
             &Empty {},
             &[],
             "chain_proxy",
@@ -286,6 +287,15 @@ mod tests {
         // Implementation would require comprehensive CDP setup
     }
 }
+
+
+
+
+
+
+
+
+
 
 
 

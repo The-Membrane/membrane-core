@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use membrane::cdp::{LiquidationStatResponse, QueryMsg as CDP_QueryMsg};
 use membrane::emissions_voting::{HasAnyVotesResponse, QueryMsg as EmissionsVotingQueryMsg};
 use membrane::ltv_disco::{
-    BackingDeposit, BackingDepositInput, RevenueTrackingEntry, RevenueEvent, UserLifetimeRevenueEntry, Config, DecimalMinMax, Dispersal, ActiveDispersal, LTVQueue, MaxBorrowLTVGroup, MaxLTVSlot, ExecuteMsg, TVLEntry, LTVEntry, CompoundAction, LVTTimeCliff, DepositLVTTracking, GroupLVTTracking
+    BackingDeposit, BackingDepositInput, RevenueTrackingEntry, RevenueEvent, UserLifetimeRevenueEntry, Config, DecimalMinMax, Dispersal, ActiveDispersal, LTVQueue, MaxBorrowLTVGroup, MaxLTVSlot, ExecuteMsg, TVLEntry, LTVEntry, CompoundAction, LVTTimeCliff, DepositLVTTracking, GroupLVTTracking, InsuranceEntry
 };
 use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::types::{Asset, Basket, DepositDenom, AssetInfo};
@@ -18,12 +18,13 @@ use membrane::neutron_proxy::ExecuteMsg as NeutronProxy_ExecuteMsg;
 use membrane::revenue_distributor::{QueryMsg as RevenueDistributorQueryMsg, EpochCountdownResponse};
 
 use crate::error::ContractError;
-use crate::state::{SwapPropagation, SWAP_PROPAGATION, CompoundPropagation, COMPOUND_PROPAGATION, REVENUE_TRACKING, RATE_ASSURANCE, REVENUE_EVENTS, USER_LIFETIME_REVENUE, BACKING_DEPOSITS, USER_DEPOSITS, CONFIG, DISPERSAL, LTV_QUEUES, DAILY_TVL_TRACKER, DAILY_LTV_TRACKER, USER_TOTAL_DEPOSITS, MANAGER_FEE, MANAGED_DEPOSITS};
+use crate::state::{SwapPropagation, SWAP_PROPAGATION, CompoundPropagation, COMPOUND_PROPAGATION, REVENUE_TRACKING, RATE_ASSURANCE, REVENUE_EVENTS, USER_LIFETIME_REVENUE, BACKING_DEPOSITS, USER_DEPOSITS, CONFIG, DISPERSAL, LTV_QUEUES, DAILY_TVL_TRACKER, DAILY_LTV_TRACKER, DAILY_INSURANCE_TRACKER, USER_TOTAL_DEPOSITS, MANAGER_FEE, MANAGED_DEPOSITS};
 
 const REVENUE_TRACKING_LIMIT: usize = 100; // Limit for revenue tracking vectors
 const LIFETIME_REVENUE_LIMIT: usize = 100; // Limit for user lifetime revenue tracking
 const TVL_TRACKER_LIMIT: usize = 100; // Limit for TVL tracker entries
 const LTV_TRACKER_LIMIT: usize = 100; // Limit for LTV tracker entries
+const INSURANCE_TRACKER_LIMIT: usize = 100; // Limit for insurance tracker entries
 const ONE_DAY_SECONDS: u64 = 86400; // 24 hours in seconds
 
 use crate::state::USER_LOCKED_DEPOSITS;
@@ -703,6 +704,7 @@ fn add_lost_amount_to_contract_deposit(
                 daily_delta: Int128::zero(),
                 time_cliffs: vec![],
             },
+            revenue_destination: None,
         };
         let locked_vt = calculate_locked_vault_tokens(&temp_deposit, env);
         let mut contract_deposit = BackingDeposit {
@@ -724,6 +726,7 @@ fn add_lost_amount_to_contract_deposit(
                 daily_delta: Int128::zero(),
                 time_cliffs: vec![],
             },
+            revenue_destination: None,
         };
         // Initialize LVT tracking for contract deposit
         initialize_deposit_lvt_tracking(&mut contract_deposit, env, config.lock_duration_ceiling)?;
@@ -966,6 +969,7 @@ pub fn submit_deposit(
     deposit_id: Option<Uint128>,
     manager: Option<String>,
     affiliate_address: Option<String>,
+    revenue_destination: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut msgs: Vec<CosmosMsg> = vec![];
     let config: Config = CONFIG.load(deps.storage)?;
@@ -1083,8 +1087,10 @@ pub fn submit_deposit(
             None,
         )?;
         if !claimed.is_zero() {
+            // Send to revenue_destination if set, otherwise to deposit owner
+            let recipient = existing.revenue_destination.as_ref().unwrap_or(&valid_owner_addr);
             msgs.push(BankMsg::Send {
-                to_address: valid_owner_addr.to_string(),
+                to_address: recipient.to_string(),
                 amount: vec![Coin { denom: config.cdt_denom.clone(), amount: claimed }],
             }.into());
         }
@@ -1109,6 +1115,13 @@ pub fn submit_deposit(
             //Add to state of the manager
             crate::state::add_managed_deposit(deps.storage, &manager_addr, deposit_key.clone())?;
         }
+        
+        // Update revenue_destination if provided
+        if let Some(revenue_dest_str) = revenue_destination {
+            let revenue_dest_addr = deps.api.addr_validate(&revenue_dest_str)?;
+            existing.revenue_destination = Some(revenue_dest_addr);
+        }
+        
         BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &existing)?;
         
         // Update group.total_locked_vault_tokens by delta
@@ -1205,6 +1218,13 @@ pub fn submit_deposit(
             None
         };
         
+        // Validate revenue_destination if provided
+        let revenue_destination_addr = if let Some(revenue_dest_str) = revenue_destination {
+            Some(deps.api.addr_validate(&revenue_dest_str)?)
+        } else {
+            None
+        };
+        
         // Determine depositor: if depositing for another user, set depositor to sender
         // Otherwise, set to None for self-deposits
         let depositor = if valid_owner_addr != info.sender {
@@ -1233,6 +1253,7 @@ pub fn submit_deposit(
                 daily_delta: Int128::zero(),
                 time_cliffs: vec![],
             },
+            revenue_destination: revenue_destination_addr.clone(),
         };
         new_deposit_locked_vault_tokens = calculate_locked_vault_tokens(&temp_deposit, &env);
         
@@ -1255,6 +1276,7 @@ pub fn submit_deposit(
                 daily_delta: Int128::zero(),
                 time_cliffs: vec![],
             },
+            revenue_destination: revenue_destination_addr.clone(),
         };
         // Initialize LVT tracking for new deposit
         initialize_deposit_lvt_tracking(&mut deposit, &env, config.lock_duration_ceiling)?;
@@ -1385,6 +1407,9 @@ pub fn submit_deposit(
     
     // Update daily LTV tracker
     update_daily_ltv_tracker(deps.storage, &env, deposit_input.asset.clone())?;
+
+    // Update daily insurance tracker
+    update_daily_insurance_tracker(deps.storage, &env, deposit_input.asset.clone())?;
 
     // Update user total deposits
     let user_key = valid_owner_addr.to_string();
@@ -1538,8 +1563,11 @@ pub fn withdraw_deposit(
             };
             
             // Calculate returned and lost amounts
-            let returned_vault_tokens = Decimal::from_ratio(withdraw_vault_tokens, Uint128::one()) * ratio;
-            let returned_vault_tokens = returned_vault_tokens.to_uint_floor();
+            let returned_vault_tokens_decimal = decimal_multiplication(
+                Decimal::from_ratio(withdraw_vault_tokens, Uint128::one()),
+                ratio,
+            )?;
+            let returned_vault_tokens = returned_vault_tokens_decimal.to_uint_floor();
             let lost_vault_tokens = withdraw_vault_tokens.checked_sub(returned_vault_tokens)
                 .unwrap_or(Uint128::zero());
             
@@ -1790,6 +1818,9 @@ pub fn withdraw_deposit(
     
     // Update daily LTV tracker
     update_daily_ltv_tracker(deps.storage, &env, asset.clone())?;
+
+    // Update daily insurance tracker
+    update_daily_insurance_tracker(deps.storage, &env, asset.clone())?;
 
     // Update user total deposits
     let user_key = info.sender.to_string();
@@ -2327,7 +2358,11 @@ fn distribute_revenue_to_users(
             slot.total_deposit_tokens.u128(), 
             total_deposit_tokens.u128()
         );
-        let slot_revenue = revenue_amount * slot_share_ratio;
+        let slot_revenue_decimal = decimal_multiplication(
+            Decimal::from_ratio(revenue_amount, Uint128::one()),
+            slot_share_ratio,
+        )?;
+        let slot_revenue = slot_revenue_decimal.to_uint_floor();
         
         if slot_revenue.is_zero() {
             continue;
@@ -2343,7 +2378,11 @@ fn distribute_revenue_to_users(
                 group.total_deposit_tokens.u128(),
                 slot.total_deposit_tokens.u128()
             );
-            let group_revenue = slot_revenue * group_share_ratio;
+            let group_revenue_decimal = decimal_multiplication(
+                Decimal::from_ratio(slot_revenue, Uint128::one()),
+                group_share_ratio,
+            )?;
+            let group_revenue = group_revenue_decimal.to_uint_floor();
             
             if group_revenue.is_zero() {
                 continue;
@@ -2655,6 +2694,7 @@ fn condense_deposits_for_user(
                 daily_delta: Int128::zero(),
                 time_cliffs: vec![],
             },
+            revenue_destination: first_deposit.revenue_destination.clone(),
         };
         
         let merged_locked_vt = calculate_locked_vault_tokens(&temp_merged_deposit, env);
@@ -2901,10 +2941,15 @@ fn claim_revenue_for_deposit(
         };
 
         // Calculate effective by subtracting unused from calculated LVT at event time
-        let effective_locked_vt = deposit_lvt_at_event.saturating_sub(unused_locked_vt);
+        let effective_locked_vt: Uint128 = deposit_lvt_at_event.saturating_sub(unused_locked_vt);
 
-        // Direct multiplication: effective_locked_vault_tokens * amount_per_locked_vt (Decimal) auto-floors the decimal
-        let mut user_share = event.amount_per_locked_vt * effective_locked_vt;
+        // Calculate user share: effective_locked_vault_tokens * amount_per_locked_vt (Decimal)
+        // Use decimal_multiplication helper to ensure correct type handling
+        let user_share_decimal = decimal_multiplication(
+            Decimal::from_ratio(effective_locked_vt, Uint128::one()),
+            event.amount_per_locked_vt,
+        )?;
+        let mut user_share: Uint128 = user_share_decimal.to_uint_floor();
         
         if !user_share.is_zero() {
             //If the user share is greater than the amount to be claimed, set the user share to the amount to be claimed and set the amount to be claimed to zero
@@ -2999,14 +3044,19 @@ fn update_user_lifetime_revenue(
 pub fn claim_revenue_for_user(
     deps: DepsMut,
     env: Env,
-    _info: MessageInfo,
+    info: MessageInfo,
     user: String,
     asset: String,
     limit: Option<u32>,
-    compound_action: Option<CompoundAction>,
+    mut compound_action: Option<CompoundAction>,
 ) -> Result<Response, ContractError> {
     let config: Config = CONFIG.load(deps.storage)?;
     let user_addr = deps.api.addr_validate(&user)?;
+
+    //If caller isn't user, set compound_action to None
+    if info.sender != user_addr {
+        compound_action = None;
+    }
     
     // Load all deposit keys for this user and asset
     let deposit_keys = USER_DEPOSITS
@@ -3735,6 +3785,7 @@ pub fn lock_deposit(
                 daily_delta: Int128::zero(),
                 time_cliffs: vec![],
             },
+            revenue_destination: deposit.revenue_destination.clone(),
         };
         let new_deposit_locked_vt = calculate_locked_vault_tokens(&temp_new_deposit, &env);
         let mut new_deposit = BackingDeposit {
@@ -3756,6 +3807,7 @@ pub fn lock_deposit(
                 daily_delta: Int128::zero(),
                 time_cliffs: vec![],
             },
+            revenue_destination: deposit.revenue_destination.clone(),
         };
         // Initialize LVT tracking for new deposit
         initialize_deposit_lvt_tracking(&mut new_deposit, &env, config.lock_duration_ceiling)?;
@@ -4271,6 +4323,7 @@ pub fn move_deposit(
             daily_delta: Int128::zero(),
             time_cliffs: vec![],
         },
+        revenue_destination: deposit.revenue_destination.clone(),
     };
     let new_deposit_locked_vt = calculate_locked_vault_tokens(&temp_new_deposit, &env);
     let mut new_deposit = BackingDeposit {
@@ -4292,6 +4345,7 @@ pub fn move_deposit(
             daily_delta: Int128::zero(),
             time_cliffs: vec![],
         },
+        revenue_destination: deposit.revenue_destination.clone(),
     };
     // Initialize LVT tracking for new deposit
     initialize_deposit_lvt_tracking(&mut new_deposit, &env, config.lock_duration_ceiling)?;
@@ -4428,7 +4482,10 @@ pub fn move_deposit(
     
     // Update daily LTV tracker
     update_daily_ltv_tracker(deps.storage, &env, asset.clone())?;
-    
+
+    // Update daily insurance tracker
+    update_daily_insurance_tracker(deps.storage, &env, asset.clone())?;
+
     Ok(Response::new()
         .add_messages(msgs)
         .add_attributes(vec![
@@ -4447,10 +4504,10 @@ pub fn move_deposit(
         ]))
 }
 
-/// Update or remove manager for a deposit
-/// Only the deposit owner can update the manager
+/// Update deposit settings (owner, manager, revenue_destination)
+/// Only the deposit owner can update these settings
 /// Claims revenue before changing manager to ensure outgoing manager gets their fee
-pub fn update_manager(
+pub fn update_deposit(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
@@ -4458,7 +4515,9 @@ pub fn update_manager(
     ltv: Decimal,
     max_borrow_ltv: Decimal,
     deposit_id: Uint128,
+    deposit_owner: Option<String>,
     manager: Option<String>,
+    revenue_destination: Option<String>,
     epoch_start_time: u64,
 ) -> Result<Response, ContractError> {
     // Construct deposit key using epoch_start_time
@@ -4484,9 +4543,10 @@ pub fn update_manager(
         None
     };
     
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    
     // Only update if manager actually changed
     if deposit.manager != new_manager {
-        let mut msgs: Vec<CosmosMsg> = vec![];
         let config = CONFIG.load(deps.storage)?;
         
         // If there's an old manager, claim revenue and pay manager fee before changing
@@ -4537,10 +4597,11 @@ pub fn update_manager(
                     }
                 }
                 
-                // Send remaining claimed amount to user (after manager fee deduction)
+                // Send remaining claimed amount to revenue_destination if set, otherwise to user (after manager fee deduction)
                 if !claimed.is_zero() {
+                    let recipient = deposit.revenue_destination.as_ref().unwrap_or(&deposit.user);
                     msgs.push(BankMsg::Send {
-                        to_address: deposit.user.to_string(),
+                        to_address: recipient.to_string(),
                         amount: vec![Coin {
                             denom: config.cdt_denom.clone(),
                             amount: claimed,
@@ -4548,10 +4609,11 @@ pub fn update_manager(
                     }.into());
                 }
             } else {
-                // No manager fee, send all claimed to user
+                // No manager fee, send all claimed to revenue_destination if set, otherwise to user
                 if !claimed.is_zero() {
+                    let recipient = deposit.revenue_destination.as_ref().unwrap_or(&deposit.user);
                     msgs.push(BankMsg::Send {
-                        to_address: deposit.user.to_string(),
+                        to_address: recipient.to_string(),
                         amount: vec![Coin {
                             denom: config.cdt_denom.clone(),
                             amount: claimed,
@@ -4574,30 +4636,39 @@ pub fn update_manager(
         
         // Update deposit manager
         deposit.manager = new_manager.clone();
-        BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &deposit)?;
-        
-        return Ok(Response::new()
-            .add_messages(msgs)
-            .add_attributes(vec![
-                attr("method", "update_manager"),
-                attr("user", info.sender.to_string()),
-                attr("asset", asset),
-                attr("ltv", ltv.to_string()),
-                attr("max_borrow_ltv", max_borrow_ltv.to_string()),
-                attr("deposit_id", deposit_id.to_string()),
-                attr("manager", new_manager.map(|m| m.to_string()).unwrap_or_else(|| "removed".to_string())),
-            ]));
     }
     
+    // Update deposit_owner if provided
+    if let Some(ref new_owner_str) = deposit_owner {
+        let new_owner_addr = deps.api.addr_validate(new_owner_str)?;
+        // Only allow updating owner if current owner is the sender
+        if deposit.user != info.sender {
+            return Err(ContractError::Unauthorized {});
+        }
+        deposit.user = new_owner_addr;
+    }
+    
+    // Update revenue_destination if provided
+    if let Some(ref revenue_dest_str) = revenue_destination {
+        let revenue_dest_addr = deps.api.addr_validate(revenue_dest_str)?;
+        deposit.revenue_destination = Some(revenue_dest_addr);
+    }
+    // If None, don't change existing revenue_destination
+    
+    BACKING_DEPOSITS.save(deps.storage, deposit_key.clone(), &deposit)?;
+    
     Ok(Response::new()
+        .add_messages(msgs)
         .add_attributes(vec![
-            attr("method", "update_manager"),
+            attr("method", "update_deposit"),
             attr("user", info.sender.to_string()),
             attr("asset", asset),
             attr("ltv", ltv.to_string()),
             attr("max_borrow_ltv", max_borrow_ltv.to_string()),
             attr("deposit_id", deposit_id.to_string()),
-            attr("manager", new_manager.map(|m| m.to_string()).unwrap_or_else(|| "removed".to_string())),
+            attr("manager", new_manager.map(|m| m.to_string()).unwrap_or_else(|| "unchanged".to_string())),
+            attr("deposit_owner", deposit_owner.as_ref().map(|o| o.clone()).unwrap_or_else(|| "unchanged".to_string())),
+            attr("revenue_destination", revenue_destination.as_ref().map(|r| r.clone()).unwrap_or_else(|| "unchanged".to_string())),
         ]))
 }
 
@@ -5032,7 +5103,12 @@ pub fn disperse_revenue(
 /// Find or create LTV slot for a given LTV (1% increments)
 fn find_or_create_ltv_slot(queue: &mut LTVQueue, ltv: Decimal) -> Result<usize, ContractError> {
     // Round LTV to nearest 1% increment
-    let rounded_ltv = Decimal::from_ratio(ltv * Uint128::new(100), Uint128::new(100));
+    // Convert ltv to Uint128 first, then back to Decimal
+    let ltv_as_uint = decimal_multiplication(
+        ltv,
+        Decimal::from_ratio(Uint128::new(100), Uint128::one()),
+    )?.to_uint_floor();
+    let rounded_ltv = Decimal::from_ratio(ltv_as_uint, Uint128::new(100));
 
     // Check if slot exists
     if let Some(index) = queue.slots.iter().position(|slot| slot.ltv == rounded_ltv) {
@@ -5596,6 +5672,68 @@ pub fn update_daily_ltv_tracker(
     Ok(())
 }
 
+/// Update daily insurance tracker for an asset with current insurance components
+/// Only updates if at least 1 day since last entry AND values have changed
+pub fn update_daily_insurance_tracker(
+    storage: &mut dyn Storage,
+    env: &Env,
+    asset: String,
+) -> Result<(), ContractError> {
+    // 1. Calculate pending CDT from this asset's dispersal
+    let mut pending_cdt = Uint128::zero();
+    if let Some(dispersal) = DISPERSAL.may_load(storage, asset.clone())? {
+        if dispersal.active_dispersal.dispersal_start != 0 {
+            let available_in_active = dispersal.total_to_disperse
+                .checked_sub(dispersal.active_dispersal.amount_dispersed)
+                .unwrap_or(Uint128::zero());
+            pending_cdt += available_in_active;
+        }
+        pending_cdt += dispersal.pending_dispersal;
+    }
+
+    // 2. Calculate total deposit tokens for this asset
+    let deposit_tokens = match LTV_QUEUES.load(storage, asset.clone()) {
+        Ok(queue) => queue.slots
+            .iter()
+            .flat_map(|slot| &slot.deposit_groups)
+            .map(|group| group.total_deposit_tokens)
+            .sum(),
+        Err(_) => Uint128::zero(),
+    };
+
+    // 3. Load existing entries for this asset
+    let mut entries = DAILY_INSURANCE_TRACKER.may_load(storage, asset.clone())?.unwrap_or_else(Vec::new);
+
+    // 4. Check if we should add a new entry
+    let should_add = if let Some(last_entry) = entries.last() {
+        let time_elapsed = env.block.time.seconds().saturating_sub(last_entry.timestamp);
+        time_elapsed >= ONE_DAY_SECONDS && (
+            last_entry.pending_cdt != pending_cdt ||
+            last_entry.deposit_tokens != deposit_tokens
+        )
+    } else {
+        true // First entry
+    };
+
+    if should_add {
+        let new_entry = InsuranceEntry {
+            timestamp: env.block.time.seconds(),
+            pending_cdt,
+            deposit_tokens,
+        };
+        entries.push(new_entry);
+
+        // Apply FIFO limit
+        if entries.len() > INSURANCE_TRACKER_LIMIT {
+            entries.drain(0..entries.len() - INSURANCE_TRACKER_LIMIT);
+        }
+
+        DAILY_INSURANCE_TRACKER.save(storage, asset, &entries)?;
+    }
+
+    Ok(())
+}
+
 // ================= Affiliate Helper Functions =================
 
 /// Add affiliate from deposit
@@ -5741,9 +5879,7 @@ fn split_affiliate_fee(
     // Assert that the sum of the affiliate fees is equal or less than the affiliate fee
     let sum_of_affiliate_fees = affiliate_fees.iter().sum::<Decimal>();
     if sum_of_affiliate_fees > affiliate_fee {
-        return Err(StdError::GenericErr { 
-            msg: format!("Sum of affiliate fees is greater than the affiliate fee: {} > {}", sum_of_affiliate_fees, affiliate_fee) 
-        });
+        return Err(StdError::generic_err(format!("Sum of affiliate fees is greater than the affiliate fee: {} > {}", sum_of_affiliate_fees, affiliate_fee)));
     }
     
     Ok(affiliate_fees)

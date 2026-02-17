@@ -5,13 +5,15 @@ use membrane::ltv_disco::{
     LTVQueueResponse, BackingDepositResponse, BackingDepositsByUserResponse, 
     RevenueTrackingEntry, PendingClaimsResponse, DepositPendingClaim, 
     UserLifetimeRevenueEntry, RevenueEvent, BackingDeposit, AssetsResponse, DailyTVLResponse, DailyLTVResponse,
-    UserTotalDepositsResponse, LockedDepositsResponse, ManagedDepositKeysResponse, ManagerFeeResponse, LTVEntry
+    UserTotalDepositsResponse, LockedDepositsResponse, ManagedDepositKeysResponse, ManagerFeeResponse, LTVEntry,
+    AllUserDepositsResponse, UserDepositInfo, DailyInsuranceResponse
 };
 use membrane::stability_pool_vault::{calculate_base_tokens, calculate_vault_tokens};
 use membrane::types::AssetInfo;
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
+use membrane::math::decimal_multiplication;
 
-use crate::state::{CONFIG, LTV_QUEUES, REVENUE_TRACKING, REVENUE_EVENTS, USER_LIFETIME_REVENUE, BACKING_DEPOSITS, USER_DEPOSITS, DISPERSAL, DAILY_TVL_TRACKER, DAILY_LTV_TRACKER, USER_TOTAL_DEPOSITS, USER_LOCKED_DEPOSITS, MANAGED_DEPOSITS, MANAGER_FEE};
+use crate::state::{CONFIG, LTV_QUEUES, REVENUE_TRACKING, REVENUE_EVENTS, USER_LIFETIME_REVENUE, BACKING_DEPOSITS, USER_DEPOSITS, DISPERSAL, DAILY_TVL_TRACKER, DAILY_LTV_TRACKER, DAILY_INSURANCE_TRACKER, USER_TOTAL_DEPOSITS, USER_LOCKED_DEPOSITS, MANAGED_DEPOSITS, MANAGER_FEE};
 
 const MAX_LIMIT: u32 = 32;
 
@@ -20,12 +22,20 @@ pub fn query_config(deps: Deps) -> StdResult<Config> {
     CONFIG.load(deps.storage)
 }
 
-/// Query LTV queue for an asset
-/// Adjusts effective_locked_vault_tokens based on current epoch
-pub fn query_ltv_queue(deps: Deps, env: Env, asset: String) -> StdResult<LTVQueueResponse> {
+/// Query LTV queue(s) for asset(s)
+/// If `assets` is non-empty, returns queues for those specific assets.
+/// If `assets` is empty, returns all queues (paginated with `limit`/`start_after`).
+/// Adjusts effective_locked_vault_tokens based on current epoch.
+pub fn query_ltv_queue(
+    deps: Deps,
+    env: Env,
+    assets: Vec<String>,
+    limit: Option<u32>,
+    start_after: Option<String>,
+) -> StdResult<LTVQueueResponse> {
     use membrane::revenue_distributor::{QueryMsg as RevenueDistributorQueryMsg, EpochCountdownResponse};
+    use cw_storage_plus::Bound;
 
-    let mut queue = LTV_QUEUES.load(deps.storage, asset)?;
     let config = CONFIG.load(deps.storage)?;
 
     // Query current epoch from revenue distributor if available
@@ -38,20 +48,42 @@ pub fn query_ltv_queue(deps: Deps, env: Env, asset: String) -> StdResult<LTVQueu
         None
     };
 
+    // Load queues based on whether specific assets were requested
+    let mut queues: Vec<(String, membrane::ltv_disco::LTVQueue)> = if !assets.is_empty() {
+        // Load specific assets
+        assets.into_iter()
+            .filter_map(|asset| {
+                LTV_QUEUES.load(deps.storage, asset.clone())
+                    .ok()
+                    .map(|queue| (asset, queue))
+            })
+            .collect()
+    } else {
+        // Paginate all queues
+        let limit = limit.unwrap_or(MAX_LIMIT).min(MAX_LIMIT) as usize;
+        let start = start_after.as_deref().map(Bound::exclusive);
+
+        LTV_QUEUES
+            .range(deps.storage, start, None, cosmwasm_std::Order::Ascending)
+            .take(limit)
+            .collect::<StdResult<Vec<_>>>()?
+    };
+
     // Adjust unused totals if epoch has changed
     if let Some((epoch_start, _)) = epoch_info {
-        for slot in &mut queue.slots {
-            for group in &mut slot.deposit_groups {
-                // If epoch has changed, reset unused total to zero
-                if group.effective_epoch_start.map(|e| e != epoch_start).unwrap_or(true) {
-                    group.total_unused_locked_vault_tokens = Uint128::zero();
-                    group.effective_epoch_start = Some(epoch_start);
+        for (_asset, queue) in &mut queues {
+            for slot in &mut queue.slots {
+                for group in &mut slot.deposit_groups {
+                    if group.effective_epoch_start.map(|e| e != epoch_start).unwrap_or(true) {
+                        group.total_unused_locked_vault_tokens = Uint128::zero();
+                        group.effective_epoch_start = Some(epoch_start);
+                    }
                 }
             }
         }
     }
 
-    Ok(LTVQueueResponse { queue })
+    Ok(LTVQueueResponse { queues })
 }
 
 /// Query backing deposit by user, group, and deposit_id
@@ -411,7 +443,11 @@ fn calculate_pending_revenue(
             continue;
         }
         
-        let user_share = event.amount_per_locked_vt * deposit.locked_vault_tokens;
+        let user_share_decimal = decimal_multiplication(
+            Decimal::from_ratio(deposit.locked_vault_tokens, Uint128::one()),
+            event.amount_per_locked_vt,
+        )?;
+        let user_share = user_share_decimal.to_uint_floor();
         pending = pending.checked_add(user_share).unwrap_or(pending);
     }
     
@@ -470,6 +506,14 @@ pub fn query_daily_ltv(deps: Deps, asset: String) -> StdResult<DailyLTVResponse>
     Ok(DailyLTVResponse { entries })
 }
 
+/// Query daily insurance tracker history for an asset
+pub fn query_daily_insurance(deps: Deps, asset: String) -> StdResult<DailyInsuranceResponse> {
+    let entries = DAILY_INSURANCE_TRACKER
+        .may_load(deps.storage, asset)?
+        .unwrap_or_else(Vec::new);
+    Ok(DailyInsuranceResponse { entries })
+}
+
 /// Query user's total deposits
 pub fn query_user_total_deposits(deps: Deps, user: String) -> StdResult<UserTotalDepositsResponse> {
     // Validate user address
@@ -480,6 +524,69 @@ pub fn query_user_total_deposits(deps: Deps, user: String) -> StdResult<UserTota
         .unwrap_or(Uint128::zero());
     
     Ok(UserTotalDepositsResponse { total_deposits })
+}
+
+/// Query all user deposits across all assets
+pub fn query_all_user_deposits(
+    deps: Deps,
+    user: String,
+) -> StdResult<AllUserDepositsResponse> {
+    let user_addr = deps.api.addr_validate(&user)?;
+    
+    let mut all_deposits = Vec::new();
+    
+    // Range through all USER_DEPOSITS entries for this user using prefix
+    // This gets all (user_addr, asset) -> Vec<deposit_keys> entries
+    let user_deposits_prefix = USER_DEPOSITS.prefix(user_addr.clone());
+    let entries = user_deposits_prefix
+        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
+        .collect::<Result<Vec<_>, _>>()?;
+    
+    // Iterate through each (asset, deposit_keys) entry
+    for (asset, deposit_keys) in entries {
+        for deposit_key in deposit_keys {
+            // Parse deposit key: "asset:ltv:max_borrow_ltv:user:deposit_id:epoch_timestamp"
+            let parts: Vec<&str> = deposit_key.split(':').collect();
+            if parts.len() < 6 {
+                continue; // Skip invalid keys
+            }
+            
+            let parsed_ltv = Decimal::from_str(parts[1])?;
+            let parsed_max_borrow_ltv = Decimal::from_str(parts[2])?;
+            let deposit_id = Uint128::from_str(parts[4])?;
+            
+            // Load the backing deposit
+            if let Ok(deposit) = BACKING_DEPOSITS.load(deps.storage, deposit_key.clone()) {
+                // Convert vault tokens to deposit tokens
+                let deposit_tokens = match convert_vault_tokens_to_deposit_tokens(
+                    deps,
+                    asset.clone(),
+                    parsed_ltv,
+                    parsed_max_borrow_ltv,
+                    deposit.vault_tokens,
+                ) {
+                    Ok(tokens) => tokens,
+                    Err(_) => {
+                        // If conversion fails (e.g., group has no deposits), use vault_tokens as fallback
+                        deposit.vault_tokens
+                    }
+                };
+                
+                all_deposits.push(UserDepositInfo {
+                    asset: asset.clone(),
+                    ltv: parsed_ltv,
+                    max_borrow_ltv: parsed_max_borrow_ltv,
+                    deposit_id,
+                    deposit,
+                    deposit_tokens,
+                });
+            }
+        }
+    }
+    
+    Ok(AllUserDepositsResponse {
+        deposits: all_deposits,
+    })
 }
 
 /// Query managed deposit keys for a manager (paginated)
@@ -534,6 +641,45 @@ pub fn query_locked_deposits(deps: Deps, user: String) -> StdResult<LockedDeposi
         .unwrap_or_else(Vec::new);
     
     Ok(LockedDepositsResponse { locked_deposits })
+}
+
+/// Helper function to convert vault tokens to deposit tokens
+/// This is used internally by query_all_user_deposits and query_vault_token_conversion
+fn convert_vault_tokens_to_deposit_tokens(
+    deps: Deps,
+    asset: String,
+    ltv: Decimal,
+    max_borrow_ltv: Decimal,
+    vault_tokens: Uint128,
+) -> StdResult<Uint128> {
+    // Load the LTV queue for the asset
+    let queue = LTV_QUEUES.load(deps.storage, asset.clone())?;
+    
+    // Find the slot with matching LTV
+    let slot = queue.slots
+        .iter()
+        .find(|s| s.ltv == ltv)
+        .ok_or_else(|| StdError::generic_err(format!("Slot with LTV {} not found", ltv)))?;
+    
+    // Find the deposit group with matching max_borrow_ltv
+    let group = slot.deposit_groups
+        .iter()
+        .find(|g| g.max_borrow_ltv == max_borrow_ltv)
+        .ok_or_else(|| StdError::generic_err(format!("Deposit group with max_borrow_ltv {} not found", max_borrow_ltv)))?;
+    
+    // Check if group has deposits
+    if group.total_deposit_tokens.is_zero() || group.total_vault_tokens.is_zero() {
+        return Err(StdError::generic_err("Deposit group has no deposits"));
+    }
+    
+    // Convert vault tokens to deposit tokens
+    let deposit_tokens = calculate_base_tokens(
+        vault_tokens,
+        group.total_deposit_tokens,
+        group.total_vault_tokens,
+    )?;
+    
+    Ok(deposit_tokens)
 }
 
 /// Convert vault tokens to deposit tokens for a specific deposit group

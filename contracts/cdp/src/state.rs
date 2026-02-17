@@ -6,14 +6,20 @@ use cw_storage_plus::{Item, Map};
 use membrane::helpers::get_contract_balances;
 use membrane::stability_pool_vault::calculate_base_tokens;
 
-use membrane::types::{AffiliateData, cAsset, Asset, AssetInfo, Basket, IndividualCost, UserDeploymentIntents, Position, RedemptionInfo, StoredPrice, UserInfo};
-use membrane::cdp::{Config, ExecuteMsg};
+use membrane::types::{AffiliateData, cAsset, Asset, AssetInfo, Basket, Rates, UserDeploymentIntents, Position, RedemptionInfo, StoredPrice, UserInfo};
+use membrane::cdp::{Config, ExecuteMsg, LTVSnapshot};
 
 use crate::ContractError;
+
 use crate::risk_engine::update_basket_tally;
 
 const MAX_CDT_SUPPLY_ENTRIES: usize = 500;
-const MAX_ORACLE_ENTRIES: usize = 100;
+const MAX_ORACLE_ENTRIES: usize = 365;
+const MAX_INTEREST_RATE_ENTRIES: usize = 365;
+/// Maximum number of LTV history entries per asset
+const MAX_LTV_HISTORY_ENTRIES: usize = 365;
+
+const SECONDS_PER_DAY: u64 = 86400;
 
 #[cw_serde]
 pub struct ContractVersion {
@@ -112,6 +118,12 @@ pub struct PriceTimestamp {
     pub timestamp: u64,
 }
 
+#[cw_serde]
+pub struct RateTimestamp {
+    pub rate: Decimal,
+    pub timestamp: u64,
+}
+
 /// Per-asset circuit breaker configuration and state
 #[cw_serde]
 pub struct AssetCircuitBreaker {
@@ -141,7 +153,8 @@ pub struct LTVUpdateTracker {
 pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
 pub const CONFIG: Item<Config> = Item::new("config");
-pub const BASKET: Item<Basket> = Item::new("basket"); 
+pub const BASKET: Item<Basket> = Item::new("basket");
+pub const RATES: Item<Rates> = Item::new("rates");
 pub const POSITIONS: Map<Addr, Vec<Position>> = Map::new("positions"); //owner, list of positions
 /// Affiliates are not handled during redemption. If this becomes a large sum of loss revenue, we will find a solution.
 pub const AFFILIATES: Map<String, Vec<AffiliateData>> = Map::new("affiliations"); //position ID, list of affiliations
@@ -177,10 +190,14 @@ pub const COLLATERAL_RATE_ASSURANCE: Map<String, CollateralRateAssurance> = Map:
 pub const CDT_SUPPLY: Item<Vec<SupplyTimestamp>> = Item::new("cdt_supply");
 /// Historical Oracle Price tracker
 pub const HISTORICAL_ORACLE_PRICES: Map<String, Vec<PriceTimestamp>> = Map::new("historical_oracle"); //asset, price
+/// Historical Interest Rate tracker
+pub const HISTORICAL_INTEREST_RATES: Map<String, Vec<RateTimestamp>> = Map::new("historical_interest_rates"); //asset, rates
 /// LTV Update Trackers for dynamic LTV mechanism
 pub const LTV_UPDATE_TRACKERS: Map<String, LTVUpdateTracker> = Map::new("ltv_update_trackers"); //asset_denom, tracker
 /// Per-asset circuit breaker state
 pub const ASSET_CIRCUIT_BREAKERS: Map<String, AssetCircuitBreaker> = Map::new("asset_circuit_breakers");
+/// Historical LTV data per asset - Map<asset_denom, Vec<LTVSnapshot>>
+pub const LTV_HISTORY: Map<String, Vec<LTVSnapshot>> = Map::new("ltv_history");
 
 //Helper functions
 
@@ -193,34 +210,89 @@ pub fn update_historical_oracle(
 ) -> StdResult<()> {
     let mut historicale = HISTORICAL_ORACLE_PRICES.may_load(storage, asset.clone())?.unwrap_or_else(|| vec![]);
 
-    //If the price is the same as the last price, don't add it
-    if historicale.len() > 0 && historicale.last().unwrap().price == price {
-        return Ok(());
-    } else {
-        //Add new price
-        historicale.push(PriceTimestamp {
-            timestamp: env.block.time.seconds(),
-            price,
-        });
+    let current_time = env.block.time.seconds();
+
+    // If there are existing entries, check if we should update
+    if historicale.len() > 0 {
+        let last_entry = historicale.last().unwrap();
+        
+        // If the price is the same as the last price, don't add it
+        if last_entry.price == price {
+            return Ok(());
+        }
+        
+        // If less than a day has passed since the last update, don't add it
+        if current_time < last_entry.timestamp + SECONDS_PER_DAY {
+            return Ok(());
+        }
     }
+
+    // Add new price
+    historicale.push(PriceTimestamp {
+        timestamp: current_time,
+        price,
+    });
 
     //Prune up to 100 .
     //Basic remove bc we polish per addition.
     if historicale.len() > MAX_ORACLE_ENTRIES {
         historicale.remove(0);
     }
-    println!("historicale: {:?}", historicale);
+    
     //Save new CDT Supply Growth Tracker
     HISTORICAL_ORACLE_PRICES.save(storage, asset, &historicale)?;
     Ok(())
 }
+
+/// Update Historical Interest Rates Tracker
+pub fn update_historical_interest_rates(
+    storage: &mut dyn Storage,
+    env: Env,
+    asset: String,
+    rate: Decimal,
+) -> StdResult<()> {
+    let mut historical_rates = HISTORICAL_INTEREST_RATES.may_load(storage, asset.clone())?.unwrap_or_else(|| vec![]);
+
+    let current_time = env.block.time.seconds();
+
+    // If there are existing entries, check if we should update
+    if historical_rates.len() > 0 {
+        let last_entry = historical_rates.last().unwrap();
+        
+        // If the rate is the same as the last rate, don't add it
+        if last_entry.rate == rate {
+            return Ok(());
+        }
+        
+        // If less than a day has passed since the last update, don't add it
+        if current_time < last_entry.timestamp + SECONDS_PER_DAY {
+            return Ok(());
+        }
+    }
+
+    // Add new rate
+    historical_rates.push(RateTimestamp {
+        timestamp: current_time,
+        rate,
+    });
+
+    //Prune up to MAX_INTEREST_RATE_ENTRIES
+    //Basic remove bc we polish per addition.
+    if historical_rates.len() > MAX_INTEREST_RATE_ENTRIES {
+        historical_rates.remove(0);
+    }
+    //Save new Historical Interest Rates Tracker
+    HISTORICAL_INTEREST_RATES.save(storage, asset, &historical_rates)?;
+    Ok(())
+}
+
 /// Update CDT Supply Growth Tracker
 pub fn update_cdt_supply(
     storage: &mut dyn Storage,
     env: Env,
     current_cdt_supply: Uint128,
 ) -> StdResult<()> {
-    let mut cdt_supply = CDT_SUPPLY.load(storage)?;
+    let mut cdt_supply = CDT_SUPPLY.may_load(storage)?.unwrap_or_else(|| vec![]);
     cdt_supply.push(SupplyTimestamp {
         timestamp: env.block.time.seconds(),
         supply: current_cdt_supply.u128() as u64,
@@ -235,6 +307,54 @@ pub fn update_cdt_supply(
     CDT_SUPPLY.save(storage, &cdt_supply)?;
     Ok(())
 }
+
+/// Record historical LTV snapshot for an asset
+/// This should be called whenever an asset's LTV values are updated
+pub fn record_ltv_snapshot(
+    storage: &mut dyn Storage,
+    env: &Env,
+    asset_denom: &str,
+    max_ltv: Decimal,
+    max_borrow_ltv: Decimal,
+) -> StdResult<()> {
+    let current_time = env.block.time.seconds();
+
+    // Load or initialize the history vec for this asset
+    let mut ltv_history = LTV_HISTORY.may_load(storage, asset_denom.to_string())?.unwrap_or_else(|| vec![]);
+
+    // Check if we should add new snapshots
+    // If there are existing entries, check if we should update (similar to oracle tracking)
+    let should_add = if ltv_history.len() > 0 {
+        let last_entry = ltv_history.last().unwrap();
+
+        // Only add if enough time has passed (at least a day)
+        current_time >= last_entry.timestamp + SECONDS_PER_DAY
+    } else {
+        // No existing entries, add the first ones
+        true
+    };
+
+    if should_add {
+        // Add a single snapshot with both LTV values
+        ltv_history.push(LTVSnapshot {
+            timestamp: current_time,
+            max_ltv,
+            max_borrow_ltv,
+        });
+
+        // Prune if we exceed the max entries
+        if ltv_history.len() > MAX_LTV_HISTORY_ENTRIES {
+            let to_remove = ltv_history.len() - MAX_LTV_HISTORY_ENTRIES;
+            ltv_history.drain(0..to_remove);
+        }
+
+        // Save the updated history
+        LTV_HISTORY.save(storage, asset_denom.to_string(), &ltv_history)?;
+    }
+
+    Ok(())
+}
+
 /// Update asset claims a Position has
 pub fn update_position_claims(
     storage: &mut dyn Storage,
@@ -263,7 +383,7 @@ pub fn update_position_claims(
                             //Set target_position
                             target_position = Some(position.clone());
                             //Set credit_amount
-                            credit_amount = position.credit_amount;
+                            credit_amount = crate::rates::get_total_position_debt(&position);
 
                             //Find asset in position
                             position.collateral_assets = position
@@ -285,9 +405,7 @@ pub fn update_position_claims(
 
                 Ok(new_positions)
             } else {
-                Err(StdError::GenericErr {
-                    msg: String::from("Invalid position owner"),
-                })
+                Err(StdError::generic_err("Invalid position owner"))
             }
         },
     )?;
@@ -302,10 +420,8 @@ pub fn update_position_claims(
         max_LTV: Decimal::zero(),
         pool_info: None,
         rate_index: Decimal::one(),
-        individual_cost: Some(IndividualCost {
-            rate: Decimal::zero(),
-            updater_address: None,
-        }),
+        peg_rate_index: Decimal::one(),
+        force_redemptions: None,
     }];
 
     //If there is no credit, basket tallies were updated in the repay function
@@ -319,9 +435,7 @@ pub fn update_position_claims(
             BASKET.save(storage, &basket)?;
         }
         Err(err) => {
-            return Err(StdError::GenericErr {
-                msg: err.to_string(),
-            })
+            return Err(StdError::generic_err(err.to_string()))
         }
     };
 
@@ -378,9 +492,7 @@ pub fn update_position(
                     Ok(new_positions)
                 },
                 None => {
-                    Err(StdError::GenericErr {
-                        msg: String::from("Invalid position owner"),
-                    })
+                    Err(StdError::generic_err("Invalid position owner"))
                 }
             }
         },

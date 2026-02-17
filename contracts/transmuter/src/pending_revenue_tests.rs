@@ -14,7 +14,7 @@ const USER: &str = "user";
 const NON_ALLOWLISTED_USER: &str = "non_allowlisted_user";
 const CDT: &str = "cdt";
 const USDC: &str = "usdc";
-const VAULT_SUBDENOM: &str = "vault-token";
+// VAULT_SUBDENOM no longer needed
 const INITIAL_BALANCE: u128 = 1_000_000_000_000; // 1M tokens
 
 fn transmuter_contract() -> Box<dyn Contract<Empty>> {
@@ -184,12 +184,11 @@ fn setup_contracts(app: &mut App) -> (Addr, Addr, Addr, Addr) {
                     paired_asset: USDC.to_string(),
                 },
                 composition_leeway: Decimal::percent(100), // Allow any composition
-                asset_a_to_b_rate: Decimal::one(), // 1:1 exchange rate for simplicity
-                target_ratio: Decimal::percent(50),
+                cdt_target_ratio: Decimal::percent(50),
                 usage_fee: Some(Decimal::percent(1)), // 1% fee
+                usage_fee_utilization_threshold: None,
                 swap_history_cap: 100,
                 volume_history_cap: 100,
-                vault_subdenom: VAULT_SUBDENOM.to_string(),
                 rate_limit_window_secs: Some(3600),
                 rate_limit_threshold: Some(Decimal::percent(50)), // High threshold for testing
                 allowlist: Some(vec![USER.to_string()]), // Add USER to allowlist
@@ -550,12 +549,12 @@ fn test_pending_revenue_with_zero_fee() {
             owner: None,
             deposit_pair: None,
             composition_leeway: None,
-            asset_a_to_b_rate: None,
             target_ratio: None,
             tokenfactory_contract: None,
             discounts_contract: None,
             cdp_contract: None,
             usage_fee: Some(Decimal::zero()),
+            usage_fee_utilization_threshold: None,
             swap_history_cap: None,
             volume_history_cap: None,
             rate_limit_window_secs: None,

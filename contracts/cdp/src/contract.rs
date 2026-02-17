@@ -4,7 +4,7 @@ use std::str::FromStr;
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{
-    attr, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Reply, Response, StdError, StdResult, Storage, Uint128, WasmMsg
+    attr, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, QueryRequest, QuerierWrapper, Reply, Response, StdError, StdResult, Storage, Uint128, WasmMsg, WasmQuery
 };
 
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
@@ -14,23 +14,24 @@ use membrane::cdp::{Config, CallbackMsg, ExecuteMsg, InstantiateMsg, QueryMsg, U
 use membrane::math::decimal_multiplication;
 use membrane::stability_pool_vault::calculate_base_tokens;
 use membrane::ltv_disco::{QueryMsg as LTVDisco_QueryMsg, ExecuteMsg as LTVDisco_ExecuteMsg};
+use membrane::deployable_venue::QueryMsg as DeployableVenue_QueryMsg;
 use membrane::types::{
-    cAsset, AffiliateData, Asset, AssetInfo, Basket, StringEntry, UserInfo
+    cAsset, AffiliateData, Asset, AssetInfo, Basket, DeploymentVenue, StringEntry, UserInfo
 };
 
 use crate::error::ContractError;
-use crate::rates::{external_accrue_call};
+use crate::rates::{external_accrue_call, get_total_debt_from_segments, get_total_position_debt};
 use crate::risk_engine::assert_basket_assets;
 use crate::positions::{
-    close_position, create_basket, deposit, edit_basket, edit_redemption_info, fulfill_intents, increase_debt, redeem_for_collateral, repay, set_intents, withdraw, 
+    close_position, create_basket, deposit, edit_basket, fulfill_intents, increase_debt, repay, set_intents, withdraw,
     BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQ_QUEUE_REPLY_ID, REVENUE_REPLY_ID, WITHDRAW_REPLY_ID, SELL_COLLATERAL_REPLY_ID, DEPLOYABLE_VENUE_REPLY_ID
 };
 use crate::query::{
-    query_active_deployment_venues, query_basket_credit_interest, query_basket_positions, query_basket_redeemability, query_collateral_rates, query_liquidation_stats, query_user_intent_state, simulate_LTV_mint, query_historical_oracle_prices
+    query_active_deployment_venues, query_basket_credit_interest, query_basket_positions, query_collateral_rates, query_liquidation_stats, query_user_intent_state, simulate_LTV_mint, query_historical_oracle_prices, query_historical_interest_rates, query_volatility_window, query_simulate_liquidation, query_historical_ltv, query_ltv_shift_info
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_close_position_reply, handle_liq_queue_reply, handle_revenue_reply, handle_sell_collateral_reply, handle_withdraw_reply, handle_deployable_venue_reply};
-use crate::state::{ get_target_position, update_position, update_position_claims, ContractVersion, ACTIVE_DEPLOYMENT_VENUES, AFFILIATES, BASKET, CLOSE_POSITION, COLLATERAL_RATE_ASSURANCE, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS, ClosePositionPropagation};
+use crate::state::{ get_target_position, update_position, update_position_claims, ContractVersion, ACTIVE_DEPLOYMENT_VENUES, AFFILIATES, BASKET, CLOSE_POSITION, COLLATERAL_RATE_ASSURANCE, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS, RATES, ClosePositionPropagation};
 use crate::ltv_updater::update_basket_ltvs;
 
 // use membrane::range_bound_lp_vault::{QueryMsg as RBLP_QueryMsg, UserIntentResponse};
@@ -62,7 +63,7 @@ pub fn instantiate(
         ltv_disco: deps.api.addr_validate(&msg.ltv_disco)?,
         revenue_distributor: None,
         oracle_time_limit: msg.oracle_time_limit,
-        cpc_multiplier: Decimal::one(), 
+        cpc_multiplier: Decimal::one(),
         rate_slope_multiplier: msg.rate_slope_multiplier,
         debt_minimum: msg.debt_minimum,
         base_debt_cap_multiplier: msg.base_debt_cap_multiplier,
@@ -73,8 +74,15 @@ pub fn instantiate(
         skip_credit_price_accrual: true,
         liquidation_stat_limit: 500,
         ltv_upward_kp: Decimal::percent(5), // 5% of error per day
-        ltv_downward_period: 604800, // 1 week in seconds
+        ltv_downward_period: 1_209_600, // 2 weeks in seconds (14 days * 86400)
         ltv_max_downward_shift: Decimal::percent(5), // Max 5% shift per period
+        transmuter_addr: None,
+        irm_config: membrane::types::IRMConfig {
+            adjustment_speed: Decimal::from_str("50").unwrap(),     // 50/year
+            min_adaptive_rate: Decimal::from_str("0.001").unwrap(),// 0.1% floor
+            max_adaptive_rate: Decimal::from_str("0.09").unwrap(), // 9% ceiling
+        },
+        points_contract: None,
     };
 
     //Set optional config parameters
@@ -184,12 +192,16 @@ pub fn execute(
             amount,
             mint_to_addr,
             LTV,
-            deployment_intent
-        } => increase_debt(deps, env, info, position_id, amount, LTV, mint_to_addr, deployment_intent),
+            deployment_intent,
+            debt_split,
+            rollover_updates,
+            peg_debt,
+        } => increase_debt(deps, env, info, position_id, amount, LTV, mint_to_addr, deployment_intent, debt_split, rollover_updates, peg_debt),
         ExecuteMsg::Repay {
             position_id,
             position_owner,
             send_excess_to,
+            debt_split,
         } => {
             let basket: Basket = BASKET.load(deps.storage)?;                        
             let credit_asset = assert_sent_native_token_balance(basket.credit_asset.info, &info)?;
@@ -204,29 +216,30 @@ pub fn execute(
                 position_owner,
                 credit_asset,
                 send_excess_to,
+                debt_split,
             )
         },
         ExecuteMsg::Accrue { position_owner, position_ids } => { external_accrue_call(deps.storage, deps.api, deps.querier, info, env, position_owner, position_ids) },
-        ExecuteMsg::RedeemCollateral { max_collateral_premium } => {
-            redeem_for_collateral(
-                deps, 
-                env, 
-                info, 
-                max_collateral_premium.unwrap_or(99u128)
-            )
-        },
-        ExecuteMsg::EditRedeemability { position_ids, redeemable, premium, max_loan_repayment, restricted_collateral_assets } => {
-            edit_redemption_info(
-                deps.storage,
-                info.sender, 
-                position_ids, 
-                redeemable, 
-                premium, 
-                max_loan_repayment,
-                restricted_collateral_assets,
-                false
-            )
-        },
+        // ExecuteMsg::RedeemCollateral { max_collateral_premium } => {
+        //     redeem_for_collateral(
+        //         deps,
+        //         env,
+        //         info,
+        //         max_collateral_premium.unwrap_or(99u128)
+        //     )
+        // },
+        // ExecuteMsg::EditRedeemability { position_ids, redeemable, premium, max_loan_repayment, restricted_collateral_assets } => {
+        //     edit_redemption_info(
+        //         deps.storage,
+        //         info.sender,
+        //         position_ids,
+        //         redeemable,
+        //         premium,
+        //         max_loan_repayment,
+        //         restricted_collateral_assets,
+        //         false
+        //     )
+        // },
         // ExecuteMsg::LiqRepay {} => Err(ContractError::CustomError { val: String::from("LiqRepay removed") }),
         ExecuteMsg::EditcAsset {
             asset,
@@ -258,6 +271,9 @@ pub fn execute(
             send_to),
         ExecuteMsg::SetUserIntents { deployment_intent } => set_intents(deps, env, info, deployment_intent),
         ExecuteMsg::FulfillIntents { users } => fulfill_intents(deps, env, info, users),
+        ExecuteMsg::SetDeploymentVenue { position_id, venue_address, initial_deployed_debt_amount } => {
+            set_deployment_venue(deps, info, position_id, venue_address, initial_deployed_debt_amount)
+        },
         ExecuteMsg::UpdateBasketLTVs {} => update_basket_ltvs(deps, env),
         ExecuteMsg::SetAffiliate { position_id, affiliate_address, affiliate_fee, label } => {
             set_affiliate(deps, env, info, position_id, affiliate_address, affiliate_fee, label)
@@ -277,6 +293,9 @@ pub fn execute(
             } else {
                 Err(ContractError::Unauthorized { owner: env.contract.address.to_string() })
             }
+        },
+        ExecuteMsg::CheckAndClearDebtDelta { position_owner, position_id } => {
+            check_and_clear_debt_delta(deps, info, position_owner, position_id)
         }
     }
 }
@@ -394,6 +413,46 @@ fn take_revenue(
         .add_attribute("total_revenue", total_revenue.to_string()))
 }
 
+/// Check and clear debt delta for management points.
+/// Called by Points contract to check if user qualifies for points.
+/// Only points contract can call this.
+fn check_and_clear_debt_delta(
+    deps: DepsMut,
+    info: MessageInfo,
+    position_owner: String,
+    position_id: Uint128,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // Only points contract can call this
+    if config.points_contract.is_none() || info.sender != config.points_contract.clone().unwrap() {
+        return Err(ContractError::Unauthorized {
+            owner: config.points_contract.map(|a| a.to_string()).unwrap_or_else(|| "not set".to_string()),
+        });
+    }
+
+    let owner_addr = deps.api.addr_validate(&position_owner)?;
+    let (_position_index, mut position) = get_target_position(deps.storage, owner_addr.clone(), position_id)?;
+
+    let qualifies = if let Some(initial_debt) = position.vol_window_initial_debt {
+        let current_debt = get_total_position_debt(&position);
+        // Negative delta = initial > current = repaid during volatility
+        initial_debt > current_debt
+    } else {
+        false
+    };
+
+    // Clear debt delta
+    position.vol_window_initial_debt = None;
+    update_position(deps.storage, owner_addr, position)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "check_and_clear_debt_delta")
+        .add_attribute("position_owner", position_owner)
+        .add_attribute("position_id", position_id.to_string())
+        .add_attribute("qualifies_for_points", qualifies.to_string()))
+}
+
 /// Helper to align collateral_types and collateral_supply_caps by asset_info
 fn align_basket_arrays(basket: &mut Basket) {
     // Sort both arrays by asset_info string
@@ -445,7 +504,8 @@ fn edit_cAsset(
                     //Gets Liquidation Queue max premium.
                     //The premium has to be at most 5% less than the difference between max_LTV and 100%
                     //The ideal variable for the 5% is the avg caller_liq_fee during high traffic periods
-                    let max_premium = match Uint128::new(95u128).checked_sub( LTV * Uint128::new(100u128) ){
+                    let ltv_percent = (LTV * Decimal::from_ratio(Uint128::new(100u128), Uint128::one())).to_uint_floor();
+                    let max_premium = match Uint128::new(95u128).checked_sub(ltv_percent) {
                         Ok( diff ) => diff,
                         //A default to 10 assuming that will be the highest sp_liq_fee
                         Err( _err ) => Uint128::new(10u128),
@@ -576,7 +636,8 @@ fn handle_close_position_callback(
     )?[0];
 
     //Create repay_msg
-    let repay_msg = ExecuteMsg::Repay { 
+    let repay_msg = ExecuteMsg::Repay {
+        debt_split: None, 
         position_id, 
         position_owner: Some(valid_position_owner.clone().to_string()),
         send_excess_to: Some(valid_position_owner.clone().to_string()),
@@ -620,13 +681,14 @@ fn handle_close_position_callback(
     };
 
     //Withdrawing everything thats left
+    let is_debt_zero = get_total_position_debt(&target_position).is_zero();
     let assets_to_withdraw: Vec<Asset> = target_position.collateral_assets
         .into_iter()
         .filter(|cAsset| cAsset.asset.amount > Uint128::zero())
         .map(|cAsset| cAsset.asset)
         .collect::<Vec<Asset>>();
 
-    if assets_to_withdraw.len() > 0 && target_position.credit_amount.is_zero() {     
+    if assets_to_withdraw.len() > 0 && is_debt_zero {     
         //Create WithdrawMsg
         let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
             contract_addr: env.contract.address.to_string(), 
@@ -698,7 +760,7 @@ fn set_affiliate(
     //Add new affiliation
     if let Some(affiliation) = affiliations.iter().find(|a| a.affiliate_address == affiliate_address) {
         //Can only change fee if affiliate is the called
-        if info.sender != affiliation.affiliate_address {
+        if info.sender != deps.api.addr_validate(&affiliation.affiliate_address)? {
             return Err(ContractError::Unauthorized { owner: affiliation.affiliate_address.to_string() });
         }
         //Update fee (persist after branch)
@@ -784,11 +846,11 @@ fn check_and_fulfill_bad_debt(
         .sum();
 
     //We use > $1 bc full liquidations will leave rounding errors in the collateral assets so we just use $1 as a floor instead of $0
-    if total_asset_value > Decimal::one() || target_position.credit_amount.is_zero() {
+    if total_asset_value > Decimal::one() || get_total_position_debt(&target_position).is_zero() {
         Err(ContractError::PositionSolvent {})
     } else {
         let mut messages: Vec<CosmosMsg> = vec![];
-        let mut bad_debt_amount = target_position.credit_amount;
+        let mut bad_debt_amount = crate::rates::get_total_position_debt(&target_position);
         let mut attrs = vec![
             attr("method", "check_and_fulfill_bad_debt"),
             attr("bad_debt_amount", bad_debt_amount),
@@ -813,8 +875,8 @@ fn check_and_fulfill_bad_debt(
             }
         }
 
-        //Set target_position.credit_amount to 0 and add the leftover bad debt to pending_bad_debt
-        target_position.credit_amount = Uint128::zero();
+        //Set target_position.rate_segments to empty and add the leftover bad debt to pending_bad_debt
+        target_position.rate_segments.clear();
         basket.pending_bad_debt += bad_debt_amount;
         
         //Save target_position w/ updated debt
@@ -892,6 +954,66 @@ fn check_and_fulfill_bad_debt(
     }
 }
 
+pub fn set_deployment_venue(
+    deps: DepsMut,
+    info: MessageInfo,
+    position_id: Uint128,
+    venue_address: String,
+    initial_deployed_debt_amount: Option<Uint128>,
+) -> Result<Response, ContractError> {
+    // Get target position
+    // Which also validates ownership
+    let (_, mut target_position) = get_target_position(deps.storage, info.sender.clone(), position_id)?;
+    
+    // Validate venue address
+    let venue_addr = deps.api.addr_validate(&venue_address)?;
+    
+    // If initial_deployed_debt_amount is None, query the deployable venue for RetrievableCDT
+    let deployed_debt_amount = if let Some(amount) = initial_deployed_debt_amount {
+        amount
+    } else {
+        // Query the deployable venue contract's RetrievableCDT query
+        deps.querier.query::<Uint128>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: venue_address.clone(),
+            msg: to_json_binary(&DeployableVenue_QueryMsg::RetrievableCDT {
+                user: info.sender.to_string(),
+            })?,
+        }))?
+    };
+    
+    // Check if deployment venue already exists in position.deployed_to
+    let is_new_venue = !target_position.deployed_to.iter().any(|venue| venue.address == venue_addr);
+    
+    if let Some(existing_venue) = target_position.deployed_to.iter_mut().find(|venue| venue.address == venue_addr) {
+        // Update existing venue's deployed_debt_amount
+        existing_venue.deployed_debt_amount = deployed_debt_amount;
+    } else {
+        // Add new deployment venue
+        target_position.deployed_to.push(DeploymentVenue {
+            address: venue_addr,
+            deployed_debt_amount,
+            failed_liquidation: false,
+        });
+        
+        // Update active deployment venues for new venues
+        set_active_deployment_venues(deps.storage, vec![StringEntry {
+            entry: venue_address.clone(),
+            remove: false,
+        }])?;
+    }
+    
+    // Save position
+    update_position(deps.storage, info.sender.clone(), target_position)?;
+    
+    Ok(Response::new()
+        .add_attributes(vec![
+            attr("action", "set_deployment_venue"),
+            attr("position_id", position_id.to_string()),
+            attr("venue_address", venue_address),
+            attr("deployed_debt_amount", deployed_debt_amount.to_string()),
+        ]))
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
     match msg.id {
@@ -959,9 +1081,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
             user,
         )?),
         QueryMsg::GetBasket { } => to_json_binary(&BASKET.load(deps.storage)?),
-        QueryMsg::GetBasketRedeemability { position_owner, start_after, limit } => {
-            to_json_binary(&query_basket_redeemability(deps, position_owner, start_after, limit)?)
-        }
+        // QueryMsg::GetBasketRedeemability { position_owner, start_after, limit } => {
+        //     to_json_binary(&query_basket_redeemability(deps, position_owner, start_after, limit)?)
+        // }
         QueryMsg::GetCreditRate { } => {
             to_json_binary(&query_basket_credit_interest(deps, env)?)
         }
@@ -985,6 +1107,24 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::GetHistoricalOraclePrices { asset } => {
             to_json_binary(&query_historical_oracle_prices(deps, asset)?)
+        },
+        QueryMsg::GetHistoricalInterestRates { asset } => {
+            to_json_binary(&query_historical_interest_rates(deps, asset)?)
+        }
+        QueryMsg::GetRates {} => {
+            to_json_binary(&RATES.load(deps.storage)?)
+        }
+        QueryMsg::SimulateLiquidation { collateral_to_sell, target_denom } => {
+            to_json_binary(&query_simulate_liquidation(deps, collateral_to_sell, target_denom)?)
+        }
+        QueryMsg::CheckVolatilityWindow { assets } => {
+            to_json_binary(&query_volatility_window(deps, assets)?)
+        }
+        QueryMsg::GetHistoricalLTV { asset_denom, start_time, end_time, limit } => {
+            to_json_binary(&query_historical_ltv(deps, asset_denom, start_time, end_time, limit)?)
+        }
+        QueryMsg::GetLTVShiftInfo { asset_denom } => {
+            to_json_binary(&query_ltv_shift_info(deps, env, asset_denom)?)
         }
     }
 }
@@ -1045,7 +1185,7 @@ fn reset_basket_from_positions(storage: &mut dyn cosmwasm_std::Storage, basket: 
     for item in all_positions {
         if let Ok((_owner, positions_vec)) = item {
             for position in positions_vec {
-                if !position.credit_amount.is_zero() {
+                if !get_total_position_debt(&position).is_zero() {
                     for casset in position.collateral_assets {
                         let key = casset.asset.info.to_string();
                         let entry = collateral_totals.entry(key).or_insert(Uint128::zero());

@@ -37,9 +37,9 @@ fn debug_move_effective_total_update() {
 
     // Get deposit_id
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
 
     // Get initial effective total from storage
     let queue = LTV_QUEUES.load(&deps.storage, "uusd".to_string()).unwrap();

@@ -6,6 +6,7 @@ use membrane::cdp::{ExecuteMsg, Config};
 use membrane::types::{cAsset, Asset, AssetInfo, Basket};
 use membrane::helpers::{asset_to_coin, get_contract_balances, withdrawal_msg};
 
+use crate::rates::{get_total_debt_from_segments, get_total_position_debt};
 use crate::risk_engine::update_basket_tally;
 use crate::state::{get_target_position, update_position, update_position_claims, ClosePositionPropagation, DeployableVenuePropagation, LiquidationPropagation, SellCollateralPropagation, BASKET, CLOSE_POSITION, CONFIG, DEPLOYABLE_VENUE, LIQUIDATION, SELL_COLLATERAL, WITHDRAW};
 
@@ -48,20 +49,16 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                 ) {
                     Ok(balances) => balances[0],
                     Err(err) => {
-                        return Err(StdError::GenericErr {
-                            msg: err.to_string(),
-                        })
+                        return Err(StdError::generic_err(err.to_string()))
                     }
                 };
 
                 //If balance differnce is more than what they tried to withdraw, error
                 if withdraw_prop.contracts_prev_collateral_amount[i] - current_asset_balance > withdraw_amount {
-                    return Err(StdError::GenericErr {
-                        msg: format!(
-                            "Conditional 1: Invalid withdrawal, possible bug found by {}",
-                            withdraw_prop.position_info.position_owner
-                        ),
-                    });
+                    return Err(StdError::generic_err(format!(
+                        "Conditional 1: Invalid withdrawal, possible bug found by {}",
+                        withdraw_prop.position_info.position_owner
+                    )));
                 }
 
                 match get_target_position(
@@ -77,21 +74,17 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
                         .find(|cAsset| cAsset.asset.info.equal(&asset_info))
                         {
                             if cAsset.asset.amount != (position_amount - withdraw_amount) {
-                                return Err(StdError::GenericErr {
-                                    msg: format!(
-                                        "Conditional 2: Invalid withdrawal, possible bug found by {}",
-                                        withdraw_prop.position_info.position_owner
-                                    ),
-                                });
+                                return Err(StdError::generic_err(format!(
+                                    "Conditional 2: Invalid withdrawal, possible bug found by {}",
+                                    withdraw_prop.position_info.position_owner
+                                )));
                             }
                         }
                     },
                     Err(err) => {
                         //Error means the position was deleted from state, assert that collateral was supposed to be completely withdrawn
                         if !(position_amount - withdraw_amount).is_zero(){
-                            return Err(StdError::GenericErr {
-                                msg: err.to_string(),
-                            })
+                            return Err(StdError::generic_err(err.to_string()))
                         }
                     }
                 };                
@@ -109,7 +102,7 @@ pub fn handle_withdraw_reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<R
         //We can go by first entries for these fields bc the replies will come in FIFO in terms of assets sent
         
         } //We only reply on success
-        Err(err) => return Err(StdError::GenericErr { msg: err }),
+        Err(err) => return Err(StdError::generic_err(err.to_string())),
     }
     
     Ok(Response::new().add_attributes(attrs))
@@ -131,7 +124,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                 .events
                 .into_iter()
                 .find(|e| e.attributes.iter().any(|attr| attr.key == "repay_amount"))
-                .ok_or_else(|| StdError::GenericErr {  msg: String::from("unable to find liq-queue event")})?;
+                .ok_or_else(|| StdError::generic_err("unable to find liq-queue event"))?;
 
             let repay = &liq_event
                 .attributes
@@ -191,7 +184,18 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             if repay_amount != Uint128::zero() {
 
                 //Update credit amount based on liquidation's total repaid amount
-                prop.target_position.credit_amount -= repay_amount;
+                // Update position debt by reducing from rate_segments proportionally
+                let current_total = get_total_position_debt(&prop.target_position);
+                if !current_total.is_zero() && !prop.target_position.rate_segments.is_empty() {
+                    // Reduce debt proportionally from all segments
+                    let reduction_ratio = Decimal::from_ratio(
+                        current_total.checked_sub(repay_amount).unwrap_or(Uint128::zero()),
+                        current_total
+                    );
+                    for segment in &mut prop.target_position.rate_segments {
+                        segment.amount = (Decimal::from_ratio(segment.amount, Uint128::one()) * reduction_ratio).to_uint_floor();
+                    }
+                }
                 
                 //Update position claims in prop.target_position
                 prop.target_position.collateral_assets
@@ -212,7 +216,8 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         max_LTV: Decimal::zero(),
                         pool_info: None,
                         rate_index: Decimal::one(),
-                        individual_cost: None,
+                        peg_rate_index: Decimal::one(),
+                        force_redemptions: None,
                     }
                 );
 
@@ -225,7 +230,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
             if prop.per_asset_repayment.len() == 1  {
 
                 //Update supply caps
-                if prop.clone().target_position.credit_amount.is_zero(){                
+                if get_total_position_debt(&prop.clone().target_position).is_zero(){                
                     //Remove all assets from Supply caps 
                     match update_basket_tally(
                         deps.storage, 
@@ -239,7 +244,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         true,
                     ){
                         Ok(_) => {},
-                        Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+                        Err(err) => return Err(StdError::generic_err(err.to_string())),
                     };
                 } else {
                     //Remove liquidated assets from Supply caps
@@ -255,7 +260,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         true,
                     ){
                         Ok(_) => {},
-                        Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+                        Err(err) => return Err(StdError::generic_err(err.to_string())),
                     };
                 }            
                 //Update Basket
@@ -311,7 +316,8 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
             )?[0];
 
             //Create repay_msg
-            let repay_msg = ExecuteMsg::Repay { 
+            let repay_msg = ExecuteMsg::Repay {
+                debt_split: None, 
                 position_id, 
                 position_owner: Some(valid_position_owner.clone().to_string()),
                 send_excess_to: Some(valid_position_owner.clone().to_string()),
@@ -351,17 +357,18 @@ pub fn handle_close_position_reply(deps: DepsMut, env: Env, msg: Reply) -> StdRe
                 position_id, 
             ){
                 Ok(position) => position,
-                Err(err) => return Err(StdError::GenericErr { msg: err.to_string() })
+                Err(err) => return Err(StdError::generic_err(err.to_string()))
             };
 
             //Withdrawing everything thats left
+            let is_debt_zero = get_total_position_debt(&target_position).is_zero();
             let assets_to_withdraw: Vec<Asset> = target_position.collateral_assets
                 .into_iter()
                 .filter(|cAsset| cAsset.asset.amount > Uint128::zero())
                 .map(|cAsset| cAsset.asset)
                 .collect::<Vec<Asset>>();
 
-            if assets_to_withdraw.len() > 0 && target_position.credit_amount.is_zero() {     
+            if assets_to_withdraw.len() > 0 && is_debt_zero {     
                 //Create WithdrawMsg
                 let withdraw_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute { 
                     contract_addr: env.contract.address.to_string(), 
@@ -423,7 +430,8 @@ pub fn handle_sell_collateral_reply(deps: DepsMut, env: Env, msg: Reply) -> StdR
             )?[0];
 
             //Create repay_msg
-            let repay_msg = ExecuteMsg::Repay { 
+            let repay_msg = ExecuteMsg::Repay {
+                debt_split: None, 
                 position_id, 
                 position_owner: Some(valid_position_owner.clone().to_string()),
                 send_excess_to: Some(valid_position_owner.clone().to_string()),
@@ -504,11 +512,12 @@ pub fn handle_deployable_venue_reply(deps: DepsMut, env: Env, msg: Reply) -> Std
                 deps.storage,
                  deps.api.addr_validate(&deployable_venue_propagation.user.position_owner)?,
                 deployable_venue_propagation.user.position_id
-            ).map_err(|e| StdError::GenericErr { msg: e.to_string() })?;
+            ).map_err(|e| StdError::generic_err(e.to_string()))?;
             //Update failed_liquidation field
+            let venue_addr = deps.api.addr_validate(&deployable_venue_propagation.venues[0])?;
             user_position.deployed_to
                 .iter_mut()
-                .find(|venue| venue.address == deployable_venue_propagation.venues[0]
+                .find(|venue| venue.address == venue_addr
                 ).unwrap().failed_liquidation = true;
             //Save state
             update_position(

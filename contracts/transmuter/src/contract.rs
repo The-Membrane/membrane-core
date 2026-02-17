@@ -1,15 +1,13 @@
 
 use cosmwasm_std::{
-    attr, coin, entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Int128, MessageInfo, QuerierWrapper, Response, StdError, StdResult, Storage, Timestamp, Uint128, WasmMsg
+    Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Int128, MessageInfo, QuerierWrapper, Response, StdError, StdResult, Storage, Timestamp, Uint128, WasmMsg, attr, coin, entry_point, to_json_binary
 };
 use cw2::set_contract_version;
 // use cw_storage_plus::Bound;
 
 use membrane::helpers::get_contract_balances;
-use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
-use membrane::stability_pool_vault::{calculate_base_tokens, calculate_vault_tokens};
-use membrane::cdp::{QueryMsg as CDP_QueryMsg};
-use membrane::tokenfactory::{burn_msg, create_denom_msg, mint_msg};
+use membrane::math::{decimal_multiplication, decimal_subtraction};
+use membrane::cdp::{QueryMsg as CDP_QueryMsg, ExecuteMsg as CDP_ExecuteMsg};
 use membrane::transmuter::{
     AssetPair, Config, ExecuteMsg, InstantiateMsg, QueryMsg, TransmuteHistoryResponse, SwapRecord,
     VaultInfoResponse, VolumeHistoryResponse, VolumeWindowResponse, RateLimitStatus, RateLimitStatusResponse, RateLimitManyResponse,
@@ -18,18 +16,27 @@ use membrane::transmuter::{
 use membrane::types::StringEntry;
 use membrane::types::AssetInfo;
 use membrane::revenue_distributor::ExecuteMsg as RevenueDistributorExecuteMsg;
+use membrane::system_discounts::{QueryMsg as SystemsDiscountsQueryMsg, UserBoostResponse};
 
 use crate::error::ContractError;
 use crate::state::{
     append_transmute_snapshot, append_volume_window, append_rate_history_entry, apply_volume_update, history_slice,
     history_total, init_history, new_volume_window, CONFIG, TRANSMUTE_HISTORY, VOLUME_HISTORY,
-    VOLUME_WINDOW, VAULT_TOKEN_SUPPLY, TransmuteSnapshot, RATE_LIMIT_FLOWS, FlowEntry, DEPLOYED_PAIRED_ASSET,
+    VOLUME_WINDOW, DEPOSIT_TOTAL, TransmuteSnapshot, RATE_LIMIT_FLOWS, FlowEntry, DEPLOYED_PAIRED_ASSET,
     TOKEN_RATE_ASSURANCE, TokenRateAssurance, GLOBAL_RATE_LIMIT_FLOWS, PENDING_REVENUE, CUMULATIVE_VOLUME,
-    RATE_HISTORY, LAST_RATE_UPDATE,
+    RATE_HISTORY, LAST_RATE_UPDATE, USER_DEPOSITS, UserDeposit, MIN_DEPOSIT_AMOUNT, MAX_DEPOSITS_PER_USER, DEPOSIT_CONSOLIDATION_WINDOW_SECS,
+    EmissionsEvent, RetentionWeightTracking, WeightTimeCliff, EMISSIONS_EVENTS, RETENTION_WEIGHT_TRACKING, GLOBAL_RETENTION_WEIGHT_TRACKING, LAST_EMISSIONS_DISTRIBUTION,
+    CURRENT_DEPOSIT_ID,
 };
 
 const CONTRACT_NAME: &str = "membrane-transmuter";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// Retention emissions ramp constants (mirroring MBRN discounts)
+const RETENTION_FIRST_MONTH_DAYS: u64 = 30; // First month duration in days
+const RETENTION_FIRST_MONTH_WEIGHT: Decimal = Decimal::raw(600_000_000_000_000_000u128); // 60% of max weight (0.6)
+const RETENTION_REMAINING_WEIGHT: Decimal = Decimal::raw(400_000_000_000_000_000u128); // 40% of max weight (0.4)
+const RETENTION_CURVE_DURATION_DAYS: u64 = 90; // Total curve duration in days (3 months)
 
 #[entry_point]
 pub fn instantiate(
@@ -56,22 +63,11 @@ pub fn instantiate(
             "volume_history_cap must be greater than zero".into(),
         ));
     }
-    if msg.asset_a_to_b_rate.is_zero() {
-        return Err(ContractError::Validation(
-            "asset_a_to_b_rate must be greater than zero".into(),
-        ));
-    }
     if msg.cdt_target_ratio > Decimal::one() {
         return Err(ContractError::Validation(
             "cdt_target_ratio must be less than or equal to 1".into(),
         ));
     }
-
-    let vault_token = format!(
-        "factory/{}/{}",
-        env.contract.address,
-        msg.vault_subdenom
-    );
 
     //Save revenue_distributions early to avoid partial move
     let revenue_distributions = msg.revenue_distributions.clone();
@@ -81,8 +77,6 @@ pub fn instantiate(
     let discounts_contract = msg.discounts_contract.clone();
     let swap_history_cap = msg.swap_history_cap;
     let volume_history_cap = msg.volume_history_cap;
-    let vault_subdenom = msg.vault_subdenom.clone();
-    let tokenfactory_contract = msg.tokenfactory_contract.clone();
 
     //Validate the revenue distributor, cdp, and discounts contract addresses
     let revenue_distributor_addr = if let Some(addr_str) = msg.revenue_distributor_addr {
@@ -100,6 +94,16 @@ pub fn instantiate(
     if usage_fee > Decimal::one() {
         return Err(ContractError::Validation(
             "usage_fee must be less than or equal to 1".into(),
+        ));
+    }
+
+    // Default usage_fee_utilization_threshold to 90%
+    let usage_fee_utilization_threshold = msg
+        .usage_fee_utilization_threshold
+        .unwrap_or(Decimal::percent(90));
+    if usage_fee_utilization_threshold > Decimal::one() {
+        return Err(ContractError::Validation(
+            "usage_fee_utilization_threshold must be less than or equal to 1".into(),
         ));
     }
 
@@ -179,17 +183,24 @@ pub fn instantiate(
     // Default send_swap_fee to true (send fees to revenue distributor)
     let send_swap_fee = msg.send_swap_fee.unwrap_or(true);
 
+    // Default revenue_distributor_fee_percentage to 20%
+    let revenue_distributor_fee_percentage = msg.revenue_distributor_fee_percentage.unwrap_or(Decimal::percent(20));
+    if revenue_distributor_fee_percentage > Decimal::one() {
+        return Err(ContractError::Validation(
+            "revenue_distributor_fee_percentage must be less than or equal to 1".into(),
+        ));
+    }
+
     let config = Config {
         owner: owner.clone(),
-        tokenfactory_contract,
+        tokenfactory_contract: None,
         cdp_contract,
         discounts_contract, 
-        vault_token: vault_token.clone(),
         deposit_pair: msg.deposit_pair,
         composition_leeway: msg.composition_leeway,
-        asset_a_to_b_rate: msg.asset_a_to_b_rate,
         cdt_target_ratio: msg.cdt_target_ratio,  
         usage_fee,
+        usage_fee_utilization_threshold,
         swap_history_cap,
         volume_history_cap,
         rate_limit_window_secs,
@@ -203,10 +214,14 @@ pub fn instantiate(
         lock_ceiling,
         affiliate_fee,
         send_swap_fee,
+        revenue_distributor_fee_percentage,
+        emissions_voting_contract: msg.emissions_voting_contract
+            .map(|s| deps.api.addr_validate(&s))
+            .transpose()?,
     };
 
     CONFIG.save(deps.storage, &config)?;
-    VAULT_TOKEN_SUPPLY.save(deps.storage, &Uint128::zero())?;
+    DEPOSIT_TOTAL.save(deps.storage, &Uint128::zero())?;
     init_history(deps.storage)?;
     CUMULATIVE_VOLUME.save(deps.storage, &Uint128::zero())?;
     let cumulative_volume = CUMULATIVE_VOLUME.load(deps.storage)?;
@@ -219,18 +234,10 @@ pub fn instantiate(
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
 
-    let create_msg = create_denom_msg(
-        config.tokenfactory_contract.clone(),
-        env.contract.address.as_str(),
-        &vault_subdenom,
-    )?;
-
     Ok(Response::new()
-        .add_message(create_msg)
         .add_attributes(vec![
             attr("action", "instantiate"),
             attr("owner", owner.as_str()),
-            attr("vault_token", vault_token),
         ]))
 }
 
@@ -246,12 +253,12 @@ pub fn execute(
             owner,
             deposit_pair,
             composition_leeway,
-            asset_a_to_b_rate,
             cdt_target_ratio,
-            tokenfactory_contract,
+            tokenfactory_contract: _,
             discounts_contract,
             cdp_contract,
             usage_fee,
+            usage_fee_utilization_threshold,
             swap_history_cap,
             volume_history_cap,
             rate_limit_window_secs,
@@ -265,6 +272,8 @@ pub fn execute(
             lock_ceiling,
             affiliate_fee,
             send_swap_fee,
+            revenue_distributor_fee_percentage,
+            emissions_voting_contract,
         } => execute_update_config(
             deps,
             env,
@@ -272,12 +281,11 @@ pub fn execute(
             owner,
             deposit_pair,
             composition_leeway,
-            asset_a_to_b_rate,
             cdt_target_ratio,
-            tokenfactory_contract,
             discounts_contract,
             cdp_contract,
             usage_fee,
+            usage_fee_utilization_threshold,
             swap_history_cap,
             volume_history_cap,
             rate_limit_window_secs,
@@ -291,19 +299,30 @@ pub fn execute(
             lock_ceiling,
             affiliate_fee,
             send_swap_fee,
+            revenue_distributor_fee_percentage,
+            emissions_voting_contract,
         ),
         ExecuteMsg::EnterVault { recipient, lock_days, affiliate_address } => execute_enter_vault(deps, env, info.clone(), recipient, lock_days, affiliate_address),
         ExecuteMsg::DepositFee {} => execute_deposit_fee(deps, env, info.clone()),
         ExecuteMsg::ExitVault {
             recipient,
             withdraw_as,
-        } => execute_exit_vault(deps, env, info.clone(), recipient, withdraw_as),
-        ExecuteMsg::UnlockVaultTokens { amount } => execute_unlock_vault_tokens(deps, env, info.clone(), amount),
+            user,
+            deposit_id,
+            amount,
+        } => execute_exit_vault(deps, env, info.clone(), recipient, withdraw_as, user, deposit_id, amount),
+        ExecuteMsg::Lock { amount, lock_days } => execute_lock(deps, env, info.clone(), amount, lock_days),
         ExecuteMsg::Transmute { recipient } => execute_transmute(deps, env, info.clone(), recipient),
         ExecuteMsg::UpdateVolumeWindow {} => execute_update_volume_window(deps, env),
         ExecuteMsg::RateAssurance {} => execute_rate_assurance(deps, env, info.clone()),
         ExecuteMsg::SetAffiliate { user, affiliate_address, label } => execute_set_affiliate(deps, env, info, user, affiliate_address, label),
         ExecuteMsg::AddToRateHistory {} => execute_add_to_rate_history(deps, env),
+        ExecuteMsg::RepayUserDebt { user_info, repayment } => execute_repay_user_debt(deps, env, info, user_info, repayment),
+        ExecuteMsg::DistributeRetentionEmissions {} => execute_distribute_retention_emissions(deps, env, info),
+        ExecuteMsg::ClaimRetentionEmissions {} => execute_claim_retention_emissions(deps, env, info),
+        ExecuteMsg::TransferDepositOwnership { user, deposit_id, new_owner } => {
+            execute_transfer_deposit_ownership(deps, env, info, user, deposit_id, new_owner)
+        }
     }
 }
 
@@ -314,12 +333,11 @@ fn execute_update_config(
     owner: Option<String>,
     deposit_pair: Option<AssetPair>,
     composition_leeway: Option<Decimal>,
-    asset_a_to_b_rate: Option<Decimal>,
     cdt_target_ratio: Option<Decimal>,
-    tokenfactory_contract: Option<Addr>,
     discounts_contract: Option<String>,
     cdp_contract: Option<String>,
     usage_fee: Option<Decimal>,
+    usage_fee_utilization_threshold: Option<Decimal>,
     swap_history_cap: Option<u32>,
     volume_history_cap: Option<u32>,
     rate_limit_window_secs: Option<u64>,
@@ -333,6 +351,8 @@ fn execute_update_config(
     lock_ceiling: Option<u64>,
     affiliate_fee: Decimal,
     send_swap_fee: Option<bool>,
+    revenue_distributor_fee_percentage: Option<Decimal>,
+    emissions_voting_contract: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     ensure_owner(&config, &info.sender)?;
@@ -355,15 +375,6 @@ fn execute_update_config(
         config.composition_leeway = leeway;
     }
 
-    if let Some(rate) = asset_a_to_b_rate {
-        if rate.is_zero() {
-            return Err(ContractError::Validation(
-                "asset_a_to_b_rate must be greater than zero".into(),
-            ));
-        }
-        config.asset_a_to_b_rate = rate;
-    }
-
     if let Some(target) = cdt_target_ratio {
         if target > Decimal::one() {
             return Err(ContractError::Validation(
@@ -372,11 +383,6 @@ fn execute_update_config(
         }
         config.cdt_target_ratio = target;
     }
-
-    if let Some(tf_addr) = tokenfactory_contract {
-        config.tokenfactory_contract = Some(tf_addr);
-    }
-
 
     if let Some(disss) = discounts_contract {
         //Validate the address
@@ -398,6 +404,15 @@ fn execute_update_config(
             ));
         }
         config.usage_fee = fee;
+    }
+
+    if let Some(threshold) = usage_fee_utilization_threshold {
+        if threshold > Decimal::one() {
+            return Err(ContractError::Validation(
+                "usage_fee_utilization_threshold must be less than or equal to 1".into(),
+            ));
+        }
+        config.usage_fee_utilization_threshold = threshold;
     }
 
     if let Some(cap) = swap_history_cap {
@@ -527,6 +542,20 @@ fn execute_update_config(
         config.send_swap_fee = send_fee;
     }
 
+    if let Some(fee_percentage) = revenue_distributor_fee_percentage {
+        if fee_percentage > Decimal::one() {
+            return Err(ContractError::Validation(
+                "revenue_distributor_fee_percentage must be less than or equal to 1".into(),
+            ));
+        }
+        config.revenue_distributor_fee_percentage = fee_percentage;
+    }
+
+    if let Some(ev_addr_str) = emissions_voting_contract {
+        let validated_addr = deps.api.addr_validate(&ev_addr_str)?;
+        config.emissions_voting_contract = Some(validated_addr);
+    }
+
     CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new().add_attribute("action", "update_config"))
@@ -541,8 +570,7 @@ fn execute_enter_vault(
     affiliate_address: Option<String>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let total_deposits = get_total_deposit_value(deps.querier.clone(), &env, &config)?;
-    let mut vault_supply = VAULT_TOKEN_SUPPLY.load(deps.storage)?;
+    let mut deposit_total = DEPOSIT_TOTAL.load(deps.storage)?;
     let mut messages: Vec<CosmosMsg> = vec![];
 
 
@@ -559,10 +587,11 @@ fn execute_enter_vault(
     //If the sender is not the revenue distributor, ensure the deposit is aligned with the deposit pair
     //Revenue distributor can deposit any ratio into the contract.
     //Which will tend to be 100% CDT.
+    // Currently revenue is going to the Disco though.
     let is_revenue_distributor = config.revenue_distributor_addr.as_ref()
         .map(|rd_addr| info.sender == *rd_addr)
         .unwrap_or(false);
-    if !is_revenue_distributor && !vault_supply.is_zero() {
+    if !is_revenue_distributor && !deposit_total.is_zero() {
         // Compute effective CDT target ratio considering deployed paired asset
         let effective_target = compute_effective_cdt_cdt_target_ratio(deps.as_ref(), &env, &config)?;
         // Ensure the deposit is aligned with the effective target
@@ -576,52 +605,36 @@ fn execute_enter_vault(
         )?;
     }
 
-    //Calc user deposit value, denominated in asset A
-    let user_deposit_value = sum_base_value(deposit_a, deposit_b, config.asset_a_to_b_rate)?;
+    //Calc user deposit value (1:1 tracking: CDT + paired asset)
+    let user_deposit_value = deposit_a.checked_add(deposit_b)
+        .map_err(|e| ContractError::Std(StdError::from(e)))?;
     if user_deposit_value.is_zero() {
         return Err(ContractError::InvalidFunds {
             reason: "deposit value is zero".into(),
         });
     }
-    // println!("user_deposit_value: {:?}", user_deposit_value);
-    // println!("total_deposits: {:?}", total_deposits);
-    // println!("vault_supply: {:?}", vault_supply);
 
-    //Calc & save base token rates for rate assurance
-    // If vault is empty, existing_deposits should be zero (first deposit)
-    // Otherwise, subtract user's deposit from total to get existing deposits
-    let existing_deposits = if vault_supply.is_zero() {
-        Uint128::zero()
-    } else {
-        total_deposits.checked_sub(user_deposit_value)
-            .map_err(|_| ContractError::Validation("total_deposits < user_deposit_value: logic error".into()))?
-    };
-    let pre_btokens_per_one = calculate_base_tokens(
-        Uint128::new(1_000_000_000_000), 
-        existing_deposits, 
-        vault_supply
-    )?;
+    // Validate minimum deposit amount
+    if user_deposit_value < MIN_DEPOSIT_AMOUNT {
+        return Err(ContractError::Validation(
+            format!("Deposit amount {} is below minimum of {}", user_deposit_value, MIN_DEPOSIT_AMOUNT),
+        ));
+    }
+
+    //Calc & save deposit total for rate assurance
+    // Save current DEPOSIT_TOTAL before adding new deposit
     TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
-        pre_btokens_per_one,
+        pre_deposit_total: deposit_total,
     })?;
 
     //Add rate assurance callback msg
-    if !total_deposits.is_zero() && !vault_supply.is_zero() {
-        // println!("adding rate assurance callback msg");
+    if !deposit_total.is_zero() {
         messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
             msg: to_json_binary(&ExecuteMsg::RateAssurance {})?,
             funds: vec![],
         }));
     }
-
-
-    //Calc the amount of vault tokens to mint
-    let vault_tokens_to_mint = calculate_vault_tokens(
-        user_deposit_value,
-        existing_deposits,
-        vault_supply
-    )?;
 
     //Get the recipient address
     let recipient_addr = recipient
@@ -643,50 +656,9 @@ fn execute_enter_vault(
         }
     }
 
-    // Mint VT to recipient
-    if !vault_tokens_to_mint.is_zero() {
-        // If locking, mint to contract first, otherwise mint directly to recipient
-        if lock_days.is_some() {
-            let mint_to_contract = mint_msg(
-                config.tokenfactory_contract.clone(),
-                env.contract.address.as_str(),
-                &config.vault_token,
-                vault_tokens_to_mint,
-                env.contract.address.as_str(),
-            )?.into();
-            messages.push(mint_to_contract);
-            
-            // Store locked vault token entry
-            if let Some(lock_days) = lock_days {
-                const SECONDS_PER_DAY: u64 = 86_400;
-                let locked_until = env.block.time.seconds()
-                    .checked_add(lock_days.checked_mul(SECONDS_PER_DAY).ok_or_else(|| {
-                        ContractError::Validation("lock_days overflow when calculating seconds".into())
-                    })?)
-                    .ok_or_else(|| ContractError::Validation("locked_until timestamp overflow".into()))?;
-                
-                let mut locked_tokens = crate::state::LOCKED_VAULT_TOKENS
-                    .may_load(deps.storage, recipient_addr.to_string())?
-                    .unwrap_or_default();
-                locked_tokens.push(crate::state::LockedVaultToken {
-                    amount: vault_tokens_to_mint,
-                    locked_until,
-                    intended_lock_days: lock_days,
-                    lock_start_time: env.block.time.seconds(),
-                });
-                crate::state::LOCKED_VAULT_TOKENS.save(deps.storage, recipient_addr.to_string(), &locked_tokens)?;
-            }
-        } else {
-            // Send minted tokens directly to recipient
-            messages.push(BankMsg::Send {
-                to_address: recipient_addr.to_string(),
-                amount: vec![coin(vault_tokens_to_mint.u128(), config.vault_token.clone())],
-            }.into());
-        }
-        
-        //Update the total vault supply
-        vault_supply = increment_vault_supply(deps.storage, vault_supply, vault_tokens_to_mint)?;
-    }
+    // Update DEPOSIT_TOTAL
+    deposit_total = deposit_total.checked_add(user_deposit_value)
+        .map_err(|e| ContractError::Std(StdError::from(e)))?;
     // Handle affiliate if provided
     if let Some(affiliate_addr) = affiliate_address {
         add_affiliate_from_deposit(
@@ -699,17 +671,201 @@ fn execute_enter_vault(
         )?;
     }
 
-    // println!("vault_tokens_to_mint: {:?}", vault_tokens_to_mint);
-    VAULT_TOKEN_SUPPLY.save(deps.storage, &vault_supply)?;
+    DEPOSIT_TOTAL.save(deps.storage, &deposit_total)?;
+
+    // Track deposit for discount & incentive calculations
+    let current_time = env.block.time.seconds();
+    let locked_info = if let Some(lock_days) = lock_days {
+        const SECONDS_PER_DAY: u64 = 86_400;
+        let locked_until = current_time
+            .checked_add(lock_days.checked_mul(SECONDS_PER_DAY).ok_or_else(|| {
+                ContractError::Validation("lock_days overflow when calculating seconds".into())
+            })?)
+            .ok_or_else(|| ContractError::Validation("locked_until timestamp overflow".into()))?;
+        Some(membrane::types::Locked {
+            locked_until,
+            perpetual_lock: None,
+            intended_lock_days: Some(lock_days),
+        })
+    } else {
+        None
+    };
+
+    // Assign deposit ID
+    let deposit_id = CURRENT_DEPOSIT_ID
+        .may_load(deps.storage)?
+        .unwrap_or(Uint128::one());
+    CURRENT_DEPOSIT_ID.save(deps.storage, &deposit_id.checked_add(Uint128::one())
+        .map_err(|e| ContractError::Std(StdError::generic_err(format!("Deposit ID overflow: {}", e))))?)?;
+
+    // Add deposit to user's deposit list
+    add_user_deposit(
+        deps.storage,
+        &recipient_addr.to_string(),
+        UserDeposit {
+            deposit_id,
+            amount: user_deposit_value,
+            deposit_time: current_time,
+            locked: locked_info,
+            start_time: current_time,
+        },
+    )?;
+
+    // Update retention weight tracking
+    let user_deposits_after = USER_DEPOSITS
+        .may_load(deps.storage, recipient_addr.to_string())?
+        .unwrap_or_default();
+    update_retention_weight_tracking(
+        deps.storage,
+        &recipient_addr.to_string(),
+        &user_deposits_after,
+        &env,
+        config.lock_ceiling,
+    )?;
 
     Ok(Response::new()
         .add_messages(messages)
         .add_attributes(vec![
             attr("action", "enter_vault"),
-            attr("base_amount", user_deposit_value.to_string()),
-            attr("vault_tokens", vault_tokens_to_mint.to_string()),
+            attr("deposit_amount", user_deposit_value.to_string()),
             attr("recipient", recipient_addr.as_str()),
         ]))
+}
+
+/// Add a user deposit with consolidation logic to prevent state bloat
+fn add_user_deposit(
+    storage: &mut dyn Storage,
+    user: &str,
+    new_deposit: UserDeposit,
+) -> Result<(), ContractError> {
+    let mut deposits = USER_DEPOSITS
+        .may_load(storage, user.to_string())?
+        .unwrap_or_default();
+
+    // Try to consolidate with existing deposits
+    let mut consolidated = false;
+    let current_time = new_deposit.deposit_time;
+    
+    for deposit in &mut deposits {
+        // Check if deposits have same lock characteristics
+        let same_lock = match (&deposit.locked, &new_deposit.locked) {
+            (Some(d_lock), Some(n_lock)) => d_lock.locked_until == n_lock.locked_until,
+            (None, None) => true,
+            _ => false,
+        };
+
+        // Check if within consolidation window (1 week)
+        let time_diff = if deposit.deposit_time > current_time {
+            deposit.deposit_time - current_time
+        } else {
+            current_time - deposit.deposit_time
+        };
+
+        if same_lock && time_diff <= DEPOSIT_CONSOLIDATION_WINDOW_SECS {
+            // Merge deposits: combine amounts, use earlier start_time
+            deposit.amount = deposit.amount.checked_add(new_deposit.amount)
+                .map_err(|e| ContractError::Std(StdError::from(e)))?;
+            deposit.start_time = deposit.start_time.min(new_deposit.start_time);
+            consolidated = true;
+            break;
+        }
+    }
+
+    // If not consolidated, add as new deposit
+    if !consolidated {
+        deposits.push(new_deposit);
+    }
+
+    // If we exceed max deposits, consolidate oldest deposits with same lock characteristics
+    if deposits.len() > MAX_DEPOSITS_PER_USER {
+        // Sort by deposit_time (oldest first)
+        deposits.sort_by_key(|d| d.deposit_time);
+        
+        // Group by lock characteristics and consolidate within groups
+        let mut consolidated_deposits: Vec<UserDeposit> = Vec::new();
+        
+        for deposit in deposits {
+            let mut found = false;
+            for cons_deposit in &mut consolidated_deposits {
+                let same_lock = match (&cons_deposit.locked, &deposit.locked) {
+                    (Some(c_lock), Some(d_lock)) => c_lock.locked_until == d_lock.locked_until,
+                    (None, None) => true,
+                    _ => false,
+                };
+                
+                if same_lock {
+                    cons_deposit.amount = cons_deposit.amount.checked_add(deposit.amount)
+                        .map_err(|e| ContractError::Std(StdError::from(e)))?;
+                    cons_deposit.start_time = cons_deposit.start_time.min(deposit.start_time);
+                    found = true;
+                    break;
+                }
+            }
+            
+            if !found {
+                consolidated_deposits.push(deposit);
+            }
+        }
+        
+        deposits = consolidated_deposits;
+    }
+
+    // Remove deposits below minimum amount
+    deposits.retain(|d| d.amount >= MIN_DEPOSIT_AMOUNT);
+
+    USER_DEPOSITS.save(storage, user.to_string(), &deposits)?;
+    Ok(())
+}
+
+/// Update user deposits when vault tokens are withdrawn
+fn update_user_deposits_on_withdrawal(
+    storage: &mut dyn Storage,
+    user: &str,
+    withdrawn_amount: Uint128,
+) -> Result<(), ContractError> {
+    let deposits = USER_DEPOSITS
+        .may_load(storage, user.to_string())?
+        .unwrap_or_default();
+    
+    let mut deposits = deposits;
+
+    if deposits.is_empty() {
+        return Ok(());
+    }
+
+    // Calculate total deposit amount
+    let total_deposit_amount: Uint128 = deposits.iter()
+        .map(|d| d.amount)
+        .sum();
+
+    if total_deposit_amount.is_zero() || withdrawn_amount >= total_deposit_amount {
+        // Remove all deposits if withdrawing all or more
+        deposits.clear();
+    } else {
+        // Reduce deposits proportionally
+        let reduction_ratio = Decimal::from_ratio(withdrawn_amount, total_deposit_amount);
+        
+        for deposit in &mut deposits {
+            let reduction = decimal_multiplication(
+                Decimal::from_ratio(deposit.amount, Uint128::one()),
+                reduction_ratio,
+            )?.to_uint_floor();
+            
+            deposit.amount = deposit.amount.checked_sub(reduction)
+                .unwrap_or(Uint128::zero());
+        }
+
+        // Remove deposits below minimum amount
+        deposits.retain(|d| d.amount >= MIN_DEPOSIT_AMOUNT);
+    }
+
+    if deposits.is_empty() {
+        USER_DEPOSITS.remove(storage, user.to_string());
+    } else {
+        USER_DEPOSITS.save(storage, user.to_string(), &deposits)?;
+    }
+
+    Ok(())
 }
 
 fn execute_deposit_fee(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Response, ContractError> {
@@ -737,269 +893,147 @@ fn execute_deposit_fee(deps: DepsMut, _env: Env, info: MessageInfo) -> Result<Re
     ]))
 }
 
-fn execute_unlock_vault_tokens(
+fn execute_lock(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    amount: Option<Uint128>,
+    amount: Uint128,
+    lock_days: u64,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let user_key = info.sender.to_string();
-    let mut locked_tokens = crate::state::LOCKED_VAULT_TOKENS
-        .may_load(deps.storage, user_key.clone())?
-        .unwrap_or_default();
     
-    if locked_tokens.is_empty() {
-        return Err(ContractError::Validation("No locked tokens to unlock".into()));
-    }
-    
-    let current_time = env.block.time.seconds();
-    const SECONDS_PER_DAY: u64 = 86_400;
-    let mut still_locked = Vec::new();
-    let mut total_unlocked = Uint128::zero();
-    let mut total_early_withdrawal_returned = Uint128::zero();
-    let mut total_lost_to_contract = Uint128::zero(); // Fee for early withdrawal
-    let mut messages: Vec<CosmosMsg> = vec![];
-    
-    // Calculate total available to unlock (expired + early withdrawal returns)
-    // This is the maximum amount the user can unlock
-    let mut total_available_to_unlock = Uint128::zero();
-    for locked in &locked_tokens {
-        if locked.locked_until > current_time {
-            // Early withdrawal: calculate proportional return
-            // Math: returned = locked.amount * (fulfilled_days / intended_days)
-            // Example: If 50 days fulfilled out of 100 intended, return 50% of locked amount
-            let fulfilled_seconds = current_time.saturating_sub(locked.lock_start_time);
-            let fulfilled_days = fulfilled_seconds / SECONDS_PER_DAY;
-            let intended_days = locked.intended_lock_days;
-            
-            // Calculate the ratio: fulfilled_days / intended_days
-            // This ratio represents what fraction of the lock period has been completed
-            let ratio = if intended_days > 0 {
-                let ratio_decimal = Decimal::from_ratio(fulfilled_days, intended_days);
-                ratio_decimal.min(Decimal::one()) // Cap at 1.0 (100%) - can't return more than locked
-            } else {
-                Decimal::one() // If no intended days, treat as fully fulfilled
-            };
-            
-            // Calculate how much would be returned if we withdrew this entire entry
-            // Formula: returned = locked.amount * ratio
-            let returned = Decimal::from_ratio(locked.amount, Uint128::one()) * ratio;
-            total_available_to_unlock += returned.to_uint_floor();
-
-        } else {
-            // Expired - can unlock fully (100% return, no loss)
-            total_available_to_unlock += locked.amount;
-        }
-    }
-    
-    // Determine how much to unlock: use provided amount or all available
-    let unlock_amount = amount.unwrap_or(total_available_to_unlock).min(total_available_to_unlock);
-    
-    if unlock_amount.is_zero() {
-        return Err(ContractError::Validation("No tokens available to unlock".into()));
-    }
-    
-    // Process locked tokens to unlock the requested amount
-    // We iterate through locked entries and unlock from them until we've unlocked the requested amount
-    let mut remaining_to_unlock = unlock_amount;
-    
-    for locked in locked_tokens.iter() {
-        if remaining_to_unlock.is_zero() {
-            // We've unlocked enough, keep remaining locked tokens as still_locked
-            still_locked.push(locked.clone());
-            continue;
-        }
-        
-        if locked.locked_until > current_time {
-            // ========== EARLY WITHDRAWAL CALCULATION ==========
-            // Math explanation for early withdrawal:
-            // 1. Calculate the return ratio: fulfilled_days / intended_days (same as above)
-            // 2. For full unlock: returned = locked.amount * ratio
-            // 3. For partial unlock: We need to work backwards from the unlock amount
-            
-            let fulfilled_seconds = current_time.saturating_sub(locked.lock_start_time);
-            let fulfilled_days = fulfilled_seconds / SECONDS_PER_DAY;
-            let intended_days = locked.intended_lock_days;
-            
-            // Calculate return ratio: fulfilled_days / intended_days
-            // Example: 50 days fulfilled / 100 days intended = 0.5 (50% return rate)
-            let ratio = if intended_days > 0 {
-                let ratio_decimal = Decimal::from_ratio(fulfilled_days, intended_days);
-                ratio_decimal.min(Decimal::one())
-            } else {
-                Decimal::one()
-            };
-            
-            // Calculate how much would be returned if we unlocked this entire entry
-            // Formula: returned = locked.amount * ratio
-            // Example: 1000 tokens * 0.5 ratio = 500 tokens returned
-            let returned = Decimal::from_ratio(locked.amount, Uint128::one()) * ratio;
-            let returned = returned.to_uint_floor();
-            
-            // Calculate the fee (lost amount) for unlocking this entire entry
-            // Formula: lost_amount = locked.amount - returned
-            // Example: 1000 tokens - 500 tokens = 500 tokens lost as fee
-            let lost_amount = locked.amount.checked_sub(returned)
-                .map_err(|_| ContractError::Validation("locked.amount < returned: logic error in early withdrawal calculation".into()))?;
-            
-            if returned <= remaining_to_unlock {
-                // ========== FULL UNLOCK OF THIS ENTRY ==========
-                // We can unlock this entire entry and still need more
-                // Example: Entry returns 500, we need 800 total -> unlock all 500 from this entry
-                total_early_withdrawal_returned += returned;
-                total_lost_to_contract += lost_amount; // Fee stays in contract
-                remaining_to_unlock = remaining_to_unlock.checked_sub(returned)
-                    .map_err(|_| ContractError::Validation("remaining_to_unlock < returned: logic error".into()))?;
-            } else {
-                // ========== PARTIAL UNLOCK OF THIS ENTRY ==========
-                // We only need part of what this entry can provide
-                // Math explanation:
-                // - We want to unlock `unlock_from_this` tokens (which equals `remaining_to_unlock`)
-                // - But we need to calculate: what original locked amount corresponds to this unlock?
-                // - Since: returned = original_locked * ratio
-                // - Then: original_locked = returned / ratio
-                // - So: original_unlocked = unlock_from_this / ratio
-                // - The fee for this partial unlock: partial_lost = original_unlocked - unlock_from_this
-                
-                let unlock_from_this = remaining_to_unlock;
-                total_early_withdrawal_returned += unlock_from_this;
-                
-                // Calculate the original locked amount that corresponds to unlock_from_this
-                // Formula: original_unlocked = unlock_from_this / ratio
-                // Example: If we want 250 tokens returned and ratio is 0.5:
-                //   original_unlocked = 250 / 0.5 = 500 tokens
-                //   This means we're unlocking from 500 original tokens, getting 250 back
-                let original_unlocked = if !ratio.is_zero() {
-                    Decimal::from_ratio(unlock_from_this, Uint128::one()) / ratio
-                } else {
-                    Decimal::zero() // If ratio is zero, can't unlock anything
-                };
-                let original_unlocked = original_unlocked.to_uint_floor();
-                
-                // Calculate the fee (lost amount) for this partial unlock
-                // Formula: partial_lost = original_unlocked - unlock_from_this
-                // Example: 500 original - 250 returned = 250 tokens lost as fee
-                let partial_lost = original_unlocked.checked_sub(unlock_from_this)
-                    .map_err(|_| ContractError::Validation("original_unlocked < unlock_from_this: logic error in partial unlock calculation".into()))?;
-                total_lost_to_contract += partial_lost; // Fee stays in contract
-                
-                // Keep the remaining locked portion
-                // Formula: remaining_locked = locked.amount - original_unlocked
-                // Example: 1000 total - 500 unlocked = 500 tokens still locked
-                if locked.amount > original_unlocked {
-                    still_locked.push(crate::state::LockedVaultToken {
-                        amount: locked.amount.checked_sub(original_unlocked)
-                            .map_err(|_| ContractError::Validation("locked.amount < original_unlocked: logic error".into()))?,
-                        locked_until: locked.locked_until,
-                        intended_lock_days: locked.intended_lock_days,
-                        lock_start_time: locked.lock_start_time,
-                    });
-                }
-                
-                remaining_to_unlock = Uint128::zero();
-            }
-        } else {
-            // ========== EXPIRED LOCK (NO FEE) ==========
-            // Lock has expired, can unlock fully with no loss
-            // Math: returned = locked.amount (100% return, no fee)
-            
-            if locked.amount <= remaining_to_unlock {
-                // Unlock this entire expired entry
-                total_unlocked += locked.amount;
-                remaining_to_unlock = remaining_to_unlock.checked_sub(locked.amount)
-                    .map_err(|_| ContractError::Validation("remaining_to_unlock < locked.amount: logic error".into()))?;
-            } else {
-                // Partial unlock of expired entry (no fee since it's expired)
-                total_unlocked += remaining_to_unlock;
-                // Keep the remaining portion
-                still_locked.push(crate::state::LockedVaultToken {
-                    amount: locked.amount.checked_sub(remaining_to_unlock)
-                        .map_err(|_| ContractError::Validation("locked.amount < remaining_to_unlock: logic error".into()))?,
-                    locked_until: locked.locked_until,
-                    intended_lock_days: locked.intended_lock_days,
-                    lock_start_time: locked.lock_start_time,
-                });
-                remaining_to_unlock = Uint128::zero();
-            }
-        }
-    }
-    
-    let total_to_transfer = total_unlocked + total_early_withdrawal_returned;
-    
-    if total_to_transfer.is_zero() {
-        return Err(ContractError::Validation("No tokens available to unlock".into()));
-    }
-    
-    // Get contract's vault token balance
-    let contract_balance = deps.querier.query_balance(
-        &env.contract.address,
-        &config.vault_token
-    )?.amount;
-    
-    if total_to_transfer > contract_balance {
+    // Validate lock_days
+    if lock_days > config.lock_ceiling {
         return Err(ContractError::Validation(
-            format!("Insufficient contract balance to unlock: need {}, have {}", 
-                total_to_transfer, contract_balance)
+            format!("lock_days ({}) exceeds lock_ceiling ({})", lock_days, config.lock_ceiling),
+        ));
+    }
+    if lock_days == 0 {
+        return Err(ContractError::Validation(
+            "lock_days must be greater than zero".into(),
         ));
     }
     
-    // Transfer unlocked tokens from contract to user
-    // Note: The lost amount (total_lost_to_contract) stays in the contract as a fee
-    if !total_to_transfer.is_zero() {
-        messages.push(BankMsg::Send {
-            to_address: user_key.clone(),
-            amount: vec![coin(total_to_transfer.u128(), config.vault_token.clone())],
-        }.into());
+    if amount.is_zero() {
+        return Err(ContractError::Validation(
+            "Amount must be greater than zero".into(),
+        ));
     }
     
-    // Add lost amount to contract's locked vault tokens (as a fee)
-    if !total_lost_to_contract.is_zero() {
-        let contract_key = env.contract.address.to_string();
-        let mut contract_locked_tokens = crate::state::LOCKED_VAULT_TOKENS
-            .may_load(deps.storage, contract_key.clone())?
-            .unwrap_or_default();
-        
-        // Use a far future lock date (effectively permanent) since this is a fee
-        let lock_until = current_time
-            .checked_add(365 * 86400 * 100) // 100 years in the future (effectively permanent)
-            .unwrap_or(u64::MAX);
-        
-        // Check if contract already has a locked vault token entry for fees
-        // Identify fee entries by intended_lock_days == 36500 (100 years marker)
-        // If so, add to it; otherwise create a new one
-        if let Some(fee_entry) = contract_locked_tokens.iter_mut().find(|entry| {
-            entry.intended_lock_days == 36500
-        }) {
-            // Add to existing fee entry
-            fee_entry.amount = fee_entry.amount.checked_add(total_lost_to_contract)
-                .unwrap_or(fee_entry.amount);
-        } else {
-            // Create new fee entry
-            contract_locked_tokens.push(crate::state::LockedVaultToken {
-                amount: total_lost_to_contract,
-                locked_until: lock_until,
-                intended_lock_days: 36500, // 100 years - used as marker for fee entries
-                lock_start_time: current_time,
-            });
+    // Load user deposits
+    let mut user_deposits = USER_DEPOSITS
+        .may_load(deps.storage, info.sender.to_string())?
+        .unwrap_or_default();
+    
+    if user_deposits.is_empty() {
+        return Err(ContractError::Validation("No deposits found for user".into()));
+    }
+    
+    // Sort deposits by deposit_time (oldest first)
+    user_deposits.sort_by_key(|d| d.deposit_time);
+    
+    // Calculate lock_until timestamp
+    const SECONDS_PER_DAY: u64 = 86_400;
+    let current_time = env.block.time.seconds();
+    let locked_until = current_time
+        .checked_add(lock_days.checked_mul(SECONDS_PER_DAY).ok_or_else(|| {
+            ContractError::Validation("lock_days overflow when calculating seconds".into())
+        })?)
+        .ok_or_else(|| ContractError::Validation("locked_until timestamp overflow".into()))?;
+    
+    // Create locked info
+    let locked_info = Some(membrane::types::Locked {
+        locked_until,
+        perpetual_lock: None,
+        intended_lock_days: Some(lock_days),
+    });
+    
+    // Lock deposits starting from oldest first until amount is locked
+    let mut remaining_to_lock = amount;
+    let mut updated_deposits: Vec<UserDeposit> = Vec::new();
+    
+    for deposit in user_deposits.into_iter() {
+        if remaining_to_lock.is_zero() {
+            // Keep remaining deposits as-is
+            updated_deposits.push(deposit);
+            continue;
         }
         
-        crate::state::LOCKED_VAULT_TOKENS.save(deps.storage, contract_key, &contract_locked_tokens)?;
+        // Only lock unlocked deposits
+        if deposit.locked.is_none() {
+            if deposit.amount <= remaining_to_lock {
+                // Fully lock this deposit
+                updated_deposits.push(UserDeposit {
+                    deposit_id: deposit.deposit_id,
+                    amount: deposit.amount,
+                    deposit_time: deposit.deposit_time,
+                    locked: locked_info.clone(),
+                    start_time: current_time,
+                });
+                remaining_to_lock = remaining_to_lock.checked_sub(deposit.amount)
+                    .map_err(|e| ContractError::Std(StdError::from(e)))?;
+            } else {
+                // Partially lock this deposit - split into locked and unlocked
+                // Assign new deposit ID for the locked portion
+                let locked_deposit_id = CURRENT_DEPOSIT_ID
+                    .may_load(deps.storage)?
+                    .unwrap_or(Uint128::one());
+                CURRENT_DEPOSIT_ID.save(deps.storage, &locked_deposit_id.checked_add(Uint128::one())
+                    .map_err(|e| ContractError::Std(StdError::generic_err(format!("Deposit ID overflow: {}", e))))?)?;
+                
+                updated_deposits.push(UserDeposit {
+                    deposit_id: locked_deposit_id,
+                    amount: remaining_to_lock,
+                    locked: locked_info.clone(),
+                    deposit_time: deposit.deposit_time,
+                    start_time: current_time,
+                });
+                
+                updated_deposits.push(UserDeposit {
+                    deposit_id: deposit.deposit_id,
+                    amount: deposit.amount.checked_sub(remaining_to_lock)
+                        .map_err(|e| ContractError::Std(StdError::from(e)))?,
+                    locked: None,
+                    deposit_time: deposit.deposit_time,
+                    start_time: deposit.start_time,
+                });
+                
+                remaining_to_lock = Uint128::zero();
+            }
+        } else {
+            // Already locked, keep as-is
+            updated_deposits.push(deposit);
+        }
     }
     
-    // Save remaining still_locked tokens (if partial unlock was requested)
-    crate::state::LOCKED_VAULT_TOKENS.save(deps.storage, user_key.clone(), &still_locked)?;
+    if !remaining_to_lock.is_zero() {
+        return Err(ContractError::Validation(
+            format!("Insufficient unlocked deposits to lock. Requested: {}, Available: {}", 
+                amount, amount.checked_sub(remaining_to_lock).unwrap_or(Uint128::zero())),
+        ));
+    }
+    
+    // Save updated deposits
+    USER_DEPOSITS.save(deps.storage, info.sender.to_string(), &updated_deposits)?;
+    
+    // Update retention weight tracking
+    update_retention_weight_tracking(
+        deps.storage,
+        &info.sender.to_string(),
+        &updated_deposits,
+        &env,
+        config.lock_ceiling,
+    )?;
     
     Ok(Response::new()
-        .add_messages(messages)
         .add_attributes(vec![
-            attr("action", "unlock_vault_tokens"),
-            attr("unlocked_expired", total_unlocked),
-            attr("unlocked_early_withdrawal", total_early_withdrawal_returned),
-            attr("early_withdrawal_fee", total_lost_to_contract), // Fee that stays in contract
-            attr("still_locked_count", still_locked.len().to_string()),
+            attr("action", "lock"),
+            attr("amount", amount.to_string()),
+            attr("lock_days", lock_days.to_string()),
+            attr("locked_until", locked_until.to_string()),
         ]))
 }
+
 
 fn execute_exit_vault(
     deps: DepsMut,
@@ -1007,76 +1041,223 @@ fn execute_exit_vault(
     info: MessageInfo,
     recipient: Option<String>,
     withdraw_as: Option<String>,
+    user: Option<String>,
+    deposit_id: Option<Uint128>,
+    amount: Option<Uint128>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let total_deposits = get_total_deposit_value(deps.querier, &env, &config)?;
-    let mut vault_supply = VAULT_TOKEN_SUPPLY.load(deps.storage)?;
-    let mut messages: Vec<CosmosMsg> = vec![];
+    let mut deposit_total = DEPOSIT_TOTAL.load(deps.storage)?;
 
-    if vault_supply.is_zero() {
-        return Err(ContractError::Validation("no vault tokens in circulation".into()));
+    if deposit_total.is_zero() {
+        return Err(ContractError::Validation("no deposits in contract".into()));
     }
 
-    //Get the amount of vault tokens sent
-    let vault_tokens = extract_coin_amount(&info, &config.vault_token)?;
-    if vault_tokens.is_zero() {
-        return Err(ContractError::InvalidFunds { reason: "no vault tokens provided".into() });
-    }
-    if vault_tokens > vault_supply {
-        return Err(ContractError::InvalidFunds {
-            reason: "vault token amount exceeds supply".into(),
-        });
-    }
-
-    
-    
-
-    //Calc & save base token rates for rate assurance
-    let pre_btokens_per_one = calculate_base_tokens(
-        Uint128::new(1_000_000_000_000), 
-        total_deposits, 
-        vault_supply
-    )?;
-    TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
-        pre_btokens_per_one,
-    })?;
-
-    //Calc withdraw value, denominated in asset A
-    let base_amount = calculate_base_tokens(
-        vault_tokens,
-         total_deposits,
-          vault_supply
-        )?;
-
-    //Get the balances of the contract
-    let balances = current_balances(deps.querier, &env, &config.deposit_pair)?;
-    //Calc user share of assets
-    let user_share_of_assets = Decimal::from_ratio(vault_tokens, vault_supply);
-    //Calc user share of asset A
-    let asset_a_share = decimal_multiplication(
-        Decimal::from_ratio(balances.0, Uint128::one()),
-        user_share_of_assets
-    )?.to_uint_floor();
-    //Calc user share of asset B
-    let asset_b_share = decimal_multiplication(
-        Decimal::from_ratio(balances.1, Uint128::one()),
-        user_share_of_assets
-    )?.to_uint_floor();
+    // Determine which user to exit for
+    // If user is provided, only the contract itself can use it
+    let user_addr = if let Some(user_str) = user {
+        if info.sender != env.contract.address {
+            return Err(ContractError::Unauthorized {});
+        }
+        deps.api.addr_validate(&user_str)?
+    } else {
+        info.sender.clone()
+    };
 
     //Get the recipient address
     let recipient_addr = recipient
         .map(|r| deps.api.addr_validate(&r))
         .transpose()?;
-    let recipient_addr = recipient_addr.unwrap_or_else(|| info.sender.clone());
+    let recipient_addr = recipient_addr.unwrap_or_else(|| user_addr.clone());
+
+    let current_time = env.block.time.seconds();
+    
+    // Load user deposits
+    let mut user_deposits = USER_DEPOSITS
+        .may_load(deps.storage, user_addr.to_string())?
+        .unwrap_or_default();
+    
+    if user_deposits.is_empty() {
+        return Err(ContractError::Validation("no deposits found for user".into()));
+    }
+
+    // Handle deposit_id-based withdrawal
+    let (withdrawable_amount, updated_deposits) = if let Some(target_deposit_id) = deposit_id {
+        // Find the specific deposit
+        let deposit_index = user_deposits.iter()
+            .position(|d| d.deposit_id == target_deposit_id)
+            .ok_or_else(|| ContractError::Validation(
+                format!("Deposit with ID {} not found", target_deposit_id)
+            ))?;
+        
+        let deposit = &user_deposits[deposit_index];
+        
+        // Verify deposit is unlocked
+        let is_unlocked = match &deposit.locked {
+            Some(locked) => locked.locked_until <= current_time,
+            None => true,
+        };
+        
+        if !is_unlocked {
+            return Err(ContractError::Validation(
+                format!("Deposit with ID {} is locked", target_deposit_id)
+            ));
+        }
+        
+        // Calculate withdrawal amount
+        let withdrawal_amount = if let Some(requested_amount) = amount {
+            // Withdraw min(requested_amount, deposit.amount)
+            if requested_amount > deposit.amount {
+                deposit.amount
+            } else {
+                requested_amount
+            }
+        } else {
+            // Withdraw entire deposit
+            deposit.amount
+        };
+        
+        if withdrawal_amount.is_zero() {
+            return Err(ContractError::Validation("Withdrawal amount is zero".into()));
+        }
+        
+        // Update the specific deposit
+        let mut updated_deposits = user_deposits.clone();
+        if withdrawal_amount >= deposit.amount {
+            // Fully withdraw this deposit - remove it
+            updated_deposits.remove(deposit_index);
+        } else {
+            // Partially withdraw this deposit
+            updated_deposits[deposit_index] = UserDeposit {
+                deposit_id: deposit.deposit_id,
+                amount: deposit.amount.checked_sub(withdrawal_amount)
+                    .map_err(|e| ContractError::Std(StdError::from(e)))?,
+                deposit_time: deposit.deposit_time,
+                locked: deposit.locked.clone(),
+                start_time: deposit.start_time,
+            };
+        }
+        
+        (withdrawal_amount, updated_deposits)
+    } else {
+        // Original behavior: withdraw all unlocked deposits (newest first)
+        // Sort deposits by deposit_time (newest first)
+        user_deposits.sort_by(|a, b| b.deposit_time.cmp(&a.deposit_time));
+        
+        let mut withdrawable_amount = Uint128::zero();
+        
+        // Calculate total withdrawable (all unlocked deposits)
+        for deposit in &user_deposits {
+            let is_unlocked = match &deposit.locked {
+                Some(locked) => locked.locked_until <= current_time,
+                None => true,
+            };
+            if is_unlocked {
+                withdrawable_amount = withdrawable_amount.checked_add(deposit.amount)
+                    .map_err(|e| ContractError::Std(StdError::from(e)))?;
+            }
+        }
+        
+        if withdrawable_amount.is_zero() {
+            return Err(ContractError::Validation("no unlocked deposits available for withdrawal".into()));
+        }
+        
+        // Update user deposits: remove or reduce withdrawn deposits (newest first)
+        let mut remaining_withdraw = withdrawable_amount;
+        let mut updated_deposits: Vec<UserDeposit> = Vec::new();
+        
+        for deposit in user_deposits.into_iter() {
+            if remaining_withdraw.is_zero() {
+                updated_deposits.push(deposit);
+                continue;
+            }
+            
+            let is_unlocked = match &deposit.locked {
+                Some(locked) => locked.locked_until <= current_time,
+                None => true,
+            };
+            
+            if is_unlocked {
+                if deposit.amount <= remaining_withdraw {
+                    // Fully withdraw this deposit
+                    remaining_withdraw = remaining_withdraw.checked_sub(deposit.amount)
+                        .map_err(|e| ContractError::Std(StdError::from(e)))?;
+                    // Don't add to updated_deposits (fully withdrawn)
+                } else {
+                    // Partially withdraw this deposit
+                    let new_amount = deposit.amount.checked_sub(remaining_withdraw)
+                        .map_err(|e| ContractError::Std(StdError::from(e)))?;
+                    updated_deposits.push(UserDeposit {
+                        deposit_id: deposit.deposit_id,
+                        amount: new_amount,
+                        deposit_time: deposit.deposit_time,
+                        locked: deposit.locked,
+                        start_time: deposit.start_time,
+                    });
+                    remaining_withdraw = Uint128::zero();
+                }
+            } else {
+                // Locked deposit, keep it
+                updated_deposits.push(deposit);
+            }
+        }
+        
+        (withdrawable_amount, updated_deposits)
+    };
+
+    // Save DEPOSIT_TOTAL before withdrawal for rate assurance
+    TOKEN_RATE_ASSURANCE.save(deps.storage, &TokenRateAssurance {
+        pre_deposit_total: deposit_total,
+    })?;
+
+    // Calculate user's share of assets based on withdrawable amount
+    let user_share = Decimal::from_ratio(withdrawable_amount, deposit_total);
+
+    //Get the balances of the contract
+    let balances = current_balances(deps.querier, &env, &config.deposit_pair)?;
+    
+    //Calc user share of asset A
+    let asset_a_share = decimal_multiplication(
+        Decimal::from_ratio(balances.0, Uint128::one()),
+        user_share
+    )?.to_uint_floor();
+    //Calc user share of asset B
+    let asset_b_share = decimal_multiplication(
+        Decimal::from_ratio(balances.1, Uint128::one()),
+        user_share
+    )?.to_uint_floor();
+    
+    // Save updated deposits
+    if updated_deposits.is_empty() {
+        USER_DEPOSITS.remove(deps.storage, user_addr.to_string());
+        // Remove weight tracking if no deposits
+        RETENTION_WEIGHT_TRACKING.remove(deps.storage, user_addr.to_string());
+    } else {
+        USER_DEPOSITS.save(deps.storage, user_addr.to_string(), &updated_deposits)?;
+        // Update retention weight tracking
+        update_retention_weight_tracking(
+            deps.storage,
+            &user_addr.to_string(),
+            &updated_deposits,
+            &env,
+            config.lock_ceiling,
+        )?;
+    }
+    
+    // Update DEPOSIT_TOTAL
+    deposit_total = deposit_total.checked_sub(withdrawable_amount)
+        .map_err(|e| ContractError::Std(StdError::from(e)))?;
+    DEPOSIT_TOTAL.save(deps.storage, &deposit_total)?;
 
     let mut send_coins: Vec<Coin> = vec![];
+    let mut total_a_needed = asset_a_share;
+    let mut total_b_needed = asset_b_share;
 
-    //Send the assets to the recipient & convert assets if needed
+    //Send the assets to the recipient (1:1 conversion for withdraw_as)
     match withdraw_as {
         Some(ref denom) if denom == &config.deposit_pair.cdt => {
-            let converted = convert_asset_b_to_a(asset_b_share, config.asset_a_to_b_rate)?;
-            let total_a_needed = asset_a_share
-                .checked_add(converted)
+            // Convert paired asset share to CDT (1:1)
+            total_a_needed = asset_a_share
+                .checked_add(asset_b_share)
                 .map_err(|err| ContractError::Std(err.into()))?;
             if balances.0 < total_a_needed {
                 return Err(ContractError::InsufficientLiquidity(config.deposit_pair.cdt.clone()));
@@ -1086,9 +1267,9 @@ fn execute_exit_vault(
             }
         }
         Some(ref denom) if denom == &config.deposit_pair.paired_asset => {
-            let converted = convert_asset_a_to_b(asset_a_share, config.asset_a_to_b_rate)?;
-            let total_b_needed = asset_b_share
-                .checked_add(converted)
+            // Convert CDT share to paired asset (1:1)
+            total_b_needed = asset_a_share
+                .checked_add(asset_b_share)
                 .map_err(|err| ContractError::Std(err.into()))?;
             if balances.1 < total_b_needed {
                 return Err(ContractError::InsufficientLiquidity(config.deposit_pair.paired_asset.clone()));
@@ -1110,24 +1291,13 @@ fn execute_exit_vault(
         }
     }
 
-    let burn = burn_msg(
-        config.tokenfactory_contract.clone(),
-        env.contract.address.as_str(),
-        &config.vault_token,
-        vault_tokens,
-        env.contract.address.as_str(),
-    )?;
-
-    //Update the total vault supply
-    vault_supply = decrement_vault_supply(deps.storage, vault_supply, vault_tokens)?;
-    VAULT_TOKEN_SUPPLY.save(deps.storage, &vault_supply)?;
 
     let mut response = Response::new()
-        .add_messages(messages)
-        .add_message(burn)
         .add_attribute("action", "exit_vault")
-        .add_attribute("base_amount", base_amount.to_string())
-        .add_attribute("vault_tokens", vault_tokens.to_string())
+        .add_attribute("user", user_addr.as_str())
+        .add_attribute("withdrawable_amount", withdrawable_amount.to_string())
+        .add_attribute("cdt_withdrawn", total_a_needed.to_string())
+        .add_attribute("paired_asset_withdrawn", total_b_needed.to_string())
         .add_attribute("recipient", recipient_addr.as_str());
 
     if !send_coins.is_empty() {
@@ -1138,7 +1308,7 @@ fn execute_exit_vault(
     }
 
     //Add rate assurance callback msg
-    if !total_deposits.is_zero() && !vault_supply.is_zero() {
+    if !deposit_total.is_zero() {
         response = response.add_message(CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
             msg: to_json_binary(&ExecuteMsg::RateAssurance {})?,
@@ -1174,59 +1344,79 @@ fn execute_transmute(
             reason: "only one asset may be sent for transmute".into(),
         });
     }
-    
+
+    // CDT→paired_asset is restricted to CDP contract only.
+    // All other users must swap paired_asset→CDT.
+    if !funds_a.is_zero()
+        && info.sender != env.contract.address
+        && info.sender.to_string() != config.cdp_contract
+    {
+        return Err(ContractError::CdtToPairedAssetRestricted {});
+    }
+
     // Determine allowlist status
     let is_allowlisted = is_allowlisted_sender(&deps.querier, &info.sender, &config)?;
 
-    //Calc user value sent BEFORE fee deduction, denominated in asset A
-    let user_value_sent = sum_base_value(funds_a, funds_b, config.asset_a_to_b_rate)?;
-    
-    //Calculate fee amount before applying deduction
-    let fee_info: Option<(Uint128, String)> = if !is_allowlisted && info.sender != env.contract.address {
-        if config.usage_fee == Decimal::one() {
-            return Err(ContractError::InvalidFunds {
-                reason: "Blocking non-CDP & non-deployable venue usage".into(),
-            });
+    //Calc user value sent BEFORE fee deduction (1:1 tracking)
+    let user_value_sent = funds_a.checked_add(funds_b)
+        .map_err(|e| ContractError::Std(StdError::from(e)))?;
+
+    // Usage fee: one-sided, CDT→paired_asset only, utilization-gated.
+    // We're adding friction once LP inventory gets low to try and retain optional exit for LPs.
+    // Slows the velocity of liquidity consumption & compensates LPs for being last in line.
+    let fee_info: Option<(Uint128, String)> = if !funds_a.is_zero() {
+        // Calculate paired_asset utilization to determine if fee should activate.
+        // Utilization = 1 - (paired_asset_balance / total_deposit_value).
+        // High utilization means paired_asset is scarce.
+        let (total_value, pa_balance) = get_total_deposit_value(deps.querier, &env, &config)?;
+        let utilization = if total_value.is_zero() {
+            Decimal::one()
         } else {
-            //Calculate fee (original - post-fee)
+            decimal_subtraction(
+                Decimal::one(),
+                Decimal::from_ratio(pa_balance, total_value),
+            ).unwrap_or(Decimal::one())
+        };
+
+        if utilization >= config.usage_fee_utilization_threshold
+            && config.usage_fee > Decimal::zero()
+            && config.usage_fee < Decimal::one()
+        {
+            // Fee activates: paired_asset inventory is low, charge fee on CDT→paired_asset
             let fee_rate = config.usage_fee;
             let fee_amount_a = decimal_multiplication(
                 Decimal::from_ratio(funds_a, Uint128::one()),
                 fee_rate
             )?.to_uint_floor();
-            let fee_amount_b = decimal_multiplication(
-                Decimal::from_ratio(funds_b, Uint128::one()),
-                fee_rate
-            )?.to_uint_floor();
-            
-            //Determine which asset the fee is in
-            let (fee_amount_val, fee_denom_val) = if !funds_a.is_zero() {
-                (fee_amount_a, pair.cdt.clone())
-            } else {
-                (fee_amount_b, pair.paired_asset.clone())
-            };
-            
-            //Set the usage fee
+
+            let fee_amount_val = fee_amount_a;
+            let fee_denom_val = pair.cdt.clone();
+
+            // Deduct fee from CDT amount
             let usage_fee = decimal_subtraction(Decimal::one(), config.usage_fee)?;
-            //Subtract the usage fee from the amount of the asset A sent
             funds_a = decimal_multiplication(
-                Decimal::from_ratio(funds_a, Uint128::one()), 
+                Decimal::from_ratio(funds_a, Uint128::one()),
                 usage_fee
             )?.to_uint_floor();
-            //Subtract the usage fee from the amount of the asset B sent
-            funds_b = decimal_multiplication(
-                Decimal::from_ratio(funds_b, Uint128::one()), 
-                usage_fee
-            )?.to_uint_floor();
-            
+
             Some((fee_amount_val, fee_denom_val))
+        } else if config.usage_fee == Decimal::one() && !is_allowlisted && info.sender != env.contract.address {
+            // 100% fee blocks non-allowlisted CDT→paired_asset usage entirely
+            return Err(ContractError::InvalidFunds {
+                reason: "Blocking non-CDP & non-deployable venue usage".into(),
+            });
+        } else {
+            None
         }
     } else {
+        // paired_asset→CDT: no fee
         None
     };
     
+    // 1:1 swaps: CDT -> paired asset or paired asset -> CDT at 1:1 value ratio
     let (offered_asset, offered_amount, received_asset, received_amount) = if !funds_a.is_zero() {
-        let receive_amount = convert_asset_a_to_b(funds_a, config.asset_a_to_b_rate)?;
+        // CDT -> paired asset: 1:1 swap
+        let receive_amount = funds_a; // 1:1 value
         ensure_contract_balance(deps.querier, &env, &pair.paired_asset, receive_amount)?;
         (
             pair.cdt.clone(),
@@ -1235,7 +1425,8 @@ fn execute_transmute(
             receive_amount,
         )
     } else {
-        let receive_amount = convert_asset_b_to_a(funds_b, config.asset_a_to_b_rate)?;
+        // paired asset -> CDT: 1:1 swap
+        let receive_amount = funds_b; // 1:1 value
         ensure_contract_balance(deps.querier, &env, &pair.cdt, receive_amount)?;
         (
             pair.paired_asset.clone(),
@@ -1273,12 +1464,12 @@ fn execute_transmute(
 
     //Need to subtract the current deposit value from the total deposits to get the correct threshold
     let total_deposits = get_total_deposit_value(
-        deps.querier, 
-        &env, 
+        deps.querier,
+        &env,
         &config
-    )? - user_value_sent;
-    // choose threshold based on whitelist membership
-    let is_allowlisted = config.allowlist.iter().any(|a| a == &info.sender.to_string());
+    )?.0 - user_value_sent;
+    // choose threshold based on whitelist membership (includes CDP contract)
+    let is_allowlisted = is_allowlisted_sender(&deps.querier, &info.sender, &config)?;
     let active_threshold = if is_allowlisted { config.allowlist_rate_limit_threshold } else { config.rate_limit_threshold };
     let threshold_amount = decimal_multiplication(
         Decimal::from_ratio(total_deposits, Uint128::one()),
@@ -1468,17 +1659,21 @@ fn execute_add_to_rate_history(deps: DepsMut, env: Env) -> Result<Response, Cont
         ));
     }
 
-    // Get current conversion rate
+    // Get current conversion rate (1:1 tracking, so 1 deposit unit = 1 base unit)
     let config = CONFIG.load(deps.storage)?;
-    let total_deposit_tokens = get_total_deposit_value(deps.querier, &env, &config)?;
-    let vault_token_supply = VAULT_TOKEN_SUPPLY.load(deps.storage)?;
+    let deposit_total = DEPOSIT_TOTAL.load(deps.storage)?;
+    let (total_deposit_value, _) = get_total_deposit_value(deps.querier, &env, &config)?;
 
-    // Calculate conversion rate: base tokens per 1_000_000_000_000 vault tokens (1 VT)
-    let conversion_rate = calculate_base_tokens(
-        Uint128::new(1_000_000_000_000),
-        total_deposit_tokens,
-        vault_token_supply,
-    )?;
+    // Since 1:1 tracking, conversion rate is 1:1 (1 deposit unit = 1 base unit)
+    // Store as 1_000_000_000_000 for consistency with previous format
+    let conversion_rate = if deposit_total.is_zero() {
+        Uint128::new(1_000_000_000_000)
+    } else {
+        // Ratio is 1:1, so conversion_rate = (total_deposit_value / deposit_total) * 1_000_000_000_000
+        let ratio = Decimal::from_ratio(total_deposit_value, deposit_total);
+        decimal_multiplication(ratio, Decimal::from_ratio(Uint128::new(1_000_000_000_000), Uint128::one()))?
+            .to_uint_floor()
+    };
 
     // Create rate history entry
     let entry = RateHistoryEntry {
@@ -1503,21 +1698,107 @@ fn execute_add_to_rate_history(deps: DepsMut, env: Env) -> Result<Response, Cont
         .add_attribute("timestamp", current_time.seconds().to_string()))
 }
 
+fn execute_repay_user_debt(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    user_info: membrane::types::UserInfo,
+    repayment: Uint128,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    //Ensure the caller is only the position owner or the cdp _contract
+    if info.sender.to_string() != user_info.position_owner.clone() 
+    && info.sender.to_string() != config.cdp_contract.to_string() {
+        return Err(ContractError::Unauthorized {  });
+    }
+
+    //Get retrievable_cdt to know how much can be withdrawn (only unlocked deposits)
+    let user_retrievable_cdt = query_retrievable_cdt(
+        deps.storage, 
+        deps.querier,
+        env.clone(), 
+        user_info.position_owner.clone()
+    )?;
+    
+    if user_retrievable_cdt.is_zero() {
+        return Err(ContractError::Validation("no unlocked CDT available for repayment".into()));
+    }
+
+    // Exit vault for the user (withdrawing as CDT to the contract)
+    // The contract calls exit_vault with the user parameter
+    let exit_response = execute_exit_vault(
+        deps,
+        env.clone(),
+        MessageInfo {
+            sender: env.contract.address.clone(),
+            funds: vec![],
+        },
+        Some(env.contract.address.to_string()), // Contract receives the withdrawn CDT
+        Some(config.deposit_pair.cdt.clone()), // Withdraw as CDT
+        Some(user_info.position_owner.clone()), // Exit for this user
+        None, // deposit_id - withdraw all unlocked deposits
+        None, // amount - withdraw all unlocked deposits
+    )?;
+
+    // Extract cdt_withdrawn from exit response attributes
+    // The cdt_withdrawn attribute contains the actual CDT amount withdrawn
+    let cdt_withdrawn = exit_response
+        .attributes
+        .iter()
+        .find(|attr| attr.key == "cdt_withdrawn")
+        .and_then(|attr| attr.value.parse::<u128>().ok())
+        .map(Uint128::from)
+        .unwrap_or_else(Uint128::zero);
+
+    if cdt_withdrawn.is_zero() {
+        return Err(ContractError::Validation("no CDT was withdrawn from vault exit".into()));
+    }
+
+    // Calculate actual repayment amount: min of requested repayment and CDT actually withdrawn
+    let actual_repayment = std::cmp::min(repayment, cdt_withdrawn);
+
+    // Repay the user's debt using the actual CDT withdrawn
+    let repay_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.cdp_contract.to_string(),
+        msg: to_json_binary(&CDP_ExecuteMsg::Repay {
+            position_id: user_info.position_id.clone(),
+            position_owner: Some(user_info.position_owner.clone()),
+            send_excess_to: Some(user_info.position_owner.clone()),
+            debt_split: None,
+        })?,
+        funds: vec![coin(actual_repayment.u128(), config.deposit_pair.cdt.clone())],
+    });
+
+    // Build response with exit messages and repay message
+    let mut response = exit_response
+        .add_message(repay_msg)
+        .add_attributes(vec![
+            attr("action", "repay_user_debt"),
+            attr("position_id", user_info.position_id.to_string()),
+            attr("position_owner", user_info.position_owner.clone().to_string()),
+            attr("requested_repayment", repayment.to_string()),
+            attr("cdt_withdrawn", cdt_withdrawn.to_string()),
+            attr("actual_repayment", actual_repayment.to_string()),
+        ]);
+
+    // If there's excess CDT withdrawn (more than needed for repayment), send it back to user
+    if cdt_withdrawn > actual_repayment {
+        let excess = cdt_withdrawn.checked_sub(actual_repayment)
+            .map_err(|e| ContractError::Std(StdError::from(e)))?;
+        response = response.add_message(BankMsg::Send {
+            to_address: user_info.position_owner.clone(),
+            amount: vec![coin(excess.u128(), config.deposit_pair.cdt.clone())],
+        });
+    }
+
+    Ok(response)
+}
+
 #[entry_point]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::VaultInfo {} => to_json_binary(&query_vault_info(deps, env)?),
-        QueryMsg::VaultTokenUnderlying { vault_token_amount } => to_json_binary(&calculate_base_tokens(
-            vault_token_amount,
-             get_total_deposit_value(deps.querier, &env, &CONFIG.load(deps.storage)?).map_err(|_err| StdError::GenericErr { msg: format!("Failed to query the contract for the total deposit value") })?,
-              VAULT_TOKEN_SUPPLY.load(deps.storage)?
-            )?),
-        QueryMsg::DepositTokenConversion { deposit_token_amount } => to_json_binary(&calculate_vault_tokens(
-            deposit_token_amount,
-             get_total_deposit_value(deps.querier, &env, &CONFIG.load(deps.storage)?).map_err(|_err| StdError::GenericErr { msg: format!("Failed to query the contract for the total deposit value") })?,
-              VAULT_TOKEN_SUPPLY.load(deps.storage)?
-            )?,),
         QueryMsg::TransmuteHistory { start_after, limit } => {
             to_json_binary(&query_swap_history(deps, start_after, limit)?)
         }
@@ -1545,37 +1826,110 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GlobalRateLimit {} => {
             to_json_binary(&query_global_rate_limit(deps, env)?)
         }
-        QueryMsg::LockedVaultTokens { user } => {
-            let locked_tokens = crate::state::LOCKED_VAULT_TOKENS
-                .may_load(deps.storage, user)?
-                .unwrap_or_default();
-            to_json_binary(&membrane::transmuter::LockedVaultTokensResponse { 
-                locked_tokens: locked_tokens.into_iter().map(|t| membrane::transmuter::LockedVaultToken {
-                    amount: t.amount,
-                    locked_until: t.locked_until,
-                    intended_lock_days: t.intended_lock_days,
-                    lock_start_time: t.lock_start_time,
-                }).collect()
-            })
-        }
         QueryMsg::GetAffiliates { user } => {
             to_json_binary(&crate::state::AFFILIATES.load(deps.storage, user).unwrap_or_else(|_| vec![]))
         }
+        QueryMsg::UserDeposits { user } => {
+            let deposits = USER_DEPOSITS
+                .may_load(deps.storage, user.clone())?
+                .unwrap_or_default();
+            // Convert internal UserDeposit to membrane::transmuter::UserDeposit
+            let response_deposits: Vec<membrane::transmuter::UserDeposit> = deposits
+                .into_iter()
+                .map(|d| membrane::transmuter::UserDeposit {
+                    deposit_id: d.deposit_id,
+                    amount: d.amount,
+                    deposit_time: d.deposit_time,
+                    locked: d.locked,
+                    start_time: d.start_time,
+                })
+                .collect();
+            to_json_binary(&membrane::transmuter::UserDepositsResponse { 
+                deposits: response_deposits 
+            })
+        }
+        QueryMsg::RetrievableCDT { user } => {
+            to_json_binary(&query_retrievable_cdt(deps.storage, deps.querier, env, user)?)
+        }
+        QueryMsg::UserRetentionEmissions { user } => to_json_binary(&query_user_retention_emissions(deps, env, user)?),
+        QueryMsg::GlobalRetentionWeight {} => to_json_binary(&query_global_retention_weight(deps, env)?),
+        QueryMsg::EmissionsConfig {} => to_json_binary(&query_emissions_config(deps)?),
+        QueryMsg::CurrentDepositId { user } => to_json_binary(&query_current_deposit_id(deps, user)?),
+        QueryMsg::DepositById { user, deposit_id } => to_json_binary(&query_deposit_by_id(deps, user, deposit_id)?),
     }
 }
 
 fn query_vault_info(deps: Deps, env: Env) -> StdResult<VaultInfoResponse> {
     let config = CONFIG.load(deps.storage)?;
-    let total_deposit_value = get_total_deposit_value(deps.querier, &env, &config).map_err(|_err| StdError::GenericErr { msg: format!("Failed to query the contract for the total deposit value") })?;
-    let vault_token_supply = VAULT_TOKEN_SUPPLY.load(deps.storage)?;
-    let balances = current_balances(deps.querier, &env, &config.deposit_pair)?;
+    let (total_deposit_value, paired_asset_balance) = get_total_deposit_value(deps.querier, &env, &config).map_err(|_err| StdError::generic_err("Failed to query the contract for the total deposit value"))?;
+    let deposit_total = DEPOSIT_TOTAL.load(deps.storage)?;
+    let cdt_balance = total_deposit_value.saturating_sub(paired_asset_balance);
 
     Ok(VaultInfoResponse {
         total_deposit_value,
-        vault_token_supply,
-        cdt_balance: balances.0,
-        paired_asset_balance: balances.1,
+        deposit_total,
+        cdt_balance,
+        paired_asset_balance,
     })
+}
+
+fn query_retrievable_cdt(storage: &dyn Storage, querier: QuerierWrapper, env: Env, user: String) -> StdResult<Uint128> {
+    let config: Config = CONFIG.load(storage)?;
+    
+    // Get user's deposits and calculate only unlocked deposits
+    let deposits = USER_DEPOSITS
+        .may_load(storage, user.clone())?
+        .unwrap_or_default();
+    
+    let current_time = env.block.time.seconds();
+    
+    // Calculate only unlocked deposit amount
+    let unlocked_deposit_total: Uint128 = deposits
+        .iter()
+        .filter_map(|d| {
+            let is_unlocked = match &d.locked {
+                Some(locked) => locked.locked_until <= current_time,
+                None => true,
+            };
+            if is_unlocked {
+                Some(d.amount)
+            } else {
+                None
+            }
+        })
+        .sum();
+    
+    if unlocked_deposit_total.is_zero() {
+        return Ok(Uint128::zero());
+    }
+    
+    // Get DEPOSIT_TOTAL and contract balances
+    let deposit_total = DEPOSIT_TOTAL.load(storage)?;
+    let balances = current_balances(querier, &env, &config.deposit_pair)?;
+    let cdt_balance = balances.0;
+    let paired_asset_balance = balances.1;
+    
+    // Calculate user's share based on unlocked deposits only
+    let user_share = Decimal::from_ratio(unlocked_deposit_total, deposit_total);
+    
+    // Calculate user's share of CDT and paired asset
+    let cdt_share = decimal_multiplication(
+        Decimal::from_ratio(cdt_balance, Uint128::one()),
+        user_share
+    )?.to_uint_floor();
+    
+    let paired_asset_share = decimal_multiplication(
+        Decimal::from_ratio(paired_asset_balance, Uint128::one()),
+        user_share
+    )?.to_uint_floor();
+    
+    // Convert paired asset share to CDT (1:1 now, so direct addition)
+    let total_retrievable_cdt = cdt_share
+        .checked_add(paired_asset_share)
+        .map_err(|_| StdError::generic_err("Overflow calculating total retrievable CDT"))?;
+    
+    // Return min of total retrievable CDT and contract CDT balance
+    Ok(std::cmp::min(total_retrievable_cdt, cdt_balance))
 }
 
 fn build_rate_limit_status(
@@ -1598,7 +1952,7 @@ fn build_rate_limit_status(
     for e in &entries {
         net_total = net_total.saturating_add(e.amount_base.i128());
     }
-    let total_deposits = get_total_deposit_value(deps.querier, env, &config)
+    let (total_deposits, _) = get_total_deposit_value(deps.querier, env, &config)
         .map_err(|_e| StdError::generic_err("Failed to query the contract for the total deposit value"))?;
     let is_allowlisted = config.allowlist.iter().any(|a| a == &key);
     let active_threshold = if is_allowlisted { config.allowlist_rate_limit_threshold } else { config.rate_limit_threshold };
@@ -1833,49 +2187,23 @@ fn current_balances(
     Ok((balances[0], balances[1]))
 }
 
-fn sum_base_value(
-    asset_a_amount: Uint128,
-    asset_b_amount: Uint128,
-    rate: Decimal,
-) -> Result<Uint128, ContractError> {
-    let converted_b_to_a = convert_asset_b_to_a(asset_b_amount, rate)?;
-    asset_a_amount
-        .checked_add(converted_b_to_a)
-        .map_err(|err| ContractError::Std(err.into()))
-}
 
 fn compute_effective_cdt_cdt_target_ratio(deps: Deps, env: &Env, config: &Config) -> StdResult<Decimal> {
-    // total deposits in base A (cdt) units
-    let total_deposits = get_total_deposit_value(deps.querier.clone(), env, config)
+    // total deposits (1:1 tracking: CDT + paired asset)
+    let (total_deposits, _) = get_total_deposit_value(deps.querier.clone(), env, config)
         .map_err(|e| StdError::generic_err(format!("{e}")))?;
     if total_deposits.is_zero() {
         return Ok(config.cdt_target_ratio);
     }
-    // value of deployed paired asset converted to base A
+    // value of deployed paired asset (1:1, so direct addition)
     let deployed_paired = DEPLOYED_PAIRED_ASSET
         .load(deps.storage)
         .unwrap_or_else(|_| Uint128::zero());
-    let deployed_value_in_a = convert_asset_b_to_a(deployed_paired, config.asset_a_to_b_rate)
-        .map_err(|e| StdError::generic_err(format!("{e}")))?;
-    let min_target = Decimal::from_ratio(deployed_value_in_a, total_deposits);
+    // Since 1:1, deployed_paired is already in the same units as total_deposits
+    let min_target = Decimal::from_ratio(deployed_paired, total_deposits);
     Ok(if min_target > config.cdt_target_ratio { min_target } else { config.cdt_target_ratio })
 }
 
-fn convert_asset_a_to_b(amount: Uint128, rate: Decimal) -> Result<Uint128, ContractError> {
-    let decimal_amount = Decimal::from_ratio(amount, Uint128::one());
-    Ok(decimal_multiplication(rate, decimal_amount)?.to_uint_floor())
-}
-
-fn convert_asset_b_to_a(amount: Uint128, rate: Decimal) -> Result<Uint128, ContractError> {
-    if rate.is_zero() {
-        return Err(ContractError::Validation(
-            "asset_a_to_b_rate must be greater than zero".into(),
-        ));
-    }
-    let inv_rate = decimal_division(Decimal::one(), rate)?;
-    let decimal_amount = Decimal::from_ratio(amount, Uint128::one());
-    Ok(decimal_multiplication(inv_rate, decimal_amount)?.to_uint_floor())
-}
 
 /// Ensures deposits are pushing the ratio closer to the target ratio or keeping it stagnant
 fn ensure_deposit_alignment(
@@ -1903,10 +2231,12 @@ fn ensure_deposit_alignment(
         .checked_sub(deposit_b)
         .map_err(|err| ContractError::Std(err.into()))?;
 
-    //Get the total deposit value before the deposit
-    let total_before = sum_base_value(pre_a, pre_b, config.asset_a_to_b_rate)?;
-    //Get the user deposit value
-    let deposit_value = sum_base_value(deposit_a, deposit_b, config.asset_a_to_b_rate)?;
+    //Get the total deposit value before the deposit (1:1 tracking)
+    let total_before = pre_a.checked_add(pre_b)
+        .map_err(|e| ContractError::Std(StdError::from(e)))?;
+    //Get the user deposit value (1:1 tracking)
+    let deposit_value = deposit_a.checked_add(deposit_b)
+        .map_err(|e| ContractError::Std(StdError::from(e)))?;
     if deposit_value.is_zero() {
         return Err(ContractError::InvalidFunds {
             reason: "deposit value is zero".into(),
@@ -1919,25 +2249,27 @@ fn ensure_deposit_alignment(
     //If the total contract value before the deposit is zero,
     //...we need to ensure the user deposit value is within the leeway
     if total_before.is_zero() {
-        // let deposit_ratio = Decimal::from_ratio(deposit_a, deposit_value);
-        // ensure_within_leeway(deposit_ratio, target, leeway)?;
+        // Check deposit ratio directly
+        let deposit_ratio = Decimal::from_ratio(deposit_a, deposit_value);
+        ensure_within_leeway(deposit_ratio, target, leeway)?;
         return Ok(());
     }
 
-    //Get the current ratio (pre-deposit)
+    //Get the current ratio (pre-deposit) - CDT ratio
     let current_ratio = Decimal::from_ratio(pre_a, total_before);
 
     let new_a = balances_after.0;
     let new_b = balances_after.1;
-    //Get the total contract value after the deposit
-    let total_after = sum_base_value(new_a, new_b, config.asset_a_to_b_rate)?;
+    //Get the total contract value after the deposit (1:1 tracking)
+    let total_after = new_a.checked_add(new_b)
+        .map_err(|e| ContractError::Std(StdError::from(e)))?;
     if total_after.is_zero() {
         return Err(ContractError::InvalidFunds {
             reason: "resulting deposit value is zero".into(),
         });
     }
 
-    //Get the new ratio of Asset A (post-deposit)
+    //Get the new ratio of Asset A (post-deposit) - CDT ratio
     let new_ratio = Decimal::from_ratio(new_a, total_after);
 
     //Get the difference between the current ratio and the target ratio
@@ -2004,38 +2336,19 @@ fn decimal_abs_diff(a: Decimal, b: Decimal) -> Result<Decimal, ContractError> {
     }
 }
 
+/// Returns (total_deposit_value, paired_asset_balance)
 fn get_total_deposit_value(
     querier: QuerierWrapper,
     env: &Env,
     config: &Config,
-) -> Result<Uint128, ContractError> {
+) -> Result<(Uint128, Uint128), ContractError> {
     let balances = current_balances(querier, env, &config.deposit_pair)?;
-    sum_base_value(balances.0, balances.1, config.asset_a_to_b_rate)
+    // 1:1 tracking: CDT + paired asset
+    let total = balances.0.checked_add(balances.1)
+        .map_err(|e| ContractError::Std(StdError::from(e)))?;
+    Ok((total, balances.1))
 }
 
-fn increment_vault_supply(
-    storage: &mut dyn Storage,
-    current_supply: Uint128,
-    amount: Uint128,
-) -> Result<Uint128, ContractError> {
-    let new_supply = current_supply
-        .checked_add(amount)
-        .map_err(|err| ContractError::Std(err.into()))?;
-    VAULT_TOKEN_SUPPLY.save(storage, &new_supply)?;
-    Ok(new_supply)
-}
-
-fn decrement_vault_supply(
-    storage: &mut dyn Storage,
-    current_supply: Uint128,
-    amount: Uint128,
-) -> Result<Uint128, ContractError> {
-    let new_supply = current_supply
-        .checked_sub(amount)
-        .map_err(|err| ContractError::Std(err.into()))?;
-    VAULT_TOKEN_SUPPLY.save(storage, &new_supply)?;
-    Ok(new_supply)
-}
 
 ///Rate assurance
 /// Ensures that the conversion rate is static for deposits & withdrawals
@@ -2054,22 +2367,22 @@ fn execute_rate_assurance(
 
     //Load State
     let token_rate_assurance = TOKEN_RATE_ASSURANCE.load(deps.storage)?;
-    let total_vault_tokens = VAULT_TOKEN_SUPPLY.load(deps.storage)?;
+    let deposit_total = DEPOSIT_TOTAL.load(deps.storage)?;
 
-    //Get total deposit tokens
-    let total_deposit_tokens = get_total_deposit_value(deps.querier.clone(), &env, &config)?;
+    //Get total deposit value from contract balances (1:1 tracking)
+    let (total_deposit_value, _) = get_total_deposit_value(deps.querier.clone(), &env, &config)?;
 
-    //Calc the rate of vault tokens to deposit tokens
-    let btokens_per_one = calculate_base_tokens(
-        Uint128::new(1_000_000_000_000), 
-        total_deposit_tokens, 
-        total_vault_tokens
-    )?;
-
-    //Check that the rates are within 1 millionth
-    if !(btokens_per_one + Uint128::one() >= token_rate_assurance.pre_btokens_per_one) {
-        return Err(ContractError::CustomError { val: format!("Conversation rate assurance failed, should be equal or greater than. If its 1 off just try again. Deposit tokens per 1 pre-tx: {:?} --- post-tx: {:?}", token_rate_assurance.pre_btokens_per_one, btokens_per_one) });
+    //Verify that DEPOSIT_TOTAL matches contract balances (within 1 unit for rounding)
+    if deposit_total > total_deposit_value.checked_add(Uint128::one()).unwrap_or(deposit_total)
+        || deposit_total < total_deposit_value.saturating_sub(Uint128::one()) {
+        return Err(ContractError::CustomError { 
+            val: format!("Deposit total assurance failed. DEPOSIT_TOTAL: {:?}, Contract balances: {:?}. If its 1 off just try again.", 
+                deposit_total, total_deposit_value) 
+        });
     }
+    
+    // Note: DEPOSIT_TOTAL can decrease during exits, which is expected behavior
+    // The main check above ensures DEPOSIT_TOTAL matches contract balances
     //We're adding 1 to stop errors for rounding errors.
 
     Ok(Response::new())
@@ -2108,6 +2421,22 @@ fn collect_and_distribute_fees(
         (current_fee_amount, current_fee_denom)
     };
     
+    // Calculate the amount to send to revenue distributor based on percentage
+    let amount_to_send = decimal_multiplication(
+        Decimal::from_ratio(total_fee_amount, Uint128::one()),
+        config.revenue_distributor_fee_percentage
+    )?.to_uint_floor();
+    
+    // If amount_to_send is zero, nothing to send (remaining fees stay in contract)
+    if amount_to_send.is_zero() {
+        // If fee is in paired_asset, save as pending revenue
+        if total_fee_denom == config.deposit_pair.paired_asset {
+            PENDING_REVENUE.save(storage, &total_fee_amount)?;
+        }
+        // If fee is in CDT, it stays in contract balance (no action needed)
+        return Ok(messages);
+    }
+    
     // If the total fee is in CDT, send it directly to revenue distributor.
     //THIS IS SAYING, FOR THE TRANSMUTER'S REVENUE, WHICH DISCO DO WE WANT TO DISTRIBUTE IT TO?
     if total_fee_denom == config.deposit_pair.cdt {
@@ -2115,7 +2444,7 @@ fn collect_and_distribute_fees(
         let mut ltv_disco_distribution = Vec::new();
         for liq_asset in &config.revenue_distributions {
             let amount: Uint128 = decimal_multiplication(
-                Decimal::from_ratio(total_fee_amount, Uint128::one()),
+                Decimal::from_ratio(amount_to_send, Uint128::one()),
                 liq_asset.amount
             )?.to_uint_floor();
             if !amount.is_zero() {
@@ -2126,20 +2455,21 @@ fn collect_and_distribute_fees(
             }
         }
 
-        //Ensure the total distribution amount is less than the total fee amount
+        //Ensure the total distribution amount is less than the amount to send
         let total_distribution_amount = ltv_disco_distribution.iter().map(|asset| asset.amount).sum::<Uint128>();
-        if total_distribution_amount > total_fee_amount {
-            return Err(ContractError::Std(StdError::generic_err("Total distribution amount is greater than total fee amount")));
+        if total_distribution_amount > amount_to_send {
+            return Err(ContractError::Std(StdError::generic_err("Total distribution amount is greater than amount to send")));
         }
         
         // Send CDT to revenue distributor via SetPromises
+        // Remaining fees (total_fee_amount - amount_to_send) stay in contract balance
         let set_promises_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: rd_addr.to_string(),
             msg: to_json_binary(&RevenueDistributorExecuteMsg::SetPromises {
                 promises: vec![],
                 ltv_disco_distribution: Some(ltv_disco_distribution),
             })?,
-            funds: vec![coin(total_fee_amount.u128(), config.deposit_pair.cdt.clone())],
+            funds: vec![coin(amount_to_send.u128(), config.deposit_pair.cdt.clone())],
         });
         messages.push(set_promises_msg);
         
@@ -2153,26 +2483,26 @@ fn collect_and_distribute_fees(
     // Calculate how much CDT we can transmute from the paired_asset balance
     // Use the exchange rate to figure out max transmutable
     if cdt_balance.is_zero() {
-        // No CDT available, total_fee_amount already includes any previous pending + current fee
-        // We've already added current_fee to pending in the logic above (lines 1583-1591)
-        // So we just save the updated total_fee_amount which is the new pending
+        // No CDT available, save the total_fee_amount as pending
+        // The amount_to_send portion will be transmuted later when CDT is available
         PENDING_REVENUE.save(storage, &total_fee_amount)?;
         return Ok(messages);
     }
     
-    // Calculate how much paired_asset we can transmute based on CDT available
-    // We want to transmute min(total_fee_amount, amount_that_can_be_covered_by_cdt_balance)
-    let max_paired_asset_transmutable = convert_asset_b_to_a(cdt_balance, config.asset_a_to_b_rate)?;
-    let amount_to_transmute = if total_fee_amount <= max_paired_asset_transmutable {
-        total_fee_amount
+    // Calculate how much paired_asset we can transmute based on CDT available (1:1)
+    // We want to transmute min(amount_to_send, cdt_balance)
+    let amount_to_transmute = if amount_to_send <= cdt_balance {
+        amount_to_send
     } else {
-        max_paired_asset_transmutable
+        cdt_balance
     };
     
-    // Calculate how much CDT we'll get from this transmutation
-    let cdt_received = convert_asset_a_to_b(amount_to_transmute, config.asset_a_to_b_rate)?;
+    // Calculate how much CDT we'll get from this transmutation (1:1 swap)
+    let cdt_received = amount_to_transmute; // 1:1 value
     
     // Update pending revenue with remaining amount that couldn't be transmuted
+    // This includes: (total_fee_amount - amount_to_send) + (amount_to_send - amount_to_transmute)
+    // = total_fee_amount - amount_to_transmute
     let remaining_pending = total_fee_amount.checked_sub(amount_to_transmute)
         .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
     PENDING_REVENUE.save(storage, &remaining_pending)?;
@@ -2193,6 +2523,7 @@ fn collect_and_distribute_fees(
     }
     
     // Send CDT to revenue distributor via SetPromises
+    // Remaining fees (total_fee_amount - amount_to_transmute) stay as pending revenue
     if !cdt_received.is_zero() {
         let set_promises_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: rd_addr.to_string(),
@@ -2226,7 +2557,7 @@ fn query_global_rate_limit(
     for e in &entries {
         net_total = net_total.saturating_add(e.amount_base.i128());
     }
-    let total_deposits = get_total_deposit_value(deps.querier, &env, &config)
+    let (total_deposits, _) = get_total_deposit_value(deps.querier, &env, &config)
         .map_err(|_e| StdError::generic_err("Failed to query the contract for the total deposit value"))?;
     let threshold_base = decimal_multiplication(
         Decimal::from_ratio(total_deposits, Uint128::one()),
@@ -2387,9 +2718,7 @@ fn split_affiliate_fee(
     // Assert that the sum of the affiliate fees is equal or less than the affiliate fee
     let sum_of_affiliate_fees = affiliate_fees.iter().sum::<Decimal>();
     if sum_of_affiliate_fees > affiliate_fee {
-        return Err(StdError::GenericErr { 
-            msg: format!("Sum of affiliate fees is greater than the affiliate fee: {} > {}", sum_of_affiliate_fees, affiliate_fee) 
-        });
+        return Err(StdError::generic_err(format!("Sum of affiliate fees is greater than the affiliate fee: {} > {}", sum_of_affiliate_fees, affiliate_fee)));
     }
     
     Ok(affiliate_fees)
@@ -2430,4 +2759,1077 @@ fn update_affiliates(
     crate::state::AFFILIATES.save(storage, user, &updated_affiliates)?;
     
     Ok(())
+}
+
+// ================= Retention Emissions Functions =================
+
+/// Calculate retention weight for a deposit using two-phase ramp (mirroring MBRN discounts)
+/// First month: 60% weight ramps quickly over 30 days
+/// Remaining: 40% weight ramps over remaining 60 days
+/// Lock weight: lock_days / lock_ceiling (no +1)
+/// Combined: (time_weight + lock_weight).min(1.0)
+/// Final: deposit_amount * combined_weight
+fn calculate_retention_weight(
+    deposit_amount: Uint128,
+    deposit_time: u64,
+    lock_days: Option<u64>,
+    current_time: u64,
+    lock_ceiling: u64,
+) -> Result<Uint128, ContractError> {
+    const SECONDS_PER_DAY: u64 = 86_400;
+    
+    let days_since_deposit = (current_time.saturating_sub(deposit_time)) / SECONDS_PER_DAY;
+    
+    // Time-based weight: two-phase ramp (60% first month, 40% remaining)
+    let time_weight = if days_since_deposit >= RETENTION_CURVE_DURATION_DAYS {
+        Decimal::one()
+    } else {
+        // First month progress: min(days_since_deposit, first_month_days) / first_month_days
+        let first_month_progress = Decimal::from_ratio(
+            days_since_deposit.min(RETENTION_FIRST_MONTH_DAYS),
+            RETENTION_FIRST_MONTH_DAYS,
+        );
+        let first_month_weight = decimal_multiplication(
+            RETENTION_FIRST_MONTH_WEIGHT,
+            first_month_progress,
+        )?;
+        
+        // Remaining days: days_since_deposit - first_month_days (if > first_month_days)
+        let remaining_days = if days_since_deposit > RETENTION_FIRST_MONTH_DAYS {
+            days_since_deposit - RETENTION_FIRST_MONTH_DAYS
+        } else {
+            0
+        };
+        
+        // Remaining duration: curve_duration - first_month_days
+        let remaining_duration_days = RETENTION_CURVE_DURATION_DAYS - RETENTION_FIRST_MONTH_DAYS;
+        let remaining_progress = if remaining_duration_days > 0 {
+            Decimal::from_ratio(
+                remaining_days.min(remaining_duration_days),
+                remaining_duration_days,
+            )
+        } else {
+            Decimal::zero()
+        };
+        let remaining_weight = decimal_multiplication(
+            RETENTION_REMAINING_WEIGHT,
+            remaining_progress,
+        )?;
+        
+        // Total time weight: first_month_weight + remaining_weight (capped at 1.0)
+        (first_month_weight + remaining_weight).min(Decimal::one())
+    };
+    
+    // Lock-based weight: lock_days / lock_ceiling (no +1)
+    let lock_weight = if let Some(lock_days) = lock_days {
+        if lock_ceiling == 0 {
+            Decimal::zero()
+        } else {
+            Decimal::from_ratio(lock_days, lock_ceiling)
+        }
+    } else {
+        Decimal::zero()
+    };
+    
+    // Combined weight: time_weight + lock_weight (capped at 1.0)
+    let combined_weight = (time_weight + lock_weight).min(Decimal::one());
+    
+    // Final weight = deposit_amount * combined_weight
+    let weight = decimal_multiplication(
+        Decimal::from_ratio(deposit_amount, Uint128::one()),
+        combined_weight,
+    )?.to_uint_floor();
+    
+    Ok(weight)
+}
+
+/// Calculate retention weight at a specific timestamp using tracking data
+/// Similar to calculate_lvt_at_time() in ltv_disco
+fn calculate_retention_weight_at_time(
+    base_weight: Uint128,
+    reference_time: u64,
+    base_daily_delta: Int128,
+    time_cliffs: &[WeightTimeCliff],
+    timestamp: u64,
+) -> Result<Uint128, ContractError> {
+    const ONE_DAY_SECONDS: u64 = 86_400;
+    
+    if timestamp == reference_time {
+        return Ok(base_weight);
+    }
+    
+    let mut current_weight = Int128::from(base_weight.u128() as i128);
+    let mut current_daily_delta = base_daily_delta;
+    
+    if timestamp > reference_time {
+        // Forward time: process cliffs up to timestamp
+        let mut last_time = reference_time;
+        
+        for cliff in time_cliffs {
+            if cliff.timestamp > timestamp {
+                break;
+            }
+            
+            // Skip if cliff timestamp is before last_time (shouldn't happen if sorted, but safety check)
+            if cliff.timestamp < last_time {
+                // Update daily delta but don't apply weight change
+                current_daily_delta = current_daily_delta + cliff.delta_change;
+                continue;
+            }
+            
+            // Apply delta from last_time to cliff.timestamp
+            let days_elapsed = (cliff.timestamp - last_time) / ONE_DAY_SECONDS;
+            current_weight = current_weight + (current_daily_delta * Int128::from(days_elapsed as i128));
+            
+            // Update daily delta
+            current_daily_delta = current_daily_delta + cliff.delta_change;
+            last_time = cliff.timestamp;
+        }
+        
+        // Apply remaining delta from last cliff (or reference_time) to timestamp
+        // Safety check: ensure timestamp >= last_time to prevent underflow
+        if timestamp >= last_time {
+            let days_elapsed = (timestamp - last_time) / ONE_DAY_SECONDS;
+            current_weight = current_weight + (current_daily_delta * Int128::from(days_elapsed as i128));
+        }
+    } else {
+        // Backward time: process cliffs in reverse
+        let mut last_time = reference_time;
+        
+        for cliff in time_cliffs.iter().rev() {
+            if cliff.timestamp < timestamp {
+                break;
+            }
+            
+            // Skip if cliff timestamp is after last_time (shouldn't happen if sorted, but safety check)
+            if cliff.timestamp > last_time {
+                // Revert daily delta change but don't apply weight change
+                current_daily_delta = current_daily_delta - cliff.delta_change;
+                continue;
+            }
+            
+            // Apply delta backward from last_time to cliff.timestamp
+            let days_elapsed = (last_time - cliff.timestamp) / ONE_DAY_SECONDS;
+            current_weight = current_weight - (current_daily_delta * Int128::from(days_elapsed as i128));
+            
+            // Revert daily delta change
+            current_daily_delta = current_daily_delta - cliff.delta_change;
+            last_time = cliff.timestamp;
+        }
+        
+        // Apply remaining delta backward from last cliff (or reference_time) to timestamp
+        let days_elapsed = (last_time - timestamp) / ONE_DAY_SECONDS;
+        current_weight = current_weight - (current_daily_delta * Int128::from(days_elapsed as i128));
+    }
+    
+    // Ensure weight doesn't go negative
+    if current_weight < Int128::zero() {
+        Ok(Uint128::zero())
+    } else {
+        // Convert Int128 to u128 (safe since we checked it's non-negative)
+        // Int128 stores as i128, so we can safely cast to u128 if non-negative
+        let weight_i128 = current_weight.i128();
+        if weight_i128 < 0 {
+            Ok(Uint128::zero())
+        } else {
+            Ok(Uint128::from(weight_i128 as u128))
+        }
+    }
+}
+
+/// Calculate deposit contribution to retention weight (similar to calculate_deposit_contribution in ltv_disco)
+/// Returns: (base_weight, daily_delta, cliffs)
+fn calculate_deposit_weight_contribution(
+    deposit: &UserDeposit,
+    env: &Env,
+    lock_ceiling: u64,
+) -> Result<(Uint128, Int128, Vec<WeightTimeCliff>), ContractError> {
+    const ONE_DAY_SECONDS: u64 = 86_400;
+    let deposit_amount = deposit.amount;
+    let current_time = env.block.time.seconds();
+    
+    // Handle locks
+    let (locked_until, is_perpetual) = if let Some(ref locked) = deposit.locked {
+        if let Some(perpetual_days) = locked.perpetual_lock {
+            // Perpetual: treat as constant boost (locked_until stays in future)
+            let virtual_locked_until = current_time + perpetual_days * ONE_DAY_SECONDS;
+            (virtual_locked_until, true)
+        } else {
+            (locked.locked_until, false)
+        }
+    } else {
+        // Unlocked: only time boost applies
+        // Two-phase ramp: 60% in first month (30 days), 40% in remaining (60 days)
+        // First month: daily_delta = (deposit_amount * 0.6) / 30
+        // Remaining: daily_delta = (deposit_amount * 0.4) / 60
+        let first_month_weight = decimal_multiplication(
+            Decimal::from_ratio(deposit_amount, Uint128::one()),
+            RETENTION_FIRST_MONTH_WEIGHT,
+        )?.to_uint_floor();
+        let first_month_daily_delta = Int128::from(
+            (first_month_weight.u128() as i128) / (RETENTION_FIRST_MONTH_DAYS as i128)
+        );
+        
+        let remaining_weight = decimal_multiplication(
+            Decimal::from_ratio(deposit_amount, Uint128::one()),
+            RETENTION_REMAINING_WEIGHT,
+        )?.to_uint_floor();
+        let remaining_duration_days = RETENTION_CURVE_DURATION_DAYS - RETENTION_FIRST_MONTH_DAYS;
+        let remaining_daily_delta = Int128::from(
+            (remaining_weight.u128() as i128) / (remaining_duration_days as i128)
+        );
+        
+        // Create cliffs for phase transitions
+        let mut cliffs = Vec::new();
+        
+        // Cliff at end of first month: change daily_delta from first_month to remaining
+        let first_month_end_time = deposit.deposit_time + (RETENTION_FIRST_MONTH_DAYS * ONE_DAY_SECONDS);
+        if first_month_end_time > current_time {
+            cliffs.push(WeightTimeCliff {
+                timestamp: first_month_end_time,
+                delta_change: remaining_daily_delta - first_month_daily_delta, // Change delta
+            });
+        }
+        
+        // Cliff at end of curve: stop the ramp
+        let curve_end_time = deposit.deposit_time + (RETENTION_CURVE_DURATION_DAYS * ONE_DAY_SECONDS);
+        if curve_end_time > current_time {
+            cliffs.push(WeightTimeCliff {
+                timestamp: curve_end_time,
+                delta_change: -remaining_daily_delta, // Stop the daily increase
+            });
+        }
+        
+        return Ok((
+            Uint128::zero(), // Base: 0 at deposit time
+            first_month_daily_delta, // Initial daily delta: first month ramp
+            cliffs
+        ));
+    };
+    
+    // Calculate current lock days
+    let lock_days = if locked_until > current_time {
+        (locked_until - current_time) / ONE_DAY_SECONDS
+    } else {
+        0
+    };
+    
+    // Calculate current weight using two-phase ramp formula
+    let days_since_deposit = (current_time.saturating_sub(deposit.deposit_time)) / ONE_DAY_SECONDS;
+    let time_weight_ratio = if days_since_deposit >= RETENTION_CURVE_DURATION_DAYS {
+        Decimal::one()
+    } else {
+        // First month progress: min(days_since_deposit, first_month_days) / first_month_days
+        let first_month_progress = Decimal::from_ratio(
+            days_since_deposit.min(RETENTION_FIRST_MONTH_DAYS),
+            RETENTION_FIRST_MONTH_DAYS,
+        );
+        let first_month_weight = decimal_multiplication(
+            RETENTION_FIRST_MONTH_WEIGHT,
+            first_month_progress,
+        )?;
+        
+        // Remaining days: days_since_deposit - first_month_days (if > first_month_days)
+        let remaining_days = if days_since_deposit > RETENTION_FIRST_MONTH_DAYS {
+            days_since_deposit - RETENTION_FIRST_MONTH_DAYS
+        } else {
+            0
+        };
+        
+        // Remaining duration: curve_duration - first_month_days
+        let remaining_duration_days = RETENTION_CURVE_DURATION_DAYS - RETENTION_FIRST_MONTH_DAYS;
+        let remaining_progress = if remaining_duration_days > 0 {
+            Decimal::from_ratio(
+                remaining_days.min(remaining_duration_days),
+                remaining_duration_days,
+            )
+        } else {
+            Decimal::zero()
+        };
+        let remaining_weight = decimal_multiplication(
+            RETENTION_REMAINING_WEIGHT,
+            remaining_progress,
+        )?;
+        
+        // Total time weight: first_month_weight + remaining_weight (capped at 1.0)
+        (first_month_weight + remaining_weight).min(Decimal::one())
+    };
+    
+    let lock_weight_ratio = if lock_ceiling == 0 {
+        Decimal::zero()
+    } else {
+        Decimal::from_ratio(lock_days, lock_ceiling)
+    };
+    
+    let combined_ratio = (time_weight_ratio + lock_weight_ratio).min(Decimal::one());
+    let current_weight = decimal_multiplication(
+        Decimal::from_ratio(deposit_amount, Uint128::one()),
+        combined_ratio,
+    )?.to_uint_floor();
+    
+    // Calculate daily delta based on current phase of two-phase ramp
+    let days_since_deposit_for_delta = (current_time.saturating_sub(deposit.deposit_time)) / ONE_DAY_SECONDS;
+    let daily_delta = if days_since_deposit_for_delta >= RETENTION_CURVE_DURATION_DAYS {
+        // Past curve duration: no increase
+        Int128::zero()
+    } else if days_since_deposit_for_delta >= RETENTION_FIRST_MONTH_DAYS {
+        // In remaining phase: (deposit_amount * 0.4) / 60
+        let remaining_weight = decimal_multiplication(
+            Decimal::from_ratio(deposit_amount, Uint128::one()),
+            RETENTION_REMAINING_WEIGHT,
+        )?.to_uint_floor();
+        let remaining_duration_days = RETENTION_CURVE_DURATION_DAYS - RETENTION_FIRST_MONTH_DAYS;
+        Int128::from((remaining_weight.u128() as i128) / (remaining_duration_days as i128))
+    } else {
+        // In first month phase: (deposit_amount * 0.6) / 30
+        let first_month_weight = decimal_multiplication(
+            Decimal::from_ratio(deposit_amount, Uint128::one()),
+            RETENTION_FIRST_MONTH_WEIGHT,
+        )?.to_uint_floor();
+        Int128::from((first_month_weight.u128() as i128) / (RETENTION_FIRST_MONTH_DAYS as i128))
+    };
+    
+    // Create cliffs for phase transitions and lock expiration
+    let mut cliffs = Vec::new();
+    
+    // Cliff at end of first month: change daily_delta from first_month to remaining
+    let first_month_end_time = deposit.deposit_time + (RETENTION_FIRST_MONTH_DAYS * ONE_DAY_SECONDS);
+    if first_month_end_time > current_time {
+        let first_month_weight = decimal_multiplication(
+            Decimal::from_ratio(deposit_amount, Uint128::one()),
+            RETENTION_FIRST_MONTH_WEIGHT,
+        )?.to_uint_floor();
+        let first_month_daily_delta = Int128::from(
+            (first_month_weight.u128() as i128) / (RETENTION_FIRST_MONTH_DAYS as i128)
+        );
+        
+        let remaining_weight = decimal_multiplication(
+            Decimal::from_ratio(deposit_amount, Uint128::one()),
+            RETENTION_REMAINING_WEIGHT,
+        )?.to_uint_floor();
+        let remaining_duration_days = RETENTION_CURVE_DURATION_DAYS - RETENTION_FIRST_MONTH_DAYS;
+        let remaining_daily_delta = Int128::from(
+            (remaining_weight.u128() as i128) / (remaining_duration_days as i128)
+        );
+        
+        cliffs.push(WeightTimeCliff {
+            timestamp: first_month_end_time,
+            delta_change: remaining_daily_delta - first_month_daily_delta, // Change delta
+        });
+    }
+    
+    // Cliff at end of curve: stop the ramp
+    let curve_end_time = deposit.deposit_time + (RETENTION_CURVE_DURATION_DAYS * ONE_DAY_SECONDS);
+    if curve_end_time > current_time {
+        let remaining_weight = decimal_multiplication(
+            Decimal::from_ratio(deposit_amount, Uint128::one()),
+            RETENTION_REMAINING_WEIGHT,
+        )?.to_uint_floor();
+        let remaining_duration_days = RETENTION_CURVE_DURATION_DAYS - RETENTION_FIRST_MONTH_DAYS;
+        let remaining_daily_delta = Int128::from(
+            (remaining_weight.u128() as i128) / (remaining_duration_days as i128)
+        );
+        
+        cliffs.push(WeightTimeCliff {
+            timestamp: curve_end_time,
+            delta_change: -remaining_daily_delta, // Stop the daily increase
+        });
+    }
+    
+    if !is_perpetual && locked_until > current_time {
+        // Add cliff when lock expires (lock weight drops to 0)
+        cliffs.push(WeightTimeCliff {
+            timestamp: locked_until,
+            delta_change: -Int128::from((deposit_amount.u128() as i128) / (lock_ceiling as i128)), // Negative delta when lock expires
+        });
+    }
+    
+    Ok((current_weight, daily_delta, cliffs))
+}
+
+/// Update user's retention weight tracking when deposits change
+/// Similar to update_deposit_lvt_tracking() in ltv_disco
+fn update_retention_weight_tracking(
+    storage: &mut dyn Storage,
+    user: &str,
+    deposits: &[UserDeposit],
+    env: &Env,
+    lock_ceiling: u64,
+) -> Result<(), ContractError> {
+    let reference_time = env.block.time.seconds();
+    
+    // Calculate total weight contribution from all deposits
+    let mut total_base_weight = Uint128::zero();
+    let mut total_daily_delta = Int128::zero();
+    let mut all_cliffs: Vec<WeightTimeCliff> = Vec::new();
+    
+    for deposit in deposits {
+        let (base_weight, daily_delta, cliffs) = calculate_deposit_weight_contribution(
+            deposit,
+            env,
+            lock_ceiling,
+        )?;
+        
+        total_base_weight = total_base_weight.checked_add(base_weight)
+            .map_err(|e| ContractError::Std(StdError::from(e)))?;
+        total_daily_delta = total_daily_delta.checked_add(daily_delta)
+            .map_err(|_| ContractError::Std(StdError::generic_err("Daily delta overflow")))?;
+        all_cliffs.extend(cliffs);
+    }
+    
+    // Load existing tracking
+    let existing_tracking = RETENTION_WEIGHT_TRACKING.may_load(storage, user.to_string())?;
+    
+    // Adjust base_weight to new reference_time if needed
+    let adjusted_base_weight = if let Some(existing) = &existing_tracking {
+        if reference_time != existing.reference_time {
+            calculate_retention_weight_at_time(
+                existing.base_weight,
+                existing.reference_time,
+                existing.daily_delta,
+                &existing.time_cliffs,
+                reference_time,
+            )?
+        } else {
+            existing.base_weight
+        }
+    } else {
+        total_base_weight
+    };
+    
+    // Merge cliffs and sort by timestamp
+    all_cliffs.sort_by_key(|c| c.timestamp);
+    
+    // Save updated user tracking
+    let tracking = RetentionWeightTracking {
+        base_weight: adjusted_base_weight,
+        reference_time,
+        daily_delta: total_daily_delta,
+        time_cliffs: all_cliffs.clone(),
+    };
+    
+    RETENTION_WEIGHT_TRACKING.save(storage, user.to_string(), &tracking)?;
+    
+    // Update global tracking (similar to update_group_lvt_tracking_for_deposit in ltv_disco)
+    let mut global_tracking = crate::state::GLOBAL_RETENTION_WEIGHT_TRACKING
+        .may_load(storage)?
+        .unwrap_or(RetentionWeightTracking {
+            base_weight: Uint128::zero(),
+            reference_time,
+            daily_delta: Int128::zero(),
+            time_cliffs: vec![],
+        });
+    
+    // Remove old user contribution if it existed
+    if let Some(old) = existing_tracking {
+        let old_weight_at_ref = calculate_retention_weight_at_time(
+            old.base_weight,
+            old.reference_time,
+            old.daily_delta,
+            &old.time_cliffs,
+            reference_time,
+        )?;
+        
+        // Subtract old contribution
+        global_tracking.base_weight = global_tracking.base_weight.saturating_sub(old_weight_at_ref);
+        global_tracking.daily_delta = global_tracking.daily_delta.checked_sub(old.daily_delta)
+            .map_err(|_| ContractError::Std(StdError::generic_err("Global daily delta underflow")))?;
+        
+        // Remove old cliffs (subtract their delta_change)
+        for old_cliff in &old.time_cliffs {
+            if let Some(pos) = global_tracking.time_cliffs.iter().position(|c| c.timestamp == old_cliff.timestamp) {
+                global_tracking.time_cliffs[pos].delta_change = 
+                    global_tracking.time_cliffs[pos].delta_change.checked_sub(old_cliff.delta_change)
+                        .map_err(|_| ContractError::Std(StdError::generic_err("Cliff delta underflow")))?;
+                if global_tracking.time_cliffs[pos].delta_change.is_zero() {
+                    global_tracking.time_cliffs.remove(pos);
+                }
+            } else {
+                // Add inverse cliff
+                global_tracking.time_cliffs.push(WeightTimeCliff {
+                    timestamp: old_cliff.timestamp,
+                    delta_change: Int128::zero().checked_sub(old_cliff.delta_change)
+                        .map_err(|_| ContractError::Std(StdError::generic_err("Cliff delta underflow")))?,
+                });
+            }
+        }
+    }
+    
+    // Add new user contribution
+    let new_weight_at_ref = adjusted_base_weight; // Already calculated at reference_time
+    
+    global_tracking.base_weight = global_tracking.base_weight.checked_add(new_weight_at_ref)
+        .map_err(|e| ContractError::Std(StdError::from(e)))?;
+    global_tracking.daily_delta = global_tracking.daily_delta.checked_add(total_daily_delta)
+        .map_err(|_| ContractError::Std(StdError::generic_err("Global daily delta overflow")))?;
+    
+    // Merge new cliffs
+    for new_cliff in &all_cliffs {
+        if let Some(pos) = global_tracking.time_cliffs.iter().position(|c| c.timestamp == new_cliff.timestamp) {
+            global_tracking.time_cliffs[pos].delta_change = 
+                global_tracking.time_cliffs[pos].delta_change.checked_add(new_cliff.delta_change)
+                    .map_err(|_| ContractError::Std(StdError::generic_err("Cliff delta overflow")))?;
+            if global_tracking.time_cliffs[pos].delta_change.is_zero() {
+                global_tracking.time_cliffs.remove(pos);
+            }
+        } else {
+            global_tracking.time_cliffs.push(new_cliff.clone());
+        }
+    }
+    
+    // Update reference_time and sort cliffs
+    global_tracking.reference_time = reference_time;
+    global_tracking.time_cliffs.sort_by_key(|c| c.timestamp);
+    
+    crate::state::GLOBAL_RETENTION_WEIGHT_TRACKING.save(storage, &global_tracking)?;
+    
+    Ok(())
+}
+
+/// Query emissions-voting for Uint128 result (total emissions)
+fn query_emissions_voting_uint128(
+    querier: &QuerierWrapper,
+    contract: &Addr,
+    graph_label: &str,
+) -> Result<Uint128, ContractError> {
+    let response: membrane::emissions_voting::CurrentResultResponse = querier.query_wasm_smart(
+        contract,
+        &membrane::emissions_voting::QueryMsg::CurrentResult {
+            label: graph_label.to_string(),
+        },
+    )?;
+    
+    response.result_uint128.ok_or_else(|| {
+        ContractError::Std(StdError::generic_err(format!(
+            "Graph {} did not return Uint128 result",
+            graph_label
+        )))
+    })
+}
+
+/// Query emissions-voting for Decimal result (acquisition percentage)
+fn query_emissions_voting_decimal(
+    querier: &QuerierWrapper,
+    contract: &Addr,
+    graph_label: &str,
+) -> Result<Decimal, ContractError> {
+    let response: membrane::emissions_voting::CurrentResultResponse = querier.query_wasm_smart(
+        contract,
+        &membrane::emissions_voting::QueryMsg::CurrentResult {
+            label: graph_label.to_string(),
+        },
+    )?;
+    
+    response.result_decimal.ok_or_else(|| {
+        ContractError::Std(StdError::generic_err(format!(
+            "Graph {} did not return Decimal result",
+            graph_label
+        )))
+    })
+}
+
+/// Query user boost from discounts contract
+/// Returns the boost multiplier (e.g., 1.5 for 50% boost)
+/// If query fails, returns 1.0 (no boost) - errors are silently ignored
+fn query_user_boost(
+    querier: &QuerierWrapper,
+    api: &dyn cosmwasm_std::Api,
+    discounts_contract: &str,
+    user: &str,
+) -> Decimal {
+    // Validate and convert string address to Addr
+    let discounts_addr = match api.addr_validate(discounts_contract) {
+        Ok(addr) => addr,
+        Err(_) => return Decimal::one(), // Invalid address, return no boost
+    };
+    
+    let response: Result<UserBoostResponse, _> = querier.query_wasm_smart(
+        &discounts_addr,
+        &SystemsDiscountsQueryMsg::UserBoost {
+            user: user.to_string(),
+        },
+    );
+    
+    match response {
+        Ok(boost_response) => {
+            // Boost is returned as a Decimal (e.g., 0.5 for 50% boost)
+            // Convert to multiplier: 1.0 + boost (e.g., 1.0 + 0.5 = 1.5 for 50% boost)
+            Decimal::one() + boost_response.boost
+        }
+        Err(_) => {
+            // If query fails, default to no boost (1.0)
+            Decimal::one()
+        }
+    }
+}
+
+/// Calculate global retention weight at a specific timestamp
+/// Uses pre-aggregated global tracking (O(1) instead of O(n))
+fn calculate_global_retention_weight_at_time(
+    deps: Deps,
+    env: &Env,
+    timestamp: u64,
+) -> Result<Uint128, ContractError> {
+    let global_tracking = GLOBAL_RETENTION_WEIGHT_TRACKING
+        .may_load(deps.storage)?
+        .unwrap_or(RetentionWeightTracking {
+            base_weight: Uint128::zero(),
+            reference_time: env.block.time.seconds(),
+            daily_delta: Int128::zero(),
+            time_cliffs: vec![],
+        });
+    
+    calculate_retention_weight_at_time(
+        global_tracking.base_weight,
+        global_tracking.reference_time,
+        global_tracking.daily_delta,
+        &global_tracking.time_cliffs,
+        timestamp,
+    )
+}
+
+/// Create a new emissions event with accurate denominator
+fn create_emissions_event(
+    storage: &mut dyn Storage,
+    env: &Env,
+    daily_rate: Uint128,
+    global_weight: Uint128,
+) -> Result<(), ContractError> {
+    // Ensure denominator is not zero
+    if global_weight.is_zero() {
+        return Err(ContractError::ZeroGlobalWeight {});
+    }
+    
+    // Calculate amount_per_weight = daily_rate / global_weight
+    let amount_per_weight = Decimal::from_ratio(daily_rate, global_weight);
+    
+    // Create event
+    let event = EmissionsEvent {
+        timestamp: env.block.time.seconds(),
+        amount_per_weight,
+        amount_to_be_claimed: daily_rate,
+    };
+    
+    // Store event
+    let mut events = EMISSIONS_EVENTS
+        .may_load(storage)?
+        .unwrap_or_default();
+    events.push(event);
+    EMISSIONS_EVENTS.save(storage, &events)?;
+    
+    Ok(())
+}
+
+/// Distribute retention emissions (creates daily event)
+fn execute_distribute_retention_emissions(
+    deps: DepsMut,
+    env: Env,
+    _info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    // Validate emissions voting contract is set
+    let emissions_voting = config.emissions_voting_contract
+        .ok_or_else(|| ContractError::EmissionsVotingContractNotSet {})?;
+    
+    // Query current total emissions
+    let monthly_total = query_emissions_voting_uint128(
+        &deps.as_ref().querier,
+        &emissions_voting,
+        membrane::transmuter::TOTAL_EMISSIONS_GRAPH_LABEL,
+    )?;
+    
+    // Query acquisition percentage (0-20%)
+    let acquisition_percentage = query_emissions_voting_decimal(
+        &deps.as_ref().querier,
+        &emissions_voting,
+        membrane::transmuter::ACQUISITION_PERCENTAGE_GRAPH_LABEL,
+    )?;
+    
+    // Validate acquisition percentage is within bounds (0-20%)
+    const MAX_ACQUISITION_PERCENTAGE: Decimal = Decimal::percent(20);
+    let acquisition_pct = if acquisition_percentage > MAX_ACQUISITION_PERCENTAGE {
+        // Cap at 20% if voting exceeds limit
+        MAX_ACQUISITION_PERCENTAGE
+    } else if acquisition_percentage < Decimal::zero() {
+        Decimal::zero()
+    } else {
+        acquisition_percentage
+    };
+    
+    // Calculate retention percentage (remaining, guaranteed to be at least 80%)
+    let retention_percentage = Decimal::one() - acquisition_pct;
+    
+    // Calculate retention monthly amount
+    let retention_monthly = decimal_multiplication(
+        Decimal::from_ratio(monthly_total, Uint128::one()),
+        retention_percentage,
+    )?.to_uint_floor();
+    
+    // Calculate daily rate (divide by 30)
+    let daily_rate = retention_monthly / Uint128::from(30u128);
+    
+    // Calculate global retention weight at current time using tracking
+    let global_weight = calculate_global_retention_weight_at_time(
+        deps.as_ref(),
+        &env,
+        env.block.time.seconds(),
+    )?;
+    
+    // Create emissions event
+    create_emissions_event(
+        deps.storage,
+        &env,
+        daily_rate,
+        global_weight,
+    )?;
+    
+    // Update last distribution timestamp
+    LAST_EMISSIONS_DISTRIBUTION.save(deps.storage, &env.block.time)?;
+    
+    Ok(Response::new()
+        .add_attribute("action", "distribute_retention_emissions")
+        .add_attribute("monthly_total", monthly_total.to_string())
+        .add_attribute("acquisition_percentage", acquisition_pct.to_string())
+        .add_attribute("retention_percentage", retention_percentage.to_string())
+        .add_attribute("retention_monthly", retention_monthly.to_string())
+        .add_attribute("daily_rate", daily_rate.to_string())
+        .add_attribute("global_weight", global_weight.to_string()))
+}
+
+/// Claim retention emissions for a user
+fn execute_claim_retention_emissions(
+    mut deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+) -> Result<Response, ContractError> {
+    let user = info.sender.to_string();
+    
+    // First, automatically call execute_distribute_retention_emissions() if needed
+    let last_distribution = LAST_EMISSIONS_DISTRIBUTION.may_load(deps.storage)?;
+    const SECONDS_PER_DAY: u64 = 86_400;
+    let should_distribute = if let Some(last_time) = last_distribution {
+        let time_since_last = env.block.time.seconds().saturating_sub(last_time.seconds());
+        time_since_last >= SECONDS_PER_DAY
+    } else {
+        true // Never distributed, need to create first event
+    };
+    
+    if should_distribute {
+        // Use branch() to create a separate mutable reference for distribution
+        execute_distribute_retention_emissions(
+            deps.branch(),
+            env.clone(),
+            MessageInfo {
+                sender: env.contract.address.clone(),
+                funds: vec![],
+            },
+        )?;
+    }
+    
+    // Load user deposits
+    let user_deposits = USER_DEPOSITS
+        .may_load(deps.storage, user.clone())?
+        .unwrap_or_default();
+    
+    if user_deposits.is_empty() {
+        return Err(ContractError::Std(StdError::generic_err(
+            "No deposits found for user"
+        )));
+    }
+    
+    // Load user's weight tracking
+    let user_tracking = RETENTION_WEIGHT_TRACKING
+        .may_load(deps.storage, user.clone())?
+        .ok_or_else(|| ContractError::Std(StdError::generic_err(
+            "No weight tracking found for user"
+        )))?;
+    
+    // Load emissions events
+    let mut events = EMISSIONS_EVENTS
+        .may_load(deps.storage)?
+        .unwrap_or_default();
+    
+    // Query user boost from discounts contract
+    let config = CONFIG.load(deps.storage)?;
+    let user_boost_multiplier = query_user_boost(
+        &deps.querier,
+        deps.api,
+        &config.discounts_contract,
+        &user,
+    );
+    
+    let mut total_claimed = Uint128::zero();
+    
+    // Process each event
+    for event in &mut events {
+        // Calculate user's weight at event timestamp using tracking
+        let user_weight_at_event = calculate_retention_weight_at_time(
+            user_tracking.base_weight,
+            user_tracking.reference_time,
+            user_tracking.daily_delta,
+            &user_tracking.time_cliffs,
+            event.timestamp,
+        )?;
+        
+        // Calculate user share: user_weight_at_event * event.amount_per_weight
+        let mut user_share = decimal_multiplication(
+            Decimal::from_ratio(user_weight_at_event, Uint128::one()),
+            event.amount_per_weight,
+        )?.to_uint_floor();
+        
+        // Apply MBRN boost multiplier
+        user_share = decimal_multiplication(
+            Decimal::from_ratio(user_share, Uint128::one()),
+            user_boost_multiplier,
+        )?.to_uint_floor();
+        
+        if !user_share.is_zero() {
+            // If user share is greater than amount to be claimed, cap it
+            if event.amount_to_be_claimed < user_share {
+                user_share = event.amount_to_be_claimed;
+                event.amount_to_be_claimed = Uint128::zero();
+            } else {
+                event.amount_to_be_claimed = event.amount_to_be_claimed.checked_sub(user_share)
+                    .map_err(|e| ContractError::Std(StdError::from(e)))?;
+            }
+            
+            total_claimed = total_claimed.checked_add(user_share)
+                .map_err(|e| ContractError::Std(StdError::from(e)))?;
+        }
+    }
+    
+    // Trim events with zero amount_to_be_claimed
+    events.retain(|e| !e.amount_to_be_claimed.is_zero());
+    EMISSIONS_EVENTS.save(deps.storage, &events)?;
+    
+    // Send claimed emissions to user (assuming CDT denom)
+    let mut response = Response::new()
+        .add_attribute("action", "claim_retention_emissions")
+        .add_attribute("user", user.clone())
+        .add_attribute("total_claimed", total_claimed.to_string())
+        .add_attribute("boost_multiplier", user_boost_multiplier.to_string());
+    
+    let config = CONFIG.load(deps.storage)?;
+    
+    if !total_claimed.is_zero() {
+        response = response.add_message(BankMsg::Send {
+            to_address: user,
+            amount: vec![coin(total_claimed.u128(), config.deposit_pair.cdt.clone())],
+        });
+    }
+    
+    Ok(response)
+}
+
+/// Query user's retention emissions claimable amount
+fn query_user_retention_emissions(
+    deps: Deps,
+    env: Env,
+    user: String,
+) -> StdResult<membrane::transmuter::UserRetentionEmissionsResponse> {
+    // Load user deposits
+    let user_deposits = USER_DEPOSITS
+        .may_load(deps.storage, user.clone())?
+        .unwrap_or_default();
+    
+    if user_deposits.is_empty() {
+        return Ok(membrane::transmuter::UserRetentionEmissionsResponse {
+            claimable: Uint128::zero(),
+        });
+    }
+    
+    // Load user's weight tracking
+    let user_tracking = RETENTION_WEIGHT_TRACKING
+        .may_load(deps.storage, user.clone())?
+        .ok_or_else(|| StdError::generic_err("No weight tracking found for user"))?;
+    
+    // Load emissions events
+    let events = EMISSIONS_EVENTS
+        .may_load(deps.storage)?
+        .unwrap_or_default();
+    
+    // Query user boost from discounts contract
+    let config = CONFIG.load(deps.storage)?;
+    let user_boost_multiplier = query_user_boost(
+        &deps.querier,
+        deps.api,
+        &config.discounts_contract,
+        &user,
+    );
+    
+    let mut total_claimable = Uint128::zero();
+    
+    // Process each event
+    for event in &events {
+        // Calculate user's weight at event timestamp using tracking
+        let user_weight_at_event = calculate_retention_weight_at_time(
+            user_tracking.base_weight,
+            user_tracking.reference_time,
+            user_tracking.daily_delta,
+            &user_tracking.time_cliffs,
+            event.timestamp,
+        ).map_err(|e| match e {
+            ContractError::Std(se) => se,
+            _ => StdError::generic_err(format!("Failed to calculate weight: {:?}", e)),
+        })?;
+        
+        // Calculate user share: user_weight_at_event * event.amount_per_weight
+        let mut user_share = decimal_multiplication(
+            Decimal::from_ratio(user_weight_at_event, Uint128::one()),
+            event.amount_per_weight,
+        ).map_err(|e| StdError::from(e))?.to_uint_floor();
+        
+        // Apply MBRN boost multiplier
+        user_share = decimal_multiplication(
+            Decimal::from_ratio(user_share, Uint128::one()),
+            user_boost_multiplier,
+        ).map_err(|e| StdError::from(e))?.to_uint_floor();
+        
+        // Cap at amount_to_be_claimed
+        let claimable_from_event = user_share.min(event.amount_to_be_claimed);
+        total_claimable = total_claimable.checked_add(claimable_from_event)
+            .map_err(|e| StdError::from(e))?;
+    }
+    
+    Ok(membrane::transmuter::UserRetentionEmissionsResponse {
+        claimable: total_claimable,
+    })
+}
+
+/// Query global retention weight
+fn query_global_retention_weight(
+    deps: Deps,
+    env: Env,
+) -> StdResult<membrane::transmuter::GlobalRetentionWeightResponse> {
+    let weight = calculate_global_retention_weight_at_time(
+        deps,
+        &env,
+        env.block.time.seconds(),
+    ).map_err(|e| match e {
+        ContractError::Std(se) => se,
+        _ => StdError::generic_err(format!("Failed to calculate global weight: {:?}", e)),
+    })?;
+    
+    Ok(membrane::transmuter::GlobalRetentionWeightResponse {
+        weight,
+    })
+}
+
+/// Query emissions configuration
+fn query_emissions_config(
+    deps: Deps,
+) -> StdResult<membrane::transmuter::EmissionsConfigResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    Ok(membrane::transmuter::EmissionsConfigResponse {
+        emissions_voting_contract: config.emissions_voting_contract,
+    })
+}
+
+fn query_current_deposit_id(deps: Deps, _user: String) -> StdResult<membrane::transmuter::CurrentDepositIdResponse> {
+    // Get the next deposit ID that will be assigned
+    let next_id = CURRENT_DEPOSIT_ID
+        .may_load(deps.storage)?
+        .unwrap_or(Uint128::one());
+    Ok(membrane::transmuter::CurrentDepositIdResponse {
+        deposit_id: next_id,
+    })
+}
+
+fn query_deposit_by_id(
+    deps: Deps,
+    user: String,
+    deposit_id: Uint128,
+) -> StdResult<membrane::transmuter::DepositByIdResponse> {
+    let deposits = USER_DEPOSITS
+        .may_load(deps.storage, user)?
+        .unwrap_or_default();
+    
+    let deposit = deposits
+        .into_iter()
+        .find(|d| d.deposit_id == deposit_id)
+        .ok_or_else(|| StdError::not_found(format!("Deposit with ID {} not found", deposit_id)))?;
+    
+    Ok(membrane::transmuter::DepositByIdResponse {
+        deposit: membrane::transmuter::UserDeposit {
+            deposit_id: deposit.deposit_id,
+            amount: deposit.amount,
+            deposit_time: deposit.deposit_time,
+            locked: deposit.locked,
+            start_time: deposit.start_time,
+        },
+    })
+}
+
+fn execute_transfer_deposit_ownership(
+    deps: DepsMut,
+    env: Env,
+    _info: MessageInfo,
+    user: String,
+    deposit_id: Uint128,
+    new_owner: String,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    // Only allow acquisition contract (or authorized contracts) to call this
+    // For now, we'll allow the contract itself or check if there's an acquisition contract configured
+    // TODO: Add proper authorization check when acquisition contract is configured
+    
+    let _user_addr = deps.api.addr_validate(&user)?;
+    let _new_owner_addr = deps.api.addr_validate(&new_owner)?;
+    
+    // Load user's deposits
+    let mut user_deposits = USER_DEPOSITS
+        .may_load(deps.storage, user.clone())?
+        .ok_or_else(|| ContractError::Validation(format!("User {} has no deposits", user)))?;
+    
+    // Find and remove the deposit
+    let deposit_index = user_deposits
+        .iter()
+        .position(|d| d.deposit_id == deposit_id)
+        .ok_or_else(|| ContractError::Validation(format!("Deposit with ID {} not found for user {}", deposit_id, user)))?;
+    
+    let deposit = user_deposits.remove(deposit_index);
+    
+    // Save updated user deposits (or remove if empty)
+    if user_deposits.is_empty() {
+        USER_DEPOSITS.remove(deps.storage, user.clone());
+        // Remove weight tracking if no deposits
+        crate::state::RETENTION_WEIGHT_TRACKING.remove(deps.storage, user.clone());
+    } else {
+        USER_DEPOSITS.save(deps.storage, user.clone(), &user_deposits)?;
+        // Update retention weight tracking for old user
+        update_retention_weight_tracking(
+            deps.storage,
+            &user,
+            &user_deposits,
+            &env,
+            config.lock_ceiling,
+        )?;
+    }
+    
+    // Add deposit to new owner
+    let mut new_owner_deposits = USER_DEPOSITS
+        .may_load(deps.storage, new_owner.clone())?
+        .unwrap_or_default();
+    new_owner_deposits.push(deposit);
+    USER_DEPOSITS.save(deps.storage, new_owner.clone(), &new_owner_deposits)?;
+    
+    // Update retention weight tracking for new owner
+    update_retention_weight_tracking(
+        deps.storage,
+        &new_owner,
+        &new_owner_deposits,
+        &env,
+        config.lock_ceiling,
+    )?;
+    
+    Ok(Response::new()
+        .add_attributes(vec![
+            attr("action", "transfer_deposit_ownership"),
+            attr("user", user),
+            attr("deposit_id", deposit_id.to_string()),
+            attr("new_owner", new_owner),
+        ]))
 }

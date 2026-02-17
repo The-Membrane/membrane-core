@@ -17,6 +17,7 @@ pub mod rates;
 pub mod risk_engine;
 pub mod ltv_updater;
 pub mod circuit_breaker;
+pub mod debt_manager;
 
 pub use crate::error::ContractError;
 

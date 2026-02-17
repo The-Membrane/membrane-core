@@ -18,7 +18,6 @@ use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
                 max_borrow_LTV: Decimal::percent(30),
                 rate_index: Decimal::zero(),
                 pool_info: None,
-                individual_cost: None,
             }],
             collateral_supply_caps: vec![],
             lastest_collateral_rates: vec![],
@@ -270,10 +269,10 @@ use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
         env.block.time = env.block.time.plus_seconds(100);
         let info = mock_info("user1", &[]);
         // Get deposit_id first
-        let queue_msg = QueryMsg::GetLTVQueue { asset: "uusd".to_string() };
+        let queue_msg = QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None };
         let queue_result = query(deps.as_ref(), env.clone(), queue_msg).unwrap();
         let queue: LTVQueueResponse = from_json(&queue_result).unwrap();
-        let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+        let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
         
         let msg = ExecuteMsg::WithdrawDeposit {
             asset: "uusd".to_string(),
@@ -497,13 +496,13 @@ use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
         
         // Phase 6: Verify state consistency
         println!("Phase 6: Verifying state consistency...");
-        let msg = QueryMsg::GetLTVQueue { asset: "uusd".to_string() };
+        let msg = QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None };
         let result = query(deps.as_ref(), env.clone(), msg).unwrap();
         let queue_response: LTVQueueResponse = from_json(&result).unwrap();
         
         let mut total_deposits = Uint128::zero();
         let mut total_vault_tokens = Uint128::zero();
-        for slot in queue_response.queue.slots {
+        for slot in &queue_response.queues[0].1.slots {
             total_deposits += slot.total_deposit_tokens;
             for group in slot.deposit_groups {
                 total_vault_tokens += group.total_vault_tokens;

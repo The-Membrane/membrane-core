@@ -1,4 +1,4 @@
-use cosmwasm_std::StdError;
+use cosmwasm_std::{Decimal, StdError};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
@@ -32,4 +32,16 @@ pub enum ContractError {
 
     #[error("Global rate limit exceeded for non-whitelisted addresses")]
     GlobalRateLimitExceeded {},
+    
+    #[error("Emissions voting contract not set")]
+    EmissionsVotingContractNotSet {},
+
+    #[error("Invalid graph result: {msg}")]
+    InvalidGraphResult { msg: String },
+
+    #[error("Cannot create emissions event with zero global weight")]
+    ZeroGlobalWeight {},
+
+    #[error("CDT to paired asset swaps are restricted to the CDP contract")]
+    CdtToPairedAssetRestricted {},
 }

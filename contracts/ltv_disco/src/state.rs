@@ -1,4 +1,4 @@
-use membrane::ltv_disco::{Config, LTVQueue, Dispersal, RevenueTrackingEntry, BackingDeposit, RevenueEvent, UserLifetimeRevenueEntry, TVLEntry, LTVEntry, LockedDeposit};
+use membrane::ltv_disco::{Config, LTVQueue, Dispersal, RevenueTrackingEntry, BackingDeposit, RevenueEvent, UserLifetimeRevenueEntry, TVLEntry, LTVEntry, LockedDeposit, InsuranceEntry};
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Uint128, Decimal};
 use cw_storage_plus::{Item, Map};
@@ -74,6 +74,9 @@ pub const DAILY_TVL_TRACKER: Item<Vec<TVLEntry>> = Item::new("daily_tvl_tracker"
 
 // Daily LTV tracker per asset: Asset -> Vec<LTVEntry> with 100 entry limit
 pub const DAILY_LTV_TRACKER: Map<String, Vec<LTVEntry>> = Map::new("daily_ltv_tracker");
+
+// Daily insurance tracker per asset: Asset -> Vec<InsuranceEntry> with 100 entry limit
+pub const DAILY_INSURANCE_TRACKER: Map<String, Vec<InsuranceEntry>> = Map::new("daily_insurance_tracker");
 
 // User total deposits tracker: user address (String) -> total deposits (Uint128).
 // REdundant bc we could add this to USER_DEPOSITS as a new field and then range with a prefix but 

@@ -6,7 +6,7 @@ use membrane::math::{decimal_multiplication, decimal_subtraction};
 use membrane::types::cAsset;
 
 use crate::ContractError;
-use crate::state::{LTVUpdateTracker, LTV_UPDATE_TRACKERS, BASKET, CONFIG};
+use crate::state::{LTVUpdateTracker, LTV_UPDATE_TRACKERS, BASKET, CONFIG, record_ltv_snapshot};
 
 /// Seconds per day for proportional controller calculations
 pub const SECONDS_PER_DAY: u64 = 86_400u64;
@@ -125,10 +125,21 @@ fn update_asset_ltv(
     
     // Ensure LTVs are valid: 0 < max_borrow_LTV < max_LTV < 1
     cap_ltv_values(&mut asset.max_borrow_LTV, &mut asset.max_LTV)?;
-    
+
+    // Record historical LTV snapshot if there was an update
+    if updated {
+        record_ltv_snapshot(
+            storage,
+            env,
+            &asset_denom,
+            asset.max_LTV,
+            asset.max_borrow_LTV,
+        )?;
+    }
+
     // Save tracker
     LTV_UPDATE_TRACKERS.save(storage, asset_denom, &tracker)?;
-    
+
     Ok(updated)
 }
 

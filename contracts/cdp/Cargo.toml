@@ -25,14 +25,14 @@ library = []
 
 [dependencies]
 membrane = { path = "../../packages/membrane" }
-osmosis-std = { version = "0.15.2" }
-cosmwasm-std = { version = "2.3.0", default-features = false, features = ["cosmwasm_1_1"] }
-cosmwasm-schema = "1.1.0"
-cw-storage-plus = "0.13.2"
+osmosis-std = { version = "0.27.0" }
+cosmwasm-std = { version = "2.0.4", default-features = false, features = ["cosmwasm_2_0", "stargate"] }
+cosmwasm-schema = "2.0.4"
+cw-storage-plus = "2.0.0"
 serde = { version = "1.0.137", default-features = false, features = ["derive"] }
 thiserror = { version = "1.0.31" }
 
 
 [dev-dependencies]
-cw-multi-test = "0.13.4"
+cw-multi-test = "2.0.0"
 apollo-cw-asset = "0.1.0"

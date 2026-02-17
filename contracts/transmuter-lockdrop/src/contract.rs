@@ -1,23 +1,24 @@
+use std::cmp::min;
+
 use cosmwasm_std::{
     attr, coin, entry_point, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, Timestamp, Uint128, WasmMsg,
 };
 use cw2::set_contract_version;
 
 use membrane::transmuter_lockdrop::{
-    Config, ExecuteMsg, InstantiateMsg, QueryMsg, LockdropState, UserDeposit,
-    ConfigResponse, CurrentLockdropResponse, UserDepositsResponse, PendingLocksResponse,
-    UserClaimsResponse, UserClaim, MbrnClaimIntent, MbrnIntentOption, MbrnIntentType,
-    UserLockdropHistory, UserHistoryResponse,
+    Config, ExecuteMsg, InstantiateMsg, QueryMsg, AcquisitionWindow, AcquisitionDeposit,
+    ConfigResponse, CurrentAcquisitionWindowResponse, ActiveAcquisitionWindowResponse,
+    UserAcquisitionDepositResponse, MbrnClaimIntent, MbrnIntentOption, MbrnIntentType,
 };
 use membrane::transmuter::ExecuteMsg as TransmuterExecuteMsg;
 use membrane::neutron_proxy::ExecuteMsg as NeutronProxyExecuteMsg;
 use membrane::math::decimal_multiplication;
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
-use membrane::ltv_disco::{ExecuteMsg as LtvDiscoExecuteMsg, BackingDepositInput};
-use membrane::system_discounts::{QueryMsg as DiscountQueryMsg, IntentBoostsResponse};
+use membrane::ltv_disco::{ExecuteMsg as LtvDiscoExecuteMsg, QueryMsg as LtvDiscoQueryMsg, BackingDepositInput, LTVQueueResponse};
+use membrane::system_discounts::{QueryMsg as DiscountQueryMsg, IntentBoostsResponse, UserBoostResponse, Config as DiscountConfig};
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, CURRENT_LOCKDROP, USER_DEPOSITS, PENDING_LOCKS, USER_INTENTS, LOCKDROP_HISTORY, USER_LOCKDROP_HISTORY, MAX_HISTORY_LIMIT};
+use crate::state::{CONFIG, CURRENT_WINDOW_ID, CURRENT_ACQUISITION_WINDOW, USER_ACQUISITION_DEPOSITS, USER_INTENTS};
 
 const CONTRACT_NAME: &str = "membrane-transmuter-lockdrop";
 const CONTRACT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -70,17 +71,10 @@ pub fn instantiate(
         ));
     }
     
-    // Validate maximum_boost
-    if msg.maximum_boost < Decimal::zero() {
+    // Validate cliff_period_seconds
+    if msg.cliff_period_days == 0 {
         return Err(ContractError::Validation(
-            "maximum_boost must be greater than or equal to zero".into(),
-        ));
-    }
-    
-    // Validate minimum_lock_days
-    if msg.minimum_lock_days == 0 {
-        return Err(ContractError::Validation(
-            "minimum_lock_days must be greater than zero".into(),
+            "cliff_period_days must be greater than zero".into(),
         ));
     }
     
@@ -88,7 +82,6 @@ pub fn instantiate(
         owner,
         transmuter_contract: msg.transmuter_contract,
         neutron_proxy: msg.neutron_proxy,
-        lockdrop_incentive_size: msg.lockdrop_incentive_size,
         deposit_period_days: msg.deposit_period_days,
         withdrawal_period_days: msg.withdrawal_period_days,
         deposit_token: msg.deposit_token,
@@ -98,10 +91,12 @@ pub fn instantiate(
         mars_mirror_contract: msg.mars_mirror_contract,
         ltv_disco_contract: msg.ltv_disco_contract,
         discounts_contract: msg.discounts_contract,
-        maximum_boost: msg.maximum_boost,
-        minimum_lock_days: msg.minimum_lock_days,
         emissions_voting_contract: msg.emissions_voting_contract,
+        cliff_period_seconds: msg.cliff_period_days * SECONDS_PER_DAY,
     };
+    
+    // Initialize window ID counter
+    CURRENT_WINDOW_ID.save(deps.storage, &0u64)?;
     
     CONFIG.save(deps.storage, &config)?;
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -121,19 +116,22 @@ pub fn execute(
     msg: ExecuteMsg,
 ) -> Result<Response, ContractError> {
     match msg {
-        ExecuteMsg::StartLockdrop { deposit_period_days, withdrawal_period_days } => {
-            execute_start_lockdrop(deps, env, info, deposit_period_days, withdrawal_period_days)
+        ExecuteMsg::StartAcquisitionWindow {  } => {
+            execute_start_acquisition_window(deps, env, info)
         }
-        ExecuteMsg::Deposit { lock_days, intents } => execute_deposit(deps, env, info, lock_days, intents),
-        ExecuteMsg::Withdraw { amount, lock_days } => execute_withdraw(deps, env, info, amount, lock_days),
-        ExecuteMsg::EditLock { lock_days, new_lock_days } => execute_edit_lock(deps, env, info, lock_days, new_lock_days),
-        ExecuteMsg::CompleteLocks { limit } => execute_complete_locks(deps, env, limit),
-        ExecuteMsg::Claim { users, mbrn_intent } => execute_claim(deps, env, users, mbrn_intent),
+        ExecuteMsg::Deposit { intents } => execute_deposit(deps, env, info, intents),
+        ExecuteMsg::Withdraw { amount } => execute_withdraw(deps, env, info, amount),
+        ExecuteMsg::Claim { window_id, mbrn_intent } => execute_claim(deps, env, info, window_id, mbrn_intent),
+        ExecuteMsg::ClaimForUser { user, window_id, mbrn_intent } => {
+            execute_claim_for_user(deps, env, info, user, window_id, mbrn_intent)
+        }
+        ExecuteMsg::SendAcquisitionRewardsToDisco { window_id, mbrn_intent } => {
+            execute_send_acquisition_rewards_to_disco(deps, env, info, window_id, mbrn_intent)
+        }
         ExecuteMsg::UpdateConfig {
             owner,
             transmuter_contract,
             neutron_proxy,
-            lockdrop_incentive_size,
             deposit_period_days,
             withdrawal_period_days,
             deposit_token,
@@ -143,16 +141,14 @@ pub fn execute(
             mars_mirror_contract,
             ltv_disco_contract,
             discounts_contract,
-            maximum_boost,
-            minimum_lock_days,
             emissions_voting_contract,
+            cliff_period_days,
         } => execute_update_config(
             deps,
             info,
             owner,
             transmuter_contract,
             neutron_proxy,
-            lockdrop_incentive_size,
             deposit_period_days,
             withdrawal_period_days,
             deposit_token,
@@ -162,81 +158,96 @@ pub fn execute(
             mars_mirror_contract,
             ltv_disco_contract,
             discounts_contract,
-            maximum_boost,
-            minimum_lock_days,
             emissions_voting_contract,
+            cliff_period_days,
         ),
-        ExecuteMsg::ReceiveVotingResult {
-            label,
-            result_uint128,
-            result_decimal,
-        } => execute_receive_voting_result(deps, info, label, result_uint128, result_decimal),
     }
 }
 
-fn execute_start_lockdrop(
+fn execute_start_acquisition_window(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    deposit_period_days: Option<u64>,
-    withdrawal_period_days: Option<u64>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
+    
+    // Only owner can start acquisition window
     ensure_owner(&config, &info.sender)?;
     
-    // Check if all users have claimed (USER_DEPOSITS should be empty)
-    let user_deposits_count: usize = USER_DEPOSITS
-        .keys(deps.storage, None, None, cosmwasm_std::Order::Ascending)
-        .count();
-    
-    if user_deposits_count > 0 {
-        return Err(ContractError::Validation(
-            "Not all users have claimed from the previous lockdrop".into(),
-        ));
+    // Check if there's an active window
+    if let Some(current_window) = CURRENT_ACQUISITION_WINDOW.may_load(deps.storage)? {
+        let current_time = env.block.time.seconds();
+        if current_time < current_window.withdrawal_end {
+            return Err(ContractError::Validation(
+                "Current acquisition window is still active".into(),
+            ));
+        }
     }
     
-    // Check if there's an active lockdrop and save to history
-    if let Ok(previous_lockdrop) = CURRENT_LOCKDROP.load(deps.storage) {
-        // Save previous lockdrop to history
-        save_lockdrop_to_history(deps.storage, previous_lockdrop)?;
-    }
+    // Use provided periods or config defaults
+    let deposit_period = config.deposit_period_days;
+    let withdrawal_period = config.withdrawal_period_days;
     
-    let deposit_period = deposit_period_days.unwrap_or(config.deposit_period_days);
-    let withdrawal_period = withdrawal_period_days.unwrap_or(config.withdrawal_period_days);
+    // Get next window ID
+    let window_id = CURRENT_WINDOW_ID.may_load(deps.storage)?
+        .unwrap_or(0)
+        .checked_add(1)
+        .ok_or_else(|| ContractError::Std(StdError::generic_err("Window ID overflow")))?;
+    CURRENT_WINDOW_ID.save(deps.storage, &window_id)?;
     
-    if deposit_period == 0 {
-        return Err(ContractError::Validation(
-            "deposit_period_days must be greater than zero".into(),
-        ));
-    }
-    if withdrawal_period == 0 {
-        return Err(ContractError::Validation(
-            "withdrawal_period_days must be greater than zero".into(),
-        ));
-    }
-    
-    let start_time = env.block.time.seconds();
-    let deposit_end = start_time + (deposit_period * SECONDS_PER_DAY);
-    let withdrawal_end = deposit_end + (withdrawal_period * SECONDS_PER_DAY);
-    
-    let lockdrop = LockdropState {
-        start_time,
-        deposit_end,
-        withdrawal_end,
-        total_deposit_points: Some(Uint128::zero()),
+    // Calculate budget from emissions-voting contract
+    let acquisition_budget = if let Some(ref emissions_voting) = config.emissions_voting_contract {
+        // Query total emissions
+        let total_emissions_response: membrane::emissions_voting::CurrentResultResponse = deps.querier.query_wasm_smart(
+            emissions_voting.clone(),
+            &membrane::emissions_voting::QueryMsg::CurrentResult {
+                label: membrane::transmuter::TOTAL_EMISSIONS_GRAPH_LABEL.to_string(),
+            },
+        )?;
+        
+        // Query acquisition percentage
+        let acquisition_pct_response: membrane::emissions_voting::CurrentResultResponse = deps.querier.query_wasm_smart(
+            emissions_voting.clone(),
+            &membrane::emissions_voting::QueryMsg::CurrentResult {
+                label: membrane::transmuter::ACQUISITION_PERCENTAGE_GRAPH_LABEL.to_string(),
+            },
+        )?;
+        
+        let total_emissions = total_emissions_response.result_uint128
+            .ok_or_else(|| ContractError::Std(StdError::generic_err("Total emissions not found")))?;
+        let acquisition_pct = acquisition_pct_response.result_decimal
+            .ok_or_else(|| ContractError::Std(StdError::generic_err("Acquisition percentage not found")))?;
+        
+        // Budget = total_emissions * acquisition_pct
+        decimal_multiplication(
+            Decimal::from_ratio(total_emissions, Uint128::one()),
+            acquisition_pct,
+        )?.to_uint_floor()
+    } else {
+        Uint128::zero()
     };
     
-    CURRENT_LOCKDROP.save(deps.storage, &lockdrop)?;
+    let current_time = env.block.time.seconds();
+    let deposit_end = current_time + (deposit_period * SECONDS_PER_DAY);
+    let withdrawal_end = deposit_end + (withdrawal_period * SECONDS_PER_DAY);
     
+    let window = AcquisitionWindow {
+        window_id,
+        start_time: current_time,
+        deposit_end,
+        withdrawal_end,
+        deposit_period_days: deposit_period,
+        total_deposit_amount: Uint128::zero(),
+        acquisition_budget,
+    };
     
-    // Note: We keep PENDING_LOCKS from previous lockdrop until they're processed
+    CURRENT_ACQUISITION_WINDOW.save(deps.storage, &window)?;
     
     Ok(Response::new()
         .add_attributes(vec![
-            attr("action", "start_lockdrop"),
-            attr("start_time", start_time.to_string()),
-            attr("deposit_end", deposit_end.to_string()),
-            attr("withdrawal_end", withdrawal_end.to_string()),
+            attr("action", "start_acquisition_window"),
+            attr("window_id", window_id.to_string()),
+            attr("acquisition_budget", acquisition_budget.to_string()),
         ]))
 }
 
@@ -244,54 +255,31 @@ fn execute_deposit(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    lock_days: u64,
     intents: Option<Vec<MbrnIntentOption>>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let lockdrop = CURRENT_LOCKDROP.load(deps.storage)?;
+    let window = CURRENT_ACQUISITION_WINDOW.load(deps.storage)?;
     
     // Check if in deposit period
     let current_time = env.block.time.seconds();
-    if current_time > lockdrop.deposit_end {
+    if current_time > window.deposit_end {
         return Err(ContractError::DepositPeriodEnded {});
     }
     
-    // Get deposit amount from funds
-    let deposit_amount = info.funds
-        .iter()
-        .find(|c| c.denom == config.deposit_token)
-        .map(|c| c.amount)
-        .ok_or_else(|| ContractError::InvalidFunds {
+    //Assert only the deposit token is sent
+    if info.funds.len() != 1 || info.funds[0].denom != config.deposit_token {
+        return Err(ContractError::InvalidFunds {
             reason: format!("Expected {} deposit", config.deposit_token),
-        })?;
+        });
+    }
+
+    // Get deposit amount from funds
+    let deposit_amount = info.funds[0].amount;
     
     // Validate minimum deposit
     if deposit_amount < config.minimum_deposit {
         return Err(ContractError::Validation(
             format!("Deposit amount {} is below minimum {}", deposit_amount, config.minimum_deposit),
-        ));
-    }
-    
-    // Query transmuter for lock_ceiling
-    let transmuter_config: membrane::transmuter::Config = deps.querier.query_wasm_smart(
-        config.transmuter_contract.clone(),
-        &membrane::transmuter::QueryMsg::Config {},
-    )?;
-    
-    // Validate lock_days
-    if lock_days == 0 {
-        return Err(ContractError::Validation(
-            "lock_days must be greater than zero".into(),
-        ));
-    }
-    if lock_days < config.minimum_lock_days {
-        return Err(ContractError::Validation(
-            format!("lock_days ({}) is below minimum ({})", lock_days, config.minimum_lock_days),
-        ));
-    }
-    if lock_days > transmuter_config.lock_ceiling {
-        return Err(ContractError::Validation(
-            format!("lock_days ({}) exceeds transmuter lock_ceiling ({})", lock_days, transmuter_config.lock_ceiling),
         ));
     }
     
@@ -321,55 +309,73 @@ fn execute_deposit(
         }
     }
     
-    // Load or create user deposits
-    let mut deposits = USER_DEPOSITS
-        .may_load(deps.storage, info.sender.to_string())?
-        .unwrap_or_default();
+    // Forward funds to transmuter EnterVault (no lock) - deposit owned by contract
+    let contract_addr = env.contract.address.clone();
     
-    // Check if user already has a deposit with this lock_days
-    if let Some(existing) = deposits.iter_mut().find(|d| d.intended_lock_days == lock_days) {
-        existing.amount = existing.amount.checked_add(deposit_amount)
+    // Query transmuter for current deposit ID (will be assigned to the new deposit)
+    // The transmuter will auto-consolidate deposits within the acquisition deposit window
+    let current_deposit_id_response: membrane::transmuter::CurrentDepositIdResponse = deps.querier.query_wasm_smart(
+        config.transmuter_contract.clone(),
+        &membrane::transmuter::QueryMsg::CurrentDepositId {
+            user: contract_addr.to_string(),
+        },
+    )?;
+    
+    // The next deposit ID that will be assigned
+    let next_deposit_id = current_deposit_id_response.deposit_id;
+    
+    // Check if user already has a deposit entry for current acquisition window
+    let existing_deposit = USER_ACQUISITION_DEPOSITS.may_load(deps.storage, (info.sender.to_string(), window.window_id))?;
+    
+    if let Some(mut deposit) = existing_deposit {
+        // Update existing entry - add new deposit amount to total amount (keep same deposit_id)
+        deposit.amount = deposit.amount.checked_add(deposit_amount)
             .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-        // Update intents if provided (replace existing)
-        if intents.is_some() {
-            existing.intents = intents.clone();
-        }
+        USER_ACQUISITION_DEPOSITS.save(deps.storage, (info.sender.to_string(), window.window_id), &deposit)?;
     } else {
-        deposits.push(UserDeposit {
+        // Use the next deposit ID that will be assigned
+        let deposit_id = next_deposit_id;
+        let vested_at = current_time + config.cliff_period_seconds;
+        
+        // Create new entry
+        let new_deposit = AcquisitionDeposit {
+            deposit_id,
             amount: deposit_amount,
-            intended_lock_days: lock_days,
             deposit_time: current_time,
-            intents: intents.clone(),
-        });
+            vested_at,
+            disco_deposit_id: None,
+            claimed_mbrn_amount: None,
+            disco_asset: None,
+            disco_ltv: None,
+            disco_max_borrow_ltv: None,
+            disco_epoch_start_time: None,
+        };
+        USER_ACQUISITION_DEPOSITS.save(deps.storage, (info.sender.to_string(), window.window_id), &new_deposit)?;
     }
     
-    USER_DEPOSITS.save(deps.storage, info.sender.to_string(), &deposits)?;
+    let enter_vault_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.transmuter_contract.clone(),
+        msg: to_json_binary(&TransmuterExecuteMsg::EnterVault {
+            recipient: Some(contract_addr.to_string()),
+            lock_days: None,
+            affiliate_address: None,
+        })?,
+        funds: vec![coin(deposit_amount.u128(), config.deposit_token.clone())],
+    });
     
-    // Update PENDING_LOCKS to keep in sync
-    PENDING_LOCKS.save(deps.storage, info.sender.to_string(), &deposits)?;
-    
-    // Update total_deposit_points
-    let mut lockdrop = CURRENT_LOCKDROP.load(deps.storage)?;
-    let transmuter_config: membrane::transmuter::Config = deps.querier.query_wasm_smart(
-        config.transmuter_contract.clone(),
-        &membrane::transmuter::QueryMsg::Config {},
-    )?;
-    
-    let deposit_points = calculate_deposit_points(
-        deposit_amount,
-        lock_days,
-        transmuter_config.lock_ceiling,
-        config.maximum_boost,
-    )?;
-    
-    update_total_deposit_points(deps.storage, &config, &mut lockdrop, deposit_points, false)?;
+    // Update total_deposit_amount for current acquisition window
+    let mut window = CURRENT_ACQUISITION_WINDOW.load(deps.storage)?;
+    window.total_deposit_amount = window.total_deposit_amount.checked_add(deposit_amount)
+        .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+    CURRENT_ACQUISITION_WINDOW.save(deps.storage, &window)?;
     
     Ok(Response::new()
+        .add_message(enter_vault_msg)
         .add_attributes(vec![
             attr("action", "deposit"),
             attr("user", info.sender.to_string()),
             attr("amount", deposit_amount.to_string()),
-            attr("lock_days", lock_days.to_string()),
+            attr("window_id", window.window_id.to_string()),
         ]))
 }
 
@@ -377,32 +383,102 @@ fn execute_withdraw(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
-    amount: Uint128,
-    lock_days: u64,
+    mut amount: Uint128,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let lockdrop = CURRENT_LOCKDROP.load(deps.storage)?;
+    let window = CURRENT_ACQUISITION_WINDOW.load(deps.storage)?;
     
-    // Check if in withdrawal period
+    // Check timing
     let current_time = env.block.time.seconds();
-    if current_time < lockdrop.deposit_end || current_time > lockdrop.withdrawal_end {
+    let is_during_withdrawal_period = current_time >= window.deposit_end && current_time <= window.withdrawal_end;
+    let is_after_withdrawal_period = current_time > window.withdrawal_end;
+    
+    if current_time < window.deposit_end {
         return Err(ContractError::NotInWithdrawalPeriod {});
     }
     
-    
-    // Load user deposits
-    let mut deposits = USER_DEPOSITS
-        .may_load(deps.storage, info.sender.to_string())?
+    // Load user's acquisition deposit
+    let mut deposit = USER_ACQUISITION_DEPOSITS
+        .may_load(deps.storage, (info.sender.to_string(), window.window_id))?
         .ok_or_else(|| ContractError::InvalidFunds {
-            reason: "User has no deposits".into(),
+            reason: "User has no deposit for this acquisition window".into(),
         })?;
     
-    // Find deposit with matching lock_days
-    let deposit = deposits.iter_mut()
-        .find(|d| d.intended_lock_days == lock_days)
-        .ok_or_else(|| ContractError::InvalidFunds {
-            reason: format!("No deposit found with lock_days {}", lock_days),
-        })?;
+    // Determine if we should do clawback (rewards exist)
+    let should_clawback = deposit.disco_deposit_id.is_some();
+    let before_cliff = current_time < deposit.vested_at;
+    let after_cliff = current_time >= deposit.vested_at;
+    
+    // Handle different time periods
+    if is_during_withdrawal_period {
+        // During withdrawal period: withdraw normally (no rewards yet, so no clawback)
+        // No clawback during withdrawal period (rewards haven't been sent yet)
+    } else if is_after_withdrawal_period {
+        // After withdrawal period
+        if after_cliff {
+            // After withdrawal period and after cliff: error and tell user to claim
+            return Err(ContractError::Validation(
+                format!("Cliff has passed. User must claim ownership of the deposit first & then withdraw through the transmuter contract: {}", config.transmuter_contract),
+            ));
+        } else {
+            // After withdrawal period but before cliff: withdraw everything & clawback everything
+            amount = deposit.amount;
+        }
+    }
+    
+    // Clawback logic: if rewards were sent to Disco, withdraw and burn MBRN
+    // This only applies after withdrawal period (before cliff)
+    let mut clawback_messages: Vec<CosmosMsg> = vec![];
+    if should_clawback && is_after_withdrawal_period && before_cliff {
+        let (disco_deposit_id, claimed_amount) = (
+            deposit.disco_deposit_id.unwrap(),
+            deposit.claimed_mbrn_amount.unwrap(),
+        );
+        let ltv_disco_addr = config.ltv_disco_contract.clone()
+            .ok_or_else(|| ContractError::Validation("ltv_disco_contract not configured".into()))?;
+        
+        let disco_asset = deposit.disco_asset.clone()
+            .ok_or_else(|| ContractError::Validation("disco_asset not set".into()))?;
+        let disco_ltv = deposit.disco_ltv
+            .ok_or_else(|| ContractError::Validation("disco_ltv not set".into()))?;
+        let disco_max_borrow_ltv = deposit.disco_max_borrow_ltv
+            .ok_or_else(|| ContractError::Validation("disco_max_borrow_ltv not set".into()))?;
+        let disco_epoch_start_time = deposit.disco_epoch_start_time
+            .ok_or_else(|| ContractError::Validation("disco_epoch_start_time not set".into()))?;
+        
+        // Withdraw from Disco
+        clawback_messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: ltv_disco_addr.clone(),
+            msg: to_json_binary(&LtvDiscoExecuteMsg::WithdrawDeposit {
+                asset: disco_asset,
+                ltv: disco_ltv,
+                max_borrow_ltv: disco_max_borrow_ltv,
+                deposit_id: disco_deposit_id,
+                amount: Some(claimed_amount),
+                epoch_start_time: disco_epoch_start_time,
+            })?,
+            funds: vec![],
+        }));
+        
+        // Burn withdrawn MBRN
+        clawback_messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.neutron_proxy.clone(),
+            msg: to_json_binary(&NeutronProxyExecuteMsg::BurnTokens {
+                denom: config.mbrn_denom.clone(),
+                amount: claimed_amount,
+                burn_from_address: env.contract.address.to_string(),
+            })?,
+            funds: vec![],
+        }));
+        
+        // Clear disco deposit tracking
+        deposit.disco_deposit_id = None;
+        deposit.claimed_mbrn_amount = None;
+        deposit.disco_asset = None;
+        deposit.disco_ltv = None;
+        deposit.disco_max_borrow_ltv = None;
+        deposit.disco_epoch_start_time = None;
+    }
     
     // Validate withdrawal amount
     if amount > deposit.amount {
@@ -411,728 +487,603 @@ fn execute_withdraw(
         });
     }
     
-    // Update deposit
-    deposit.amount = deposit.amount.checked_sub(amount)
-        .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-
-
-    // Validate minimum deposit (for remaining balance)
-    if deposit.amount < config.minimum_deposit && deposit.amount > Uint128::zero() {
-        return Err(ContractError::Validation(
-            format!("Withdrawal would leave balance below minimum {}", config.minimum_deposit),
-        ));
-    }
+    // Call transmuter ExitVault for the specified amount and deposit ID
+    let exit_vault_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.transmuter_contract.clone(),
+        msg: to_json_binary(&TransmuterExecuteMsg::ExitVault {
+            recipient: Some(info.sender.to_string()),
+            withdraw_as: None,
+            user: Some(env.contract.address.to_string()), // Deposit is owned by the contract
+            deposit_id: Some(deposit.deposit_id),
+            amount: Some(amount),
+        })?,
+        funds: vec![],
+    });
     
-    // Remove deposit if zero
-    if deposit.amount.is_zero() {
-        deposits.retain(|d| d.intended_lock_days != lock_days);
-    }
-    
-    // Save deposits (or remove if empty)
-    if deposits.is_empty() {
-        USER_DEPOSITS.remove(deps.storage, info.sender.to_string());
-        PENDING_LOCKS.remove(deps.storage, info.sender.to_string());
+    // Update USER_ACQUISITION_DEPOSITS
+    if amount >= deposit.amount {
+        // Full withdrawal - remove entry
+        USER_ACQUISITION_DEPOSITS.remove(deps.storage, (info.sender.to_string(), window.window_id));
     } else {
-        USER_DEPOSITS.save(deps.storage, info.sender.to_string(), &deposits)?;
-        // Update PENDING_LOCKS to keep in sync
-        PENDING_LOCKS.save(deps.storage, info.sender.to_string(), &deposits)?;
+        // Partial withdrawal - update amount
+        deposit.amount = deposit.amount.checked_sub(amount)
+            .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+        USER_ACQUISITION_DEPOSITS.save(deps.storage, (info.sender.to_string(), window.window_id), &deposit)?;
     }
     
-    // Update total_deposit_points
-    let mut lockdrop = CURRENT_LOCKDROP.load(deps.storage)?;
-    let transmuter_config: membrane::transmuter::Config = deps.querier.query_wasm_smart(
-        config.transmuter_contract.clone(),
-        &membrane::transmuter::QueryMsg::Config {},
-    )?;
+    // Update total_deposit_amount for current acquisition window
+    let mut window = CURRENT_ACQUISITION_WINDOW.load(deps.storage)?;
+    window.total_deposit_amount = window.total_deposit_amount.checked_sub(amount)
+        .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+    CURRENT_ACQUISITION_WINDOW.save(deps.storage, &window)?;
     
-    let withdrawn_points = calculate_deposit_points(
-        amount,
-        lock_days,
-        transmuter_config.lock_ceiling,
-        config.maximum_boost,
-    )?;
+    let mut all_messages = clawback_messages;
+    all_messages.push(exit_vault_msg);
     
-    update_total_deposit_points(deps.storage, &config, &mut lockdrop, withdrawn_points, true)?;
-    
-    // Send funds back to user
-    let mut response = Response::new()
+    Ok(Response::new()
+        .add_messages(all_messages)
         .add_attributes(vec![
             attr("action", "withdraw"),
             attr("user", info.sender.to_string()),
             attr("amount", amount.to_string()),
-            attr("lock_days", lock_days.to_string()),
-        ]);
-    
-    if !amount.is_zero() {
-        response = response.add_message(BankMsg::Send {
-            to_address: info.sender.to_string(),
-            amount: vec![coin(amount.u128(), config.deposit_token.clone())],
-        });
-    }
-    
-    Ok(response)
-}
-
-fn execute_edit_lock(
-    deps: DepsMut,
-    env: Env,
-    info: MessageInfo,
-    lock_days: u64,
-    new_lock_days: u64,
-) -> Result<Response, ContractError> {
-    let config = CONFIG.load(deps.storage)?;
-    let lockdrop = CURRENT_LOCKDROP.load(deps.storage)?;
-    
-    // Check if in deposit period only
-    let current_time = env.block.time.seconds();
-    if current_time > lockdrop.deposit_end {
-        return Err(ContractError::DepositPeriodEnded {});
-    }
-    
-    // Validate new_lock_days
-    if new_lock_days == 0 {
-        return Err(ContractError::Validation(
-            "new_lock_days must be greater than zero".into(),
-        ));
-    }
-    if new_lock_days < config.minimum_lock_days {
-        return Err(ContractError::Validation(
-            format!("new_lock_days ({}) is below minimum ({})", new_lock_days, config.minimum_lock_days),
-        ));
-    }
-    
-    // Query transmuter for lock_ceiling
-    let transmuter_config: membrane::transmuter::Config = deps.querier.query_wasm_smart(
-        config.transmuter_contract.clone(),
-        &membrane::transmuter::QueryMsg::Config {},
-    )?;
-    
-    if new_lock_days > transmuter_config.lock_ceiling {
-        return Err(ContractError::Validation(
-            format!("new_lock_days ({}) exceeds transmuter lock_ceiling ({})", new_lock_days, transmuter_config.lock_ceiling),
-        ));
-    }
-    
-    // Load user deposits
-    let mut deposits = USER_DEPOSITS
-        .may_load(deps.storage, info.sender.to_string())?
-        .ok_or_else(|| ContractError::InvalidFunds {
-            reason: "User has no deposits".into(),
-        })?;
-    
-    // Find deposit with matching lock_days
-    let mut deposit = deposits.clone().into_iter()
-        .find(|d| d.intended_lock_days == lock_days)
-        .ok_or_else(|| ContractError::InvalidFunds {
-            reason: format!("No deposit found with lock_days {}", lock_days),
-        })?;
-    
-    // Check if new_lock_days already exists (can't have duplicate lock_days)
-    if new_lock_days != lock_days && deposits.clone().iter().any(|d| d.intended_lock_days == new_lock_days) {
-        return Err(ContractError::Validation(
-            format!("Deposit with lock_days {} already exists", new_lock_days),
-        ));
-    }
-    
-    // Calculate old and new deposit points
-    let old_points = calculate_deposit_points(
-        deposit.amount,
-        lock_days,
-        transmuter_config.lock_ceiling,
-        config.maximum_boost,
-    )?;
-    
-    let new_points = calculate_deposit_points(
-        deposit.amount,
-        new_lock_days,
-        transmuter_config.lock_ceiling,
-        config.maximum_boost,
-    )?;
-    
-    // Update total_deposit_points: subtract old, add new
-    let mut lockdrop = CURRENT_LOCKDROP.load(deps.storage)?;
-    update_total_deposit_points(deps.storage, &config, &mut lockdrop, old_points, true)?;
-    update_total_deposit_points(deps.storage, &config, &mut lockdrop, new_points, false)?;
-    
-    // Update deposit's intended_lock_days
-    deposit.intended_lock_days = new_lock_days;
-    
-    // Replace deposit in deposits
-    deposits.retain(|d| d.intended_lock_days != lock_days);
-    deposits.push(deposit.clone());
-    
-    // Save deposits
-    USER_DEPOSITS.save(deps.storage, info.sender.to_string(), &deposits)?;
-    // Update PENDING_LOCKS to keep in sync
-    PENDING_LOCKS.save(deps.storage, info.sender.to_string(), &deposits)?;
-    
-    Ok(Response::new()
-        .add_attributes(vec![
-            attr("action", "edit_lock"),
-            attr("user", info.sender.to_string()),
-            attr("old_lock_days", lock_days.to_string()),
-            attr("new_lock_days", new_lock_days.to_string()),
+            attr("window_id", window.window_id.to_string()),
         ]))
 }
 
-fn execute_complete_locks(
-    deps: DepsMut,
-    env: Env,
-    limit: Option<u32>,
-) -> Result<Response, ContractError> {
-    let config = CONFIG.load(deps.storage)?;
-    let lockdrop = CURRENT_LOCKDROP.load(deps.storage)?;
-    
-    // Check if withdrawal period has ended
-    let current_time = env.block.time.seconds();
-    if current_time <= lockdrop.withdrawal_end {
-        return Err(ContractError::WithdrawalPeriodEnded {});
-    }
-    
-    // Calculate days since withdrawal end
-    let days_since_withdrawal_end = (current_time - lockdrop.withdrawal_end) / SECONDS_PER_DAY;
-    
-    // Load pending locks (should already be populated from deposits/withdrawals)
-    let pending_locks: Vec<(String, Vec<UserDeposit>)> = PENDING_LOCKS
-        .range(deps.storage, None, None, cosmwasm_std::Order::Ascending)
-        .take(limit.unwrap_or(50) as usize)
-        .collect::<StdResult<Vec<_>>>()?;
-    
-    // Verify total_deposit_points is set (should be calculated incrementally)
-    if lockdrop.total_deposit_points.is_none() {
-        let mut updated_lockdrop = lockdrop.clone();
-        updated_lockdrop.total_deposit_points = Some(Uint128::zero());
-        CURRENT_LOCKDROP.save(deps.storage, &updated_lockdrop)?;
-    }
-    
-    execute_complete_locks_internal(deps, env, config, lockdrop, days_since_withdrawal_end, pending_locks)
-}
-
-fn update_total_deposit_points(
-    storage: &mut dyn Storage,
-    config: &Config,
-    lockdrop: &mut LockdropState,
-    deposit_points_delta: Uint128,
-    withdrawal: bool,
-) -> Result<(), ContractError> {
-    let current_total = lockdrop.total_deposit_points.unwrap_or(Uint128::zero());
-    let new_total = if withdrawal {
-        if deposit_points_delta > current_total {
-            // Handle underflow for withdrawals
-            Uint128::zero()
-        } else {
-            current_total.checked_sub(deposit_points_delta)
-                .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?
-        }
-    } else {
-        current_total.checked_add(deposit_points_delta)
-            .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?
-    };
-    
-    lockdrop.total_deposit_points = Some(new_total);
-    CURRENT_LOCKDROP.save(storage, lockdrop)?;
-    Ok(())
-}
-
-fn save_lockdrop_to_history(
-    storage: &mut dyn Storage,
-    lockdrop: LockdropState,
-) -> Result<(), ContractError> {
-    let mut history = LOCKDROP_HISTORY.may_load(storage)?
-        .unwrap_or_default();
-    
-    // Add new lockdrop to front of history
-    history.insert(0, lockdrop);
-    
-    // Trim to max limit
-    if history.len() > MAX_HISTORY_LIMIT {
-        history.truncate(MAX_HISTORY_LIMIT);
-    }
-    
-    LOCKDROP_HISTORY.save(storage, &history)?;
-    Ok(())
-}
-
-fn calculate_deposit_points(
-    amount: Uint128,
-    lock_days: u64,
-    lock_ceiling: u64,
-    maximum_boost: Decimal,
-) -> Result<Uint128, ContractError> {
-    // Calculate base points: amount * lock_days
-    let base_points = amount;
-    
-    // Calculate lock percentage: lock_days / lock_ceiling
-    let lock_percentage = if lock_ceiling == 0 {
-        Decimal::zero()
-    } else {
-        Decimal::from_ratio(lock_days, lock_ceiling)
-    };
-    
-    // Calculate boost multiplier: 1 + maximum_boost * lock_percentage
-    let boost_multiplier = Decimal::one() + decimal_multiplication(
-        maximum_boost,
-        lock_percentage,
-    )?;
-    
-    // Calculate final points: base_points * boost_multiplier
-    Ok(decimal_multiplication(
-        Decimal::from_ratio(base_points, Uint128::one()),
-        boost_multiplier,
-    )?.to_uint_floor())
-}
-
-fn execute_complete_locks_internal(
-    mut deps: DepsMut,
-    env: Env,
-    config: Config,
-    lockdrop: LockdropState,
-    days_since_withdrawal_end: u64,
-    pending_locks: Vec<(String, Vec<UserDeposit>)>,
-) -> Result<Response, ContractError> {
-    let mut messages: Vec<CosmosMsg> = vec![];
-    let mut processed_users = Vec::new();
-    
-    // Get total_deposit_points for share calculation
-    let total_deposit_points = lockdrop.total_deposit_points
-        .ok_or_else(|| ContractError::Validation(
-            "total_deposit_points not calculated".into(),
-        ))?;
-    
-    // Query transmuter for lock_ceiling (needed for points calculation)
-    let transmuter_config: membrane::transmuter::Config = deps.querier.query_wasm_smart(
-        config.transmuter_contract.clone(),
-        &membrane::transmuter::QueryMsg::Config {},
-    )?;
-    
-    let current_time = env.block.time.seconds();
-    
-    for (user, deposits) in pending_locks {
-        // Calculate total deposit amount for this user
-        let total_deposit_amount: Uint128 = deposits.iter()
-            .map(|d| d.amount)
-            .fold(Uint128::zero(), |acc, x| acc.checked_add(x).unwrap_or(acc));
-        
-        // Calculate user's total deposit points
-        let mut user_points = Uint128::zero();
-        for deposit in &deposits {
-            let points = calculate_deposit_points(
-                deposit.amount,
-                deposit.intended_lock_days,
-                transmuter_config.lock_ceiling,
-                config.maximum_boost,
-            )?;
-            user_points = user_points.checked_add(points)
-                .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-        }
-        
-        // Calculate share_of_claims: user_points / total_deposit_points
-        let share_of_claims = if total_deposit_points.is_zero() {
-            Decimal::zero()
-        } else {
-            Decimal::from_ratio(user_points, total_deposit_points)
-        };
-        
-        // Load existing history for user or create new
-        let mut history = USER_LOCKDROP_HISTORY
-            .may_load(deps.storage, user.clone())?
-            .unwrap_or_default();
-        
-        // Calculate running_total_claims by summing all previous entries' deposit amounts
-        let running_total_claims: Uint128 = history.iter()
-            .map(|h| h.deposit)
-            .fold(Uint128::zero(), |acc, x| acc.checked_add(x).unwrap_or(acc));
-        
-        // Create new history entry
-        let history_entry = UserLockdropHistory {
-            deposit: total_deposit_amount,
-            running_total_claims,
-            share_of_claims,
-            time: current_time,
-        };
-        
-        history.push(history_entry);
-        
-        // Prune history to max 100 entries (keep most recent)
-        const MAX_HISTORY_SIZE: usize = 100;
-        if history.len() > MAX_HISTORY_SIZE {
-            let excess = history.len() - MAX_HISTORY_SIZE;
-            history.drain(0..excess);
-        }
-        
-        USER_LOCKDROP_HISTORY.save(deps.storage, user.clone(), &history)?;
-        
-        // Process deposits and create messages
-        for deposit in deposits {
-            // Calculate effective lock days (reduce by days since withdrawal end)
-            let effective_lock_days = if deposit.intended_lock_days > days_since_withdrawal_end {
-                deposit.intended_lock_days - days_since_withdrawal_end
-            } else {
-                0 // Lock has fully expired
-            };
-            
-            // Call transmuter EnterVault with lock_days
-            let enter_vault_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.transmuter_contract.clone(),
-                msg: to_json_binary(&TransmuterExecuteMsg::EnterVault {
-                    recipient: Some(user.clone()),
-                    lock_days: Some(effective_lock_days),
-                    affiliate_address: None,
-                })?,
-                funds: vec![coin(deposit.amount.u128(), config.deposit_token.clone())],
-            });
-            messages.push(enter_vault_msg);
-        }
-        processed_users.push(user.clone());
-    }
-    
-    // Remove processed users from pending locks
-    for user in &processed_users {
-        PENDING_LOCKS.remove(deps.storage, user.clone());
-    }
-    
-    Ok(Response::new()
-        .add_messages(messages)
-        .add_attributes(vec![
-            attr("action", "complete_locks"),
-            attr("processed_users", processed_users.len().to_string()),
-        ]))
-}
 
 fn execute_claim(
     mut deps: DepsMut,
     env: Env,
-    users: Vec<String>,
+    info: MessageInfo,
+    window_id: u64,
+    mbrn_intent: Option<MbrnClaimIntent>,
+) -> Result<Response, ContractError> {
+    let user = info.sender.to_string();
+    execute_transfer_deposit_ownership(deps, env, info, user, window_id)
+}
+
+fn execute_claim_for_user(
+    mut deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    user: String,
+    window_id: u64,
+    mbrn_intent: Option<MbrnClaimIntent>,
+) -> Result<Response, ContractError> {
+    execute_transfer_deposit_ownership(deps, env, info, user, window_id)
+}
+
+
+fn execute_send_acquisition_rewards_to_disco(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    window_id: u64,
     mbrn_intent: Option<MbrnClaimIntent>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
-    let lockdrop = CURRENT_LOCKDROP.load(deps.storage)?;
+    let user = info.sender.to_string();
     
-    // Check if withdrawal period has ended
-    let current_time = env.block.time.seconds();
-    if current_time <= lockdrop.withdrawal_end {
-        return Err(ContractError::WithdrawalPeriodEnded {});
-    }
-    
-    // Check if total_deposit_points is calculated (CompleteLocks must be called first)
-    let total_deposit_points = lockdrop.total_deposit_points
-        .ok_or_else(|| ContractError::Validation(
-            "total_deposit_points not calculated. CompleteLocks must be called first".into(),
-        ))?;
-    
-    if total_deposit_points.is_zero() {
+    // Load acquisition window
+    let window = CURRENT_ACQUISITION_WINDOW.load(deps.storage)?;
+    if window.window_id != window_id {
         return Err(ContractError::Validation(
-            "total_deposit_points is zero".into(),
+            format!("Window ID mismatch. Expected {}, got {}", window.window_id, window_id),
         ));
     }
     
-    // Load user deposits from USER_DEPOSITS (users in PENDING_LOCKS can't claim)
-    let all_deposits: Vec<(String, Vec<UserDeposit>)> = users.iter()
-        .filter_map(|user| {
-            // Check if user is in PENDING_LOCKS - if yes, they can't claim
-            if PENDING_LOCKS.may_load(deps.storage, user.clone()).ok().flatten().is_some() {
-                return None; // Skip users with pending locks
-            }
-            
-            // Check if user exists in USER_DEPOSITS - if no, they've already claimed
-            if let Ok(Some(deposits)) = USER_DEPOSITS.may_load(deps.storage, user.clone()) {
-                if !deposits.is_empty() {
-                    return Some((user.clone(), deposits));
-                }
-            }
-            None // User has already claimed or never deposited
-        })
-        .collect();
+    // Validate window is finished (not cliff)
+    let current_time = env.block.time.seconds();
+    if current_time < window.withdrawal_end {
+        return Err(ContractError::Validation(
+            format!("Window is not finished yet. Withdrawal ends at: {}", window.withdrawal_end),
+        ));
+    }
     
-    // Query transmuter for lock_ceiling
-    let transmuter_config: membrane::transmuter::Config = deps.querier.query_wasm_smart(
+    // Load user's acquisition deposit
+    let mut deposit = USER_ACQUISITION_DEPOSITS
+        .may_load(deps.storage, (user.clone(), window_id))?
+        .ok_or_else(|| ContractError::Validation(
+            format!("No deposit found for user {} in window {}", user, window_id),
+        ))?;
+    
+    // Query transmuter to verify deposit still exists and get current amount
+    let deposit_response: membrane::transmuter::DepositByIdResponse = deps.querier.query_wasm_smart(
         config.transmuter_contract.clone(),
-        &membrane::transmuter::QueryMsg::Config {},
+        &membrane::transmuter::QueryMsg::DepositById {
+            user: env.contract.address.to_string(),
+            deposit_id: deposit.deposit_id,
+        },
+    ).map_err(|_| {
+        USER_ACQUISITION_DEPOSITS.remove(deps.storage, (user.clone(), window_id));
+        ContractError::Validation(
+            format!("Deposit with ID {} not found in transmuter", deposit.deposit_id),
+        )
+    })?;
+    
+    // Use deposit amount from transmuter response (current actual amount)
+    let transmuter_deposit_amount = deposit_response.deposit.amount;
+    
+    // Calculate claim amount using transmuter deposit amount
+    let claim_amount = if window.total_deposit_amount.is_zero() {
+        Uint128::zero()
+    } else {
+        decimal_multiplication(
+            Decimal::from_ratio(window.acquisition_budget, Uint128::one()),
+            Decimal::from_ratio(transmuter_deposit_amount, window.total_deposit_amount),
+        )?.to_uint_floor()
+    };
+    
+    if claim_amount.is_zero() {
+        return Err(ContractError::Validation("Claim amount is zero".into()));
+    }
+    
+    // Query discounts_contract for MBRN boost
+    let boost_response: UserBoostResponse = deps.querier.query_wasm_smart(
+        config.discounts_contract.clone(),
+        &DiscountQueryMsg::UserBoost {
+            user: user.clone(),
+        },
     )?;
     
-    // Calculate user deposit points with boost
-    let mut user_deposit_points: Vec<(String, Uint128)> = Vec::new();
+    let discount_config: DiscountConfig = deps.querier.query_wasm_smart(
+        config.discounts_contract.clone(),
+        &DiscountQueryMsg::Config {},
+    )?;
+    let max_boost = discount_config.max_boost;
     
-    for (user, deposits) in &all_deposits {
-        let mut user_points = Uint128::zero();
-        for deposit in deposits {
-            let points = calculate_deposit_points(
-                deposit.amount,
-                deposit.intended_lock_days,
-                transmuter_config.lock_ceiling,
-                config.maximum_boost,
-            )?;
-            user_points = user_points.checked_add(points)
-                .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+    // Find Disco intent - REQUIRED
+    let disco_intent = mbrn_intent
+        .as_ref()
+        .and_then(|intent| {
+            if intent.apply_now {
+                intent.intents.iter().find(|i| matches!(i.intent_type, MbrnIntentType::DepositViaMarsMirror { .. })).cloned()
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            USER_INTENTS.may_load(deps.storage, user.clone())
+                .ok()
+                .flatten()
+                .and_then(|intents| intents.iter().find(|i| matches!(i.intent_type, MbrnIntentType::DepositViaMarsMirror { .. })).cloned())
+        })
+        .ok_or_else(|| ContractError::Validation(
+            "DepositViaMarsMirror intent required for send_acquisition_rewards_to_disco".into(),
+        ))?;
+    
+    // Extract Disco intent details
+    let (asset, target_ltv, target_max_borrow_ltv) = match &disco_intent.intent_type {
+        MbrnIntentType::DepositViaMarsMirror { asset, target_ltv, target_max_borrow_ltv } => {
+            (asset.clone(), *target_ltv, *target_max_borrow_ltv)
         }
-        user_deposit_points.push((user.clone(), user_points));
-    }
+        _ => return Err(ContractError::Validation("Invalid intent type".into())),
+    };
     
-    // Calculate and process rewards for each user with intent logic
+    // Calculate boosted amount for this intent
+    let intent_boosts: Vec<Decimal> = if !config.discounts_contract.is_empty() {
+        match deps.querier.query_wasm_smart::<IntentBoostsResponse>(
+            config.discounts_contract.clone(),
+            &DiscountQueryMsg::IntentBoosts {
+                intents: vec![disco_intent.clone()],
+            },
+        ) {
+            Ok(response) => response.boosts,
+            Err(_) => vec![Decimal::zero()],
+        }
+    } else {
+        vec![Decimal::zero()]
+    };
+    
+    let intent_boost = intent_boosts.get(0).copied().unwrap_or(Decimal::zero());
+    let total_boost = min(boost_response.boost + intent_boost, max_boost);
+    let boost_multiplier = Decimal::one() + total_boost;
+    
+    let base_amount = decimal_multiplication(
+        Decimal::from_ratio(claim_amount, Uint128::one()),
+        disco_intent.ratio
+    )?.to_uint_floor();
+    
+    let boosted_amount = decimal_multiplication(
+        Decimal::from_ratio(base_amount, Uint128::one()),
+        boost_multiplier
+    )?.to_uint_floor();
+    
+    // Mint MBRN to contract
+    let contract_addr = env.contract.address.clone();
     let mut messages: Vec<CosmosMsg> = vec![];
-    let mut claimed_users = Vec::new();
     
-    for (user, user_points) in user_deposit_points {
-        // Calculate user's share of rewards using stored total_deposit_points
-        let user_reward = decimal_multiplication(
-            Decimal::from_ratio(config.lockdrop_incentive_size, Uint128::one()),
-            Decimal::from_ratio(user_points, total_deposit_points),
-        )?.to_uint_floor();
-        
-        if user_reward.is_zero() {
-            continue;
-        }
-        
-        // Handle intent logic
-        let user_intent_msgs = process_user_intents(
-            deps.branch(),
-            &env,
-            &config,
-            &user,
-            user_reward,
-            &mbrn_intent,
-            &all_deposits.iter().find(|(u, _)| u == &user).map(|(_, d)| d),
-        )?;
-        
-        messages.extend(user_intent_msgs);
-        
-        // Remove user from USER_DEPOSITS (marking as claimed)
-        USER_DEPOSITS.remove(deps.storage, user.clone());
-        claimed_users.push(user);
-    }
+    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.neutron_proxy.clone(),
+        msg: to_json_binary(&NeutronProxyExecuteMsg::MintTokens {
+            denom: config.mbrn_denom.clone(),
+            amount: boosted_amount,
+            mint_to_address: contract_addr.to_string(),
+        })?,
+        funds: vec![],
+    }));
+    
+    // Create deposit input with intent's LTV params
+    let deposit_input = BackingDepositInput {
+        asset: asset.clone(),
+        ltv: target_ltv.unwrap_or(Decimal::zero()),
+        max_borrow_ltv: target_max_borrow_ltv.unwrap_or(Decimal::zero()),
+        epoch_start_time: Some(env.block.time.seconds()),
+    };
+    
+    // Query Disco contract for the current deposit ID (this will be the ID assigned to our deposit)
+    let ltv_disco_addr = config.ltv_disco_contract.clone()
+        .ok_or_else(|| ContractError::Validation("ltv_disco_contract not configured".into()))?;
+    
+    let ltv_queue_response: LTVQueueResponse = deps.querier.query_wasm_smart(
+        ltv_disco_addr.clone(),
+        &LtvDiscoQueryMsg::GetLTVQueue {
+            assets: vec![asset.clone()],
+            limit: None,
+            start_after: None,
+        },
+    )?;
+
+    // The current_deposit_id is the ID that will be assigned to our new deposit
+    // When deposit_id is None, Disco will use current_deposit_id and increment it
+    let next_deposit_id = ltv_queue_response.queues.first()
+        .map(|(_, queue)| queue.current_deposit_id)
+        .unwrap_or(Uint128::zero());
+    
+    // Submit to Disco with contract as owner, user as manager/revenue_destination
+    // Pass deposit_id: None to let Disco create a new deposit with the current_deposit_id
+    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: ltv_disco_addr.clone(),
+        msg: to_json_binary(&LtvDiscoExecuteMsg::SubmitDeposit {
+            deposit_input: deposit_input.clone(),
+            deposit_owner: Some(env.contract.address.to_string()), // Contract owns
+            locked: disco_intent.lock.clone(),
+            deposit_id: None, // Let Disco assign the ID (will use current_deposit_id we queried)
+            manager: Some(user.clone()), // User is manager
+            affiliate_address: None,
+            revenue_destination: Some(user.clone()), // User receives revenue
+        })?,
+        funds: vec![coin(boosted_amount.u128(), config.mbrn_denom.clone())],
+    }));
+    
+    // Store disco deposit info for clawback
+    // Save the queried current_deposit_id, which will be the ID assigned to our deposit
+    deposit.disco_deposit_id = Some(next_deposit_id);
+    deposit.disco_asset = Some(asset.clone());
+    deposit.disco_ltv = Some(deposit_input.ltv);
+    deposit.disco_max_borrow_ltv = Some(deposit_input.max_borrow_ltv);
+    deposit.disco_epoch_start_time = deposit_input.epoch_start_time;
+    deposit.claimed_mbrn_amount = Some(boosted_amount);
+
+    
+    // Save updated deposit (with disco info) but DON'T remove from USER_ACQUISITION_DEPOSITS
+    USER_ACQUISITION_DEPOSITS.save(deps.storage, (user.clone(), window_id), &deposit)?;
     
     Ok(Response::new()
         .add_messages(messages)
         .add_attributes(vec![
-            attr("action", "claim"),
-            attr("claimed_users", claimed_users.len().to_string()),
+            attr("action", "send_acquisition_rewards_to_disco"),
+            attr("user", user),
+            attr("window_id", window_id.to_string()),
+            attr("claim_amount", claim_amount.to_string()),
+            attr("boosted_amount", boosted_amount.to_string()),
+            attr("disco_asset", asset),
         ]))
 }
 
-fn process_user_intents(
+fn execute_transfer_deposit_ownership(
     mut deps: DepsMut,
-    env: &Env,
-    config: &Config,
-    user: &String,
-    user_reward: Uint128,
-    mbrn_intent: &Option<MbrnClaimIntent>,
-    user_deposits: &Option<&Vec<UserDeposit>>,
-) -> Result<Vec<CosmosMsg>, ContractError> {
+    env: Env,
+    info: MessageInfo,
+    user: String,
+    window_id: u64,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    // Load user's acquisition deposit
+    let deposit = USER_ACQUISITION_DEPOSITS
+        .may_load(deps.storage, (user.clone(), window_id))?
+        .ok_or_else(|| ContractError::Validation(
+            format!("No deposit found for user {} in window {}", user, window_id),
+        ))?;
+    
+    // Verify transmuter deposit still exists
+    let deposit_check: Result<membrane::transmuter::DepositByIdResponse, _> = deps.querier.query_wasm_smart(
+        config.transmuter_contract.clone(),
+        &membrane::transmuter::QueryMsg::DepositById {
+            user: env.contract.address.to_string(),
+            deposit_id: deposit.deposit_id,
+        },
+    );
+    
+    if deposit_check.is_err() {
+        USER_ACQUISITION_DEPOSITS.remove(deps.storage, (user.clone(), window_id));
+        return Err(ContractError::Validation(
+            format!("Deposit with ID {} not found in transmuter", deposit.deposit_id),
+        ));
+    }
+    
+    // Check if cliff has passed
+    let current_time = env.block.time.seconds();
+    if current_time < deposit.vested_at {
+        return Err(ContractError::Validation(
+            format!("Cliff has not passed yet. Vested at: {}", deposit.vested_at),
+        ));
+    }
+    
     let mut messages: Vec<CosmosMsg> = vec![];
     
-    // Determine which intents to use
-    let intents_to_use: Option<Vec<MbrnIntentOption>> = if let Some(ref intent) = mbrn_intent {
-        // If set_ongoing=true, save to USER_INTENTS
-        if intent.set_ongoing {
-            USER_INTENTS.save(deps.storage, user.clone(), &intent.intents.clone())?;
-        }
-        // If apply_now=true, use intents from mbrn_intent
-        if intent.apply_now {
-            Some(intent.intents.clone())
-        } else {
-            // Check for stored intents
-            USER_INTENTS.may_load(deps.storage, user.clone())?
-        }
-    } else {
-        // No mbrn_intent provided, check for stored intents or deposit intents
-        if let Some(stored) = USER_INTENTS.may_load(deps.storage, user.clone())? {
-            Some(stored)
-        } else if let Some(deposits) = user_deposits {
-            // Use intents from first deposit (if all deposits have same intents, or use first)
-            deposits.first().and_then(|d| d.intents.clone())
-        } else {
-            None
-        }
-    };
-    
-    // Query IntentBoosts from system_discounts contract if configured and intents exist
-    let intent_boosts: Vec<Decimal> = if let Some(ref intents) = intents_to_use {
-        if !config.discounts_contract.is_empty() {
-            match deps.querier.query_wasm_smart::<IntentBoostsResponse>(
-                config.discounts_contract.clone(),
-                &DiscountQueryMsg::IntentBoosts {
-                    intents: intents.clone(),
-                },
-            ) {
-                Ok(response) => response.boosts,
-                Err(_) => {
-                    // If query fails, proceed without boost (all zeros)
-                    vec![Decimal::zero(); intents.len()]
-                }
-            }
-        } else {
-            // No discounts contract configured, proceed without boost
-            vec![Decimal::zero(); intents.len()]
-        }
-    } else {
-        vec![]
-    };
-    
-    // Calculate total boosted amount to mint
-    let mut total_to_mint = user_reward;
-    if let Some(ref intents) = intents_to_use {
-        let mut total_boost_amount = Uint128::zero();
-        for (i, intent) in intents.iter().enumerate() {
-            let base_amount = decimal_multiplication(
-                Decimal::from_ratio(user_reward, Uint128::one()),
-                intent.ratio
-            )?.to_uint_floor();
-            
-            // Apply boost: boosted_amount = base_amount * (1 + boost)
-            let boost = intent_boosts.get(i).copied().unwrap_or(Decimal::zero());
-            let boost_multiplier = Decimal::one() + boost;
-            let boosted_amount = decimal_multiplication(
-                Decimal::from_ratio(base_amount, Uint128::one()),
-                boost_multiplier
-            )?.to_uint_floor();
-            
-            total_boost_amount = total_boost_amount.checked_add(boosted_amount)
-                .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-        }
-        
-        // Calculate boost excess (amount beyond user_reward that needs to be minted)
-        if total_boost_amount > user_reward {
-            let boost_excess = total_boost_amount.checked_sub(user_reward)
-                .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-            total_to_mint = user_reward.checked_add(boost_excess)
-                .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-        }
-    }
-    
-    // Mint total amount (user_reward + any boost excess) to contract
-    let contract_addr = env.contract.address.clone();
-    let mint_to_contract_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: config.neutron_proxy.clone(),
-        msg: to_json_binary(&NeutronProxyExecuteMsg::MintTokens {
-            denom: config.mbrn_denom.clone(),
-            amount: total_to_mint,
-            mint_to_address: contract_addr.to_string(),
+    // Transfer transmuter deposit ownership to user
+    messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.transmuter_contract.clone(),
+        msg: to_json_binary(&TransmuterExecuteMsg::TransferDepositOwnership {
+            user: env.contract.address.to_string(),
+            deposit_id: deposit.deposit_id,
+            new_owner: user.clone(),
         })?,
         funds: vec![],
-    });
-    messages.push(mint_to_contract_msg);
+    }));
     
-    let mut remaining_to_mint = total_to_mint;
-    
-    // Process intents if provided
-    if let Some(intents) = intents_to_use {
-        // Validate ratios sum to ~1.0
-        let total_ratio: Decimal = intents.iter()
-            .map(|i| i.ratio)
-            .fold(Decimal::zero(), |acc, x| acc + x);
-        let diff = if total_ratio > Decimal::one() {
-            total_ratio - Decimal::one()
-        } else {
-            Decimal::one() - total_ratio
-        };
-        if diff > Decimal::percent(1) {
-            return Err(ContractError::Validation(
-                "MBRN intent ratios must sum to approximately 1.0".into(),
-            ));
-        }
+    // Check if disco_deposit_id exists and transfer Disco deposit ownership
+    if let Some(disco_deposit_id) = deposit.disco_deposit_id {
+        // Transfer Disco deposit ownership to user
+        let ltv_disco_addr = config.ltv_disco_contract.clone()
+            .ok_or_else(|| ContractError::Validation("ltv_disco_contract not configured".into()))?;
         
-        // Process each intent
-        for (i, intent) in intents.iter().enumerate() {
-            let base_amount = decimal_multiplication(
-                Decimal::from_ratio(user_reward, Uint128::one()),
-                intent.ratio
-            )?.to_uint_floor();
-            
-            // Apply boost: boosted_amount = base_amount * (1 + boost)
-            let boost = intent_boosts.get(i).copied().unwrap_or(Decimal::zero());
-            let boost_multiplier = Decimal::one() + boost;
-            let amount = decimal_multiplication(
-                Decimal::from_ratio(base_amount, Uint128::one()),
-                boost_multiplier
-            )?.to_uint_floor();
-            
-            if amount.is_zero() {
-                continue;
-            }
-            
-            match &intent.intent_type {
-                MbrnIntentType::Stake {} => {
-                    if let Some(staking_addr) = &config.staking_contract {
-                        let stake_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                            contract_addr: staking_addr.clone(),
-                            msg: to_json_binary(&StakingExecuteMsg::Stake {
-                                user: Some(user.clone()),
-                                locked: intent.lock.clone(),
-                            })?,
-                            funds: vec![coin(amount.u128(), config.mbrn_denom.clone())],
-                        });
-                        messages.push(stake_msg);
-                        remaining_to_mint = remaining_to_mint.checked_sub(amount)
-                            .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-                    } else {
-                        return Err(ContractError::Validation(
-                            "staking_contract not configured but Stake intent provided".into(),
-                        ));
-                    }
-                }
-                MbrnIntentType::DepositViaMarsMirror { asset, target_ltv, target_max_borrow_ltv } => {
-                    if let (Some(ltv_disco_addr), Some(mars_mirror_addr)) = (&config.ltv_disco_contract, &config.mars_mirror_contract) {
-                        // Create deposit input
-                        let deposit_input = BackingDepositInput {
-                            asset: asset.clone(),
-                            ltv: target_ltv.unwrap_or(Decimal::zero()),
-                            max_borrow_ltv: target_max_borrow_ltv.unwrap_or(Decimal::zero()),
-                        };
-                        
-                        // Deposit into ltv_disco with mars_mirror as manager
-                        let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                            contract_addr: ltv_disco_addr.clone(),
-                            msg: to_json_binary(&LtvDiscoExecuteMsg::SubmitDeposit {
-                                deposit_input,
-                                deposit_owner: Some(user.clone()),
-                                locked: intent.lock.clone(),
-                                deposit_id: None,
-                                manager: Some(mars_mirror_addr.clone()),
-                                affiliate_address: None,
-                            })?,
-                            funds: vec![coin(amount.u128(), config.mbrn_denom.clone())],
-                        });
-                        messages.push(deposit_msg);
-                        remaining_to_mint = remaining_to_mint.checked_sub(amount)
-                            .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-                    } else {
-                        return Err(ContractError::Validation(
-                            "ltv_disco_contract and mars_mirror_contract must be configured for DepositViaMarsMirror intent".into(),
-                        ));
-                    }
-                }
-                MbrnIntentType::SendToAddress { address } => {
-                    // Validate the recipient address
-                    let recipient_addr = deps.api.addr_validate(address)
-                        .map_err(|e| ContractError::Validation(
-                            format!("Invalid recipient address: {}", e)
-                        ))?;
-                    
-                    // Send MBRN to the specified address
-                    let send_msg = CosmosMsg::Bank(BankMsg::Send {
-                        to_address: recipient_addr.to_string(),
-                        amount: vec![coin(amount.u128(), config.mbrn_denom.clone())],
-                    });
-                    messages.push(send_msg);
-                    remaining_to_mint = remaining_to_mint.checked_sub(amount)
-                        .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
-                }
-            }
-        }
+        let disco_asset = deposit.disco_asset.clone()
+            .ok_or_else(|| ContractError::Validation("disco_asset not set".into()))?;
+        let disco_ltv = deposit.disco_ltv
+            .ok_or_else(|| ContractError::Validation("disco_ltv not set".into()))?;
+        let disco_max_borrow_ltv = deposit.disco_max_borrow_ltv
+            .ok_or_else(|| ContractError::Validation("disco_max_borrow_ltv not set".into()))?;
+        let disco_epoch_start_time = deposit.disco_epoch_start_time
+            .ok_or_else(|| ContractError::Validation("disco_epoch_start_time not set".into()))?;
+        
+        messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: ltv_disco_addr.clone(),
+            msg: to_json_binary(&LtvDiscoExecuteMsg::UpdateDeposit {
+                asset: disco_asset,
+                ltv: disco_ltv,
+                max_borrow_ltv: disco_max_borrow_ltv,
+                deposit_id: disco_deposit_id,
+                deposit_owner: Some(user.clone()), // Transfer ownership to user
+                manager: None, // Keep existing manager
+                revenue_destination: None, // Keep existing revenue_destination
+                epoch_start_time: disco_epoch_start_time,
+            })?,
+            funds: vec![],
+        }));
     }
     
-    // Send remaining amount (after intents) from contract to user
-    if !remaining_to_mint.is_zero() {
-        // Send MBRN from contract to user
-        let send_msg = CosmosMsg::Bank(BankMsg::Send {
-            to_address: user.clone(),
-            amount: vec![coin(remaining_to_mint.u128(), config.mbrn_denom.clone())],
-        });
-        messages.push(send_msg);
-    }
+    // Remove deposit from USER_ACQUISITION_DEPOSITS
+    USER_ACQUISITION_DEPOSITS.remove(deps.storage, (user.clone(), window_id));
     
-    Ok(messages)
+    Ok(Response::new()
+        .add_messages(messages)
+        .add_attributes(vec![
+            attr("action", "transfer_deposit_ownership"),
+            attr("user", user),
+            attr("window_id", window_id.to_string()),
+        ]))
 }
+
+// fn process_user_intents(
+//     mut deps: DepsMut,
+//     env: &Env,
+//     config: &Config,
+//     user: &String,
+//     claim_amount: Uint128,
+//     user_boost: Decimal,
+//     max_boost: Decimal,
+//     mbrn_intent: &Option<MbrnClaimIntent>,
+//     user_deposits: &Option<&Vec<AcquisitionDeposit>>,
+// ) -> Result<(Vec<CosmosMsg>, Uint128), ContractError> {
+//     let mut messages: Vec<CosmosMsg> = vec![];
+    
+//     // Determine which intents to use
+//     let intents_to_use: Option<Vec<MbrnIntentOption>> = if let Some(ref intent) = mbrn_intent {
+//         // If set_ongoing=true, save to USER_INTENTS
+//         if intent.set_ongoing {
+//             USER_INTENTS.save(deps.storage, user.clone(), &intent.intents.clone())?;
+//         }
+//         // If apply_now=true, use intents from mbrn_intent
+//         if intent.apply_now {
+//             Some(intent.intents.clone())
+//         } else {
+//             // Check for stored intents
+//             USER_INTENTS.may_load(deps.storage, user.clone())?
+//         }
+//     } else {
+//         // No mbrn_intent provided, check for stored intents
+//         USER_INTENTS.may_load(deps.storage, user.clone())?
+//     };
+    
+//     // Query IntentBoosts from system_discounts contract if configured and intents exist
+//     let intent_boosts: Vec<Decimal> = if let Some(ref intents) = intents_to_use {
+//         if !config.discounts_contract.is_empty() {
+//             match deps.querier.query_wasm_smart::<IntentBoostsResponse>(
+//                 config.discounts_contract.clone(),
+//                 &DiscountQueryMsg::IntentBoosts {
+//                     intents: intents.clone(),
+//                 },
+//             ) {
+//                 Ok(response) => response.boosts,
+//                 Err(_) => {
+//                     // If query fails, proceed without boost (all zeros)
+//                     vec![Decimal::zero(); intents.len()]
+//                 }
+//             }
+//         } else {
+//             // No discounts contract configured, proceed without boost
+//             vec![Decimal::zero(); intents.len()]
+//         }
+//     } else {
+//         vec![]
+//     };
+    
+//     // Calculate boosted amounts per intent using additive boosts (capped at max_boost)
+//     let intent_amounts: Vec<Uint128> = if let Some(ref intents) = intents_to_use {
+//         intents.iter().enumerate().map(|(i, intent)| -> Result<Uint128, ContractError> {
+//             // Calculate base amount for this intent
+//             let base_amount = decimal_multiplication(
+//                 Decimal::from_ratio(claim_amount, Uint128::one()),
+//                 intent.ratio
+//             )?.to_uint_floor();
+            
+//             // Calculate additive boost: min(user_boost + intent_boost[i], max_boost)
+//             let intent_boost = intent_boosts.get(i).copied().unwrap_or(Decimal::zero());
+//             let total_boost = min(user_boost + intent_boost, max_boost);
+            
+//             // Apply boost: boosted_amount = base_amount * (1 + total_boost)
+//             let boost_multiplier = Decimal::one() + total_boost;
+//             Ok(decimal_multiplication(
+//                 Decimal::from_ratio(base_amount, Uint128::one()),
+//                 boost_multiplier
+//             )?.to_uint_floor())
+//         }).collect::<Result<Vec<Uint128>, ContractError>>()?
+//     } else {
+//         vec![]
+//     };
+    
+//     // Calculate total amount to mint
+//     let total_to_mint = if !intent_amounts.is_empty() {
+//         intent_amounts.iter().fold(Uint128::zero(), |acc, amount| {
+//             acc.checked_add(*amount)
+//                 .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))
+//                 .unwrap()
+//         })
+//     } else {
+//         // No intents, apply user boost to entire claim_amount
+//         let total_boost = min(user_boost, max_boost);
+//         decimal_multiplication(
+//             Decimal::from_ratio(claim_amount, Uint128::one()),
+//             Decimal::one() + total_boost
+//         )?.to_uint_floor()
+//     };
+    
+//     // Mint total amount (calculated with additive boosts) to contract
+//     let contract_addr = env.contract.address.clone();
+//     let mint_to_contract_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+//         contract_addr: config.neutron_proxy.clone(),
+//         msg: to_json_binary(&NeutronProxyExecuteMsg::MintTokens {
+//             denom: config.mbrn_denom.clone(),
+//             amount: total_to_mint,
+//             mint_to_address: contract_addr.to_string(),
+//         })?,
+//         funds: vec![],
+//     });
+//     messages.push(mint_to_contract_msg);
+    
+//     let mut remaining_to_mint = total_to_mint;
+    
+//     // Process intents if provided
+//     if let Some(intents) = intents_to_use {
+//         // Validate ratios sum to ~1.0
+//         let total_ratio: Decimal = intents.iter()
+//             .map(|i| i.ratio)
+//             .fold(Decimal::zero(), |acc, x| acc + x);
+//         let diff = if total_ratio > Decimal::one() {
+//             total_ratio - Decimal::one()
+//         } else {
+//             Decimal::one() - total_ratio
+//         };
+//         if diff > Decimal::percent(1) {
+//             return Err(ContractError::Validation(
+//                 "MBRN intent ratios must sum to approximately 1.0".into(),
+//             ));
+//         }
+        
+//         // Process each intent using pre-calculated boosted amounts
+//         for (_i, (intent, amount)) in intents.into_iter().zip(intent_amounts.into_iter()).enumerate() {
+//             if amount.is_zero() {
+//                 continue;
+//             }
+            
+//             match &intent.intent_type {
+//                 MbrnIntentType::Stake {} => {
+//                     if let Some(staking_addr) = &config.staking_contract {
+//                         let stake_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+//                             contract_addr: staking_addr.clone(),
+//                             msg: to_json_binary(&StakingExecuteMsg::Stake {
+//                                 user: Some(user.clone()),
+//                                 locked: intent.lock.clone(),
+//                             })?,
+//                             funds: vec![coin(amount.u128(), config.mbrn_denom.clone())],
+//                         });
+//                         messages.push(stake_msg);
+//                         remaining_to_mint = remaining_to_mint.checked_sub(amount)
+//                             .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+//                     } else {
+//                         return Err(ContractError::Validation(
+//                             "staking_contract not configured but Stake intent provided".into(),
+//                         ));
+//                     }
+//                 }
+//                 MbrnIntentType::DepositViaMarsMirror { asset, target_ltv, target_max_borrow_ltv } => {
+//                     if let (Some(ltv_disco_addr), Some(mars_mirror_addr)) = (&config.ltv_disco_contract, &config.mars_mirror_contract) {
+//                         // Create deposit input
+//                         let deposit_input = BackingDepositInput {
+//                             asset: asset.clone(),
+//                             ltv: target_ltv.unwrap_or(Decimal::zero()),
+//                             max_borrow_ltv: target_max_borrow_ltv.unwrap_or(Decimal::zero()),
+//                             epoch_start_time: Some(env.block.time.seconds()),
+//                         };
+                        
+//                         // Deposit into ltv_disco with mars_mirror as manager
+//                         let deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+//                             contract_addr: ltv_disco_addr.clone(),
+//                             msg: to_json_binary(&LtvDiscoExecuteMsg::SubmitDeposit {
+//                                 deposit_input,
+//                                 deposit_owner: Some(user.clone()),
+//                                 locked: intent.lock.clone(),
+//                                 deposit_id: None,
+//                                 manager: Some(mars_mirror_addr.clone()),
+//                                 affiliate_address: None,
+//                                 revenue_destination: None,
+//                             })?,
+//                             funds: vec![coin(amount.u128(), config.mbrn_denom.clone())],
+//                         });
+//                         messages.push(deposit_msg);
+//                         remaining_to_mint = remaining_to_mint.checked_sub(amount)
+//                             .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+//                     } else {
+//                         return Err(ContractError::Validation(
+//                             "ltv_disco_contract and mars_mirror_contract must be configured for DepositViaMarsMirror intent".into(),
+//                         ));
+//                     }
+//                 }
+//                 MbrnIntentType::SendToAddress { address } => {
+//                     // Validate the recipient address
+//                     let recipient_addr = deps.api.addr_validate(address)
+//                         .map_err(|e| ContractError::Validation(
+//                             format!("Invalid recipient address: {}", e)
+//                         ))?;
+                    
+//                     // Send MBRN to the specified address
+//                     let send_msg = CosmosMsg::Bank(BankMsg::Send {
+//                         to_address: recipient_addr.to_string(),
+//                         amount: vec![coin(amount.u128(), config.mbrn_denom.clone())],
+//                     });
+//                     messages.push(send_msg);
+//                     remaining_to_mint = remaining_to_mint.checked_sub(amount)
+//                         .map_err(|e| ContractError::Std(StdError::generic_err(e.to_string())))?;
+//                 }
+//             }
+//         }
+//     }
+    
+//     // Send remaining amount (after intents) from contract to user
+//     if !remaining_to_mint.is_zero() {
+//         // Send MBRN from contract to user
+//         let send_msg = CosmosMsg::Bank(BankMsg::Send {
+//             to_address: user.clone(),
+//             amount: vec![coin(remaining_to_mint.u128(), config.mbrn_denom.clone())],
+//         });
+//         messages.push(send_msg);
+//     }
+    
+//     Ok((messages, total_to_mint))
+// }
 
 fn execute_update_config(
     deps: DepsMut,
@@ -1140,7 +1091,6 @@ fn execute_update_config(
     owner: Option<String>,
     transmuter_contract: Option<String>,
     neutron_proxy: Option<String>,
-    lockdrop_incentive_size: Option<Uint128>,
     deposit_period_days: Option<u64>,
     withdrawal_period_days: Option<u64>,
     deposit_token: Option<String>,
@@ -1150,9 +1100,8 @@ fn execute_update_config(
     mars_mirror_contract: Option<String>,
     ltv_disco_contract: Option<String>,
     discounts_contract: Option<String>,
-    maximum_boost: Option<Decimal>,
-    minimum_lock_days: Option<u64>,
     emissions_voting_contract: Option<String>,
+    cliff_period_days: Option<u64>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     ensure_owner(&config, &info.sender)?;
@@ -1169,10 +1118,6 @@ fn execute_update_config(
     if let Some(proxy) = neutron_proxy {
         let _ = deps.api.addr_validate(&proxy)?;
         config.neutron_proxy = proxy;
-    }
-    
-    if let Some(size) = lockdrop_incentive_size {
-        config.lockdrop_incentive_size = size;
     }
     
     if let Some(days) = deposit_period_days {
@@ -1230,27 +1175,18 @@ fn execute_update_config(
         config.discounts_contract = discounts;
     }
     
-    if let Some(boost) = maximum_boost {
-        if boost < Decimal::zero() {
-            return Err(ContractError::Validation(
-                "maximum_boost must be greater than or equal to zero".into(),
-            ));
-        }
-        config.maximum_boost = boost;
-    }
-    
-    if let Some(min_lock) = minimum_lock_days {
-        if min_lock == 0 {
-            return Err(ContractError::Validation(
-                "minimum_lock_days must be greater than zero".into(),
-            ));
-        }
-        config.minimum_lock_days = min_lock;
-    }
-    
     if let Some(emissions_voting) = emissions_voting_contract {
         let _ = deps.api.addr_validate(&emissions_voting)?;
         config.emissions_voting_contract = Some(emissions_voting);
+    }
+    
+    if let Some(cliff) = cliff_period_days {
+        if cliff == 0 {
+            return Err(ContractError::Validation(
+                "cliff_period_days must be greater than zero".into(),
+            ));
+        }
+        config.cliff_period_seconds = cliff * SECONDS_PER_DAY;
     }
     
     CONFIG.save(deps.storage, &config)?;
@@ -1258,68 +1194,6 @@ fn execute_update_config(
     Ok(Response::new().add_attribute("action", "update_config"))
 }
 
-/// Handle voting result from emissions voting contract
-fn execute_receive_voting_result(
-    deps: DepsMut,
-    info: MessageInfo,
-    label: String,
-    result_uint128: Option<Uint128>,
-    _result_decimal: Option<Decimal>,
-) -> Result<Response, ContractError> {
-    let mut config = CONFIG.load(deps.storage)?;
-    
-    // Authorization: Only emissions_voting_contract can call this
-    let emissions_voting = config.emissions_voting_contract.clone()
-        .ok_or_else(|| ContractError::Unauthorized {})?;
-    if info.sender != deps.api.addr_validate(&emissions_voting)? {
-        return Err(ContractError::Unauthorized {});
-    }
-    
-    // Only process "transmuter_lockdrop" label
-    if label != "transmuter_lockdrop" {
-        return Ok(Response::new()
-            .add_attribute("action", "receive_voting_result")
-            .add_attribute("status", "ignored")
-            .add_attribute("label", label));
-    }
-    
-    // Update lockdrop_incentive_size from result_uint128
-    let new_incentive_size = result_uint128
-        .ok_or_else(|| ContractError::Validation(
-            "transmuter_lockdrop graph must return Uint128 result".into(),
-        ))?;
-    config.lockdrop_incentive_size = new_incentive_size;
-    
-    // Query emissions_voting for graph period_days
-    let graph_response: membrane::emissions_voting::GraphResponse = deps.querier.query_wasm_smart(
-        emissions_voting.clone(),
-        &membrane::emissions_voting::QueryMsg::Graph {
-            label: "transmuter_lockdrop".to_string(),
-        },
-    )?;
-    
-    let period_days = graph_response.graph.period_days();
-    
-    // Calculate periods using 5:2 ratio (total 7 parts)
-    // deposit_period_days = (period_days * 5) / 7
-    // withdrawal_period_days = (period_days * 2) / 7
-    let deposit_period = (period_days * 5) / 7;
-    let withdrawal_period = (period_days * 2) / 7;
-    
-    // Ensure minimum of 1 day for each period
-    config.deposit_period_days = deposit_period.max(1);
-    config.withdrawal_period_days = withdrawal_period.max(1);
-    
-    CONFIG.save(deps.storage, &config)?;
-    
-    Ok(Response::new()
-        .add_attribute("action", "receive_voting_result")
-        .add_attribute("label", label)
-        .add_attribute("new_incentive_size", new_incentive_size.to_string())
-        .add_attribute("deposit_period_days", config.deposit_period_days.to_string())
-        .add_attribute("withdrawal_period_days", config.withdrawal_period_days.to_string())
-    )
-}
 
 #[entry_point]
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
@@ -1327,76 +1201,31 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::Config {} => to_json_binary(&ConfigResponse {
             config: CONFIG.load(deps.storage)?,
         }),
-        QueryMsg::CurrentLockdrop {} => {
-            let lockdrop = CURRENT_LOCKDROP.may_load(deps.storage)?;
-            to_json_binary(&CurrentLockdropResponse { lockdrop })
+        QueryMsg::CurrentAcquisitionWindow {} => {
+            let window = CURRENT_ACQUISITION_WINDOW.may_load(deps.storage)?;
+            to_json_binary(&CurrentAcquisitionWindowResponse { window })
         }
-        QueryMsg::UserDeposits { user } => {
-            let deposits = USER_DEPOSITS
-                .may_load(deps.storage, user)?
-                .unwrap_or_default();
-            to_json_binary(&UserDepositsResponse { deposits })
+        QueryMsg::ActiveAcquisitionWindow {} => {
+            let window = CURRENT_ACQUISITION_WINDOW.may_load(deps.storage)?;
+            let active_window = if let Some(ref w) = window {
+                let current_time = env.block.time.seconds();
+                if current_time < w.withdrawal_end {
+                    Some(w.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            to_json_binary(&ActiveAcquisitionWindowResponse { window: active_window })
         }
-        QueryMsg::PendingLocks {} => {
-            let users: Vec<String> = PENDING_LOCKS
-                .keys(deps.storage, None, None, cosmwasm_std::Order::Ascending)
-                .collect::<StdResult<Vec<_>>>()?;
-            to_json_binary(&PendingLocksResponse { users })
-        }
-        QueryMsg::UserClaims { user, limit, start_after } => {
-            query_user_claims(deps, user, limit, start_after)
-        }
-        QueryMsg::LockdropHistory {} => {
-            let history = LOCKDROP_HISTORY.may_load(deps.storage)?
-                .unwrap_or_default();
-            to_json_binary(&membrane::transmuter_lockdrop::LockdropHistoryResponse { history })
-        }
-        QueryMsg::UserHistory { user } => {
-            let history = USER_LOCKDROP_HISTORY
-                .may_load(deps.storage, user)?
-                .unwrap_or_default();
-            to_json_binary(&UserHistoryResponse { history })
+        QueryMsg::UserAcquisitionDeposit { user, window_id } => {
+            let deposit = USER_ACQUISITION_DEPOSITS.may_load(deps.storage, (user, window_id))?;
+            to_json_binary(&UserAcquisitionDepositResponse { deposit })
         }
     }
 }
 
-fn query_user_claims(
-    deps: Deps,
-    user: Option<String>,
-    limit: Option<u32>,
-    start_after: Option<String>,
-) -> StdResult<Binary> {
-    let max_limit = limit.unwrap_or(50).min(100) as usize;
-    
-    if let Some(user_addr) = user {
-        // Query single user - if they're in USER_DEPOSITS, they haven't claimed yet
-        let has_deposits = USER_DEPOSITS.may_load(deps.storage, user_addr.clone())?.is_some();
-        
-        let claims = if has_deposits {
-            vec![] // User hasn't claimed yet
-        } else {
-            // User has claimed (not in USER_DEPOSITS)
-            // We can't determine the claim amount without storing it, so return empty
-            vec![]
-        };
-        
-        let claims_clone = claims.clone();
-        to_json_binary(&UserClaimsResponse {
-            claims,
-            total: claims_clone.len() as u64,
-            next_start_after: None,
-        })
-    } else {
-        // Query all users - those not in USER_DEPOSITS have claimed
-        // This query can't determine claim amounts without storing them
-        // Return empty for now - claim amounts aren't stored after claiming
-        to_json_binary(&UserClaimsResponse {
-            claims: vec![],
-            total: 0,
-            next_start_after: None,
-        })
-    }
-}
 
 fn ensure_owner(config: &Config, sender: &Addr) -> Result<(), ContractError> {
     if &config.owner != sender {

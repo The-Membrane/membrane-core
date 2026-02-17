@@ -3,6 +3,16 @@ EMISSIONS VOTING FOR THE LOCKDROP (done)
 - that means one lockdrop a week 
 - "emissions are protocol-ownership redistribution"
 
+MODULARIZE CDP INTO COLLATERAL - DEBT - LIQUIDATIONS
+- for actions that need accrual, we call a msg hosted in the DEBT contract and then reply on success with a CallBack into the contract's functions. Accrues are too expensive to query.
+-- We'll need this for withdraw & liquidate for sure
+
+STABLE EARN VAULT
+We can reimplement the stable-earn-vault with no entry fees now that we have the Transmuter. 
+It should use the fixed rate debt when it can. 
+Just have to remember the Inflow vaults withdrawals aren’t always atomic which needs to be communicated to the user.
+With more USDC yield options we can create multiple instances.
+
 CDP SUPERVAULTS
 - Permissionless CDT-denominated PropAMMs
 - WE can use supervaults as the base structure
@@ -18,6 +28,13 @@ ISOLATED MARKETS
 - These isolated markets also give Disco voters more internal collateral risk data to use
 - Make the mechanistic operations modular and create templates that users can use as foundations to vibe code off of
 -- could just be the main cdp's contract as a template, but we need to give users the right instantiation params and help 
+
+DISTRIBUTED GOVERNANCE
+- this means voting distributed by user groups as well as limits to overall control (like how I had a voting cap to start).
+- Groups such as LPs, Disco risk, minters, holders (hardest to control and will need opt-in from protocols, i rather not lock in holders for no reason).
+- Any emergency powers should be time-limited and automatically sunset
+- Have multi-house voting instead of just aggregate voting power. ("for changes that increase coercive capacity (fees, surveillance, lockups, forced actions)")
+- https://chatgpt.com/c/6983c407-a5e0-8332-9042-f7296350320a
 
 ***********V3***************
 Points system

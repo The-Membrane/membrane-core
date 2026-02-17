@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::str::FromStr;
 
 use cosmwasm_std::{
@@ -10,14 +11,15 @@ use osmosis_std::shim::Duration;
 use osmosis_std::types::osmosis::lockup::{LockupQuerier, AccountLockedLongerDurationDenomResponse};
 
 use membrane::math::{decimal_division, decimal_multiplication};
-use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, UserDiscountResponse, UserBoostResponse, IntentBoostsResponse, MigrateMsg};
+use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, UserDiscountResponse, UserBoostResponse, IntentBoostsResponse, StableBackingDiscountsResponse, MigrateMsg};
 use membrane::transmuter_lockdrop::MbrnIntentOption;
+use membrane::transmuter::QueryMsg as Transmuter_QueryMsg;
 use membrane::stability_pool::QueryMsg as SP_QueryMsg;
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
 use membrane::discount_vault::{QueryMsg as Discount_QueryMsg, UserResponse as Discount_UserResponse};
 use membrane::cdp::{BasketPositionsResponse, QueryMsg as CDP_QueryMsg};
 use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
-use membrane::ltv_disco::{QueryMsg as LTVDisco_QueryMsg, UserTotalDepositsResponse, LockedDepositsResponse};
+use membrane::ltv_disco::{QueryMsg as LTVDisco_QueryMsg, AllUserDepositsResponse};
 use membrane::types::Locked;
 use membrane::types::{AssetInfo, AssetPool, Basket, Deposit, TimedDiscountPeriod};
 
@@ -70,6 +72,22 @@ pub fn instantiate(
         });
     }
 
+    // Default stable backing discount constants
+    let stable_backing_max_discount = msg.stable_backing_max_discount.unwrap_or(Decimal::percent(75));
+    let stable_backing_first_month_discount = msg.stable_backing_first_month_discount.unwrap_or(Decimal::percent(45)); // 60% of 75%
+    let stable_backing_remaining_discount = msg.stable_backing_remaining_discount.unwrap_or(Decimal::percent(30)); // 40% of 75%
+    let stable_backing_curve_duration_days = msg.stable_backing_curve_duration_days.unwrap_or(90u64); // 3 months
+    let stable_backing_first_month_days = msg.stable_backing_first_month_days.unwrap_or(30u64);
+    let stable_backing_discountable_debt_multiplier = msg.stable_backing_discountable_debt_multiplier.unwrap_or(18u64);
+    let stable_backing_transmuter_balance_multiplier = msg.stable_backing_transmuter_balance_multiplier.unwrap_or(Decimal::percent(200)); // 2x
+
+    // Validate stable backing discount <= 1.0
+    if stable_backing_max_discount > Decimal::one() {
+        return Err(ContractError::CustomError { 
+            val: "stable_backing_max_discount cannot exceed 1.0 (100%)".to_string() 
+        });
+    }
+
     config = Config {
         owner,
         mbrn_denom,
@@ -79,10 +97,18 @@ pub fn instantiate(
         lockdrop_contract: None,
         discount_vault_contract: vec![],
         ltv_disco_contract: None,
+        transmuter_contract: None,
         minimum_time_in_network: msg.minimum_time_in_network,
         max_discount,
         mbrn_at_max_discount,
         max_boost,
+        stable_backing_max_discount,
+        stable_backing_first_month_discount,
+        stable_backing_remaining_discount,
+        stable_backing_curve_duration_days,
+        stable_backing_first_month_days,
+        stable_backing_discountable_debt_multiplier,
+        stable_backing_transmuter_balance_multiplier,
     };
     //Store optionals
     if let Some(lockdrop_contract) = msg.lockdrop_contract{
@@ -93,6 +119,9 @@ pub fn instantiate(
     }
     if let Some(ltv_disco_contract) = msg.ltv_disco_contract {
         config.ltv_disco_contract = Some(deps.api.addr_validate(&ltv_disco_contract)?);
+    }
+    if let Some(transmuter_contract) = msg.transmuter_contract {
+        config.transmuter_contract = Some(deps.api.addr_validate(&transmuter_contract)?);
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -211,6 +240,35 @@ fn update_config(
         //Save new state object 
         STATIC_DISCOUNTS.save(deps.storage, &static_discounts)?;
     }
+    if let Some(discount) = update.stable_backing_max_discount {
+        if discount > Decimal::one() {
+            return Err(ContractError::CustomError { 
+                val: "stable_backing_max_discount cannot exceed 1.0 (100%)".to_string() 
+            });
+        }
+        config.stable_backing_max_discount = discount;
+    }
+    if let Some(discount) = update.stable_backing_first_month_discount {
+        config.stable_backing_first_month_discount = discount;
+    }
+    if let Some(discount) = update.stable_backing_remaining_discount {
+        config.stable_backing_remaining_discount = discount;
+    }
+    if let Some(days) = update.stable_backing_curve_duration_days {
+        config.stable_backing_curve_duration_days = days;
+    }
+    if let Some(days) = update.stable_backing_first_month_days {
+        config.stable_backing_first_month_days = days;
+    }
+    if let Some(multiplier) = update.stable_backing_discountable_debt_multiplier {
+        config.stable_backing_discountable_debt_multiplier = multiplier;
+    }
+    if let Some(multiplier) = update.stable_backing_transmuter_balance_multiplier {
+        config.stable_backing_transmuter_balance_multiplier = multiplier;
+    }
+    if let Some(addr) = update.transmuter_contract {
+        config.transmuter_contract = Some(deps.api.addr_validate(&addr)?);
+    }
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
@@ -225,7 +283,139 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::UserDiscount { user } => to_binary(&get_discount(deps, env, user)?),
         QueryMsg::UserBoost { user } => to_binary(&get_boost(deps, env, user)?),
         QueryMsg::IntentBoosts { intents } => to_binary(&get_intent_boosts(deps, env, intents)?),
+        QueryMsg::StableBackingDiscounts { user, debt_amount } => to_binary(&get_stable_backing_discounts(deps, env, user, debt_amount)?),
     }
+}
+
+/// Calculate MBRN discount using time-based curve per deposit
+/// Processes staking deposits and LTV Disco deposits individually
+fn calculate_mbrn_discount(
+    querier: QuerierWrapper,
+    config: &Config,
+    user: &String,
+    current_time: u64,
+) -> StdResult<Decimal> {
+    const SECONDS_PER_DAY: u64 = 86_400;
+    let max_discount = config.stable_backing_max_discount;
+    let first_month_discount = config.stable_backing_first_month_discount;
+    let remaining_discount = config.stable_backing_remaining_discount;
+    let curve_duration_days = config.stable_backing_curve_duration_days;
+    let first_month_days = config.stable_backing_first_month_days;
+
+    let mut weighted_discount_sum = Decimal::zero();
+    let mut total_weight = Decimal::zero();
+
+    // Query staking contract for user's stake info
+    // let staker_response = querier.query::<StakerResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    //     contract_addr: config.staking_contract.to_string(),
+    //     msg: to_binary(&Staking_QueryMsg::UserStake {
+    //         staker: user.clone(),
+    //     })?,
+    // }))?;
+
+    // // Process staking deposits
+    // for deposit in &staker_response.deposit_list {
+    //     let deposit_start_time = deposit.stake_time;
+    //     let days_since_deposit = (current_time.saturating_sub(deposit_start_time)) / SECONDS_PER_DAY;
+
+    //     // Calculate lock duration for acceleration (only for active locks)
+    //     let lock_duration_days = if let Some(ref locked) = deposit.locked {
+    //         if locked.locked_until > current_time {
+    //             // Active lock: use remaining lock time
+    //             Some((locked.locked_until.saturating_sub(current_time)) / SECONDS_PER_DAY)
+    //         } else {
+    //             // Expired lock: no acceleration
+    //             None
+    //         }
+    //     } else {
+    //         // No lock: no acceleration
+    //         None
+    //     };
+
+    //     // Calculate discount using timed curve with lock acceleration
+    //     let discount = calculate_time_curve_discount(
+    //         days_since_deposit,
+    //         lock_duration_days,
+    //         max_discount,
+    //         first_month_discount,
+    //         remaining_discount,
+    //         curve_duration_days,
+    //         first_month_days,
+    //     )?;
+
+    //     // Weight by deposit amount
+    //     let weight = Decimal::from_ratio(deposit.amount, Uint128::one());
+    //     weighted_discount_sum = weighted_discount_sum
+    //         .checked_add(decimal_multiplication(discount, weight)?)
+    //         .map_err(|e| StdError::generic_err(format!("Error calculating weighted discount: {}", e)))?;
+    //     total_weight = total_weight
+    //         .checked_add(weight)
+    //         .map_err(|e| StdError::generic_err(format!("Error calculating total weight: {}", e)))?;
+    // }
+
+    // Query LTV Disco contract if configured
+    if let Some(ltv_disco_contract) = &config.ltv_disco_contract {
+        // Query all user deposits (locked and unlocked) across all assets
+        let all_deposits_response = querier.query::<AllUserDepositsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: ltv_disco_contract.to_string(),
+            msg: to_binary(&LTVDisco_QueryMsg::GetAllUserDeposits {
+                user: user.clone(),
+            })?,
+        }))?;
+
+        // Process all deposits
+        for deposit_info in &all_deposits_response.deposits {
+            let deposit = &deposit_info.deposit;
+            let deposit_start_time = deposit.start_time;
+            let days_since_deposit = (current_time.saturating_sub(deposit_start_time)) / SECONDS_PER_DAY;
+
+            // Calculate lock duration for acceleration (only for active locks)
+            let lock_duration_days = if let Some(ref locked) = deposit.locked {
+                if locked.locked_until > current_time {
+                    // Active lock: use remaining lock time
+                    Some((locked.locked_until.saturating_sub(current_time)) / SECONDS_PER_DAY)
+                } else {
+                    // Expired lock: no acceleration
+                    None
+                }
+            } else {
+                // No lock: no acceleration
+                None
+            };
+
+            // Use deposit_tokens from the response (already converted in ltv_disco contract)
+            let deposit_tokens = deposit_info.deposit_tokens;
+
+            // Calculate discount using timed curve with lock acceleration
+            let discount = calculate_time_curve_discount(
+                days_since_deposit,
+                lock_duration_days,
+                max_discount,
+                first_month_discount,
+                remaining_discount,
+                curve_duration_days,
+                first_month_days,
+            )?;
+
+            // Weight by deposit amount
+            let weight = Decimal::from_ratio(deposit_tokens, Uint128::one());
+            weighted_discount_sum = weighted_discount_sum
+                .checked_add(decimal_multiplication(discount, weight)?)
+                .map_err(|e| StdError::generic_err(format!("Error calculating weighted discount: {}", e)))?;
+            total_weight = total_weight
+                .checked_add(weight)
+                .map_err(|e| StdError::generic_err(format!("Error calculating total weight: {}", e)))?;
+        }
+    }
+
+    // Calculate weighted average discount
+    let avg_discount = if total_weight.is_zero() {
+        Decimal::zero()
+    } else {
+        decimal_division(weighted_discount_sum, total_weight)?
+    };
+
+    Ok(avg_discount)
 }
 
 /// Returns % of interest that is discounted,
@@ -239,8 +429,12 @@ fn get_discount(
     //Load static discounts
     let static_discounts = STATIC_DISCOUNTS.load(deps.storage)?;
 
-    //Load timed discount period
-    let timed_discount_period: TimedDiscountPeriod = TIMED_DISCOUNT_PERIOD.load(deps.storage)?;
+    //Load timed discount period (may not exist)
+    let timed_discount_period: TimedDiscountPeriod = TIMED_DISCOUNT_PERIOD.may_load(deps.storage)?.unwrap_or(TimedDiscountPeriod {
+        start_time: 0,
+        end_time: 0,
+        discount: Decimal::zero(),
+    });
 
     //If the period is active, return the discount
     let user_static_discount = if env.block.time.seconds() >= timed_discount_period.start_time && env.block.time.seconds() <= timed_discount_period.end_time {
@@ -260,24 +454,32 @@ fn get_discount(
     //Load Config
     let config = CONFIG.load(deps.storage)?;
 
-    // Get user's total MBRN (staked + deposited in LTV Disco, with locked boosts)
-    let user_total_mbrn = get_user_total_mbrn(deps.querier, config.clone(), user.clone(), env.block.time.seconds())?;
+    // Calculate MBRN discount using time-based curve per deposit
+    let mbrn_discount = calculate_mbrn_discount(
+        deps.querier,
+        &config,
+        &user,
+        env.block.time.seconds(),
+    )?;
 
-    // Calculate discount based on MBRN amount
-    let discount = if config.mbrn_at_max_discount.is_zero() {
-        // Avoid division by zero - if threshold is 0, return max discount
-        config.max_discount
+    // Add transmuter deposit discount (without debt multiplier)
+    let transmuter_discount = get_transmuter_discount(
+        deps,
+        env,
+        &config,
+        &user,
+    )?;
+
+    // Combine discounts: use the maximum of MBRN discount and transmuter discount
+    // This allows users to benefit from either MBRN staking or transmuter deposits
+    // If there's no transmuter discount, MBRN discount can go up to stable_backing_max_discount
+    // Otherwise, cap the combined discount at config.max_discount
+    let discount = if transmuter_discount.is_zero() {
+        // No transmuter discount, so MBRN discount can reach stable_backing_max_discount
+        min(mbrn_discount, config.stable_backing_max_discount)
     } else {
-        // Calculate ratio: min(user_total_mbrn / mbrn_at_max_discount, 1.0)
-        let ratio = Decimal::from_ratio(user_total_mbrn, config.mbrn_at_max_discount);
-        let capped_ratio = if ratio > Decimal::one() {
-            Decimal::one()
-        } else {
-            ratio
-        };
-        
-        // Calculate discount: ratio * max_discount
-        decimal_multiplication(capped_ratio, config.max_discount)?
+        // Has transmuter discount, cap combined at config.max_discount
+        min(transmuter_discount + mbrn_discount, config.max_discount)
     };
 
     Ok(UserDiscountResponse {
@@ -394,6 +596,300 @@ fn get_intent_boosts(
     }
 
     Ok(IntentBoostsResponse { boosts })
+}
+
+/// Calculate discount using time curve with optional lock duration acceleration
+/// Lock duration accelerates progress through the curve (only for active locks)
+/// For active locks: effective_days = days_since_deposit + lock_duration_days
+/// For expired locks or no lock: effective_days = days_since_deposit
+fn calculate_time_curve_discount(
+    days_since_deposit: u64,
+    lock_duration_days: Option<u64>,
+    max_discount: Decimal,
+    first_month_discount: Decimal,
+    remaining_discount: Decimal,
+    curve_duration_days: u64,
+    first_month_days: u64,
+) -> StdResult<Decimal> {
+    // Calculate effective days: add lock duration if active lock exists
+    let effective_days = if let Some(lock_days) = lock_duration_days {
+        days_since_deposit + lock_days
+    } else {
+        days_since_deposit
+    };
+
+    // Calculate discount using timed curve
+    let discount = if effective_days >= curve_duration_days {
+        max_discount
+    } else {
+        let first_month_progress = Decimal::from_ratio(
+            effective_days.min(first_month_days),
+            first_month_days,
+        );
+        let first_month_discount_amount = decimal_multiplication(first_month_discount, first_month_progress)?;
+
+        let remaining_days = if effective_days > first_month_days {
+            effective_days - first_month_days
+        } else {
+            0
+        };
+        // Calculate remaining duration in days (not months)
+        let remaining_duration_days = curve_duration_days - first_month_days;
+        let remaining_progress = if remaining_duration_days > 0 {
+            Decimal::from_ratio(
+                remaining_days.min(remaining_duration_days),
+                remaining_duration_days,
+            )
+        } else {
+            Decimal::zero()
+        };
+        let remaining_discount_amount = decimal_multiplication(remaining_discount, remaining_progress)?;
+
+        let total_discount = first_month_discount_amount + remaining_discount_amount;
+        if total_discount > max_discount {
+            max_discount
+        } else {
+            total_discount
+        }
+    };
+
+    Ok(discount)
+}
+
+/// Calculate transmuter deposit discount (without debt multiplier)
+/// Uses the same timed curve as stable backing discounts but without the 18x debt capacity multiplier
+fn get_transmuter_discount(
+    deps: Deps,
+    env: Env,
+    config: &Config,
+    user: &String,
+) -> StdResult<Decimal> {
+    // Check if transmuter contract is configured
+    let transmuter_contract = match config.transmuter_contract {
+        Some(ref addr) => addr.clone(),
+        None => {
+            return Ok(Decimal::zero());
+        }
+    };
+
+    // Query user deposits from transmuter
+    let deposits_response: membrane::transmuter::UserDepositsResponse = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: transmuter_contract.to_string(),
+        msg: to_json_binary(&Transmuter_QueryMsg::UserDeposits {
+            user: user.clone(),
+        })?,
+    }))?;
+
+    if deposits_response.deposits.is_empty() {
+        return Ok(Decimal::zero());
+    }
+
+    // Get constants from config
+    const SECONDS_PER_DAY: u64 = 86_400;
+    let max_discount = config.stable_backing_max_discount;
+    let first_month_discount = config.stable_backing_first_month_discount;
+    let remaining_discount = config.stable_backing_remaining_discount;
+    let curve_duration_days = config.stable_backing_curve_duration_days;
+    let first_month_days = config.stable_backing_first_month_days;
+    let transmuter_balance_multiplier = config.stable_backing_transmuter_balance_multiplier;
+
+    let current_time = env.block.time.seconds();
+    let mut weighted_discount_sum = Decimal::zero();
+    let mut total_weight = Decimal::zero();
+
+    // Process each deposit
+    for deposit in &deposits_response.deposits {
+        // Use start_time for discount curve calculation
+        let deposit_start_time = deposit.start_time;
+        let days_since_deposit = (current_time.saturating_sub(deposit_start_time)) / SECONDS_PER_DAY;
+
+        // Calculate lock duration for acceleration (only for active locks)
+        let lock_duration_days = if let Some(ref locked) = deposit.locked {
+            if locked.locked_until > current_time {
+                // Active lock: use remaining lock time
+                Some((locked.locked_until.saturating_sub(current_time)) / SECONDS_PER_DAY)
+            } else {
+                // Expired lock: no acceleration
+                None
+            }
+        } else {
+            // No lock: no acceleration
+            None
+        };
+
+        // Calculate discount using timed curve with lock acceleration
+        let discount = calculate_time_curve_discount(
+            days_since_deposit,
+            lock_duration_days,
+            max_discount,
+            first_month_discount,
+            remaining_discount,
+            curve_duration_days,
+            first_month_days,
+        )?;
+
+        // Calculate weight based on boosted deposit amount (with 2x multiplier, but no debt multiplier)
+        let boosted_amount = decimal_multiplication(
+            Decimal::from_ratio(deposit.amount, Uint128::one()),
+            transmuter_balance_multiplier,
+        )?.to_uint_floor();
+
+        // Weight by boosted amount for weighted average
+        let weight = Decimal::from_ratio(boosted_amount, Uint128::one());
+        weighted_discount_sum = weighted_discount_sum
+            .checked_add(decimal_multiplication(discount, weight)?)
+            .map_err(|e| StdError::generic_err(format!("Error calculating weighted discount: {}", e)))?;
+        total_weight = total_weight
+            .checked_add(weight)
+            .map_err(|e| StdError::generic_err(format!("Error calculating total weight: {}", e)))?;
+    }
+
+    // Calculate weighted average discount
+    let avg_discount = if total_weight.is_zero() {
+        Decimal::zero()
+    } else {
+        decimal_division(weighted_discount_sum, total_weight)?
+    };
+
+    Ok(avg_discount)
+}
+
+/// Calculate stable backing discounts based on transmuter deposits
+/// Uses timed curve: 60% of max (45%) in first month, remaining 30% over next 2 months, max 75%
+fn get_stable_backing_discounts(
+    deps: Deps,
+    env: Env,
+    user: String,
+    debt_amount: Uint128,
+) -> StdResult<StableBackingDiscountsResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    
+    // Check if transmuter contract is configured
+    let transmuter_contract = match config.transmuter_contract {
+        Some(addr) => addr,
+        None => {
+            return Ok(StableBackingDiscountsResponse {
+                user,
+                discount: Decimal::zero(),
+            });
+        }
+    };
+
+    // Query user deposits from transmuter
+    let deposits_response: membrane::transmuter::UserDepositsResponse = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+        contract_addr: transmuter_contract.to_string(),
+        msg: to_json_binary(&membrane::transmuter::QueryMsg::UserDeposits {
+            user: user.clone(),
+        })?,
+    }))?;
+
+    if deposits_response.deposits.is_empty() {
+        return Ok(StableBackingDiscountsResponse {
+            user,
+            discount: Decimal::zero(),
+        });
+    }
+
+    // Get constants from config
+    const SECONDS_PER_DAY: u64 = 86_400;
+    let max_discount = config.stable_backing_max_discount;
+    let first_month_discount = config.stable_backing_first_month_discount;
+    let remaining_discount = config.stable_backing_remaining_discount;
+    let curve_duration_days = config.stable_backing_curve_duration_days;
+    let first_month_days = config.stable_backing_first_month_days;
+    let discountable_debt_multiplier = config.stable_backing_discountable_debt_multiplier;
+    let transmuter_balance_multiplier = config.stable_backing_transmuter_balance_multiplier;
+
+    let current_time = env.block.time.seconds();
+    let mut total_discountable_capacity = Uint128::zero();
+    let mut weighted_discount_sum = Decimal::zero();
+    let mut total_weight = Decimal::zero();
+
+    // Process each deposit
+    for deposit in &deposits_response.deposits {
+        // Use start_time for discount curve calculation
+        let deposit_start_time = deposit.start_time;
+        let days_since_deposit = (current_time.saturating_sub(deposit_start_time)) / SECONDS_PER_DAY;
+
+        // Calculate discount using timed curve
+        let discount = if days_since_deposit >= curve_duration_days {
+            max_discount
+        } else {
+            let first_month_progress = Decimal::from_ratio(
+                days_since_deposit.min(first_month_days),
+                first_month_days,
+            );
+            let first_month_discount_amount = decimal_multiplication(first_month_discount, first_month_progress)?;
+
+            let remaining_days = if days_since_deposit > first_month_days {
+                days_since_deposit - first_month_days
+            } else {
+                0
+            };
+            // Calculate remaining duration in days (not months)
+            let remaining_duration_days = curve_duration_days - first_month_days;
+            let remaining_progress = if remaining_duration_days > 0 {
+                Decimal::from_ratio(
+                    remaining_days.min(remaining_duration_days),
+                    remaining_duration_days,
+                )
+            } else {
+                Decimal::zero()
+            };
+            let remaining_discount_amount = decimal_multiplication(remaining_discount, remaining_progress)?;
+
+            let total_discount = first_month_discount_amount + remaining_discount_amount;
+            if total_discount > max_discount {
+                max_discount
+            } else {
+                total_discount
+            }
+        };
+
+        // Calculate discountable debt capacity: multiplier * (deposit_amount * balance_multiplier)
+        let boosted_amount = decimal_multiplication(
+            Decimal::from_ratio(deposit.amount, Uint128::one()),
+            transmuter_balance_multiplier,
+        )?.to_uint_floor();
+        
+        let capacity = boosted_amount
+            .checked_mul(Uint128::from(discountable_debt_multiplier))
+            .map_err(|e| StdError::overflow(e))?;
+
+        total_discountable_capacity = total_discountable_capacity
+            .checked_add(capacity)
+            .map_err(|e| StdError::overflow(e))?;
+
+        // Weight by capacity for weighted average
+        let weight = Decimal::from_ratio(capacity, Uint128::one());
+        weighted_discount_sum = weighted_discount_sum
+            .checked_add(decimal_multiplication(discount, weight)?)
+            .map_err(|e| StdError::generic_err(format!("Error calculating weighted discount: {}", e)))?;
+        total_weight = total_weight
+            .checked_add(weight)
+            .map_err(|e| StdError::generic_err(format!("Error calculating total weight: {}", e)))?;
+    }
+
+    // Calculate weighted average discount
+    let avg_discount = if total_weight.is_zero() {
+        Decimal::zero()
+    } else {
+        decimal_division(weighted_discount_sum, total_weight)?
+    };
+
+    // Apply proportional discount if debt exceeds capacity
+    let final_discount = if debt_amount > total_discountable_capacity {
+        // Apply discount proportionally: (capacity / debt) * discount
+        let coverage_ratio = Decimal::from_ratio(total_discountable_capacity, debt_amount);
+        decimal_multiplication(avg_discount, coverage_ratio)?
+    } else {
+        avg_discount
+    };
+
+    Ok(StableBackingDiscountsResponse {
+        user,
+        discount: final_discount,
+    })
 }
 
 /// Calculate boosted amount for a locked deposit
@@ -513,20 +1009,10 @@ fn get_user_total_mbrn(
 
     // Query LTV Disco contract if configured
     if let Some(ltv_disco_contract) = config.ltv_disco_contract {
-        // Query base deposits
-        let ltv_deposits = querier.query::<UserTotalDepositsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+        // Query all user deposits (locked and unlocked) across all assets
+        let all_deposits_response = querier.query::<AllUserDepositsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
             contract_addr: ltv_disco_contract.to_string(),
-            msg: to_binary(&LTVDisco_QueryMsg::UserTotalDeposits {
-                user: user.clone(),
-            })?,
-        }))?;
-        
-        total_mbrn += ltv_deposits.total_deposits;
-        
-        // Query locked deposits and boost them
-        let locked_deposits_response = querier.query::<LockedDepositsResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: ltv_disco_contract.to_string(),
-            msg: to_binary(&LTVDisco_QueryMsg::GetLockedDeposits {
+            msg: to_binary(&LTVDisco_QueryMsg::GetAllUserDeposits {
                 user: user.clone(),
             })?,
         }))?;
@@ -537,21 +1023,19 @@ fn get_user_total_mbrn(
             msg: to_binary(&LTVDisco_QueryMsg::Config {})?,
         }))?;
         
-        for locked_deposit in &locked_deposits_response.locked_deposits {
-            let deposit = &locked_deposit.deposit;
+        for deposit_info in &all_deposits_response.deposits {
+            let deposit = &deposit_info.deposit;
+            
+            // Use deposit_tokens from the response (already converted in ltv_disco contract)
+            let deposit_tokens = deposit_info.deposit_tokens;
+            
+            // Add base deposit amount
+            total_mbrn += deposit_tokens;
+            
+            // Boost locked deposits
             if let Some(ref locked) = deposit.locked {
                 // Only boost if still locked
                 if locked.locked_until > current_time {
-                    // Convert vault tokens to deposit tokens using the conversion query
-                    let deposit_tokens: Uint128 = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-                        contract_addr: ltv_disco_contract.to_string(),
-                        msg: to_binary(&LTVDisco_QueryMsg::VaultTokenConversion {
-                            asset: locked_deposit.asset.clone(),
-                            ltv: locked_deposit.ltv,
-                            max_borrow_ltv: locked_deposit.max_borrow_ltv,
-                            vault_tokens: deposit.vault_tokens,
-                        })?,
-                    }))?;
                     let lock_ceiling = ltv_disco_config.lock_duration_ceiling;
                     let boosted = calculate_locked_boost(
                         deposit_tokens,
@@ -611,8 +1095,15 @@ fn clear_timed_discount_period(
     deps: DepsMut,
     env: Env,
 ) -> Result<Response, ContractError> {
-    //Load state
-    let timed_discount_period: TimedDiscountPeriod = TIMED_DISCOUNT_PERIOD.load(deps.storage)?;
+    //Load state (may not exist)
+    let timed_discount_period: TimedDiscountPeriod = match TIMED_DISCOUNT_PERIOD.may_load(deps.storage)? {
+        Some(period) => period,
+        None => {
+            return Err(ContractError::CustomError { 
+                val: "No timed discount period to clear".to_string() 
+            });
+        }
+    };
 
     //Anyone can clear if the period is expired
     if env.block.time.seconds() > timed_discount_period.clone().end_time {

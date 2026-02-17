@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::str::FromStr;
 
 use cosmwasm_std::{
-    to_binary, Decimal, Deps, Env, Order, QuerierWrapper, QueryRequest, StdError, StdResult,
+    to_binary, Coin, Decimal, Deps, Env, Order, QuerierWrapper, QueryRequest, StdError, StdResult,
     Storage, Uint128, WasmQuery, Addr,
 };
 
@@ -11,17 +11,18 @@ use cw_storage_plus::Bound;
 use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::cdp::{
     Config, CollateralInterestResponse, UserIntentResponse,
-    InterestResponse, PositionResponse, BasketPositionsResponse, RedeemabilityResponse, LiquidationStatResponse, HistoricalOraclePricesResponse
+    InterestResponse, PositionResponse, BasketPositionsResponse, LiquidationStatResponse, HistoricalOraclePricesResponse, HistoricalInterestRatesResponse
 };
 use membrane::ltv_disco::{QueryMsg as LTVDiscoQueryMsg, AverageLTVsResponse};
 
 use membrane::types::{
-    cAsset, AssetInfo, Basket, DebtCap, IndividualCost, Position, PremiumInfo, RedemptionInfo, StoredPrice, UserInfo
+    cAsset, Asset, AssetInfo, Basket, DebtCap, Position, StoredPrice, UserInfo
 };
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
 
 use crate::positions::get_amount_from_LTV;
-use crate::state::{get_target_position, CollateralVolatility, ACTIVE_DEPLOYMENT_VENUES, BASKET, CONFIG, HISTORICAL_ORACLE_PRICES, LIQUIDATION_STATS, POSITIONS, REDEMPTION_OPT_IN, STORED_PRICES, USER_INTENTS, VOLATILITY, update_historical_oracle};
+use crate::rates::get_total_debt_from_segments;
+use crate::state::{get_target_position, CollateralVolatility, ACTIVE_DEPLOYMENT_VENUES, BASKET, CONFIG, HISTORICAL_ORACLE_PRICES, HISTORICAL_INTEREST_RATES, LIQUIDATION_STATS, POSITIONS, RATES, STORED_PRICES, USER_INTENTS, VOLATILITY, LTV_HISTORY, LTV_UPDATE_TRACKERS, update_historical_oracle};
 use crate::ltv_updater::cap_ltv_values;
 
 const MAX_LIMIT: u32 = 31;
@@ -156,23 +157,26 @@ pub fn query_basket_positions(
         let user = deps.api.addr_validate(&user)?;
 
         let positions: Vec<Position> = match POSITIONS.load(deps.storage,user.clone()){
-            Err(_) => return Err(StdError::GenericErr{msg: String::from("No User Positions")}),
+            Err(_) => return Err(StdError::generic_err("No User Positions")),
             Ok(positions) => positions,
         };
         
         let mut user_positions: Vec<PositionResponse> = vec![];
         
         for position in positions.into_iter() {
+            let credit_amount = crate::rates::get_total_position_debt(&position);
             user_positions.push(PositionResponse {
                 position_id: position.position_id,
                 collateral_assets: position.collateral_assets,
                 cAsset_ratios: vec![],
-                credit_amount: position.credit_amount,
+                credit_amount,
+                rate_segments: position.rate_segments,
                 avg_borrow_LTV: Decimal::zero(),
                 avg_max_LTV: Decimal::zero(),
                 deployed_to: position.deployed_to,
                 pending_interest: position.pending_interest,
                 total_interest_accrued: position.total_interest_accrued,
+                peg_rate_segments: position.peg_rate_segments,
             });
         };
 
@@ -185,7 +189,7 @@ pub fn query_basket_positions(
 
         let (_i, position) = match get_target_position(deps.storage, user.clone(), user_info.position_id){
             Ok(position) => position,
-            Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+            Err(err) => return Err(StdError::generic_err(err.to_string())),
         };
 
         return Ok(vec![BasketPositionsResponse {
@@ -194,12 +198,14 @@ pub fn query_basket_positions(
                 position_id: position.position_id,
                 collateral_assets: position.clone().collateral_assets,
                 cAsset_ratios: vec![],
-                credit_amount: position.credit_amount,
+                credit_amount: crate::rates::get_total_position_debt(&position),
+                rate_segments: position.rate_segments,
                 avg_borrow_LTV: Decimal::zero(),
                 avg_max_LTV: Decimal::zero(),
                 deployed_to: position.deployed_to,
                 pending_interest: position.pending_interest,
                 total_interest_accrued: position.total_interest_accrued,
+                peg_rate_segments: position.peg_rate_segments,
             }],
         }])
     }
@@ -224,16 +230,19 @@ pub fn query_basket_positions(
                 positions: v
                     .into_iter()
                     .map(|pos| {
-                        PositionResponse { 
+                        let credit_amount = crate::rates::get_total_position_debt(&pos);
+                        PositionResponse {
                             position_id: pos.position_id,
-                            collateral_assets: pos.collateral_assets, 
-                            cAsset_ratios: vec![], 
-                            credit_amount: pos.credit_amount, 
-                            avg_borrow_LTV: Decimal::zero(), 
+                            collateral_assets: pos.collateral_assets,
+                            cAsset_ratios: vec![],
+                            credit_amount,
+                            rate_segments: pos.rate_segments,
+                            avg_borrow_LTV: Decimal::zero(),
                             avg_max_LTV: Decimal::zero(),
                             deployed_to: pos.deployed_to,
                             pending_interest: pos.pending_interest,
                             total_interest_accrued: pos.total_interest_accrued,
+                            peg_rate_segments: pos.peg_rate_segments,
                         }
                     })
                     .collect(),
@@ -247,12 +256,11 @@ pub fn query_basket_positions(
 pub fn query_collateral_rates(
     deps: Deps,
 ) -> StdResult<CollateralInterestResponse> {
-    let basket = BASKET.load(deps.storage)?;
+    let rates_store = RATES.load(deps.storage)?;
 
-    let rates = basket.lastest_collateral_rates.into_iter().map(|rate| rate.rate).collect::<Vec<Decimal>>();
+    let rates = rates_store.lastest_collateral_rates.into_iter().map(|rate| rate.rate).collect::<Vec<Decimal>>();
 
     Ok(CollateralInterestResponse { rates })
-    
 }
 
 /// Returns Basket credit redemption interest rate
@@ -264,22 +272,30 @@ pub fn query_basket_credit_interest(
 
     let basket = BASKET.load(deps.storage)?;
 
-    let time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
+    let rates_store = RATES.load(deps.storage)?;
+    let time_elapsed = env.block.time.seconds() - rates_store.credit_last_accrued;
     let mut price_difference = Decimal::zero();
     let mut negative_rate: bool = false;
 
     if !time_elapsed != 0u64 {
         //Calculate new interest rate
+        // Convert CreditAssetBreakdown to Asset for price calculation
+        let total_credit_amount = basket.credit_asset.variable_amount
+            + basket.credit_asset.one_month_amount
+            + basket.credit_asset.three_month_amount
+            + basket.credit_asset.six_month_amount;
+        
         let credit_asset = cAsset {
-            asset: basket.clone().credit_asset,
+            asset: Asset {
+                info: basket.credit_asset.info.clone(),
+                amount: total_credit_amount,
+            },
             max_borrow_LTV: Decimal::zero(),
             max_LTV: Decimal::zero(),
             pool_info: None,
             rate_index: Decimal::one(),
-            individual_cost: Some(IndividualCost {
-                rate: Decimal::zero(),
-                updater_address: None,
-            }),
+            peg_rate_index: Decimal::one(),
+            force_redemptions: None,
         };
 
         let credit_TWAP_price = match  get_asset_values(
@@ -330,7 +346,7 @@ pub fn query_basket_credit_interest(
         };
 
         //Don't set interest if price is within the margin of error
-        if price_difference <= basket.cpc_margin_of_error {
+        if price_difference <= rates_store.cpc_margin_of_error {
             price_difference = Decimal::zero();
         }
     }
@@ -595,6 +611,7 @@ pub fn query_prices(
     Ok(sorted_prices)
 }
 
+/* REDEMPTION LOGIC COMMENTED OUT
 /// Get Basket Redeemability
 pub fn query_basket_redeemability(
     deps: Deps,
@@ -602,7 +619,7 @@ pub fn query_basket_redeemability(
     start_after: Option<u128>,
     limit: Option<u32>,
 ) -> StdResult<RedeemabilityResponse>{
-    //Set premium start 
+    //Set premium start
     let start = start_after.unwrap_or(0u128);
 
     let mut limit = limit.unwrap_or(MAX_LIMIT);
@@ -626,7 +643,7 @@ pub fn query_basket_redeemability(
         //If there are users of this premium, add the state to the response
         if !users_of_premium.is_empty(){
 
-            if let Some(_user) = position_owner.clone(){    
+            if let Some(_user) = position_owner.clone(){
                 //Add to the user's info to the response if in the premium
                 let users_info_in_premium = users_of_premium
                     .into_iter()
@@ -641,7 +658,7 @@ pub fn query_basket_redeemability(
                 }
 
             } else {
-                //Assert limit 
+                //Assert limit
                 if limit >= users_of_premium.len() as u32 {
                     //Add all users in this premium
                     res.push(PremiumInfo {
@@ -659,7 +676,7 @@ pub fn query_basket_redeemability(
                         users_of_premium: final_addition,
                     });
                 }
-            }            
+            }
         }
     }
 
@@ -669,6 +686,7 @@ pub fn query_basket_redeemability(
         }
     )
 }
+END REDEMPTION LOGIC COMMENTED OUT */
 
 pub fn simulate_LTV_mint(
     deps: Deps,
@@ -681,7 +699,7 @@ pub fn simulate_LTV_mint(
         deps.api.addr_validate(&user_info.position_owner)?, 
         user_info.position_id){
             Ok(position) => position,
-            Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+            Err(err) => return Err(StdError::generic_err(err.to_string())),
         };
 
     let amount = match  get_amount_from_LTV(
@@ -694,7 +712,7 @@ pub fn simulate_LTV_mint(
         LTV
     ){
         Ok(amount) => amount,
-        Err(err) => return Err(StdError::GenericErr { msg: err.to_string() }),
+        Err(err) => return Err(StdError::generic_err(err.to_string())),
     };
 
     Ok( amount )
@@ -709,7 +727,15 @@ pub fn query_ltv_disco_for_asset_ltvs(
 ) -> StdResult<Vec<(Decimal, Decimal)>> {
     let mut ltv_tuples = Vec::new();
 
-    for asset in assets {
+    println!("[INSOLVENCY_DEBUG] === query_ltv_disco_for_asset_ltvs ===");
+    println!("[INSOLVENCY_DEBUG] ltv_disco_addr: {}", ltv_disco_addr);
+    println!("[INSOLVENCY_DEBUG] assets count: {}", assets.len());
+
+    for (i, asset) in assets.iter().enumerate() {
+        println!("[INSOLVENCY_DEBUG] Querying LTV disco for asset {}: {}", i, asset.asset.info);
+        println!("[INSOLVENCY_DEBUG] Asset {} stored LTVs: max_LTV={}, max_borrow_LTV={}", 
+            i, asset.max_LTV, asset.max_borrow_LTV);
+        
         // Query ltv_disco for this specific asset's average LTVs
         let response: AverageLTVsResponse = querier.query_wasm_smart(
             ltv_disco_addr.to_string(),
@@ -718,22 +744,32 @@ pub fn query_ltv_disco_for_asset_ltvs(
             },
         )?;
 
+        println!("[INSOLVENCY_DEBUG] LTV disco response for asset {}: average_max_ltv={}, average_max_borrow_ltv={}", 
+            i, response.average_max_ltv, response.average_max_borrow_ltv);
+
         // If ltv_disco returns zero (no deposits for this asset), fall back to cAsset's stored LTVs
         let mut max_ltv = if response.average_max_ltv.is_zero() {
+            println!("[INSOLVENCY_DEBUG] Using fallback max_LTV from asset: {}", asset.max_LTV);
             asset.max_LTV
         } else {
+            println!("[INSOLVENCY_DEBUG] Using LTV disco max_ltv: {}", response.average_max_ltv);
             response.average_max_ltv
         };
 
         let mut max_borrow_ltv = if response.average_max_borrow_ltv.is_zero() {
+            println!("[INSOLVENCY_DEBUG] Using fallback max_borrow_LTV from asset: {}", asset.max_borrow_LTV);
             asset.max_borrow_LTV
         } else {
+            println!("[INSOLVENCY_DEBUG] Using LTV disco max_borrow_ltv: {}", response.average_max_borrow_ltv);
             response.average_max_borrow_ltv
         };
 
         // Ensure LTVs are valid: max_borrow_ltv < max_ltv
         cap_ltv_values(&mut max_borrow_ltv, &mut max_ltv)
             .map_err(|e| StdError::generic_err(format!("Failed to cap LTV values: {}", e)))?;
+
+        println!("[INSOLVENCY_DEBUG] Final LTVs for asset {} (after capping): max_ltv={}, max_borrow_ltv={}", 
+            i, max_ltv, max_borrow_ltv);
 
         ltv_tuples.push((max_ltv, max_borrow_ltv));
     }
@@ -753,9 +789,7 @@ pub fn get_asset_values(
 ) -> StdResult<(Vec<Decimal>, Vec<PriceResponse>)> {
     //Enforce Vec max size
     if assets.len() > 50 {
-        return Err(StdError::GenericErr {
-            msg: String::from("Max asset_infos length is 50"),
-        });
+        return Err(StdError::generic_err("Max asset_infos length is 50"));
     }
 
     //Getting proportions for position collateral to calculate avg LTV
@@ -782,6 +816,8 @@ pub fn get_asset_values(
         //Calculate cAsset values
         for (i, cAsset) in assets.iter().enumerate() {
             let cAsset_value = cAsset_prices[i].get_value(cAsset.asset.amount)?;
+            println!("[INSOLVENCY_DEBUG] Asset {} value calc: amount={}, price={}, decimals={}, value={}", 
+                i, cAsset.asset.amount, cAsset_prices[i].price, cAsset_prices[i].decimals, cAsset_value);
             cAsset_values.push(cAsset_value);
         
         }
@@ -843,15 +879,18 @@ pub fn calculate_avg_LTV(
     ltv_tuples: Vec<(Decimal, Decimal)>, // (max_ltv, max_borrow_ltv) for each asset
 ) -> StdResult<(Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>)> {
     let total_value: Decimal = cAsset_values.iter().sum();
+    println!("[INSOLVENCY_DEBUG] calculate_avg_LTV: total_value (sum of cAsset_values) = {}", total_value);
 
     //getting each cAsset's % of total value
     let mut cAsset_ratios: Vec<Decimal> = vec![];
-    for cAsset in cAsset_values {
-        if total_value == Decimal::zero() {
-            cAsset_ratios.push(Decimal::zero());
+    for (i, cAsset) in cAsset_values.iter().enumerate() {
+        let ratio = if total_value == Decimal::zero() {
+            Decimal::zero()
         } else {
-            cAsset_ratios.push(decimal_division(cAsset, total_value)?);
-        }
+            decimal_division(*cAsset, total_value)?
+        };
+        println!("[INSOLVENCY_DEBUG] Asset {} ratio: value={}, ratio={}", i, cAsset, ratio);
+        cAsset_ratios.push(ratio);
     }
 
     //Converting % of value to avg_LTV by multiplying collateral LTV by % of total value
@@ -880,13 +919,22 @@ pub fn calculate_avg_LTV(
     }
 
     for (i, _cAsset) in collateral_assets.iter().enumerate() {
-        avg_borrow_LTV +=
-            decimal_multiplication(cAsset_ratios[i], ltv_tuples[i].1)?; // Use queried max_borrow_ltv
+        let contribution = decimal_multiplication(cAsset_ratios[i], ltv_tuples[i].1)?; // Use queried max_borrow_ltv
+        println!("[INSOLVENCY_DEBUG] Asset {} avg_borrow_LTV contribution: ratio={} * max_borrow_ltv={} = {}", 
+            i, cAsset_ratios[i], ltv_tuples[i].1, contribution);
+        avg_borrow_LTV += contribution;
     }
 
     for (i, _cAsset) in collateral_assets.iter().enumerate() {
-        avg_max_LTV += decimal_multiplication(cAsset_ratios[i], ltv_tuples[i].0)?; // Use queried max_ltv
+        let contribution = decimal_multiplication(cAsset_ratios[i], ltv_tuples[i].0)?; // Use queried max_ltv
+        println!("[INSOLVENCY_DEBUG] Asset {} avg_max_LTV contribution: ratio={} * max_ltv={} = {}", 
+            i, cAsset_ratios[i], ltv_tuples[i].0, contribution);
+        avg_max_LTV += contribution;
     }
+
+    println!("[INSOLVENCY_DEBUG] Final avg_borrow_LTV: {}", avg_borrow_LTV);
+    println!("[INSOLVENCY_DEBUG] Final avg_max_LTV: {}", avg_max_LTV);
+    println!("[INSOLVENCY_DEBUG] Final total_value: {}", total_value);
 
     Ok((avg_borrow_LTV, avg_max_LTV, total_value, cAsset_prices, cAsset_ratios))
 }
@@ -906,9 +954,22 @@ pub fn insolvency_check(
     config: Config,
 ) -> StdResult<((bool, Decimal, Uint128), (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>))> { //insolvent, current_LTV, available_fee, (avg_LTV return values)
 
+    println!("[INSOLVENCY_DEBUG] === ENTERING INSOLVENCY_CHECK ===");
+    println!("[INSOLVENCY_DEBUG] credit_amount: {}", credit_amount);
+    println!("[INSOLVENCY_DEBUG] credit_price: price={}, decimals={}", credit_price.price, credit_price.decimals);
+    println!("[INSOLVENCY_DEBUG] max_borrow flag: {}", max_borrow);
+    println!("[INSOLVENCY_DEBUG] collateral_assets count: {}", collateral_assets.len());
+
     //Get avg LTVs
     let avg_LTVs: (Decimal, Decimal, Decimal, Vec<PriceResponse>, Vec<Decimal>) =
         get_avg_LTV(storage, env, querier, config, basket, collateral_assets.clone(), false)?;
+
+    println!("[INSOLVENCY_DEBUG] get_avg_LTV returned:");
+    println!("  avg_borrow_LTV: {}", avg_LTVs.0);
+    println!("  avg_max_LTV: {}", avg_LTVs.1);
+    println!("  total_asset_value: {}", avg_LTVs.2);
+    println!("  price_responses count: {}", avg_LTVs.3.len());
+    println!("  asset_ratios count: {}", avg_LTVs.4.len());
 
     //Insolvency check
     Ok((insolvency_check_calc(avg_LTVs.clone(), collateral_assets, credit_amount, credit_price, max_borrow)?, avg_LTVs))
@@ -931,32 +992,71 @@ pub fn insolvency_check_calc(
         .iter()
         .sum();
     
+    // Log collateral asset amounts
+    println!("[INSOLVENCY_DEBUG] Collateral assets:");
+    for (i, asset) in collateral_assets.iter().enumerate() {
+        println!("  Asset {}: denom={}, amount={}", i, asset.asset.info, asset.asset.amount);
+    }
+    println!("[INSOLVENCY_DEBUG] total_assets (raw): {}", total_assets);
+    
     // No assets with debt, return insolvent        
     if total_assets.is_zero() && !credit_amount.is_zero() {
+        println!("[INSOLVENCY_DEBUG] No assets but has debt - returning insolvent");
         return Ok((true, Decimal::percent(100), Uint128::zero()));
     } // No assets and no debt, return not insolvent        
     else if credit_amount.is_zero() {
+        println!("[INSOLVENCY_DEBUG] No debt - returning not insolvent");
         return Ok((false, Decimal::percent(0), Uint128::zero()));
     }
 
     
     let total_asset_value: Decimal = avg_LTVs.2; //pulls total_asset_value
     let debt_value = credit_price.get_value(credit_amount)?;
+    
+    // Log all key values
+    println!("[INSOLVENCY_DEBUG] === INSOLVENCY CALCULATION ===");
+    println!("[INSOLVENCY_DEBUG] credit_amount (raw tokens): {}", credit_amount);
+    println!("[INSOLVENCY_DEBUG] credit_price: price={}, decimals={}", credit_price.price, credit_price.decimals);
+    println!("[INSOLVENCY_DEBUG] debt_value (USD): {}", debt_value);
+    println!("[INSOLVENCY_DEBUG] total_asset_value (USD): {}", total_asset_value);
+    println!("[INSOLVENCY_DEBUG] avg_borrow_LTV (max_borrow_LTV): {}", avg_LTVs.0);
+    println!("[INSOLVENCY_DEBUG] avg_max_LTV (liquidation_LTV): {}", avg_LTVs.1);
+    println!("[INSOLVENCY_DEBUG] max_borrow flag: {}", max_borrow);
+    
+    // Log asset values and prices
+    println!("[INSOLVENCY_DEBUG] Asset values and prices:");
+    for (i, price_resp) in avg_LTVs.3.iter().enumerate() {
+        if i < collateral_assets.len() {
+            let asset_value = if i < avg_LTVs.4.len() {
+                let ratio = avg_LTVs.4[i];
+                total_asset_value * ratio
+            } else {
+                Decimal::zero()
+            };
+            println!("  Asset {}: price={}, decimals={}, value={}", 
+                i, price_resp.price, price_resp.decimals, asset_value);
+        }
+    }
+    
     //current_LTV = debt_value / total_asset_value);
     let current_LTV = 
-        debt_value.checked_div(total_asset_value).map_err(|_| StdError::GenericErr{msg: format!("Division by zero in insolvency_check_calc, line 907. debt_value: {}, total_asset_value: {}", debt_value, total_asset_value)})?; 
+        debt_value.checked_div(total_asset_value).map_err(|_| StdError::generic_err( format!("Division by zero in insolvency_check_calc, line 907. debt_value: {}, total_asset_value: {}", debt_value, total_asset_value)))?;
     
-    //Return for testing
-    // return Err(StdError::GenericErr{msg: format!("debt_value: {}, total_asset_value: {}, current_LTV: {}, max_borrow: {}", debt_value, total_asset_value, current_LTV, avg_LTVs.0)});
+    println!("[INSOLVENCY_DEBUG] current_LTV: {}", current_LTV);
+    println!("[INSOLVENCY_DEBUG] current_LTV as percent: {}%", current_LTV * Decimal::percent(100));
 
     let check: bool = match max_borrow {
         true => {
             //Checks max_borrow
-            current_LTV > avg_LTVs.0
+            let result = current_LTV > avg_LTVs.0;
+            println!("[INSOLVENCY_DEBUG] Checking max_borrow: current_LTV ({}) > avg_borrow_LTV ({}) = {}", current_LTV, avg_LTVs.0, result);
+            result
         }
         false => {
             //Checks max_LTV
-            current_LTV > avg_LTVs.1
+            let result = current_LTV > avg_LTVs.1;
+            println!("[INSOLVENCY_DEBUG] Checking max_LTV: current_LTV ({}) > avg_max_LTV ({}) = {}", current_LTV, avg_LTVs.1, result);
+            result
         }
     };
 
@@ -966,14 +1066,18 @@ pub fn insolvency_check_calc(
         //current_LTV - borrow_LTV
         let liq_range = current_LTV.checked_sub(avg_LTVs.0)?;
         //Fee value = repay_amount * fee
-        liq_range.checked_div(current_LTV).map_err(|_| StdError::GenericErr{msg: format!("Division by zero in insolvency_check_calc, line 926. liq_range: {}, current_LTV: {}", liq_range, current_LTV)})?
+        let fee_value = liq_range.checked_div(current_LTV).map_err(|_| StdError::generic_err( format!("Division by zero in insolvency_check_calc, line 926. liq_range: {}, current_LTV: {}", liq_range, current_LTV)))?
                 .checked_mul(debt_value)?
                 .checked_mul(fee)?
-        * Uint128::new(1)        
+                .to_uint_floor();
+        println!("[INSOLVENCY_DEBUG] available_fee calculated: {}", fee_value);
+        fee_value
     } else {
+        println!("[INSOLVENCY_DEBUG] available_fee: 0 (not liquidatable)");
         Uint128::zero()
     };
 
+    println!("[INSOLVENCY_DEBUG] === RESULT: insolvent={}, current_LTV={}, available_fee={} ===", check, current_LTV, available_fee);
     Ok((check, current_LTV, available_fee))
 }
 
@@ -995,4 +1099,149 @@ pub fn query_historical_oracle_prices(
         .collect();
     
     Ok(HistoricalOraclePricesResponse { prices: converted_prices })
+}
+
+/// Returns historical interest rates for an asset
+pub fn query_historical_interest_rates(
+    deps: Deps,
+    asset: String,
+) -> StdResult<HistoricalInterestRatesResponse> {
+    let rates = HISTORICAL_INTEREST_RATES.may_load(deps.storage, asset)?
+        .unwrap_or_else(|| vec![]);
+    
+    // Convert state::RateTimestamp to membrane::cdp::RateTimestamp
+    let converted_rates: Vec<membrane::cdp::RateTimestamp> = rates
+        .into_iter()
+        .map(|rt| membrane::cdp::RateTimestamp {
+            rate: rt.rate,
+            timestamp: rt.timestamp,
+        })
+        .collect();
+    
+    Ok(HistoricalInterestRatesResponse { rates: converted_rates })
+}
+
+/// Check if assets are in volatile windows (current volatility > average volatility)
+pub fn query_volatility_window(
+    deps: Deps,
+    assets: Vec<String>,
+) -> StdResult<membrane::cdp::VolatilityWindowResponse> {
+    let mut results = Vec::new();
+
+    for asset in assets {
+        let in_window = if let Ok(vol_store) = VOLATILITY.load(deps.storage, asset) {
+            if vol_store.raw_volatility_list.is_empty() {
+                false // No volatility data, not in volatile window
+            } else {
+                // Get the most recent volatility
+                let current_vol = vol_store.raw_volatility_list.last().copied().unwrap_or(Decimal::zero());
+
+                // Calculate average volatility
+                let sum: Decimal = vol_store.raw_volatility_list.iter().copied().sum();
+                let avg_volatility = sum / Decimal::from_ratio(vol_store.raw_volatility_list.len() as u128, 1u128);
+
+                // In volatile window if current > average
+                current_vol > avg_volatility
+            }
+        } else {
+            false // No volatility data for this asset
+        };
+        results.push(in_window);
+    }
+
+    Ok(membrane::cdp::VolatilityWindowResponse { in_volatile_window: results })
+}
+
+/// Query to simulate liquidation market sales and estimate slippage cost
+/// **Note**: Uses Astroport simulation only. Returns error if Duality routes configured.
+pub fn query_simulate_liquidation(
+    deps: Deps,
+    collateral_to_sell: Vec<Coin>,
+    target_denom: String,
+) -> StdResult<membrane::cdp::SimulateLiquidationResponse> {
+    let config = CONFIG.load(deps.storage)?;
+    let basket = BASKET.load(deps.storage)?;
+
+    // Get chain proxy address (neutron-proxy contract)
+    let chain_proxy = config.chain_proxy.ok_or_else(|| {
+        StdError::generic_err("Chain proxy not configured")
+    })?;
+
+    // Call the simulation helper from liquidations module
+    let (total_input_value, total_output_value, slippage_cost) =
+        crate::liquidations::simulate_liquidation_sales(
+            &deps.querier,
+            chain_proxy,
+            collateral_to_sell,
+            target_denom,
+            basket.credit_price,
+        )?;
+
+    Ok(membrane::cdp::SimulateLiquidationResponse {
+        total_input_value,
+        total_output_value,
+        slippage_cost,
+    })
+}
+
+/// Query historical LTV snapshots for an asset
+pub fn query_historical_ltv(
+    deps: Deps,
+    asset_denom: String,
+    start_time: Option<u64>,
+    end_time: Option<u64>,
+    limit: Option<u32>,
+) -> StdResult<membrane::cdp::HistoricalLTVResponse> {
+    let limit = limit.unwrap_or(100).min(500) as usize; // Max 500 snapshots
+    let start = start_time.unwrap_or(0);
+    let end = end_time.unwrap_or(u64::MAX);
+
+    // Load all snapshots for this asset
+    let all_snapshots = LTV_HISTORY.may_load(deps.storage, asset_denom.clone())?.unwrap_or_else(|| vec![]);
+
+    // Filter by time range and limit
+    let snapshots: Vec<membrane::cdp::LTVSnapshot> = all_snapshots
+        .into_iter()
+        .filter(|snapshot| snapshot.timestamp >= start && snapshot.timestamp <= end)
+        .take(limit)
+        .collect();
+
+    Ok(membrane::cdp::HistoricalLTVResponse {
+        asset_denom,
+        snapshots,
+    })
+}
+
+/// Query LTV shift schedule information for an asset
+pub fn query_ltv_shift_info(
+    deps: Deps,
+    env: Env,
+    asset_denom: String,
+) -> StdResult<membrane::cdp::LTVShiftInfoResponse> {
+    // Load the LTV update tracker for this asset
+    let tracker = LTV_UPDATE_TRACKERS.may_load(deps.storage, asset_denom.clone())?
+        .ok_or_else(|| StdError::generic_err(format!("No LTV tracker found for asset {}", asset_denom)))?;
+
+    let current_time = env.block.time.seconds();
+
+    // Calculate time until the next shift (if there is a staged downward shift)
+    let (next_shift_time, time_until_shift) = if let Some(staged_ts) = tracker.staged_timestamp {
+        let config = CONFIG.load(deps.storage)?;
+        let shift_time = staged_ts + config.ltv_downward_period;
+        let time_until = if shift_time > current_time {
+            shift_time - current_time
+        } else {
+            0
+        };
+        (shift_time, time_until)
+    } else {
+        // No pending shift
+        (0, 0)
+    };
+
+    Ok(membrane::cdp::LTVShiftInfoResponse {
+        current_shift_number: 0, // This could be enhanced to track shift count
+        next_shift_time,
+        time_until_shift,
+    })
 }

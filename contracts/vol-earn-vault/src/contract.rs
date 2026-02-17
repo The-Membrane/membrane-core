@@ -4,7 +4,7 @@ use cosmwasm_std::{
     attr, to_json_binary, Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, QuerierWrapper, Reply, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg
 };
 use membrane::oracle::{self, PriceResponse};
-use membrane::types::{Asset, AssetInfo, AssetPool, Basket, ClaimTracker, UserInfo, VTClaimCheckpoint, APR};
+use membrane::types::{Asset, AssetInfo, AssetPool, Basket, ClaimTracker, Rates, UserInfo, VTClaimCheckpoint, APR};
 use osmosis_std::types::osmosis;
 use serde::de;
 use std::cmp::{max, min};
@@ -387,8 +387,15 @@ fn manage_vault(
         Ok(basket) => basket,
         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Basket") }),
     };
-    //Get cost from basket
-    let cost = basket.lastest_collateral_rates[config.vault_cost_index].rate;
+    //Get cost from rates store
+    let rates: Rates = match deps.querier.query_wasm_smart::<Rates>(
+        config.cdp_contract_addr.to_string(),
+        &CDP_QueryMsg::GetRates {},
+    ){
+        Ok(rates) => rates,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query CDP Rates") }),
+    };
+    let cost = rates.lastest_collateral_rates[config.vault_cost_index].rate;
 
     /////Get LTV of the position/////
     //Get the price of the deposit token
@@ -663,7 +670,14 @@ fn state_assurance(
         Ok(basket) => basket,
         Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query the CDP Basket in state_assurance") }),
     };
-    let cost = basket.lastest_collateral_rates[config.vault_cost_index].rate;
+    let rates: Rates = match deps.querier.query_wasm_smart::<Rates>(
+        config.cdp_contract_addr.to_string(),
+        &CDP_QueryMsg::GetRates {},
+    ){
+        Ok(rates) => rates,
+        Err(_) => return Err(TokenFactoryError::CustomError { val: String::from("Failed to query CDP Rates in state_assurance") }),
+    };
+    let cost = rates.lastest_collateral_rates[config.vault_cost_index].rate;
     //Ensure cost isn't above the cost ceiling
     if !skip_cost && cost > config.cost_ceiling {
         return Err(TokenFactoryError::CustomError { val: format!("Cost is above the cost ceiling: {} > {}", cost, config.cost_ceiling) });

@@ -176,10 +176,7 @@ pub fn update_cdp_costs(
     // Get the current vault cost rate
     let vault_cost_rate = get_vault_cost_rate(deps.as_ref(), &config)?;
     
-    // Get vault token asset string
-    let vault_token_asset_string = config.vault_token;
-    
-    // Create EditBasket message with individual_costs
+    // Create EditBasket message
     let edit_basket_msg = membrane::cdp::ExecuteMsg::EditBasket(
         membrane::cdp::EditBasket {
             added_cAsset: None,
@@ -194,8 +191,6 @@ pub fn update_cdp_costs(
             frozen: None,
             distribute_revenue: None,
             take_revenue: None,
-            individual_costs: Some(vec![(vault_token_asset_string, vault_cost_rate)]),
-            individual_cost_updaters: None,
         }
     );
     

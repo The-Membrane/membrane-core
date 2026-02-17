@@ -9,37 +9,260 @@ use cosmwasm_std::{
 use membrane::cdp::Config;
 use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
-use membrane::system_discounts::{QueryMsg as DiscountQueryMsg, UserDiscountResponse};
-use membrane::types::{cAsset, Asset, Basket, IndividualCost, Position, Rate, SupplyCap};
+use membrane::system_discounts::{QueryMsg as DiscountQueryMsg, UserDiscountResponse, StableBackingDiscountsResponse};
+use membrane::types::{cAsset, IRMConfig, Asset, AssetInfo, Basket, CreditAssetBreakdown, FixedRate, FixedRateCap, FixedRateCaps, FixedRateEnd, Position, Rate, Rates, RateSegment, SupplyCap};
+
+use membrane::ltv_disco::{QueryMsg as LTVDiscoQueryMsg, LTVQueueResponse as LTVDiscoQueueResponse};
 
 use crate::query::{
     get_asset_values, get_cAsset_ratios, query_ltv_disco_for_asset_ltvs, VOLATILITY_LIST_LIMIT,
 };
-use crate::state::{get_target_position, update_position, BASKET, CONFIG, VOLATILITY};
+use crate::state::{get_target_position, update_position, update_historical_interest_rates, BASKET, CONFIG, RATES, VOLATILITY};
 use crate::ContractError;
 
 //Constants
 pub const SECONDS_PER_YEAR: u64 = 31_536_000u64;
 const MINIMUM_LIQUIDITY: Uint128 = Uint128::new(2_000_000_000_000u128);
 
-/// Get average raw volatility (price change %) for an asset.
-/// Returns None if no volatility data exists (triggering fallback to LTV-based rate).
-fn get_avg_volatility(storage: &dyn Storage, asset_info: &str) -> Option<Decimal> {
-    VOLATILITY
-        .load(storage, asset_info.to_string())
-        .ok()
-        .and_then(|vol_store| {
-            // Use raw_volatility_list (pure price change %) for rate comparison
-            if vol_store.raw_volatility_list.is_empty() {
-                return None; // No data, use fallback
-            }
-            let sum: Decimal = vol_store.raw_volatility_list.iter().cloned().sum();
-            decimal_division(
-                sum,
-                Decimal::from_str(&vol_store.raw_volatility_list.len().to_string()).unwrap(),
-            )
-            .ok()
+/// Taylor series approximation of exp(x) for small x values.
+/// exp(x) ~= 1 + x + x^2/2 + x^3/6
+/// Input and output are in Decimal (not WAD).
+fn taylor_exp(x: Decimal) -> Decimal {
+    let x2 = x.checked_mul(x).unwrap_or(Decimal::zero());
+    let x3 = x2.checked_mul(x).unwrap_or(Decimal::zero());
+    Decimal::one()
+        + x
+        + x2.checked_div(Decimal::from_ratio(2u128, 1u128)).unwrap_or(Decimal::zero())
+        + x3.checked_div(Decimal::from_ratio(6u128, 1u128)).unwrap_or(Decimal::zero())
+}
+
+/// Signed taylor exp: handles negative exponents via 1/exp(|x|).
+/// For positive x: returns taylor_exp(x)
+/// For "negative" x (signaled by is_negative flag): returns 1/taylor_exp(|x|)
+fn signed_taylor_exp(abs_x: Decimal, is_negative: bool) -> Decimal {
+    let exp_val = taylor_exp(abs_x);
+    if is_negative {
+        // 1 / exp(|x|)
+        Decimal::one().checked_div(exp_val).unwrap_or(Decimal::zero())
+    } else {
+        exp_val
+    }
+}
+
+/// Adaptive smooth rate for regular debt.
+/// Smoothly moves current_adaptive_rate toward the Disco destination rate using exponential decay.
+///
+/// Formula: new_rate = current_adaptive_rate * exp(speed * err * dt)
+///   where err = (destination - current_adaptive_rate) / current_adaptive_rate  (normalized error)
+///   and dt = time_elapsed / SECONDS_PER_YEAR
+///
+/// Clamped to [min_adaptive_rate, max_adaptive_rate].
+pub fn adaptive_smooth_rate(
+    current_adaptive_rate: Decimal,
+    destination_rate: Decimal,
+    time_elapsed: u64,
+    irm_config: &IRMConfig,
+) -> Decimal {
+    if current_adaptive_rate.is_zero() {
+        // Bootstrap: if current_adaptive_rate is zero, jump to destination
+        return min(
+            max(destination_rate, irm_config.min_adaptive_rate),
+            irm_config.max_adaptive_rate,
+        );
+    }
+
+    // Normalized error: (destination - current) / current
+    let (err_abs, err_negative) = if destination_rate >= current_adaptive_rate {
+        let diff = destination_rate - current_adaptive_rate;
+        (decimal_division(diff, current_adaptive_rate).unwrap_or(Decimal::zero()), false)
+    } else {
+        let diff = current_adaptive_rate - destination_rate;
+        (decimal_division(diff, current_adaptive_rate).unwrap_or(Decimal::zero()), true)
+    };
+
+    // dt = time_elapsed / SECONDS_PER_YEAR
+    let dt = Decimal::from_ratio(time_elapsed as u128, SECONDS_PER_YEAR as u128);
+
+    // exponent = speed * |err| * dt
+    // Cap at 1.0 to keep the Taylor series exp() approximation accurate (<2% error).
+    // With frequent accruals this cap is never hit; it only matters for large time gaps (e.g. tests).
+    let raw_exponent = irm_config.adjustment_speed
+        .checked_mul(err_abs).unwrap_or(Decimal::zero())
+        .checked_mul(dt).unwrap_or(Decimal::zero());
+    let exponent = min(raw_exponent, Decimal::one());
+
+    // new_rate = current_adaptive_rate * exp(speed * err * dt)
+    let multiplier = signed_taylor_exp(exponent, err_negative);
+    let new_rate = decimal_multiplication(current_adaptive_rate, multiplier).unwrap_or(current_adaptive_rate);
+
+    // Don't overshoot the destination: clamp between old and destination
+    let new_rate = if !err_negative {
+        // Moving up toward destination: don't exceed it
+        min(new_rate, destination_rate)
+    } else {
+        // Moving down toward destination: don't go below it
+        max(new_rate, destination_rate)
+    };
+
+    // Clamp to global bounds
+    min(max(new_rate, irm_config.min_adaptive_rate), irm_config.max_adaptive_rate)
+}
+
+/// AdaptiveCurveIRM (Morpho-style) - CURRENTLY UNUSED.
+/// NOTE: We don't use rates to give our transmuter 'lenders' liquidity,
+/// we will enact new acquisition lockdrops instead.
+/// Peg debt now uses the same rates as regular debt.
+///
+/// Returns (borrow_rate, new_current_adaptive_rate).
+///
+/// Curve mechanism:
+///   errNormFactor = if u >= target { 1 - target } else { target }
+///   err = (u - target) / errNormFactor
+///   if err < 0: rate = rateAtTarget * ((1 - 1/C) * err + 1)
+///   if err >= 0: rate = rateAtTarget * ((C - 1) * err + 1)
+///
+/// Adaptive mechanism:
+///   new_rateAtTarget = old_rateAtTarget * exp(speed * err * dt)
+///
+/// NOTE: This function is kept for demonstration/testing purposes.
+/// Peg debt now uses the same rates as regular debt.
+pub fn adaptive_curve_rate(
+    utilization: Decimal,
+    current_adaptive_rate: Decimal,
+    time_elapsed: u64,
+    irm_config: &IRMConfig,
+    // Curve params passed directly since they're not in config anymore
+    curve_steepness: Decimal,
+    target_utilization: Decimal,
+) -> (Decimal, Decimal) {
+    let target = target_utilization;
+    let steepness = curve_steepness;
+
+    // Calculate normalized error
+    let (err_abs, err_negative) = if utilization >= target {
+        let norm = decimal_subtraction(Decimal::one(), target).unwrap_or(Decimal::one());
+        if norm.is_zero() {
+            (Decimal::one(), false) // At 100% target, max positive error
+        } else {
+            (decimal_division(utilization - target, norm).unwrap_or(Decimal::zero()), false)
+        }
+    } else {
+        if target.is_zero() {
+            (Decimal::zero(), false)
+        } else {
+            (decimal_division(target - utilization, target).unwrap_or(Decimal::zero()), true)
+        }
+    };
+
+    // Curve function: compute borrow rate
+    let curve_multiplier = if err_negative {
+        // Below target: ((1 - 1/C) * err + 1) but err is negative, so: (1 - (1 - 1/C) * |err|)
+        let one_minus_inv_c = decimal_subtraction(
+            Decimal::one(),
+            decimal_division(Decimal::one(), steepness).unwrap_or(Decimal::zero()),
+        ).unwrap_or(Decimal::zero());
+        let adjustment = decimal_multiplication(one_minus_inv_c, err_abs).unwrap_or(Decimal::zero());
+        decimal_subtraction(Decimal::one(), adjustment).unwrap_or(Decimal::zero())
+    } else {
+        // Above target: ((C - 1) * err + 1)
+        let c_minus_one = decimal_subtraction(steepness, Decimal::one()).unwrap_or(Decimal::zero());
+        let adjustment = decimal_multiplication(c_minus_one, err_abs).unwrap_or(Decimal::zero());
+        Decimal::one() + adjustment
+    };
+
+    let borrow_rate = decimal_multiplication(current_adaptive_rate, curve_multiplier)
+        .unwrap_or(current_adaptive_rate);
+
+    // Adaptive mechanism: update current_adaptive_rate
+    let dt = Decimal::from_ratio(time_elapsed as u128, SECONDS_PER_YEAR as u128);
+    // Cap at 1.0 to keep Taylor series exp() approximation accurate
+    let raw_exponent = irm_config.adjustment_speed
+        .checked_mul(err_abs).unwrap_or(Decimal::zero())
+        .checked_mul(dt).unwrap_or(Decimal::zero());
+    let exponent = min(raw_exponent, Decimal::one());
+
+    let rate_multiplier = signed_taylor_exp(exponent, err_negative);
+    let new_current_adaptive_rate = decimal_multiplication(current_adaptive_rate, rate_multiplier)
+        .unwrap_or(current_adaptive_rate);
+    let new_current_adaptive_rate = min(
+        max(new_current_adaptive_rate, irm_config.min_adaptive_rate),
+        irm_config.max_adaptive_rate,
+    );
+
+    (borrow_rate, new_current_adaptive_rate)
+}
+
+/// Query transmuter utilization for peg debt - CURRENTLY UNUSED.
+/// NOTE: We don't use rates to give our transmuter 'lenders' liquidity,
+/// we will enact new acquisition lockdrops instead.
+/// utilization = 1 - (paired_asset_balance / total_deposit_value)
+#[allow(dead_code)]
+fn get_transmuter_utilization(
+    querier: QuerierWrapper,
+    transmuter_addr: &Addr,
+) -> StdResult<Decimal> {
+    let vault_info: membrane::transmuter::VaultInfoResponse = querier.query_wasm_smart(
+        transmuter_addr.to_string(),
+        &membrane::transmuter::QueryMsg::VaultInfo {},
+    )?;
+
+    if vault_info.total_deposit_value.is_zero() {
+        return Ok(Decimal::one());
+    }
+
+    Ok(decimal_subtraction(
+        Decimal::one(),
+        Decimal::from_ratio(vault_info.paired_asset_balance, vault_info.total_deposit_value),
+    ).unwrap_or(Decimal::one()))
+}
+
+/// Get total deposit tokens per asset from the LTV Disco contract.
+/// Queries all basket assets at once and returns a vec of Option<Uint128>.
+/// Returns None for assets that have no LTV queue in the Disco.
+fn get_asset_total_deposits(
+    querier: QuerierWrapper,
+    ltv_disco_addr: &Addr,
+    assets: &[cAsset],
+) -> Vec<Option<Uint128>> {
+    let asset_strings: Vec<String> = assets
+        .iter()
+        .map(|a| a.asset.info.to_string())
+        .collect();
+
+    // Query all queues at once
+    let disco_response: Result<LTVDiscoQueueResponse, _> = querier.query_wasm_smart(
+        ltv_disco_addr.to_string(),
+        &LTVDiscoQueryMsg::GetLTVQueue {
+            assets: asset_strings.clone(),
+            limit: None,
+            start_after: None,
+        },
+    );
+
+    let queues = match disco_response {
+        Ok(resp) => resp.queues,
+        Err(_) => return assets.iter().map(|_| None).collect(),
+    };
+
+    // Map each basket asset to its total deposits
+    asset_strings
+        .iter()
+        .map(|asset_str| {
+            queues
+                .iter()
+                .find(|(name, _)| name == asset_str)
+                .map(|(_, queue)| {
+                    let total: Uint128 = queue
+                        .slots
+                        .iter()
+                        .flat_map(|slot| &slot.deposit_groups)
+                        .map(|group| group.total_deposit_tokens)
+                        .sum();
+                    if total.is_zero() { None } else { Some(total) }
+                })
+                .flatten()
         })
+        .collect()
 }
 
 /// Accrue interest for a list of Positions
@@ -85,7 +308,7 @@ pub fn external_accrue_call(
         let mut position =
             get_target_position(storage, valid_position_owner.clone(), position_id)?.1;
 
-        let prev_loan = position.clone().credit_amount;
+        let prev_loan = get_total_position_debt(&position);
 
         accrue(
             storage,
@@ -98,7 +321,7 @@ pub fn external_accrue_call(
             false,
         )?;
 
-        accrued_interest += position.clone().credit_amount - prev_loan;
+        accrued_interest += get_total_position_debt(&position) - prev_loan;
 
         update_position(storage, valid_position_owner.clone(), position)?;
     }
@@ -125,106 +348,132 @@ pub fn accumulate_interest_dec(
     decimal_multiplication(decimal, applied_rate)
 }
 
-// Calculate Basket interests and then accumulate interest to all basket cAsset rate indices
+/// Calculate Basket interests and then accumulate interest to all basket cAsset rate indices.
+/// Uses the AdaptiveCurveIRM: rates are smoothed toward Disco destination (comparative deposits).
+///
+/// NOTE: Peg debt rates are identical to regular debt rates.
+/// We don't use rates to give our transmuter 'lenders' liquidity,
+/// we will enact new acquisition lockdrops instead.
 pub fn update_rate_indices(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     basket: &mut Basket,
     supply_caps: &mut Vec<SupplyCap>,
-    // negative_rate: bool,
-    // credit_price_rate: Decimal,
-    // rate_slope_multiplier: Decimal,
 ) -> StdResult<()> {
-    //Get basket rates
-    let interest_rates =
-        match get_interest_rates(storage, querier, env.clone(), basket, supply_caps) {
+    let config = CONFIG.load(storage)?;
+    let mut rates = RATES.load(storage)?;
+
+    // Get Disco destination rates (what the rate would jump to without smoothing)
+    // Pass None for cAsset_ratios - get_interest_rates will calculate them internally
+    let destination_rates =
+        match get_interest_rates(storage, querier, env.clone(), basket, supply_caps, &rates, None) {
             Ok(rates) => rates,
             Err(err) => {
-                return Err(StdError::GenericErr {
-                    msg: format!("Error at line 109: {}", err),
-                })
+                return Err(StdError::generic_err(format!("Error in get_interest_rates: {}", err)));
             }
         };
 
-    // let mut error: Option<StdError> = None;
+    // Calc time_elapsed since last rate update
+    let time_elapsed = env.block.time.seconds() - rates.rates_last_accrued;
 
-    //Add/Subtract the repayment rate to the rates
-    //These aren't saved so it won't compound
-    // NOTE: REMOVED BC IT PUSHES LOW RISK USERS OUT DUE TO HIGH RATES CREATED BY HIGH RISK USERS
-    // interest_rates = interest_rates.clone().into_iter().map(|mut rate| {
+    // Ensure current_adaptive_rate vectors are the right length (bootstrap for new assets)
+    // Bootstrap with zero so adaptive_smooth_rate jumps directly to destination on first call
+    while rates.current_adaptive_rate.len() < basket.collateral_types.len() {
+        rates.current_adaptive_rate.push(Decimal::zero());
+    }
+    while rates.peg_current_adaptive_rate.len() < basket.collateral_types.len() {
+        rates.peg_current_adaptive_rate.push(Decimal::zero());
+    }
 
-    //     if negative_rate {
-    //         //If the collateral interest rate is less than the redemption rate, set to 0.
-    //         //Avoids negative interest rates but not redemption rates.
-    //         if rate < credit_price_rate {
-    //             rate = Decimal::zero();
-    //         } else {
-    //             rate = match decimal_subtraction(rate, credit_price_rate){
-    //                 Ok(rate) => rate,
-    //                 Err(err) => {
-    //                     error = Some(err);
-    //                     Decimal::zero()
-    //                 },
-    //             };
-    //         }
-    //     } else {
-    //         rate += decimal_multiplication(credit_price_rate, rate_slope_multiplier)?;
-    //     }
+    // --- Regular debt: adaptive smooth toward Disco destination ---
+    let mut smoothed_rates = vec![];
+    for (i, _asset) in basket.collateral_types.iter().enumerate() {
+        let new_rate = adaptive_smooth_rate(
+            rates.current_adaptive_rate[i],
+            destination_rates[i],
+            time_elapsed,
+            &config.irm_config,
+        );
+        rates.current_adaptive_rate[i] = new_rate;
+        // The borrow rate IS current_adaptive_rate (pure smoothing, no curve on top)
+        smoothed_rates.push(new_rate);
+    }
 
-    //     Ok(rate)
-    // })
-    // .collect::<StdResult<Vec<Decimal>>>()?;
-    //This allows us to prioritize credit stability over profit/state of the basket
-    //This means base_interest_rate + margin_of_error is the range above peg before rates go to 0
-
-    // Assert that there are no errors
-    // if let Some(err) = error {
-    //     return Err(err);
-    // }
-
-    //Update latest rates in the Basket
-    let latest_rates = interest_rates
-        .clone()
-        .into_iter()
-        .map(|rate| Rate {
+    // Update latest rates in the Rates store
+    rates.lastest_collateral_rates = smoothed_rates
+        .iter()
+        .map(|&rate| Rate {
             rate,
-            last_time_updated: env.clone().block.time.seconds(),
+            last_time_updated: env.block.time.seconds(),
         })
-        .collect::<Vec<Rate>>();
-    basket.lastest_collateral_rates = latest_rates;
+        .collect();
 
-    //Calc time_elapsed
-    let time_elapsed = env.block.time.seconds() - basket.clone().rates_last_accrued;
+    // Update historical interest rates for each asset
+    for (i, basket_asset) in basket.collateral_types.iter().enumerate() {
+        let asset_info_string = basket_asset.asset.info.to_string();
+        if let Err(err) = update_historical_interest_rates(
+            storage,
+            env.clone(),
+            asset_info_string,
+            smoothed_rates[i],
+        ) {
+            return Err(StdError::generic_err(format!("Error updating historical interest rates: {}", err)));
+        }
+    }
 
-    //Accumulate rate on each rate_index
-    for (i, basket_asset) in basket.clone().collateral_types.into_iter().enumerate() {
+    // Accumulate rate on each rate_index
+    for (i, basket_asset) in basket.collateral_types.clone().into_iter().enumerate() {
         let accrued_rate =
-            accumulate_interest_dec(basket_asset.rate_index, interest_rates[i], time_elapsed)?;
-
+            accumulate_interest_dec(basket_asset.rate_index, smoothed_rates[i], time_elapsed)?;
         basket.collateral_types[i].rate_index += accrued_rate;
     }
 
-    //Update rates_last_accrued
-    basket.rates_last_accrued = env.block.time.seconds();
+    // --- Peg debt: Uses the SAME rates as regular debt ---
+    // NOTE: We don't use rates to give our transmuter 'lenders' liquidity,
+    // we will enact new acquisition lockdrops instead.
+    // Peg debt rates mirror regular debt rates for simplicity.
+    let peg_rates: Vec<Decimal> = smoothed_rates.clone();
+
+    // Update peg_current_adaptive_rate to match regular current_adaptive_rate
+    for (i, _asset) in basket.collateral_types.iter().enumerate() {
+        rates.peg_current_adaptive_rate[i] = rates.current_adaptive_rate[i];
+    }
+
+    for (i, basket_asset) in basket.collateral_types.clone().into_iter().enumerate() {
+        let peg_accrued =
+            accumulate_interest_dec(basket_asset.peg_rate_index, peg_rates[i], time_elapsed)?;
+        basket.collateral_types[i].peg_rate_index += peg_accrued;
+    }
+
+    // Update rates_last_accrued
+    rates.rates_last_accrued = env.block.time.seconds();
+
+    // Save updated rates
+    RATES.save(storage, &rates)?;
 
     Ok(())
 }
 
-/// Calculate interest rates for each asset in the basket
-/// Maximum rate is 100% to avoid overflows due to supply cap/pricing errors
+/// Calculate interest rates for each asset in the basket using TVL-standardized insurance ratios.
+/// Maximum rate is capped at irm_config.max_adaptive_rate (100%) to avoid overflows.
 ///
-/// Goal: Comparative volatility-based rates
-/// - Lowest volatility asset gets: base_interest_rate * (1 / max_LTV)
-/// - Other assets get: base_interest_rate * (asset_avg_vol / lowest_avg_vol)
-/// - Fallback (no volatility data): base_interest_rate * (1 / max_LTV)
-/// - Assets with individual_cost set: use their rate directly
+/// Goal: TVL-standardized comparative deposit-based rates
+/// - insurance_ratio = deposit_ratio / tvl_ratio (normalized by TVL share)
+/// - Highest insurance ratio asset gets: base_interest_rate * (1 / max_LTV)
+/// - Other assets get: base_interest_rate * (highest_insurance / asset_insurance)
+/// - Fallback (no deposit or TVL data): base_interest_rate * (1 / max_LTV)
+///
+/// This normalizes small assets: a 5% TVL asset with 5% deposits has insurance=1.0,
+/// same as a 50% TVL asset with 50% deposits. Neither gets unfairly penalized.
 pub fn get_interest_rates(
     storage: &mut dyn Storage,
     querier: QuerierWrapper,
     env: Env,
     basket: &mut Basket,
     supply_caps: &mut Vec<SupplyCap>,
+    rates: &Rates,
+    cAsset_ratios: Option<Vec<Decimal>>,  // Pre-calculated TVL ratios (optional)
 ) -> StdResult<Vec<Decimal>> {
     let config = CONFIG.load(storage)?;
 
@@ -235,183 +484,244 @@ pub fn get_interest_rates(
         basket.clone().collateral_types.clone(),
     )?;
 
-    // First pass: collect average volatility for each asset
-    let avg_volatilities: Vec<Option<Decimal>> = basket
-        .collateral_types
+    // Get TVL ratios: either passed in or calculate them
+    let tvl_ratios: Vec<Decimal> = match cAsset_ratios {
+        Some(ratios) => ratios,
+        None => {
+            // Calculate TVL ratios if not provided
+            let (ratios, _) = get_cAsset_ratios(
+                storage,
+                env.clone(),
+                querier,
+                basket.collateral_types.clone(),
+                config.clone(),
+                Some(basket.clone()),
+            )?;
+            ratios
+        }
+    };
+
+    // Collect total deposits for each asset from LTV Disco
+    let asset_deposits: Vec<Option<Uint128>> = get_asset_total_deposits(
+        querier,
+        &config.ltv_disco,
+        &basket.collateral_types,
+    );
+
+    // Calculate total deposits across all assets
+    let total_deposits: Uint128 = asset_deposits
         .iter()
-        .map(|asset| get_avg_volatility(storage, &asset.asset.info.to_string()))
+        .filter_map(|d| *d)
+        .sum();
+
+    // Calculate deposit ratios (each asset's share of total deposits)
+    let deposit_ratios: Vec<Option<Decimal>> = asset_deposits
+        .iter()
+        .map(|dep| {
+            dep.map(|d| {
+                if total_deposits.is_zero() {
+                    Decimal::zero()
+                } else {
+                    Decimal::from_ratio(d, total_deposits)
+                }
+            })
+        })
         .collect();
 
-    // Find the lowest volatility among assets that have volatility data
-    let lowest_vol: Option<Decimal> = avg_volatilities
+    // Calculate insurance ratios: deposit_ratio / tvl_ratio
+    // Higher ratio = more "over-insured" relative to TVL share
+    let insurance_ratios: Vec<Option<Decimal>> = deposit_ratios
         .iter()
-        .filter_map(|v| *v)
-        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        .enumerate()
+        .map(|(i, dep_ratio)| {
+            match (dep_ratio, tvl_ratios.get(i)) {
+                (Some(dep), Some(&tvl)) if !tvl.is_zero() => {
+                    Some(decimal_division(*dep, tvl).unwrap_or(Decimal::zero()))
+                }
+                _ => None,
+            }
+        })
+        .collect();
 
-    let mut rates = vec![];
+    // Find highest insurance ratio (most over-insured asset relative to TVL)
+    let highest_insurance: Option<Decimal> = insurance_ratios
+        .iter()
+        .filter_map(|r| *r)
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    for (i, asset) in basket.clone().collateral_types.iter().enumerate() {
-        if asset.individual_cost.is_some() {
-            // Use individual cost rate if set (unchanged behavior)
-            rates.push(asset.individual_cost.clone().unwrap().rate);
-        } else {
-            // Calculate LTV-based fallback rate: base * (1/max_LTV)
-            let ltv_based_rate = decimal_multiplication(
-                basket.clone().base_interest_rate,
-                decimal_division(Decimal::one(), ltv_tuples[i].0)?,
-            )?;
+    let mut destination_rates = vec![];
 
-            match (avg_volatilities[i], lowest_vol) {
-                // Both asset has volatility data and we have a lowest vol reference
-                (Some(asset_vol), Some(low_vol)) => {
-                    if asset_vol == low_vol {
-                        // Lowest volatility asset: use LTV-based rate
-                        rates.push(ltv_based_rate);
-                    } else {
-                        // Other assets: base_rate * (asset_vol / lowest_vol)
-                        let vol_multiplier = decimal_division(asset_vol, low_vol)?;
-                        rates.push(decimal_multiplication(
-                            basket.clone().base_interest_rate,
-                            vol_multiplier,
-                        )?);
+    for (i, _asset) in basket.clone().collateral_types.iter().enumerate() {
+        // Calculate LTV-based fallback rate: base * (1/max_LTV)
+        let ltv_based_rate = decimal_multiplication(
+            rates.base_interest_rate,
+            decimal_division(Decimal::one(), ltv_tuples[i].0)?,
+        )?;
+
+        match (insurance_ratios[i], highest_insurance) {
+            // Both asset insurance ratio and highest reference available
+            (Some(asset_insurance), Some(high_insurance)) => {
+                if asset_insurance == high_insurance {
+                    // Asset with HIGHEST insurance ratio = LOWEST rate (base LTV formula)
+                    destination_rates.push(ltv_based_rate);
+                } else {
+                    // Other assets: base_rate × (highest_insurance / asset_insurance)
+                    let insurance_multiplier = decimal_division(high_insurance, asset_insurance)?;
+                    let mut comparative_rate = decimal_multiplication(
+                        rates.base_interest_rate,
+                        insurance_multiplier,
+                    )?;
+                    // Cap at irm_config.max_adaptive_rate (100%)
+                    if comparative_rate > config.irm_config.max_adaptive_rate {
+                        comparative_rate = config.irm_config.max_adaptive_rate;
                     }
+                    destination_rates.push(comparative_rate);
                 }
-                // No volatility data for this asset or no lowest vol reference: use fallback
-                _ => {
-                    rates.push(ltv_based_rate);
-                }
+            }
+            // No insurance data: use LTV-based fallback
+            _ => {
+                destination_rates.push(ltv_based_rate);
             }
         }
     }
 
-    //Get proportion of supply caps filled
-    let mut supply_proportions = vec![];
+    // COMMENTED OUT: Supply caps no longer influence rates
+    // Supply caps still block deposits and withdrawals, but don't affect interest rate calculations
+    // This reduces rate volatility and improves UX by keeping rates stable regardless of supply cap utilization
+    
+    // //Get proportion of supply caps filled
+    // let mut supply_proportions = vec![];
 
-    //Get basket cAsset ratios
-    let (basket_ratios, _) = get_cAsset_ratios(
-        storage,
-        env.clone(),
-        querier,
-        basket.clone().collateral_types,
-        config.clone(),
-        Some(basket.clone()),
-    )?;
+    // //Get basket cAsset ratios
+    // let (basket_ratios, _) = get_cAsset_ratios(
+    //     storage,
+    //     env.clone(),
+    //     querier,
+    //     basket.clone().collateral_types,
+    //     config.clone(),
+    //     Some(basket.clone()),
+    // )?;
 
-    for (i, cap) in supply_caps.iter().enumerate() {
-        //Caps set to 0 can be used to push out unwanted assets by spiking rates
-        if cap.supply_cap_ratio.is_zero() {
-            supply_proportions.push(Decimal::percent(100));
-        } else {
-            //Push the supply_ratio. Minimum is 100% to guarantee rates >= base.
-            supply_proportions.push(max(
-                decimal_division(basket_ratios[i], cap.supply_cap_ratio)?,
-                Decimal::percent(100),
-            ))
-        }
-    }
+    // for (i, cap) in supply_caps.iter().enumerate() {
+    //     //Caps set to 0 can be used to push out unwanted assets by spiking rates
+    //     if cap.supply_cap_ratio.is_zero() {
+    //         supply_proportions.push(Decimal::percent(110));
+    //     } else {
+    //         //Push the supply_ratio. Minimum is 100% to guarantee rates >= base.
+    //         supply_proportions.push(max(
+    //             decimal_division(basket_ratios[i], cap.supply_cap_ratio)?,
+    //             Decimal::percent(100),
+    //         ))
+    //     }
+    // }
 
-    //Gets pro-rata rate and uses multiplier if above desired utilization
-    let mut two_slope_pro_rata_rates = vec![];
-    for (i, _rate) in rates.iter().enumerate() {
-        //If proportions are above desired utilization, the rates start multiplying
-        //For every % above the desired, it adds a multiple
-        //Ex: Desired = 90%, proportion = 91%, interest = 2%. New rate = 4%.
-        //Acts as two_slope rate
+    // //Gets pro-rata rate and uses multiplier if above desired utilization
+    // let mut two_slope_pro_rata_rates = vec![];
+    // for (i, _rate) in rates.iter().enumerate() {
+    //     //If proportions are above desired utilization, the rates start multiplying
+    //     //For every % above the desired, it adds a multiple
+    //     //Ex: Desired = 90%, proportion = 91%, interest = 2%. New rate = 4%.
+    //     //Acts as two_slope rate
 
-        //Check if supply_proportions[i] is greater than 100% (i.e. in Slope 2)
-        if supply_proportions[i] > Decimal::one() {
-            //Slope 2
-            //Ex: 91% > 90%
-            ////0.01 * 100 = 1
-            //1% = 1
-            let percent_over_desired = decimal_multiplication(
-                decimal_subtraction(supply_proportions[i], Decimal::one())?,
-                Decimal::percent(100_00),
-            )?;
-            let multiplier = percent_over_desired + Decimal::one();
-            //Change rate of (rate) increase w/ the configuration multiplier
-            let multiplier = multiplier * config.rate_slope_multiplier;
+    //     //Check if supply_proportions[i] is greater than 100% (i.e. in Slope 2)
+    //     if supply_proportions[i] > Decimal::one() {
+    //         //Slope 2
+    //         //Ex: 91% > 90%
+    //         ////0.01 * 100 = 1
+    //         //1% = 1
+    //         let percent_over_desired = decimal_multiplication(
+    //             decimal_subtraction(supply_proportions[i], Decimal::one())?,
+    //             Decimal::percent(100_00),
+    //         )?;
+    //         let multiplier = percent_over_desired + Decimal::one();
+    //         //Change rate of (rate) increase w/ the configuration multiplier
+    //         let multiplier = multiplier * config.rate_slope_multiplier;
 
-            //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
-            //// rate = 3.6%
-            two_slope_pro_rata_rates.push(min(
-                decimal_multiplication(
-                    decimal_multiplication(rates[i], supply_proportions[i])?,
-                    multiplier,
-                )?,
-                Decimal::one(),
-            ));
-        } else {
-            //Base Rate
-            two_slope_pro_rata_rates.push(rates[i]);
-        }
-    }
+    //         //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
+    //         //// rate = 3.6%
+    //         two_slope_pro_rata_rates.push(min(
+    //             decimal_multiplication(
+    //                 decimal_multiplication(rates[i], supply_proportions[i])?,
+    //                 multiplier,
+    //             )?,
+    //             // Max rate is 100%
+    //             Decimal::one(),
+    //         ));
+    //     } else {
+    //         //Base Rate
+    //         two_slope_pro_rata_rates.push(rates[i]);
+    //     }
+    // }
 
-    //Calculate multi-supply cap overages
-    if basket.multi_asset_supply_caps != vec![] {
-        for multi_asset_cap in basket.clone().multi_asset_supply_caps {
-            //Initialize total_ratio
-            let mut total_ratio = Decimal::zero();
+    // //Calculate multi-supply cap overages
+    // if basket.multi_asset_supply_caps != vec![] {
+    //     for multi_asset_cap in basket.clone().multi_asset_supply_caps {
+    //         //Initialize total_ratio
+    //         let mut total_ratio = Decimal::zero();
 
-            //Find & add ratio for each asset
-            for asset in multi_asset_cap.clone().assets {
-                if let Some((i, _cap)) = basket
-                    .clone()
-                    .collateral_supply_caps
-                    .into_iter()
-                    .enumerate()
-                    .find(|(_i, cap)| cap.asset_info.equal(&asset))
-                {
-                    total_ratio += basket_ratios[i];
-                }
-            }
+    //         //Find & add ratio for each asset
+    //         for asset in multi_asset_cap.clone().assets {
+    //             if let Some((i, _cap)) = basket
+    //                 .clone()
+    //                 .collateral_supply_caps
+    //                 .into_iter()
+    //                 .enumerate()
+    //                 .find(|(_i, cap)| cap.asset_info.equal(&asset))
+    //             {
+    //                 total_ratio += basket_ratios[i];
+    //             }
+    //         }
 
-            //Calc interest rate
-            let multi_cap_proportion =
-                decimal_division(total_ratio, multi_asset_cap.supply_cap_ratio)?;
+    //         //Calc interest rate
+    //         let multi_cap_proportion =
+    //             decimal_division(total_ratio, multi_asset_cap.supply_cap_ratio)?;
 
-            for asset in multi_asset_cap.clone().assets {
-                if let Some((i, _cap)) = basket
-                    .clone()
-                    .collateral_supply_caps
-                    .clone()
-                    .into_iter()
-                    .enumerate()
-                    .find(|(_i, cap)| cap.asset_info.equal(&asset))
-                {
-                    //Substitute if proportion of multi_asset_cap is greater than 1 and both debt/supply proportions
-                    if multi_cap_proportion > Decimal::one()
-                        && multi_cap_proportion > supply_proportions[i]
-                    {
-                        //Slope 2
-                        //Ex: 91% > 90%
-                        ////0.01 * 100 = 1
-                        //1% = 1
-                        let percent_over_desired = decimal_multiplication(
-                            decimal_subtraction(multi_cap_proportion, Decimal::one())?,
-                            Decimal::percent(100_00),
-                        )?;
-                        let multiplier = percent_over_desired + Decimal::one();
-                        //Change rate of (rate) increase w/ the configuration multiplier
-                        let multiplier = multiplier * config.rate_slope_multiplier;
+    //         for asset in multi_asset_cap.clone().assets {
+    //             if let Some((i, _cap)) = basket
+    //                 .clone()
+    //                 .collateral_supply_caps
+    //                 .clone()
+    //                 .into_iter()
+    //                 .enumerate()
+    //                 .find(|(_i, cap)| cap.asset_info.equal(&asset))
+    //             {
+    //                 //Substitute if proportion of multi_asset_cap is greater than 1 and both debt/supply proportions
+    //                 if multi_cap_proportion > Decimal::one()
+    //                     && multi_cap_proportion > supply_proportions[i]
+    //                 {
+    //                     //Slope 2
+    //                     //Ex: 91% > 90%
+    //                     ////0.01 * 100 = 1
+    //                     //1% = 1
+    //                     let percent_over_desired = decimal_multiplication(
+    //                         decimal_subtraction(multi_cap_proportion, Decimal::one())?,
+    //                         Decimal::percent(100_00),
+    //                     )?;
+    //                     let multiplier = percent_over_desired + Decimal::one();
+    //                     //Change rate of (rate) increase w/ the configuration multiplier
+    //                     let multiplier = multiplier * config.rate_slope_multiplier;
 
-                        //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
-                        //// rate = 3.6%
-                        two_slope_pro_rata_rates[i] = min(
-                            decimal_multiplication(
-                                decimal_multiplication(rates[i], multi_cap_proportion)?,
-                                multiplier,
-                            )?,
-                            Decimal::one(),
-                        );
-                    }
-                }
-            }
-        }
-    }
+    //                     //Ex cont: Multiplier = 2; Pro_rata rate = 1.8%.
+    //                     //// rate = 3.6%
+    //                     two_slope_pro_rata_rates[i] = min(
+    //                         decimal_multiplication(
+    //                             decimal_multiplication(rates[i], multi_cap_proportion)?,
+    //                             multiplier,
+    //                         )?,
+    //                         // Max rate is 100%
+    //                         Decimal::one(),
+    //                     );
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
-    Ok(two_slope_pro_rata_rates)
+    // Return destination rates (Disco-calculated) without supply cap adjustments
+    Ok(destination_rates)
 }
+
+// Peg debt rates are now calculated via adaptive_curve_rate() in update_rate_indices()
 
 //Used for accrual & update_basket_tally()
 //This doesn't alter multi-asset caps
@@ -460,8 +770,8 @@ fn get_credit_rate_of_change(
     config: Config,
     basket: &mut Basket,
     position: &mut Position,
-    negative_rate: bool,
-    credit_price_rate: Decimal,
+    _negative_rate: bool,
+    _credit_price_rate: Decimal,
 ) -> StdResult<(Decimal, Vec<Decimal>)> {
     let (ratios, _) = match get_cAsset_ratios(
         storage,
@@ -473,9 +783,7 @@ fn get_credit_rate_of_change(
     ) {
         Ok(ratios) => ratios,
         Err(err) => {
-            return Err(StdError::GenericErr {
-                msg: format!("Error at line 400: {}", err),
-            })
+            return Err(StdError::generic_err(format!("Error at line 400: {}", err)));
         }
     };
 
@@ -496,9 +804,7 @@ fn get_credit_rate_of_change(
     ) {
         Ok(_ok) => {}
         Err(err) => {
-            return Err(StdError::GenericErr {
-                msg: format!("Error at line 416: {}", err),
-            })
+            return Err(StdError::generic_err(format!("Error at line 416: {}", err)));
         }
     };
 
@@ -522,12 +828,10 @@ fn get_credit_rate_of_change(
             ) {
                 Ok(avg_change_in_index) => avg_change_in_index,
                 Err(err) => {
-                    return Err(StdError::GenericErr {
-                        msg: format!(
-                            "Error at line 451 in rates: {}, {}, {}, {}",
-                            err, ratios[i], basket_asset.rate_index, cAsset.rate_index
-                        ),
-                    })
+                    return Err(StdError::generic_err(format!(
+                        "Error at line 451 in rates: {}, {}, {}, {}",
+                        err, ratios[i], basket_asset.rate_index, cAsset.rate_index
+                    )))
                 }
             };
 
@@ -537,6 +841,108 @@ fn get_credit_rate_of_change(
     }
     //The change in index represents the rate accrued to the cAsset's index in the time since last accrual
     Ok((avg_change_in_index, ratios))
+}
+
+/// Get total debt from all rate segments
+pub fn get_total_debt_from_segments(rate_segments: &[RateSegment]) -> Uint128 {
+    rate_segments.iter().map(|segment| segment.amount).sum()
+}
+
+/// Get total position debt including both rate segments and peg_rate_segments
+pub fn get_total_position_debt(position: &Position) -> Uint128 {
+    get_total_debt_from_segments(&position.rate_segments) + get_total_debt_from_segments(&position.peg_rate_segments)
+}
+
+/// Calculate fixed rate accrual for a specific time period
+pub fn calculate_fixed_rate_accrual(
+    amount: Uint128,
+    rate: Decimal,
+    time_start: u64,
+    time_end: u64,
+) -> StdResult<Uint128> {
+    let time_elapsed = time_end.checked_sub(time_start).ok_or_else(|| {
+        StdError::generic_err("Time end must be greater than time start")
+    })?;
+    
+    let applied_rate = rate.checked_mul(Decimal::from_ratio(
+        Uint128::from(time_elapsed),
+        Uint128::from(SECONDS_PER_YEAR),
+    ))?;
+    
+    let accrued = decimal_multiplication(
+        Decimal::from_ratio(amount, Uint128::new(1)),
+        applied_rate,
+    )?.to_uint_floor();
+    
+    Ok(accrued)
+}
+
+/// Recalculate fixed rate for rollover.
+/// Uses the position's collateral-weighted current_adaptive_rate * multiplier.
+pub fn recalculate_fixed_rate(
+    rates: &Rates,
+    duration_months: u8,
+    current_time: u64,
+    collateral_weighted_rate: Decimal,
+) -> StdResult<(Decimal, u64)> {
+    let fixed_rate_cap = match duration_months {
+        1 => &rates.fixed_rate_caps.one_month,
+        3 => &rates.fixed_rate_caps.three_month,
+        6 => &rates.fixed_rate_caps.six_month,
+        _ => return Err(StdError::generic_err("Invalid duration_months")),
+    };
+
+    let new_rate = decimal_multiplication(
+        collateral_weighted_rate,
+        fixed_rate_cap.multiplier,
+    )?;
+    
+    // Calculate new end_time: add months from current_time
+    let seconds_per_month = 2_592_000u64; // 30 days * 24 hours * 60 minutes * 60 seconds
+    let new_end_time = current_time
+        .checked_add(seconds_per_month * duration_months as u64)
+        .ok_or_else(|| StdError::generic_err("End time calculation overflow"))?;
+    
+    Ok((new_rate, new_end_time))
+}
+
+/// Check and handle fixed rate expiration
+/// Returns (was_fixed, duration_months, converted_to_variable) to track basket totals changes
+pub fn check_and_handle_fixed_rate_expiration(
+    segment: &mut RateSegment,
+    rates: &Rates,
+    current_time: u64,
+    collateral_weighted_rate: Decimal,
+) -> StdResult<(bool, u8, bool)> {
+    let mut was_fixed = false;
+    let mut duration_months = 0u8;
+    let mut converted_to_variable = false;
+
+    if let Some(ref mut fixed_rate) = segment.fixed_rate {
+        was_fixed = true;
+        duration_months = fixed_rate.end.duration_months;
+
+        if current_time >= fixed_rate.end.end_time {
+            if fixed_rate.end.rollover {
+                // Recalculate fixed rate and refresh end_time
+                let (new_rate, new_end_time) = recalculate_fixed_rate(
+                    rates,
+                    fixed_rate.end.duration_months,
+                    current_time,
+                    collateral_weighted_rate,
+                )?;
+                
+                fixed_rate.rate = new_rate;
+                fixed_rate.end.end_time = new_end_time;
+            } else {
+                // Convert to variable rate - track this for basket totals update
+                segment.fixed_rate = None;
+                converted_to_variable = true;
+            }
+        }
+    }
+    
+    Ok((was_fixed, duration_months, converted_to_variable))
 }
 
 /// Accrue interest to the repayment price & Position debt amount
@@ -551,10 +957,12 @@ pub fn accrue(
     user: String,
     is_deposit_function: bool,
 ) -> StdResult<Vec<Decimal>> {
+    let mut rates = RATES.load(storage)?;
+
     // cAsset ratios
     /////Accrue Interest to the Repayment Price///
     //Calc Time-elapsed and update last_Accrued
-    let time_elapsed = env.block.time.seconds() - basket.credit_last_accrued;
+    let time_elapsed = env.block.time.seconds() - rates.credit_last_accrued;
 
     let mut negative_rate: bool = false;
     let price_difference: Decimal;
@@ -562,16 +970,20 @@ pub fn accrue(
     let mut skip_credit_price_accrual: bool = config.clone().skip_credit_price_accrual;
 
     ////If the credit oracle errors we only skip the repayment price accrual and not error the whole function
+    // Create Asset from CreditAssetBreakdown for querying (use total amount)
+    let total_credit_amount = basket.credit_asset.total_all_debt();
+
     let credit_asset = cAsset {
-        asset: basket.clone().credit_asset,
+        asset: Asset {
+            info: basket.credit_asset.info.clone(),
+            amount: total_credit_amount,
+        },
         max_borrow_LTV: Decimal::zero(),
         max_LTV: Decimal::zero(),
         pool_info: None,
         rate_index: Decimal::one(),
-        individual_cost: Some(IndividualCost {
-            rate: Decimal::zero(),
-            updater_address: None,
-        }),
+        peg_rate_index: Decimal::one(),
+        force_redemptions: None,
     };
 
     let credit_TWAP_price = match get_asset_values(
@@ -615,8 +1027,8 @@ pub fn accrue(
             basket.clone().credit_asset.info,
         )?;
 
-        //Now get % of supply
-        let current_supply = basket.credit_asset.amount;
+        //Now get % of supply (sum all rate segment amounts)
+        let current_supply = basket.credit_asset.total_all_debt();
         let liquidity_ratio = {
             if !current_supply.is_zero() {
                 decimal_division(
@@ -639,7 +1051,7 @@ pub fn accrue(
 
     /////Calculate the potential credit price rate & accrue if not skipped///////
     //Repayment accrual
-    basket.credit_last_accrued = env.block.time.seconds();
+    rates.credit_last_accrued = env.block.time.seconds();
 
     //We divide w/ the greater number first so the quotient is always 1.__
     price_difference = {
@@ -666,7 +1078,7 @@ pub fn accrue(
         }
     };
     //Don't accrue repayment interest if price is within the margin of error
-    if price_difference > basket.clone().cpc_margin_of_error {
+    if price_difference > rates.cpc_margin_of_error {
         //Multiply price_difference by the cpc_multiplier
         credit_price_rate = decimal_multiplication(price_difference, config.cpc_multiplier)?;
 
@@ -688,8 +1100,8 @@ pub fn accrue(
             }
 
             let mut new_price = basket.credit_price.price;
-            //Negative LTV interest needs to be enabled by the basket
-            if !negative_rate || basket.negative_rates {
+            //Negative LTV interest needs to be enabled
+            if !negative_rate || rates.negative_rates {
                 new_price = decimal_multiplication(basket.credit_price.price, applied_rate)?;
             }
 
@@ -701,7 +1113,16 @@ pub fn accrue(
     ///////////////////////////////////////////////////
 
     /////Accrue interest to the debt/////
-    //Calc rate_of_change for the position's credit amount
+    // Get total debt for rate_of_change calculation
+    let total_debt = get_total_position_debt(&position);
+
+    // Save rates_last_accrued BEFORE get_credit_rate_of_change, which internally
+    // calls update_rate_indices and updates rates.rates_last_accrued to current_time.
+    // Fixed rate accrual needs the original last_accrued_time to calculate time_elapsed.
+    let last_accrued_time = rates.rates_last_accrued;
+    let current_time = env.block.time.seconds();
+
+    //Calc rate_of_change for the position's total debt (for variable rate segments)
     let (rate_of_change, ratios) = match get_credit_rate_of_change(
         storage,
         querier,
@@ -714,35 +1135,112 @@ pub fn accrue(
     ) {
         Ok(rate) => rate,
         Err(err) => {
-            return Err(StdError::GenericErr {
-                msg: format!("Error at line 605: {}", err),
-            })
+            return Err(StdError::generic_err(format!("Error at line 605: {}", err)));
         }
     };
 
-    //Calc new_credit_amount
-    let new_credit_amount = decimal_multiplication(
-        Decimal::from_ratio(position.credit_amount, Uint128::new(1)),
+    // Reload RATES since update_rate_indices (called inside get_credit_rate_of_change)
+    // saved updated values (rates_last_accrued, current_adaptive_rate, etc.)
+    // Preserve credit_last_accrued which was updated earlier in this function.
+    let credit_last_accrued = rates.credit_last_accrued;
+    let mut rates = RATES.load(storage)?;
+    rates.credit_last_accrued = credit_last_accrued;
+
+    let mut total_accrued_interest = Uint128::zero();
+
+    // Compute collateral-weighted current_adaptive_rate for fixed rate rollovers
+    let mut regular_weighted_rate = Decimal::zero();
+    let mut peg_weighted_rate = Decimal::zero();
+    for (i, c_asset) in position.collateral_assets.iter().enumerate() {
+        if let Some(basket_idx) = basket
+            .collateral_types
+            .iter()
+            .position(|ba| ba.asset.info.equal(&c_asset.asset.info))
+        {
+            if basket_idx < rates.current_adaptive_rate.len() {
+                regular_weighted_rate += decimal_multiplication(
+                    ratios[i],
+                    rates.current_adaptive_rate[basket_idx],
+                )?;
+            }
+            if basket_idx < rates.peg_current_adaptive_rate.len() {
+                peg_weighted_rate += decimal_multiplication(
+                    ratios[i],
+                    rates.peg_current_adaptive_rate[basket_idx],
+                )?;
+            }
+        }
+    }
+
+    // Accrue regular rate segments using debt_manager
+    let (regular_accrued, regular_deltas) = crate::debt_manager::accrue_segments(
+        &mut position.rate_segments,
         rate_of_change,
-    )? * Uint128::new(1u128);
+        last_accrued_time,
+        current_time,
+        &rates,
+        regular_weighted_rate,
+    )?;
+    total_accrued_interest += regular_accrued;
 
-    if new_credit_amount > position.credit_amount {
-        //Calc accrued interest
-        let mut accrued_interest = new_credit_amount - position.credit_amount;
+    // Accrue peg rate segments using peg_rate_index
+    let mut peg_rate_of_change = Decimal::zero();
+    if !position.peg_rate_segments.is_empty() {
+        for (i, c_asset) in position.collateral_assets.iter().enumerate() {
+            if let Some(basket_asset) = basket
+                .collateral_types
+                .iter()
+                .find(|ba| ba.asset.info.equal(&c_asset.asset.info))
+            {
+                peg_rate_of_change += decimal_multiplication(
+                    ratios[i],
+                    decimal_division(basket_asset.peg_rate_index, c_asset.peg_rate_index)?,
+                )?;
+            }
+        }
+    }
 
+    let (peg_accrued, peg_deltas) = crate::debt_manager::accrue_segments(
+        &mut position.peg_rate_segments,
+        peg_rate_of_change,
+        last_accrued_time,
+        current_time,
+        &rates,
+        peg_weighted_rate,
+    )?;
+    total_accrued_interest += peg_accrued;
+
+    // Sync position peg_rate_index to basket
+    if !position.peg_rate_segments.is_empty() {
+        for c_asset in position.collateral_assets.iter_mut() {
+            if let Some(basket_asset) = basket
+                .collateral_types
+                .iter()
+                .find(|ba| ba.asset.info.equal(&c_asset.asset.info))
+            {
+                c_asset.peg_rate_index = basket_asset.peg_rate_index;
+            }
+        }
+    }
+
+    if total_accrued_interest > Uint128::zero() {
+        // Apply discounts if configured
+        let mut discounted_interest = total_accrued_interest;
         if let Some(contract) = config.clone().discounts_contract {
             //Get User's discounted interest
-            accrued_interest = match get_discounted_interest(
+            discounted_interest = match get_discounted_interest(
                 querier,
                 contract.to_string(),
                 user,
-                accrued_interest,
+                total_accrued_interest,
+                position,
+                basket,
             ) {
-                Ok(discounted_interest) => discounted_interest,
-                Err(_) => accrued_interest,
+                Ok(discounted) => discounted,
+                Err(_) => total_accrued_interest,
             };
         }
-
+        
         //Track new_total_pending.
         //Using a tracker instead of accrued_interest to account for any rounding.
         let mut new_interest = Uint128::zero();
@@ -751,7 +1249,7 @@ pub fn accrue(
             let ratio = ratios[i];
             let amount = decimal_multiplication(
                 ratio,
-                Decimal::from_ratio(accrued_interest, Uint128::one()),
+                Decimal::from_ratio(discounted_interest, Uint128::one()),
             )?;
             //Add amount to per-asset distribution
             if let Some(asset) = basket
@@ -776,16 +1274,84 @@ pub fn accrue(
         //Add accrued interest to the basket's pending revenue
         basket.pending_revenue.total_pending += new_interest;
 
-        //Set position's debt to the debt + accrued_interest
-        position.credit_amount += new_interest;
         position.pending_interest += new_interest;
         position.total_interest_accrued += new_interest;
 
-        //Add accrued interest to the Basket's debt tally
-        basket.credit_asset.amount += new_interest;
+        // Apply discount to segment amounts if discount was applied
+        if discounted_interest < total_accrued_interest {
+            let discount_amount = total_accrued_interest.checked_sub(discounted_interest)
+                .unwrap_or(Uint128::zero());
+
+            let total_debt_before_discount = get_total_position_debt(&position);
+
+            // Apply discount proportionally to both pools
+            let regular_discount_deltas = crate::debt_manager::apply_discount_to_segments(
+                &mut position.rate_segments,
+                discount_amount,
+                total_debt_before_discount,
+            );
+            let peg_discount_deltas = crate::debt_manager::apply_discount_to_segments(
+                &mut position.peg_rate_segments,
+                discount_amount,
+                total_debt_before_discount,
+            );
+
+            // Add discount deltas to the accrual deltas
+            // (discount deltas are negative, offsetting the positive accrual deltas)
+            use crate::debt_manager::SegmentDeltas;
+            fn merge_deltas(a: &mut crate::debt_manager::SegmentDeltas, b: &crate::debt_manager::SegmentDeltas) {
+                a.variable += b.variable;
+                a.one_month += b.one_month;
+                a.three_month += b.three_month;
+                a.six_month += b.six_month;
+            }
+            let mut final_regular_deltas = regular_deltas.clone();
+            merge_deltas(&mut final_regular_deltas, &regular_discount_deltas);
+            let mut final_peg_deltas = peg_deltas.clone();
+            merge_deltas(&mut final_peg_deltas, &peg_discount_deltas);
+
+            // Apply merged deltas to basket
+            crate::debt_manager::apply_delta_to_regular_debt(&mut basket.credit_asset, &final_regular_deltas);
+            crate::debt_manager::apply_delta_to_caps(&mut rates.fixed_rate_caps, &final_regular_deltas);
+            crate::debt_manager::apply_delta_to_peg_debt(&mut basket.credit_asset, &final_peg_deltas);
+            // Peg fixed rates share the same caps pool
+            crate::debt_manager::apply_delta_to_caps(&mut rates.fixed_rate_caps, &final_peg_deltas);
+        } else {
+            // No discount - apply accrual deltas directly
+            crate::debt_manager::apply_delta_to_regular_debt(&mut basket.credit_asset, &regular_deltas);
+            crate::debt_manager::apply_delta_to_caps(&mut rates.fixed_rate_caps, &regular_deltas);
+            crate::debt_manager::apply_delta_to_peg_debt(&mut basket.credit_asset, &peg_deltas);
+            crate::debt_manager::apply_delta_to_caps(&mut rates.fixed_rate_caps, &peg_deltas);
+        }
+    } else {
+        // No accrued interest, but still apply deltas (e.g., fixed->variable conversions)
+        crate::debt_manager::apply_delta_to_regular_debt(&mut basket.credit_asset, &regular_deltas);
+        crate::debt_manager::apply_delta_to_caps(&mut rates.fixed_rate_caps, &regular_deltas);
+        crate::debt_manager::apply_delta_to_peg_debt(&mut basket.credit_asset, &peg_deltas);
+        crate::debt_manager::apply_delta_to_caps(&mut rates.fixed_rate_caps, &peg_deltas);
     }
 
+    // Save updated rates (credit_last_accrued, fixed_rate_caps)
+    RATES.save(storage, &rates)?;
+
     Ok(ratios)
+}
+
+/// Check if a position is 100% force_redemption assets
+fn is_position_100_percent_force_redemption(
+    position: &Position,
+    basket: &Basket,
+) -> bool {
+    if position.collateral_assets.is_empty() {
+        return false;
+    }
+
+    // Check if all collateral assets have force_redemptions == Some(true)
+    position.collateral_assets.iter().all(|c_asset| {
+        basket.collateral_types.iter().any(|ba| 
+            ba.asset.info == c_asset.asset.info && ba.force_redemptions == Some(true)
+        )
+    })
 }
 
 /// Calculate the discounted interest for a user
@@ -794,18 +1360,35 @@ fn get_discounted_interest(
     discounts_contract: String,
     user: String,
     undiscounted_interest: Uint128,
+    position: &Position,
+    basket: &Basket,
 ) -> StdResult<Uint128> {
-    //Get discount
-    let discount: UserDiscountResponse =
-        querier.query_wasm_smart(discounts_contract, &DiscountQueryMsg::UserDiscount { user })?;
+    // Check if position is 100% force_redemption assets
+    let discount = if is_position_100_percent_force_redemption(position, basket) {
+        // Use StableBackingDiscounts query
+        let stable_discount: StableBackingDiscountsResponse =
+            querier.query_wasm_smart(
+                discounts_contract.clone(),
+                &DiscountQueryMsg::StableBackingDiscounts { 
+                    user: user.clone(),
+                    debt_amount: undiscounted_interest,
+                }
+            )?;
+        stable_discount.discount
+    } else {
+        // Use regular UserDiscount query
+        let user_discount: UserDiscountResponse =
+            querier.query_wasm_smart(discounts_contract, &DiscountQueryMsg::UserDiscount { user })?;
+        user_discount.discount
+    };
 
     let discounted_interest = {
-        let percent_of_interest = decimal_subtraction(Decimal::one(), discount.discount)?;
+        let percent_of_interest = decimal_subtraction(Decimal::one(), discount)?;
         decimal_multiplication(
             Decimal::from_ratio(undiscounted_interest, Uint128::one()),
             percent_of_interest,
-        )?
-    } * Uint128::one();
+        )?.to_uint_floor()
+    };
 
     Ok(discounted_interest)
 }
@@ -813,427 +1396,142 @@ fn get_discounted_interest(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::CollateralVolatility;
-    use cosmwasm_std::testing::mock_dependencies;
 
     #[test]
-    fn test_get_avg_volatility_empty_list() {
-        let deps = mock_dependencies();
-
-        // No volatility data stored - should return None
-        let result = get_avg_volatility(&deps.storage, "test_asset");
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn test_get_avg_volatility_with_data() {
-        let mut deps = mock_dependencies();
-
-        // Store volatility data with raw_volatility_list (price change %)
-        let vol_store = CollateralVolatility {
-            index: Decimal::one(),
-            volatility_list: vec![], // Speed of volatility (not used for rate calc)
-            raw_volatility_list: vec![
-                Decimal::percent(10), // 0.10 = 10% price change
-                Decimal::percent(20), // 0.20 = 20% price change
-                Decimal::percent(30), // 0.30 = 30% price change
-            ],
-        };
-        VOLATILITY
-            .save(&mut deps.storage, "test_asset".to_string(), &vol_store)
-            .unwrap();
-
-        // Should return average: (0.10 + 0.20 + 0.30) / 3 = 0.20
-        let result = get_avg_volatility(&deps.storage, "test_asset");
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), Decimal::percent(20));
-    }
-
-    #[test]
-    fn test_volatility_rate_calculation_logic() {
-        // Test the comparative volatility logic
+    fn test_deposit_rate_calculation_logic() {
+        // Test the comparative deposit logic
         let base_rate = Decimal::percent(2); // 2% base rate
 
-        // Asset A: lowest volatility at 5%
-        let asset_a_vol = Decimal::percent(5);
-        // Asset B: higher volatility at 10%
-        let asset_b_vol = Decimal::percent(10);
-        // Asset C: highest volatility at 15%
-        let asset_c_vol = Decimal::percent(15);
+        // Asset A: highest deposits at 1_000_000
+        let asset_a_dep = Uint128::new(1_000_000);
+        // Asset B: half the deposits at 500_000
+        let asset_b_dep = Uint128::new(500_000);
+        // Asset C: quarter the deposits at 250_000
+        let asset_c_dep = Uint128::new(250_000);
 
-        let lowest_vol = asset_a_vol;
+        let highest_dep = asset_a_dep;
 
-        // Asset A (lowest vol) should get the LTV-based rate (which we'll simulate as base_rate for this test)
-        // Asset B: base_rate * (10% / 5%) = base_rate * 2 = 4%
+        // Asset A (highest deposits) gets the LTV-based rate (simulated as base_rate here)
+        // Asset B: base_rate * (1_000_000 / 500_000) = base_rate * 2 = 4%
         let asset_b_rate = decimal_multiplication(
             base_rate,
-            decimal_division(asset_b_vol, lowest_vol).unwrap(),
+            Decimal::from_ratio(highest_dep, asset_b_dep),
         )
         .unwrap();
         assert_eq!(asset_b_rate, Decimal::percent(4));
 
-        // Asset C: base_rate * (15% / 5%) = base_rate * 3 = 6%
+        // Asset C: base_rate * (1_000_000 / 250_000) = base_rate * 4 = 8%
         let asset_c_rate = decimal_multiplication(
             base_rate,
-            decimal_division(asset_c_vol, lowest_vol).unwrap(),
+            Decimal::from_ratio(highest_dep, asset_c_dep),
         )
         .unwrap();
-        assert_eq!(asset_c_rate, Decimal::percent(6));
+        assert_eq!(asset_c_rate, Decimal::percent(8));
     }
 
-    /// Test using real historic price data from CoinMarketCap (Jan 15-16, 2026)
-    /// Calculates daily volatility as |close - open| / open for each day
     #[test]
-    fn test_real_crypto_volatility_btc_eth_comparison() {
-        let mut deps = mock_dependencies();
-
-        // BTC daily volatilities (from real CoinMarketCap data):
-        // Jan 16, 2026: Open $95,554.10 -> Close $95,525.12 = ~0.03% volatility
-        // Jan 15, 2026: Open $96,931.29 -> Close $95,551.19 = ~1.42% volatility
-        // We'll use permille (1/1000) for more precision with small percentages
-        let btc_vol_jan16 = Decimal::permille(3); // 0.03% = 0.0003
-        let btc_vol_jan15 = Decimal::from_ratio(142u128, 10000u128); // 1.42% = 0.0142
-
-        let btc_vol = CollateralVolatility {
-            index: Decimal::one(),
-            volatility_list: vec![],
-            raw_volatility_list: vec![btc_vol_jan16, btc_vol_jan15],
-        };
-        VOLATILITY
-            .save(&mut deps.storage, "btc".to_string(), &btc_vol)
-            .unwrap();
-
-        // ETH daily volatilities:
-        // Jan 16, 2026: Open $3,317.34 -> Close $3,295.48 = ~0.66% volatility
-        // Jan 15, 2026: Open $3,354.77 -> Close $3,317.10 = ~1.12% volatility
-        let eth_vol_jan16 = Decimal::from_ratio(66u128, 10000u128); // 0.66%
-        let eth_vol_jan15 = Decimal::from_ratio(112u128, 10000u128); // 1.12%
-
-        let eth_vol = CollateralVolatility {
-            index: Decimal::one(),
-            volatility_list: vec![],
-            raw_volatility_list: vec![eth_vol_jan16, eth_vol_jan15],
-        };
-        VOLATILITY
-            .save(&mut deps.storage, "eth".to_string(), &eth_vol)
-            .unwrap();
-
-        // Calculate average volatilities
-        let btc_avg = get_avg_volatility(&deps.storage, "btc").unwrap();
-        let eth_avg = get_avg_volatility(&deps.storage, "eth").unwrap();
-
-        // BTC avg: (0.03% + 1.42%) / 2 = 0.725%
-        // ETH avg: (0.66% + 1.12%) / 2 = 0.89%
-        // BTC should be the lowest volatility asset
-        assert!(
-            btc_avg < eth_avg,
-            "BTC should have lower avg volatility than ETH"
-        );
-
-        // Test rate calculation: BTC gets base rate, ETH gets scaled rate
-        let base_rate = Decimal::percent(2); // 2% APR base rate
-
-        // ETH rate = base_rate * (eth_avg / btc_avg)
-        // ~= 2% * (0.89% / 0.725%) = 2% * 1.227 = ~2.45%
-        let eth_rate =
-            decimal_multiplication(base_rate, decimal_division(eth_avg, btc_avg).unwrap()).unwrap();
-
-        // ETH should pay a higher rate than base rate
-        assert!(
-            eth_rate > base_rate,
-            "ETH should pay higher rate than BTC (base)"
-        );
-        // But not dramatically higher (since both are relatively stable)
-        assert!(
-            eth_rate < Decimal::percent(3),
-            "ETH rate should be below 3%"
-        );
-    }
-
-    /// Test with highly volatile meme coins vs stable large caps
-    /// Using real CoinMarketCap data for DOGE, PEPE vs BTC
-    #[test]
-    fn test_real_crypto_volatility_meme_vs_btc() {
-        let mut deps = mock_dependencies();
-
-        // BTC (most stable)
-        // Jan 16: 0.03%, Jan 15: 1.42%
-        let btc_vol = CollateralVolatility {
-            index: Decimal::one(),
-            volatility_list: vec![],
-            raw_volatility_list: vec![
-                Decimal::permille(3),                    // 0.03%
-                Decimal::from_ratio(142u128, 10000u128), // 1.42%
-            ],
-        };
-        VOLATILITY
-            .save(&mut deps.storage, "btc".to_string(), &btc_vol)
-            .unwrap();
-
-        // DOGE (meme coin, more volatile)
-        // Jan 16, 2026: Open $0.14 -> Close $0.1381 = ~1.36% volatility
-        // Jan 15, 2026: Open $0.1472 -> Close $0.14 = ~4.89% volatility
-        let doge_vol = CollateralVolatility {
-            index: Decimal::one(),
-            volatility_list: vec![],
-            raw_volatility_list: vec![
-                Decimal::from_ratio(136u128, 10000u128), // 1.36%
-                Decimal::from_ratio(489u128, 10000u128), // 4.89%
-            ],
-        };
-        VOLATILITY
-            .save(&mut deps.storage, "doge".to_string(), &doge_vol)
-            .unwrap();
-
-        // PEPE (highly volatile meme coin)
-        // Jan 16, 2026: Open $0.000005911 -> Close $0.000005922 = ~0.19% volatility
-        // Jan 15, 2026: Open $0.000006251 -> Close $0.000005911 = ~5.44% volatility
-        let pepe_vol = CollateralVolatility {
-            index: Decimal::one(),
-            volatility_list: vec![],
-            raw_volatility_list: vec![
-                Decimal::from_ratio(19u128, 10000u128),  // 0.19%
-                Decimal::from_ratio(544u128, 10000u128), // 5.44%
-            ],
-        };
-        VOLATILITY
-            .save(&mut deps.storage, "pepe".to_string(), &pepe_vol)
-            .unwrap();
-
-        let btc_avg = get_avg_volatility(&deps.storage, "btc").unwrap();
-        let doge_avg = get_avg_volatility(&deps.storage, "doge").unwrap();
-        let pepe_avg = get_avg_volatility(&deps.storage, "pepe").unwrap();
-
-        // BTC avg: ~0.725%, DOGE avg: ~3.125%, PEPE avg: ~2.815%
-        assert!(btc_avg < doge_avg, "BTC should be less volatile than DOGE");
-        assert!(btc_avg < pepe_avg, "BTC should be less volatile than PEPE");
-
-        let base_rate = Decimal::percent(2); // 2% base rate
-
-        // DOGE rate = 2% * (3.125% / 0.725%) = 2% * 4.31 = ~8.62%
-        let doge_rate =
-            decimal_multiplication(base_rate, decimal_division(doge_avg, btc_avg).unwrap())
-                .unwrap();
-
-        // PEPE rate = 2% * (2.815% / 0.725%) = 2% * 3.88 = ~7.76%
-        let pepe_rate =
-            decimal_multiplication(base_rate, decimal_division(pepe_avg, btc_avg).unwrap())
-                .unwrap();
-
-        // Meme coins should have significantly higher rates
-        assert!(
-            doge_rate > Decimal::percent(5),
-            "DOGE should pay at least 5% (got: {:?})",
-            doge_rate
-        );
-        assert!(
-            pepe_rate > Decimal::percent(5),
-            "PEPE should pay at least 5% (got: {:?})",
-            pepe_rate
-        );
-
-        // DOGE was more volatile on average, so should have higher rate than PEPE
-        assert!(
-            doge_rate > pepe_rate,
-            "DOGE should pay higher rate than PEPE"
-        );
-    }
-
-    /// Test with SOL and ATOM data
-    #[test]
-    fn test_real_crypto_volatility_sol_atom() {
-        let mut deps = mock_dependencies();
-
-        // SOL (Solana)
-        // Jan 16, 2026: Open $142.33 -> Close $144.86 = ~1.78% volatility
-        // Jan 15, 2026: Open $146.76 -> Close $142.33 = ~3.02% volatility
-        let sol_vol = CollateralVolatility {
-            index: Decimal::one(),
-            volatility_list: vec![],
-            raw_volatility_list: vec![
-                Decimal::from_ratio(178u128, 10000u128), // 1.78%
-                Decimal::from_ratio(302u128, 10000u128), // 3.02%
-            ],
-        };
-        VOLATILITY
-            .save(&mut deps.storage, "sol".to_string(), &sol_vol)
-            .unwrap();
-
-        // ATOM (Cosmos)
-        // Jan 16, 2026: Open $2.4757 -> Close $2.4922 = ~0.67% volatility
-        // Jan 15, 2026: Open $2.5836 -> Close $2.4757 = ~4.18% volatility
-        let atom_vol = CollateralVolatility {
-            index: Decimal::one(),
-            volatility_list: vec![],
-            raw_volatility_list: vec![
-                Decimal::from_ratio(67u128, 10000u128),  // 0.67%
-                Decimal::from_ratio(418u128, 10000u128), // 4.18%
-            ],
-        };
-        VOLATILITY
-            .save(&mut deps.storage, "atom".to_string(), &atom_vol)
-            .unwrap();
-
-        let sol_avg = get_avg_volatility(&deps.storage, "sol").unwrap();
-        let atom_avg = get_avg_volatility(&deps.storage, "atom").unwrap();
-
-        // SOL avg: (1.78% + 3.02%) / 2 = 2.4%
-        // ATOM avg: (0.67% + 4.18%) / 2 = 2.425%
-        // These are very close in volatility!
-
-        let base_rate = Decimal::percent(2); // 2% base rate
-        let lowest_vol = std::cmp::min(sol_avg, atom_avg);
-
-        let sol_rate =
-            decimal_multiplication(base_rate, decimal_division(sol_avg, lowest_vol).unwrap())
-                .unwrap();
-
-        let atom_rate =
-            decimal_multiplication(base_rate, decimal_division(atom_avg, lowest_vol).unwrap())
-                .unwrap();
-
-        // Both should be close to base rate since volatilities are similar
-        let rate_diff = if sol_rate > atom_rate {
-            sol_rate - atom_rate
-        } else {
-            atom_rate - sol_rate
-        };
-
-        // Rate difference should be small (less than 0.5%) since volatilities are similar
-        assert!(
-            rate_diff < Decimal::from_ratio(5u128, 1000u128),
-            "SOL and ATOM rates should be similar (diff: {:?})",
-            rate_diff
-        );
-    }
-
-    /// Test the full multi-asset scenario with 6 crypto assets
-    #[test]
-    fn test_real_crypto_full_basket() {
-        let mut deps = mock_dependencies();
-
-        // Store volatility data for all 6 assets from CoinMarketCap
-        let assets = vec![
-            (
-                "btc",
-                vec![
-                    Decimal::permille(3),
-                    Decimal::from_ratio(142u128, 10000u128),
-                ],
-            ), // 0.03%, 1.42%
-            (
-                "eth",
-                vec![
-                    Decimal::from_ratio(66u128, 10000u128),
-                    Decimal::from_ratio(112u128, 10000u128),
-                ],
-            ), // 0.66%, 1.12%
-            (
-                "doge",
-                vec![
-                    Decimal::from_ratio(136u128, 10000u128),
-                    Decimal::from_ratio(489u128, 10000u128),
-                ],
-            ), // 1.36%, 4.89%
-            (
-                "pepe",
-                vec![
-                    Decimal::from_ratio(19u128, 10000u128),
-                    Decimal::from_ratio(544u128, 10000u128),
-                ],
-            ), // 0.19%, 5.44%
-            (
-                "sol",
-                vec![
-                    Decimal::from_ratio(178u128, 10000u128),
-                    Decimal::from_ratio(302u128, 10000u128),
-                ],
-            ), // 1.78%, 3.02%
-            (
-                "atom",
-                vec![
-                    Decimal::from_ratio(67u128, 10000u128),
-                    Decimal::from_ratio(418u128, 10000u128),
-                ],
-            ), // 0.67%, 4.18%
-        ];
-
-        for (asset_name, vol_list) in &assets {
-            let vol = CollateralVolatility {
-                index: Decimal::one(),
-                volatility_list: vec![],
-                raw_volatility_list: vol_list.clone(),
-            };
-            VOLATILITY
-                .save(&mut deps.storage, asset_name.to_string(), &vol)
-                .unwrap();
-        }
-
-        // Collect all avg volatilities
-        let mut avg_vols: Vec<(&str, Decimal)> = assets
-            .iter()
-            .map(|(name, _)| (*name, get_avg_volatility(&deps.storage, name).unwrap()))
-            .collect();
-
-        // Sort by volatility to find the lowest
-        avg_vols.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-
-        let lowest_asset = avg_vols[0].0;
-        let lowest_vol = avg_vols[0].1;
-
-        // BTC should be the lowest volatility asset (avg ~0.725%)
-        assert_eq!(
-            lowest_asset, "btc",
-            "BTC should have the lowest avg volatility"
-        );
-
+    fn test_deposit_rate_similar_deposits() {
+        // When deposits are similar, rates should be similar
         let base_rate = Decimal::percent(2);
 
-        // Calculate rates for all assets
-        let mut rates: Vec<(&str, Decimal)> = avg_vols
+        let asset_a_dep = Uint128::new(1_000_000);
+        let asset_b_dep = Uint128::new(950_000);
+
+        let highest_dep = asset_a_dep;
+
+        // Asset B: base_rate * (1_000_000 / 950_000) ~= 2% * 1.053 ~= 2.1%
+        let asset_b_rate = decimal_multiplication(
+            base_rate,
+            Decimal::from_ratio(highest_dep, asset_b_dep),
+        )
+        .unwrap();
+
+        // Should be close to base rate
+        assert!(
+            asset_b_rate > base_rate,
+            "Asset B should pay slightly more than base rate"
+        );
+        assert!(
+            asset_b_rate < Decimal::percent(3),
+            "Asset B rate should be below 3% (got: {:?})",
+            asset_b_rate
+        );
+    }
+
+    #[test]
+    fn test_deposit_rate_max_cap() {
+        // Test that irm_config.max_adaptive_rate caps the rate
+        let base_rate = Decimal::percent(2);
+        let max_comparative_rate = Decimal::percent(10); // 10% cap
+
+        let highest_dep = Uint128::new(1_000_000);
+        let tiny_dep = Uint128::new(10_000); // 1% of highest
+
+        // Uncapped: base_rate * (1_000_000 / 10_000) = 2% * 100 = 200%
+        let uncapped_rate = decimal_multiplication(
+            base_rate,
+            Decimal::from_ratio(highest_dep, tiny_dep),
+        )
+        .unwrap();
+        assert!(uncapped_rate > max_comparative_rate);
+
+        // After capping:
+        let capped_rate = if uncapped_rate > max_comparative_rate {
+            max_comparative_rate
+        } else {
+            uncapped_rate
+        };
+        assert_eq!(capped_rate, Decimal::percent(10));
+    }
+
+    #[test]
+    fn test_deposit_rate_multi_asset_ordering() {
+        // Higher deposits should always result in lower rates
+        let base_rate = Decimal::percent(2);
+
+        let deposits = vec![
+            ("usdc", Uint128::new(5_000_000)),  // Most deposits
+            ("atom", Uint128::new(2_000_000)),
+            ("osmo", Uint128::new(1_000_000)),
+            ("juno", Uint128::new(500_000)),
+            ("stars", Uint128::new(100_000)),    // Least deposits
+        ];
+
+        let highest_dep = deposits[0].1;
+
+        let mut rates: Vec<(&str, Decimal)> = deposits
             .iter()
-            .map(|(name, avg_vol)| {
-                let rate = decimal_multiplication(
-                    base_rate,
-                    decimal_division(*avg_vol, lowest_vol).unwrap(),
-                )
-                .unwrap();
-                (*name, rate)
+            .map(|(name, dep)| {
+                if *dep == highest_dep {
+                    // Highest deposit asset gets LTV-based rate (simulate as base_rate)
+                    (*name, base_rate)
+                } else {
+                    let rate = decimal_multiplication(
+                        base_rate,
+                        Decimal::from_ratio(highest_dep, *dep),
+                    )
+                    .unwrap();
+                    (*name, rate)
+                }
             })
             .collect();
 
-        // Sort by rate
+        // Sort by rate ascending
         rates.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
-        // BTC should have the lowest rate (base rate)
-        assert_eq!(rates[0].0, "btc", "BTC should have the lowest rate");
+        // USDC (most deposits) should have the lowest rate
+        assert_eq!(rates[0].0, "usdc", "USDC (most deposits) should have lowest rate");
 
-        // Print rate structure for verification
-        println!("Rate structure based on real CoinMarketCap data:");
-        for (name, rate) in &rates {
-            println!(
-                "  {}: {:.2}%",
-                name,
-                rate.to_string().parse::<f64>().unwrap_or(0.0) * 100.0
-            );
-        }
+        // Stars (least deposits) should have the highest rate
+        assert_eq!(rates[4].0, "stars", "STARS (least deposits) should have highest rate");
 
-        // Verify rate ordering makes sense
-        // Higher volatility assets should pay higher rates
+        // Verify monotonic: each subsequent rate should be >= previous
         for i in 1..rates.len() {
-            let prev_asset_vol = avg_vols
-                .iter()
-                .find(|(n, _)| n == &rates[i - 1].0)
-                .unwrap()
-                .1;
-            let curr_asset_vol = avg_vols.iter().find(|(n, _)| n == &rates[i].0).unwrap().1;
-
-            if curr_asset_vol > prev_asset_vol {
-                assert!(
-                    rates[i].1 >= rates[i - 1].1,
-                    "Higher volatility assets should have higher rates"
-                );
-            }
+            assert!(
+                rates[i].1 >= rates[i - 1].1,
+                "Rates should increase as deposits decrease: {} ({:?}) vs {} ({:?})",
+                rates[i - 1].0, rates[i - 1].1, rates[i].0, rates[i].1
+            );
         }
     }
 }

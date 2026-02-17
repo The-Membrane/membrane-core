@@ -57,7 +57,6 @@ fn setup_mock_basket() -> Basket {
                 max_borrow_LTV: Decimal::percent(30),
                 rate_index: Decimal::zero(),
                 pool_info: None,
-                individual_cost: None,
             },
             cAsset {
                 asset: Asset {
@@ -68,7 +67,6 @@ fn setup_mock_basket() -> Basket {
                 max_borrow_LTV: Decimal::percent(30),
                 rate_index: Decimal::zero(),
                 pool_info: None,
-                individual_cost: None,
             },
         ],
         collateral_supply_caps: vec![],
@@ -151,9 +149,9 @@ fn create_queue_and_deposit(
 
     // Get the deposit_id by querying the queue
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: asset.to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec![asset.to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    queue.queue.current_deposit_id - Uint128::one()
+    queue.queues[0].1.current_deposit_id - Uint128::one()
 }
 
 #[test]

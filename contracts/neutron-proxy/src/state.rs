@@ -3,7 +3,7 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Uint128, Decimal, Addr, Coin};
 use cw_storage_plus::{Item, Map};
 
-use membrane::neutron_proxy::{Config, DexPreference};
+use membrane::neutron_proxy::{Config, DexPreference, HopConfig};
 use membrane::types::SwapRoute;
 
 #[cw_serde]
@@ -33,6 +33,24 @@ pub struct SwapInfo {
     pub max_slippage: Decimal,
 }
 
+#[cw_serde]
+pub struct MultiHopState {
+    /// Original swapper to receive final output
+    pub swapper: Addr,
+    /// Remaining hops to execute (pops from front as we progress)
+    pub remaining_hops: Vec<HopConfig>,
+    /// Final target token
+    pub token_out: String,
+    /// Max slippage per hop
+    pub max_slippage: Decimal,
+    /// Original input amount (for slippage validation)
+    pub original_amount: Uint128,
+    /// Previous balance snapshot for delta calculation
+    pub prev_balances: Vec<Coin>,
+    /// Current token we're swapping from
+    pub current_token: String,
+}
+
 pub const CONFIG: Item<Config> = Item::new("config");
 pub const TOKENS: Map<String, TokenInfo> = Map::new("tokens"); //AssetInfo, TokenInfo
 pub const PENDING: Item<PendingTokenInfo> = Item::new("pending_denoms");
@@ -42,3 +60,4 @@ pub const SWAP_INFO: Item<SwapInfo> = Item::new("swap_info");
 pub const SWAP_ROUTE_CONFIG: Map<(String, String), DexPreference> = Map::new("swap_route_config");
 // Map: token denom -> supply threshold (minimum supply required before transmuting is enabled)
 pub const TRANSMUTE_SUPPLY_THRESHOLDS: Map<String, Uint128> = Map::new("transmute_supply_thresholds");
+pub const MULTIHOP_STATE: Item<MultiHopState> = Item::new("multihop_state");

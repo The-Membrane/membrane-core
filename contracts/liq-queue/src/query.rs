@@ -1,7 +1,7 @@
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::{Deps, StdError, StdResult, Uint128};
 use membrane::liq_queue::{
-    Config, BidResponse, ClaimsResponse, LiquidatibleResponse, SlotResponse, QueueResponse,
+    Config, BidResponse, ClaimsResponse, LiquidatibleResponse, CollateralForDebtResponse, SlotResponse, QueueResponse,
 };
 use membrane::math::{Decimal256, Uint256};
 use membrane::oracle::{PriceResponse256, PriceResponse};
@@ -60,15 +60,15 @@ pub fn query_liquidatible(
 ) -> StdResult<LiquidatibleResponse> {
     let queue: Queue = match QUEUES.load(deps.storage, bid_for.to_string()) {
         Err(_) => {
-            return Err(StdError::GenericErr {
-                msg: "Queue for this asset doesn't exist".to_string(),
-            })
+            return Err(StdError::generic_err(
+                "Queue for this asset doesn't exist"
+            ))
         }
         Ok(queue) => {
             if !queue.bid_asset.info.equal(&credit_info) {
-                return Err(StdError::GenericErr {
-                    msg: format!("Invalid bid denomination for {}", bid_for),
-                });
+                return Err(StdError::generic_err(
+                    format!("Invalid bid denomination for {}", bid_for)
+                ));
             }
 
             queue
@@ -128,6 +128,79 @@ pub fn query_liquidatible(
     })
 }
 
+/// Query collateral needed for a given debt amount, accounting for premiums
+/// This is the reverse of query_liquidatible - it takes a debt amount and returns the collateral needed
+pub fn query_collateral_for_debt(
+    deps: Deps,
+    bid_for: AssetInfo,
+    collateral_price: PriceResponse,
+    debt_amount: Uint256,
+    credit_info: AssetInfo,
+    credit_price: PriceResponse,
+) -> StdResult<CollateralForDebtResponse> {
+    let queue: Queue = match QUEUES.load(deps.storage, bid_for.to_string()) {
+        Err(_) => {
+            return Err(StdError::generic_err(
+                "Queue for this asset doesn't exist"
+            ))
+        }
+        Ok(queue) => {
+            if !queue.bid_asset.info.equal(&credit_info) {
+                return Err(StdError::generic_err(
+                    format!("Invalid bid denomination for {}", bid_for)
+                ));
+            }
+
+            queue
+        }
+    };
+
+    let mut remaining_debt_to_repay = debt_amount;
+    let mut total_collateral_needed = Uint256::zero();
+
+    for slot in queue.slots.into_iter() {
+        if slot.total_bid_amount.is_zero() || remaining_debt_to_repay.is_zero() {
+            continue;
+        }
+
+        let slot_total = slot.total_bid_amount;
+
+        let mut collateral_price: PriceResponse256 = collateral_price.to_decimal256()?;
+        let credit_price: PriceResponse256 = credit_price.to_decimal256()?;
+
+        // Calculate premium-adjusted price: price * (1 - premium)
+        let premium_price: Decimal256 =
+            collateral_price.price * (Decimal256::one() - slot.clone().liq_premium);
+        collateral_price.price = premium_price;
+
+        // Calculate how much debt can be repaid by the available bids in this slot
+        let debt_repayable_by_slot = if remaining_debt_to_repay > slot_total {
+            slot_total
+        } else {
+            remaining_debt_to_repay
+        };
+
+        // Calculate collateral needed for this debt at the current premium
+        // collateral_needed = debt * credit_price / (collateral_price * (1 - premium))
+        let debt_value = credit_price.get_value(debt_repayable_by_slot);
+        let mut collateral_needed_for_slot = collateral_price.get_amount(debt_value);
+
+        // Add 1 to round up and ensure we always return enough collateral
+        // This accounts for integer division rounding down
+        if !collateral_needed_for_slot.is_zero() {
+            collateral_needed_for_slot += Uint256::from(1u128);
+        }
+
+        total_collateral_needed += collateral_needed_for_slot;
+        remaining_debt_to_repay = remaining_debt_to_repay - debt_repayable_by_slot;
+    }
+
+    Ok(CollateralForDebtResponse {
+        collateral_needed: total_collateral_needed.to_string(),
+        leftover_debt: remaining_debt_to_repay.to_string(),
+    })
+}
+
 /// Return SlotResponse for a given premium in a queue
 pub fn query_premium_slot(
     deps: Deps,
@@ -143,9 +216,7 @@ pub fn query_premium_slot(
     {
         Some(slot) => slot,
         None => {
-            return Err(StdError::GenericErr {
-                msg: "Invalid premium".to_string(),
-            })
+            return Err(StdError::generic_err("Invalid premium"))
         }
     };
 
@@ -227,9 +298,7 @@ pub fn query_bid(deps: Deps, bid_for: AssetInfo, bid_id: Uint128) -> StdResult<B
     {
         Ok(slot) => slot,
         Err(_) => {
-            return Err(StdError::GenericErr {
-                msg: "Invalid premium".to_string(),
-            })
+            return Err(StdError::generic_err("Invalid premium"))
         }
     };
 

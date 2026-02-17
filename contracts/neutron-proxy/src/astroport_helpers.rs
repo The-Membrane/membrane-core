@@ -1,13 +1,14 @@
 use cosmwasm_std::{
     to_json_binary, Addr, Binary, Coin, CosmosMsg, Decimal, QuerierWrapper, Uint128, WasmMsg,
 };
-use membrane::neutron_proxy::{DexChoice, PclInitParams};
+use membrane::neutron_proxy::{DexChoice, HopConfig, PclInitParams};
 use membrane::types::AssetInfo;
 use astroport::asset::Asset;
 use astroport::pair::ExecuteMsg as PairExecuteMsg;
 use astroport::factory::QueryMsg as FactoryQueryMsg;
 use astroport::pair::QueryMsg as PairQueryMsg;
 use astroport::pair::SimulationResponse;
+use astroport::router::{ExecuteMsg as RouterExecuteMsg, SwapOperation, QueryMsg as RouterQueryMsg, SimulateSwapOperationsResponse};
 
 use crate::error::TokenFactoryError;
 use membrane::neutron_proxy::NeutronMsg;
@@ -230,5 +231,97 @@ pub fn asset_info_to_astroport(info: AssetInfo) -> astroport::asset::AssetInfo {
             contract_addr: address,
         },
     }
+}
+
+/// Build SwapOperation vec from HopConfig list for Astroport router
+/// Creates operations: [token_in->hop[0], hop[0]->hop[1], ..., hop[n]->token_out]
+pub fn build_astroport_operations(
+    hops: &[HopConfig],
+    token_in: String,
+    token_out: String,
+) -> Result<Vec<SwapOperation>, TokenFactoryError> {
+    let mut operations = Vec::new();
+
+    if hops.is_empty() {
+        return Err(TokenFactoryError::InvalidRouteConfig {
+            reason: "Empty hops list for Astroport operations".to_string(),
+        });
+    }
+
+    // First operation: token_in -> first hop
+    let first_offer = AssetInfo::NativeToken { denom: token_in };
+    let first_ask = AssetInfo::NativeToken {
+        denom: hops[0].intermediate_token.clone(),
+    };
+    operations.push(SwapOperation::AstroSwap {
+        offer_asset_info: asset_info_to_astroport(first_offer),
+        ask_asset_info: asset_info_to_astroport(first_ask),
+    });
+
+    // Middle operations: hop[i] -> hop[i+1]
+    for i in 0..hops.len() - 1 {
+        let offer = AssetInfo::NativeToken {
+            denom: hops[i].intermediate_token.clone(),
+        };
+        let ask = AssetInfo::NativeToken {
+            denom: hops[i + 1].intermediate_token.clone(),
+        };
+        operations.push(SwapOperation::AstroSwap {
+            offer_asset_info: asset_info_to_astroport(offer),
+            ask_asset_info: asset_info_to_astroport(ask),
+        });
+    }
+
+    // Last operation: last hop -> token_out
+    let last_offer = AssetInfo::NativeToken {
+        denom: hops.last().unwrap().intermediate_token.clone(),
+    };
+    let last_ask = AssetInfo::NativeToken { denom: token_out };
+    operations.push(SwapOperation::AstroSwap {
+        offer_asset_info: asset_info_to_astroport(last_offer),
+        ask_asset_info: asset_info_to_astroport(last_ask),
+    });
+
+    Ok(operations)
+}
+
+/// Build ExecuteSwapOperations message for Astroport router
+pub fn build_astroport_multihop_msg(
+    router_addr: &Addr,
+    coin_in: &Coin,
+    operations: Vec<SwapOperation>,
+    min_receive: Uint128,
+    to: Addr,
+) -> Result<CosmosMsg<NeutronMsg>, TokenFactoryError> {
+    let router_msg = RouterExecuteMsg::ExecuteSwapOperations {
+        operations,
+        minimum_receive: Some(min_receive),
+        to: Some(to.to_string()),
+        max_spread: None, // Already encoded in minimum_receive
+    };
+
+    Ok(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: router_addr.to_string(),
+        msg: to_json_binary(&router_msg)?,
+        funds: vec![coin_in.clone()],
+    }))
+}
+
+/// Simulate router multi-hop swap
+pub fn simulate_astroport_multihop(
+    querier: &QuerierWrapper,
+    router_addr: &Addr,
+    amount_in: Uint128,
+    operations: Vec<SwapOperation>,
+) -> Result<Uint128, TokenFactoryError> {
+    let response: SimulateSwapOperationsResponse = querier.query_wasm_smart(
+        router_addr,
+        &RouterQueryMsg::SimulateSwapOperations {
+            offer_amount: amount_in,
+            operations,
+        },
+    )?;
+
+    Ok(response.amount)
 }
 

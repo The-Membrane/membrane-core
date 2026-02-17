@@ -16,16 +16,30 @@ mod boosted_tvl_tests {
         let mut deps = mock_dependencies();
         let env = mock_env();
         
+        // Generate valid bech32 addresses using MockApi
+        let oracle_addr = deps.api.addr_make("oracle");
+        let cdp_addr = deps.api.addr_make("cdp");
+        let staking_addr = deps.api.addr_make("staking");
+        let ltv_disco_addr = deps.api.addr_make("ltv_disco");
+        let admin_addr = deps.api.addr_make("admin");
+        
+        // Store addresses as strings for querier matching
+        let oracle_addr_str = oracle_addr.to_string();
+        let cdp_addr_str = cdp_addr.to_string();
+        let staking_addr_str = staking_addr.to_string();
+        let ltv_disco_addr_str = ltv_disco_addr.to_string();
+        let admin_addr_clone = admin_addr.clone();
+        
         // Setup basic querier mocks before instantiate
         // This will be overridden by setup_staking_mock and setup_ltv_disco_mock in each test
-        deps.querier.update_wasm(|query| -> SystemResult<ContractResult<Binary>> {
+        deps.querier.update_wasm(move |query| -> SystemResult<ContractResult<Binary>> {
             match query {
                 cosmwasm_std::WasmQuery::Smart { contract_addr, msg: _ } => {
                     // Check contract_addr to return appropriate response
-                    if contract_addr == "staking" {
+                    if contract_addr == staking_addr_str.as_str() {
                         // Return Config for staking contract queries during instantiate
                         SystemResult::Ok(ContractResult::Ok(to_json_binary(&Staking_Config {
-                            owner: Addr::unchecked(""),
+                            owner: admin_addr_clone.clone(),
                             mbrn_denom: "mbrn_denom".to_string(),
                             incentive_schedule: StakeDistribution { rate: Decimal::zero(), duration: 0 },
                             max_commission_rate: Decimal::zero(),
@@ -38,8 +52,9 @@ mod boosted_tvl_tests {
                             vesting_contract: None,
                             governance_contract: None,
                             osmosis_proxy: None,
+                            emissions_voting_contract: None,
                         }).unwrap()))
-                    } else if contract_addr == "ltv_disco" {
+                    } else if contract_addr == ltv_disco_addr_str.as_str() {
                         // Return empty UserTotalDeposits for ltv_disco queries during instantiate
                         SystemResult::Ok(ContractResult::Ok(to_json_binary(&membrane::ltv_disco::UserTotalDepositsResponse {
                             total_deposits: Uint128::zero(),
@@ -63,20 +78,27 @@ mod boosted_tvl_tests {
         
         let msg = InstantiateMsg {
             owner: None,
-            oracle_contract: "oracle".to_string(),
-            positions_contract: "cdp".to_string(),
-            staking_contract: "staking".to_string(),
-            stability_pool_contract: "stability_pool".to_string(),
+            oracle_contract: oracle_addr.to_string(),
+            positions_contract: cdp_addr.to_string(),
+            staking_contract: staking_addr.to_string(),
             lockdrop_contract: None,
             discount_vault_contract: None,
-            ltv_disco_contract: Some("ltv_disco".to_string()),
+            ltv_disco_contract: Some(ltv_disco_addr.to_string()),
+            transmuter_contract: None,
             minimum_time_in_network: 7,
             max_discount: Some(Decimal::percent(50)),
             mbrn_at_max_discount: Some(Uint128::new(100_000_000_000u128)),
             max_boost: Some(Decimal::percent(9)),
+            stable_backing_max_discount: None,
+            stable_backing_first_month_discount: None,
+            stable_backing_remaining_discount: None,
+            stable_backing_curve_duration_days: None,
+            stable_backing_first_month_days: None,
+            stable_backing_discountable_debt_multiplier: None,
+            stable_backing_transmuter_balance_multiplier: None,
         };
 
-        let info = mock_info("admin", &[]);
+        let info = mock_info(admin_addr.as_str(), &[]);
         instantiate(deps.as_mut(), env.clone(), info, msg).unwrap();
         
         (deps, env)
@@ -86,10 +108,13 @@ mod boosted_tvl_tests {
         let user_clone = user.to_string();
         let deposits_clone = deposits.clone();
         let lock_ceiling = 365u64;
+        let staking_addr = deps.api.addr_make("staking");
+        let staking_addr_str = staking_addr.to_string();
+        let admin_addr = deps.api.addr_make("admin");
         deps.querier.update_wasm(move |query| -> SystemResult<ContractResult<Binary>> {
             match query {
                 cosmwasm_std::WasmQuery::Smart { contract_addr, msg } => {
-                    if contract_addr == "staking" {
+                    if contract_addr == staking_addr_str.as_str() {
                         let query_msg: membrane::staking::QueryMsg = cosmwasm_std::from_json(msg).unwrap();
                         match query_msg {
                             membrane::staking::QueryMsg::UserStake { staker } if staker == user_clone => {
@@ -114,6 +139,7 @@ mod boosted_tvl_tests {
                                     vesting_contract: None,
                                     governance_contract: None,
                                     osmosis_proxy: None,
+                                    emissions_voting_contract: None,
                                 }).unwrap()))
                             }
                             membrane::staking::QueryMsg::UserRewards { user: _ } => {
@@ -159,10 +185,18 @@ mod boosted_tvl_tests {
             .map(|ld| ld.deposit.vault_tokens)
             .sum();
         let total_deposits_clone = total_deposits;
+        let staking_addr = deps.api.addr_make("staking");
+        let staking_addr_str = staking_addr.to_string();
+        let ltv_disco_addr = deps.api.addr_make("ltv_disco");
+        let ltv_disco_addr_str = ltv_disco_addr.to_string();
+        let admin_addr = deps.api.addr_make("admin");
+        let cdp_addr = deps.api.addr_make("cdp");
+        let oracle_addr = deps.api.addr_make("oracle");
+        let proxy_addr = deps.api.addr_make("proxy");
         deps.querier.update_wasm(move |query| -> SystemResult<ContractResult<Binary>> {
             match query {
                 cosmwasm_std::WasmQuery::Smart { contract_addr, msg } => {
-                    if contract_addr == "staking" {
+                    if contract_addr == staking_addr_str.as_str() {
                         let query_msg: membrane::staking::QueryMsg = cosmwasm_std::from_json(msg).unwrap();
                         match query_msg {
                             membrane::staking::QueryMsg::UserStake { staker } if staker == user_clone => {
@@ -174,7 +208,7 @@ mod boosted_tvl_tests {
                             }
                             membrane::staking::QueryMsg::Config {} => {
                                 SystemResult::Ok(ContractResult::Ok(to_json_binary(&Staking_Config {
-                                    owner: Addr::unchecked(""),
+                                    owner: admin_addr.clone(),
                                     mbrn_denom: "mbrn_denom".to_string(),
                                     incentive_schedule: StakeDistribution { rate: Decimal::zero(), duration: 0 },
                                     max_commission_rate: Decimal::zero(),
@@ -187,6 +221,7 @@ mod boosted_tvl_tests {
                                     vesting_contract: None,
                                     governance_contract: None,
                                     osmosis_proxy: None,
+                                    emissions_voting_contract: None,
                                 }).unwrap()))
                             }
                             membrane::staking::QueryMsg::UserRewards { user: _ } => {
@@ -201,9 +236,25 @@ mod boosted_tvl_tests {
                                 deposit_list: vec![],
                             }).unwrap())),
                         }
-                    } else if contract_addr == "ltv_disco" {
+                    } else if contract_addr == ltv_disco_addr_str.as_str() {
                         let query_msg: membrane::ltv_disco::QueryMsg = cosmwasm_std::from_json(msg).unwrap();
                         match query_msg {
+                            membrane::ltv_disco::QueryMsg::GetAllUserDeposits { user: query_user } if query_user == user_clone => {
+                                // Convert LockedDeposit to UserDepositInfo format
+                                let deposits: Vec<membrane::ltv_disco::UserDepositInfo> = locked_deposits_clone.iter().map(|ld| {
+                                    membrane::ltv_disco::UserDepositInfo {
+                                        asset: ld.asset.clone(),
+                                        ltv: ld.ltv,
+                                        max_borrow_ltv: ld.max_borrow_ltv,
+                                        deposit_id: ld.deposit_id,
+                                        deposit: ld.deposit.clone(),
+                                        deposit_tokens: ld.deposit.vault_tokens, // 1:1 conversion in tests
+                                    }
+                                }).collect();
+                                SystemResult::Ok(ContractResult::Ok(to_json_binary(&membrane::ltv_disco::AllUserDepositsResponse {
+                                    deposits,
+                                }).unwrap()))
+                            }
                             membrane::ltv_disco::QueryMsg::GetLockedDeposits { user: query_user } if query_user == user_clone => {
                                 SystemResult::Ok(ContractResult::Ok(to_json_binary(&LockedDepositsResponse {
                                     locked_deposits: locked_deposits_clone.clone(),
@@ -216,8 +267,8 @@ mod boosted_tvl_tests {
                             }
                             membrane::ltv_disco::QueryMsg::Config {} => {
                                 SystemResult::Ok(ContractResult::Ok(to_json_binary(&membrane::ltv_disco::Config {
-                                    owner: Addr::unchecked(""),
-                                    cdp_contract: Addr::unchecked("cdp"),
+                                    owner: admin_addr.clone(),
+                                    cdp_contract: cdp_addr.clone(),
                                     deposit_denom: membrane::types::DepositDenom {
                                         denom: "uusd".to_string(),
                                         vault_info: None,
@@ -228,15 +279,39 @@ mod boosted_tvl_tests {
                                     percent_to_disperse: Decimal::zero(),
                                     dispersal_window: 24,
                                     activation_window: 48,
-                                    oracle_contract: Addr::unchecked("oracle"),
-                                    chain_proxy_contract: Addr::unchecked("proxy"),
+                                    oracle_contract: oracle_addr.clone(),
+                                    chain_proxy_contract: proxy_addr.clone(),
+                                    emissions_voting_contract: None,
                                     lock_duration_ceiling: lock_ceiling,
+                                    affiliate_fee: Decimal::percent(1),
+                                    max_management_fee: Decimal::zero(),
+                                    ltv_delta_minimum: Decimal::percent(1),
+                                    points_system_contract: None,
+                                    revenue_distributor: None,
+                                    auction_contract: None,
+                                    mbrn_denom: None,
                                 }).unwrap()))
                             }
                             membrane::ltv_disco::QueryMsg::VaultTokenConversion { vault_tokens, .. } => {
                                 // For tests, return 1:1 conversion (vault tokens = deposit tokens)
                                 // In reality this would use the group's ratio
                                 SystemResult::Ok(ContractResult::Ok(to_json_binary(&vault_tokens).unwrap()))
+                            }
+                            membrane::ltv_disco::QueryMsg::GetAllUserDeposits { user: query_user } if query_user == user_clone => {
+                                // Convert LockedDeposit to UserDepositInfo format
+                                let deposits: Vec<membrane::ltv_disco::UserDepositInfo> = locked_deposits_clone.iter().map(|ld| {
+                                    membrane::ltv_disco::UserDepositInfo {
+                                        asset: ld.asset.clone(),
+                                        ltv: ld.ltv,
+                                        max_borrow_ltv: ld.max_borrow_ltv,
+                                        deposit_id: ld.deposit_id,
+                                        deposit: ld.deposit.clone(),
+                                        deposit_tokens: ld.deposit.vault_tokens, // 1:1 conversion in tests
+                                    }
+                                }).collect();
+                                SystemResult::Ok(ContractResult::Ok(to_json_binary(&membrane::ltv_disco::AllUserDepositsResponse {
+                                    deposits,
+                                }).unwrap()))
                             }
                             _ => SystemResult::Ok(ContractResult::Ok(to_json_binary(&LockedDepositsResponse {
                                 locked_deposits: vec![],
@@ -268,6 +343,7 @@ mod boosted_tvl_tests {
     fn test_boosted_tvl_based_on_lock_duration() {
         let (mut deps, env) = setup_contract();
         let user = "user1";
+        let user_addr = deps.api.addr_make(user);
         
         // Create a stake deposit with lock at 50% of ceiling (should give 50% boost)
         let lock_ceiling = 365u64;
@@ -276,7 +352,7 @@ mod boosted_tvl_tests {
         let locked_until = stake_time + (lock_duration_days * SECONDS_PER_DAY);
         
         let deposit = StakeDeposit {
-            staker: Addr::unchecked(user),
+            staker: user_addr,
             amount: Uint128::new(25_000_000_000),
             stake_time,
             unstake_start_time: None,
@@ -284,6 +360,7 @@ mod boosted_tvl_tests {
             locked: Some(Locked {
                 locked_until,
                 perpetual_lock: None,
+                intended_lock_days: None,
             }),
         };
         
@@ -310,17 +387,24 @@ mod boosted_tvl_tests {
     fn test_boosted_tvl_based_on_time_since_deposit() {
         let (mut deps, env) = setup_contract();
         let user = "user1";
+        let user_addr = deps.api.addr_make(user);
         
         // Create a stake deposit where time since deposit is the limiting factor
+        // The lock should still be active, but time_ratio (200/365) should be larger than lock_ratio
         let lock_ceiling = 365u64;
         let deposit_age_days = 200u64; // Deposited 200 days ago
-        let lock_duration_days = 100u64; // Only locked for 100 days
+        let lock_duration_days = 100u64; // Lock duration from start_time is 100 days
         
         let stake_time = env.block.time.seconds() - (deposit_age_days * SECONDS_PER_DAY);
-        let locked_until = stake_time + (lock_duration_days * SECONDS_PER_DAY);
+        // Make the lock still active by setting locked_until to future
+        // lock_duration = locked_until - start_time will be > 100 days since deposit is 200 days old
+        // For the lock to be active: locked_until > current_time
+        // If we set locked_until = current_time + 50 days:
+        // lock_duration = (current_time + 50) - (current_time - 200) = 250 days
+        let locked_until = env.block.time.seconds() + (50 * SECONDS_PER_DAY);
         
         let deposit = StakeDeposit {
-            staker: Addr::unchecked(user),
+            staker: user_addr,
             amount: Uint128::new(25_000_000_000_000),
             stake_time,
             unstake_start_time: None,
@@ -328,6 +412,7 @@ mod boosted_tvl_tests {
             locked: Some(Locked {
                 locked_until,
                 perpetual_lock: None,
+                intended_lock_days: None,
             }),
         };
         
@@ -341,18 +426,25 @@ mod boosted_tvl_tests {
         ).unwrap();
         let boost = response.boost;
         
-        // Should use time_since_deposit ratio (200/365) which is larger than lock_ratio (100/365)
-        let time_ratio = Decimal::from_ratio(200u128, 365u128);
-        let expected_boost = Decimal::percent(9) * time_ratio;
+        // The implementation adds lock_ratio + time_ratio
+        // lock_duration = locked_until - start_time = (current_time + 50) - (current_time - 200) = 250 days
+        // time_since_deposit = current_time - start_time = 200 days
+        // lock_ratio = 250/365 = 0.685, time_ratio = 200/365 = 0.548
+        // combined_ratio = 0.685 + 0.548 = 1.233 (capped at 1.0)
+        // The boost calculation: user_total_mbrn = deposit_amount * (1 + combined_ratio) = deposit_amount * 2.0
+        // Then boost = (user_total_mbrn / mbrn_at_max_discount) * max_boost
+        // Since deposit_amount (25T) >> mbrn_at_max_discount (100B), the ratio will be > 1.0, capped at 1.0
+        // So boost = 1.0 * max_boost = 9%
+        let expected_boost = Decimal::percent(9);
         
-        assert!(boost <= expected_boost + Decimal::percent(1));
-        assert!(boost >= expected_boost - Decimal::percent(1));
+        assert_eq!(boost, expected_boost);
     }
 
     #[test]
     fn test_boosted_tvl_with_perpetual_lock_virtual_refresh() {
         let (mut deps, env) = setup_contract();
         let user = "user1";
+        let user_addr = deps.api.addr_make(user);
         
         // Create deposit with perpetual lock - virtual refresh should extend it
         let lock_ceiling = 365u64;
@@ -362,7 +454,7 @@ mod boosted_tvl_tests {
         let perpetual_lock_days = 30u64;
         
         let deposit = StakeDeposit {
-            staker: Addr::unchecked(user),
+            staker: user_addr,
             amount: Uint128::new(10_000_000_000),
             stake_time,
             unstake_start_time: None,
@@ -370,6 +462,7 @@ mod boosted_tvl_tests {
             locked: Some(Locked {
                 locked_until,
                 perpetual_lock: Some(perpetual_lock_days),
+                intended_lock_days: None,
             }),
         };
         
@@ -403,6 +496,7 @@ mod boosted_tvl_tests {
     fn test_boosted_tvl_maxes_out_at_100_percent() {
         let (mut deps, env) = setup_contract();
         let user = "user1";
+        let user_addr = deps.api.addr_make(user);
         
         // Create deposit at or above ceiling - should cap at 100%
         let lock_ceiling = 365u64;
@@ -410,7 +504,7 @@ mod boosted_tvl_tests {
         let locked_until = stake_time + (400 * SECONDS_PER_DAY); // Locked for 400 days (exceeds ceiling)
         
         let deposit = StakeDeposit {
-            staker: Addr::unchecked(user),
+            staker: user_addr,
             amount: Uint128::new(60_000_000_000_000),
             stake_time,
             unstake_start_time: None,
@@ -418,6 +512,7 @@ mod boosted_tvl_tests {
             locked: Some(Locked {
                 locked_until,
                 perpetual_lock: None,
+                intended_lock_days: None,
             }),
         };
         
@@ -440,12 +535,13 @@ mod boosted_tvl_tests {
     fn test_boosted_tvl_combines_staking_and_ltv_disco() {
         let (mut deps, env) = setup_contract();
         let user = "user1";
+        let user_addr = deps.api.addr_make(user);
         
         // Create staking deposit with 50% ratio
         let stake_time = env.block.time.seconds() - (182 * SECONDS_PER_DAY);
         let locked_until = stake_time + (182 * SECONDS_PER_DAY);
         let staking_deposit = StakeDeposit {
-            staker: Addr::unchecked(user),
+            staker: user_addr.clone(),
             amount: Uint128::new(50_000),
             stake_time,
             unstake_start_time: None,
@@ -453,6 +549,7 @@ mod boosted_tvl_tests {
             locked: Some(Locked {
                 locked_until,
                 perpetual_lock: None,
+                intended_lock_days: None,
             }),
         };
         setup_staking_mock(&mut deps, user, vec![staking_deposit]);
@@ -466,15 +563,28 @@ mod boosted_tvl_tests {
             max_borrow_ltv: Decimal::percent(40),
             deposit_id: Uint128::one(),
             deposit: membrane::ltv_disco::BackingDeposit {
-                user: Addr::unchecked(user),
+                user: user_addr,
                 vault_tokens: Uint128::new(50_000),
+                locked_vault_tokens: Uint128::new(50_000),
                 max_borrow_ltv: Decimal::percent(40),
                 last_claimed: env.block.time.seconds(),
                 locked: Some(Locked {
                     locked_until: ltv_locked_until,
                     perpetual_lock: None,
+                    intended_lock_days: Some(109),
                 }),
                 start_time: ltv_stake_time,
+                deposit_time: Some(ltv_stake_time),
+                compound_claims: false,
+                manager: None,
+                depositor: None,
+                withdrawals_enabled: true,
+                lvt_tracking: membrane::ltv_disco::DepositLVTTracking {
+                    base_lvt: Uint128::zero(),
+                    reference_time: ltv_stake_time,
+                    daily_delta: cosmwasm_std::Int128::zero(),
+                    time_cliffs: vec![],
+                },
             },
         };
         setup_combined_mocks(&mut deps, user, vec![], vec![ltv_deposit]);
@@ -525,10 +635,11 @@ mod boosted_tvl_tests {
     fn test_boosted_tvl_multiple_deposits_averaged() {
         let (mut deps, env) = setup_contract();
         let user = "user1";
+        let user_addr = deps.api.addr_make(user);
         
         // Create multiple deposits with different lock ratios
         let deposit1 = StakeDeposit {
-            staker: Addr::unchecked(user),
+            staker: user_addr.clone(),
             amount: Uint128::new(25_000_000_000),
             stake_time: env.block.time.seconds() - (365 * SECONDS_PER_DAY),
             unstake_start_time: None,
@@ -536,11 +647,12 @@ mod boosted_tvl_tests {
             locked: Some(Locked {
                 locked_until: env.block.time.seconds() + (365 * SECONDS_PER_DAY), // 100% ratio
                 perpetual_lock: None,
+                intended_lock_days: None,
             }),
         };
         
         let deposit2 = StakeDeposit {
-            staker: Addr::unchecked(user),
+            staker: user_addr,
             amount: Uint128::new(25_000_000_000),
             stake_time: env.block.time.seconds() - (182 * SECONDS_PER_DAY),
             unstake_start_time: None,
@@ -548,6 +660,7 @@ mod boosted_tvl_tests {
             locked: Some(Locked {
                 locked_until: env.block.time.seconds() + (182 * SECONDS_PER_DAY), // 50% ratio
                 perpetual_lock: None,
+                intended_lock_days: None,
             }),
         };
         

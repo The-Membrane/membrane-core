@@ -20,9 +20,20 @@ pub mod tests {
         // The unit tests in circuit_breaker.rs comprehensively test the core logic
         let (mut app, cdp_contract, _lq_contract) = proper_instantiate(false, false, false, false);
         
+        // Use app.api().addr_make() for valid bech32 addresses (per debugging guide)
+        let user_addr = app.api().addr_make(USER);
+        
+        // Fund user from bigger_bank (per debugging guide)
+        app.send_tokens(
+            app.api().addr_make("bigger_bank"),
+            user_addr.clone(),
+            &[coin(100_000_000_000, "debit")],
+        )
+        .unwrap();
+        
         // Create a position
         let deposit_msg = ExecuteMsg::Deposit {
-            position_owner: Some(USER.to_string()),
+            position_owner: Some(user_addr.to_string()),
             position_id: None,
             affiliate_address: None,
         };
@@ -32,7 +43,7 @@ pub mod tests {
                 vec![coin(100_000_000_000u128, "debit")],
             )
             .unwrap();
-        app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+        app.execute(user_addr.clone(), cosmos_msg).unwrap();
 
         // Withdraw should work normally when prices are stable
         // (Circuit breaker logic is tested in unit tests)
@@ -48,7 +59,7 @@ pub mod tests {
         };
         let cosmos_msg = cdp_contract.call(withdraw_msg, vec![]).unwrap();
         // Should succeed when prices are normal
-        app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+        app.execute(user_addr.clone(), cosmos_msg).unwrap();
     }
 
     #[test]

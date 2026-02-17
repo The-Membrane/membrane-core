@@ -127,6 +127,12 @@ pub fn execute(
         ExecuteMsg::GivePointsForManagerFee { manager, fee_amount } => {
             give_points_for_manager_fee(deps, env, info, manager, fee_amount)
         }
+        ExecuteMsg::CDPGivesUserManagementPoints { user } => {
+            cdp_gives_user_management_points(deps, info, user)
+        }
+        ExecuteMsg::CheckManagementPoints { user, position_id } => {
+            check_management_points(deps, env, info, user, position_id)
+        }
     }
 }
 
@@ -1164,6 +1170,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         CDP_REPAY_REPLY_ID => handle_cdp_repay_reply(deps, env, msg),
         DISCO_CLAIM_REPLY_ID => handle_disco_claim_reply(deps, env, msg),
         TRANSMUTER_TRANSMUTE_REPLY_ID => handle_transmuter_transmute_reply(deps, env, msg),
+        CHECK_MANAGEMENT_POINTS_REPLY_ID => handle_check_management_points_reply(deps, msg),
         id => Err(StdError::generic_err(format!("invalid reply id: {}", id))),
     }
 }
@@ -1509,6 +1516,54 @@ fn handle_transmuter_transmute_reply(
     }
 }
 
+/// Reply handler for CheckManagementPoints.
+/// Checks the qualifies_for_points attribute from CDP response and awards points if true.
+fn handle_check_management_points_reply(
+    deps: DepsMut,
+    msg: Reply,
+) -> StdResult<Response> {
+    match msg.result.into_result() {
+        Ok(result) => {
+            // Parse qualifies_for_points attribute from CDP response
+            let qualifies = parse_string_attribute(&result, "qualifies_for_points")
+                .map(|s| s == "true")
+                .unwrap_or(false);
+
+            let user = PENDING_USER.load(deps.storage)?;
+            PENDING_USER.remove(deps.storage);
+
+            if qualifies {
+                // Award 5 points (with 6 decimals)
+                let points = Decimal::from_ratio(MANAGEMENT_POINTS_REWARD, 1_000_000u128);
+
+                let mut user_stats = USER_STATS.may_load(deps.storage, user.clone())?
+                    .unwrap_or(UserStats {
+                        total_points: Decimal::zero(),
+                        claimable_points: Decimal::zero(),
+                    });
+
+                user_stats.total_points += points;
+                user_stats.claimable_points += points;
+                USER_STATS.save(deps.storage, user.clone(), &user_stats)?;
+
+                Ok(Response::new()
+                    .add_attribute("method", "check_management_points_reply")
+                    .add_attribute("user", user.to_string())
+                    .add_attribute("points_awarded", "5"))
+            } else {
+                Ok(Response::new()
+                    .add_attribute("method", "check_management_points_reply")
+                    .add_attribute("user", user.to_string())
+                    .add_attribute("points_awarded", "0")
+                    .add_attribute("reason", "positive_or_no_delta"))
+            }
+        }
+        Err(err) => {
+            PENDING_USER.remove(deps.storage);
+            Err(StdError::generic_err(format!("Check debt delta failed: {}", err)))
+        }
+    }
+}
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
@@ -1831,6 +1886,123 @@ fn give_points_for_manager_fee(
         .add_attribute("manager", manager)
         .add_attribute("fee_amount", fee_amount.to_string())
         .add_attribute("points", points.to_string()))
+}
+
+/// Static points award for management through volatile window
+const MANAGEMENT_POINTS_REWARD: u128 = 5_000_000; // 5 points with 6 decimals
+
+/// Called by CDP when user exits volatile window with negative debt delta (repaid during volatility).
+/// Awards 5 management points to the user.
+fn cdp_gives_user_management_points(
+    deps: DepsMut,
+    info: MessageInfo,
+    user: String,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // Only CDP contract can call this
+    if info.sender != config.positions_contract {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let user_addr = deps.api.addr_validate(&user)?;
+
+    // Award 5 points (with 6 decimals)
+    let points = Decimal::from_ratio(MANAGEMENT_POINTS_REWARD, 1_000_000u128);
+
+    let mut user_stats = USER_STATS.may_load(deps.storage, user_addr.clone())?
+        .unwrap_or(UserStats {
+            total_points: Decimal::zero(),
+            claimable_points: Decimal::zero(),
+        });
+
+    user_stats.total_points += points;
+    user_stats.claimable_points += points;
+    USER_STATS.save(deps.storage, user_addr, &user_stats)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "cdp_gives_user_management_points")
+        .add_attribute("user", user)
+        .add_attribute("points_awarded", "5"))
+}
+
+/// Reply ID for check management points
+const CHECK_MANAGEMENT_POINTS_REPLY_ID: u64 = 6u64;
+
+/// Permissionless call to check and award management points.
+/// Queries CDP for volatility window status and triggers debt delta check.
+fn check_management_points(
+    deps: DepsMut,
+    _env: Env,
+    _info: MessageInfo,
+    user: String,
+    position_id: Uint128,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let user_addr = deps.api.addr_validate(&user)?;
+
+    // Query user's position to get collateral assets
+    let positions: Vec<membrane::cdp::BasketPositionsResponse> = deps.querier.query(&QueryRequest::Wasm(
+        WasmQuery::Smart {
+            contract_addr: config.positions_contract.to_string(),
+            msg: to_json_binary(&CDP_QueryMsg::GetBasketPositions {
+                start_after: None,
+                limit: None,
+                user_info: Some(UserInfo {
+                    position_owner: user.clone(),
+                    position_id,
+                }),
+                user: None,
+            })?,
+        }
+    ))?;
+
+    if positions.is_empty() || positions[0].positions.is_empty() {
+        return Err(ContractError::Std(StdError::generic_err("Position not found")));
+    }
+
+    // Get asset denoms from position
+    let assets: Vec<String> = positions[0].positions[0].collateral_assets
+        .iter()
+        .map(|a| a.asset.info.to_string())
+        .collect();
+
+    // Query CDP for volatility windows
+    let volatility: membrane::cdp::VolatilityWindowResponse = deps.querier.query(&QueryRequest::Wasm(
+        WasmQuery::Smart {
+            contract_addr: config.positions_contract.to_string(),
+            msg: to_json_binary(&CDP_QueryMsg::CheckVolatilityWindow { assets })?,
+        }
+    ))?;
+
+    // If ANY asset is in volatile window, cannot claim
+    if volatility.in_volatile_window.iter().any(|&v| v) {
+        return Err(ContractError::Std(StdError::generic_err(
+            "Position is still in volatile window"
+        )));
+    }
+
+    // Call CDP to check and clear debt delta
+    let check_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: config.positions_contract.to_string(),
+        msg: to_json_binary(&CDP_ExecuteMsg::CheckAndClearDebtDelta {
+            position_owner: user.clone(),
+            position_id,
+        })?,
+        funds: vec![],
+    });
+
+    // Use submessage to check result and award points based on response
+    let submsg = SubMsg::reply_on_success(check_msg, CHECK_MANAGEMENT_POINTS_REPLY_ID);
+
+    // Save user for reply handler
+    PENDING_USER.save(deps.storage, &user_addr)?;
+
+    Ok(Response::new()
+        .add_submessage(submsg)
+        .add_attribute("action", "check_management_points")
+        .add_attribute("user", user)
+        .add_attribute("position_id", position_id.to_string()))
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]

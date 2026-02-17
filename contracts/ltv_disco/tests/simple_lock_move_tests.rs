@@ -82,9 +82,9 @@ fn test_simple_lock_increases_total_locked() {
 
     // Get deposit_id
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
 
     // Get initial total_locked_vault_tokens from storage
     let initial_locked = get_total_locked_from_storage(&deps, "uusd", Decimal::percent(60), Decimal::percent(40));
@@ -146,9 +146,9 @@ fn test_simple_lock_increases_effective_total() {
 
     // Get deposit_id
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
 
     // Get initial effective total from storage
     let initial_effective = get_effective_total_from_storage(&deps, "uusd", Decimal::percent(60), Decimal::percent(40));
@@ -215,9 +215,9 @@ fn test_simple_move_updates_both_groups() {
 
     // Get deposit_id
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
 
     // Get initial effective total for source group
     let initial_source_effective = get_effective_total_from_storage(&deps, "uusd", Decimal::percent(60), Decimal::percent(40));

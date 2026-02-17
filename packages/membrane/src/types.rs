@@ -8,6 +8,11 @@ use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Decimal, Uint128, StdError, Timestamp};
 use cw_coins::Coins;
 
+/// Serde default helper returning Decimal::one() for peg_rate_index migration
+fn default_decimal_one() -> Decimal {
+    Decimal::one()
+}
+
 use osmosis_std::types::osmosis::poolmanager::v1beta1::SwapAmountInRoute;
 use osmosis_std::types::cosmos::base::v1beta1::Coin;
 
@@ -422,15 +427,6 @@ pub struct PriceInfo {
     pub price: Decimal,
 }
 
-/// Individual cost tracking for an asset
-#[cw_serde]
-pub struct IndividualCost {
-    /// The cost rate for this asset
-    pub rate: Decimal,
-    /// Address authorized to update this asset's cost
-    pub updater_address: Option<Addr>,
-}
-
 /// CDP
 #[cw_serde]
 pub struct cAsset {
@@ -442,11 +438,16 @@ pub struct cAsset {
     /// Liquidation LTV
     pub max_LTV: Decimal,
     /// Rate index to smooth rate accrual
-    pub rate_index: Decimal, 
+    pub rate_index: Decimal,
+    /// Peg debt rate index (mirrors rate_index - same rates as regular debt)
+    /// NOTE: We don't use rates to give our transmuter 'lenders' liquidity,
+    /// we will enact new acquisition lockdrops instead.
+    #[serde(default = "default_decimal_one")]
+    pub peg_rate_index: Decimal,
     /// Pool Info for Osmosis LP
     pub pool_info: Option<PoolInfo>,
-    /// Individual cost tracking for this asset
-    pub individual_cost: Option<IndividualCost>,
+    /// Force redemptions for positions using this asset
+    pub force_redemptions: Option<bool>,
 }
 
 //intent state
@@ -528,14 +529,154 @@ pub struct DeploymentVenue {
     pub failed_liquidation: bool, 
 }
 
+/// Represents a debt segment with its rate
+#[cw_serde]
+pub struct RateSegment {
+    pub amount: Uint128,
+    pub fixed_rate: Option<FixedRate>, // None for variable rate
+}
+
+/// Fixed interest rate information
+#[cw_serde]
+pub struct FixedRate {
+    pub rate: Decimal,      // Fixed interest rate
+    pub end: FixedRateEnd,  // End time and rollover behavior
+}
+
+/// Fixed rate expiration and rollover configuration
+#[cw_serde]
+pub struct FixedRateEnd {
+    pub end_time: u64,      // Block time in seconds when fixed rate ends
+    pub rollover: bool,     // If true, recalculate fixed rate on expiration; if false, convert to variable
+    pub duration_months: u8, // Duration in months (1, 3, or 6) - needed for rollover recalculation
+}
+
+/// Cap configuration for a fixed rate duration
+#[cw_serde]
+pub struct FixedRateCap {
+    pub cap: Decimal,           // Percent cap of total debt (0 to disable)
+    pub amount: Uint128,       // Current amount in this rate segment
+    pub multiplier: Decimal,   // Multiplier of base rate to set fixed rate
+}
+
+/// Container for all fixed rate caps
+#[cw_serde]
+pub struct FixedRateCaps {
+    pub one_month: FixedRateCap,
+    pub three_month: FixedRateCap,
+    pub six_month: FixedRateCap,
+}
+
+/// Interest Rate Model configuration parameters
+/// Controls how fast current_adaptive_rate converges toward destination rate
+#[cw_serde]
+pub struct IRMConfig {
+    /// Adjustment speed per year. Controls how fast current_adaptive_rate adapts. (default: 50)
+    pub adjustment_speed: Decimal,
+    /// Minimum current_adaptive_rate floor (e.g. 0.001 = 0.1%)
+    pub min_adaptive_rate: Decimal,
+    /// Maximum current_adaptive_rate ceiling (e.g. 2.0 = 200%)
+    pub max_adaptive_rate: Decimal,
+}
+
+/// Rates state: all rate-specific fields extracted from Basket
+///
+/// NOTE: Peg debt rates are identical to regular debt rates.
+/// We don't use rates to give our transmuter 'lenders' liquidity,
+/// we will enact new acquisition lockdrops instead.
+#[cw_serde]
+pub struct Rates {
+    /// Per-asset adaptive rate for regular debt (smoothed toward Disco destination)
+    pub current_adaptive_rate: Vec<Decimal>,
+    /// Per-asset adaptive rate for peg debt (mirrors current_adaptive_rate)
+    pub peg_current_adaptive_rate: Vec<Decimal>,
+    /// Latest collateral rates
+    pub lastest_collateral_rates: Vec<Rate>,
+    /// Base collateral interest rate. Enter as percent, 0.02 = 2%.
+    pub base_interest_rate: Decimal,
+    /// Fixed rate caps for 1, 3, and 6 month durations
+    pub fixed_rate_caps: FixedRateCaps,
+    /// Last time rate indices for collateral_types was updated, in seconds
+    pub rates_last_accrued: u64,
+    /// Last time credit price was updated, in seconds
+    pub credit_last_accrued: u64,
+    /// % difference btwn credit TWAP and redemption price before the controller is effected.
+    /// Set to 100 if you want to turn off the controller.
+    pub cpc_margin_of_error: Decimal,
+    /// Toggle to allow negative redemption rates
+    pub negative_rates: bool,
+}
+
+/// For splitting debt increases/repayments across rate segments
+#[cw_serde]
+pub struct DebtSplit {
+    pub variable: Option<Decimal>,    // Decimal fraction (0.0-1.0)
+    pub one_month: Option<Decimal>,
+    pub three_month: Option<Decimal>,
+    pub six_month: Option<Decimal>,
+    /// Peg pool fractions
+    #[serde(default)]
+    pub peg_variable: Option<Decimal>,
+    #[serde(default)]
+    pub peg_one_month: Option<Decimal>,
+    #[serde(default)]
+    pub peg_three_month: Option<Decimal>,
+    #[serde(default)]
+    pub peg_six_month: Option<Decimal>,
+    /// Rollover flags for fixed rate segments (None = use default false)
+    pub one_month_rollover: Option<bool>,
+    pub three_month_rollover: Option<bool>,
+    pub six_month_rollover: Option<bool>,
+    /// Rollover flags for peg fixed rate segments
+    #[serde(default)]
+    pub peg_one_month_rollover: Option<bool>,
+    #[serde(default)]
+    pub peg_three_month_rollover: Option<bool>,
+    #[serde(default)]
+    pub peg_six_month_rollover: Option<bool>,
+}
+
+/// Replacement for credit_asset.amount with breakdown by rate type
+#[cw_serde]
+pub struct CreditAssetBreakdown {
+    pub info: AssetInfo,
+    pub variable_amount: Uint128,
+    pub one_month_amount: Uint128,
+    pub three_month_amount: Uint128,
+    pub six_month_amount: Uint128,
+    #[serde(default)]
+    pub peg_variable_amount: Uint128,
+    #[serde(default)]
+    pub peg_one_month_amount: Uint128,
+    #[serde(default)]
+    pub peg_three_month_amount: Uint128,
+    #[serde(default)]
+    pub peg_six_month_amount: Uint128,
+}
+
+impl CreditAssetBreakdown {
+    /// Total regular debt across all segment types
+    pub fn total_regular_debt(&self) -> Uint128 {
+        self.variable_amount + self.one_month_amount + self.three_month_amount + self.six_month_amount
+    }
+    /// Total peg debt across all segment types
+    pub fn total_peg_debt(&self) -> Uint128 {
+        self.peg_variable_amount + self.peg_one_month_amount + self.peg_three_month_amount + self.peg_six_month_amount
+    }
+    /// Total debt across all pools
+    pub fn total_all_debt(&self) -> Uint128 {
+        self.total_regular_debt() + self.total_peg_debt()
+    }
+}
+
 #[cw_serde]
 pub struct Position {
     /// Position ID
     pub position_id: Uint128,
     /// Collateral assets
     pub collateral_assets: Vec<cAsset>,
-    /// Loan size
-    pub credit_amount: Uint128,
+    /// Rate segments (replaces credit_amount)
+    pub rate_segments: Vec<RateSegment>,
     /// Deployed to
     pub deployed_to: Vec<DeploymentVenue>,
     /// Interest waiting to be paid.
@@ -544,6 +685,14 @@ pub struct Position {
     /// Total interest paid.
     /// Helps track profits & losses when combined with the deploymeny vaults.
     pub total_interest_accrued: Uint128,
+    /// Peg debt rate segments (USDC debt via transmuter, separate from regular rate_segments)
+    #[serde(default)]
+    pub peg_rate_segments: Vec<RateSegment>,
+    /// Initial debt when entering a volatile window (for management points).
+    /// Stored when position enters volatility. On exit, if current_debt < initial_debt
+    /// (user repaid during volatility), they earn management points.
+    #[serde(default)]
+    pub vol_window_initial_debt: Option<Uint128>,
 }
 
 
@@ -605,38 +754,24 @@ pub struct Basket {
     /// Available collateral types
     pub collateral_types: Vec<cAsset>,
     /// Collateral supply caps
-    pub collateral_supply_caps: Vec<SupplyCap>, 
-    /// Lastest Collateral Rates
-    pub lastest_collateral_rates: Vec<Rate>,
+    pub collateral_supply_caps: Vec<SupplyCap>,
     /// Multi collateral supply caps
     pub multi_asset_supply_caps: Vec<MultiAssetSupplyCap>,
-    /// Credit asset object
-    pub credit_asset: Asset, 
+    /// Credit asset breakdown by rate type
+    pub credit_asset: CreditAssetBreakdown,
     /// Credit redemption price, not market price
     pub credit_price: PriceResponse,
-    /// Base collateral interest rate.
-    /// Enter as percent, 0.02 = 2%.
-    pub base_interest_rate: Decimal,
     /// Pending revenue available to mint
     pub pending_revenue: PendingRevenue,
     /// Pending bad debt
     pub pending_bad_debt: Uint128,
-    /// Last time credit price was updated, in seconds
-    pub credit_last_accrued: u64,
-    /// Last time rate indices for collateral_types was updated, in seconds
-    pub rates_last_accrued: u64,
     /// True if the credit oracle was set. Can't update redemption price without it.
-    pub oracle_set: bool, 
-    /// Toggle to allow negative redemption rates
-    pub negative_rates: bool, 
+    pub oracle_set: bool,
     /// Freeze withdrawals and debt increases to provide time to fix vulnerabilities
-    pub frozen: bool, 
+    pub frozen: bool,
     /// Toggle to allow revenue to be distributed to the revenue_destinations.
     /// If false, revenue is left in pending_revenue.
     pub distribute_revenue: bool,
-    /// % difference btwn credit TWAP and redemption price before the controller is effected.
-    /// Set to 100 if you want to turn off the controller.
-    pub cpc_margin_of_error: Decimal,
     /// Liquidation queue contract address
     pub liq_queue: Option<Addr>,
 }
@@ -1036,10 +1171,10 @@ impl TryFrom<osmosis_std::shim::Any> for Pool {
             return Ok(Pool::StableSwap(pool));
         }
         
-        Err(StdError::ParseErr {
-            target_type: "Pool".to_string(),
-            msg: "Unmatched pool: must be either `Balancer` or `StableSwap`.".to_string(),
-        })
+        Err(StdError::parse_err(
+            "Pool",
+            "Unmatched pool: must be either `Balancer` or `StableSwap`.",
+        ))
     }
 }
 

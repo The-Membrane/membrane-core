@@ -21,7 +21,6 @@ fn setup_mock_basket() -> Basket {
             max_borrow_LTV: Decimal::percent(30),
             rate_index: Decimal::zero(),
             pool_info: None,
-            individual_cost: None,
         }],
         collateral_supply_caps: vec![],
         lastest_collateral_rates: vec![],
@@ -167,7 +166,7 @@ fn query_group_effective_total(
     ltv: Decimal,
     max_borrow_ltv: Decimal,
 ) -> Uint128 {
-    let msg = QueryMsg::GetLTVQueue { asset: asset.to_string() };
+    let msg = QueryMsg::GetLTVQueue { assets: vec![asset.to_string() ], limit: None, start_after: None };
     let res = match query(deps.as_ref(), mock_env(), msg) {
         Ok(r) => r,
         Err(_) => return Uint128::zero(),
@@ -177,7 +176,7 @@ fn query_group_effective_total(
         Err(_) => return Uint128::zero(),
     };
 
-    for slot in queue.queue.slots {
+    for slot in &queue.queues[0].1.slots {
         if slot.ltv == ltv {
             for group in slot.deposit_groups {
                 if group.max_borrow_ltv == max_borrow_ltv {
@@ -195,7 +194,7 @@ fn query_group_effective_epoch_start(
     ltv: Decimal,
     max_borrow_ltv: Decimal,
 ) -> Option<u64> {
-    let msg = QueryMsg::GetLTVQueue { asset: asset.to_string() };
+    let msg = QueryMsg::GetLTVQueue { assets: vec![asset.to_string() ], limit: None, start_after: None };
     let res = match query(deps.as_ref(), mock_env(), msg) {
         Ok(r) => r,
         Err(_) => return None,
@@ -205,7 +204,7 @@ fn query_group_effective_epoch_start(
         Err(_) => return None,
     };
     
-    for slot in queue.queue.slots {
+    for slot in &queue.queues[0].1.slots {
         if slot.ltv == ltv {
             for group in slot.deposit_groups {
                 if group.max_borrow_ltv == max_borrow_ltv {
@@ -223,7 +222,7 @@ fn query_group_total_locked(
     ltv: Decimal,
     max_borrow_ltv: Decimal,
 ) -> Uint128 {
-    let msg = QueryMsg::GetLTVQueue { asset: asset.to_string() };
+    let msg = QueryMsg::GetLTVQueue { assets: vec![asset.to_string() ], limit: None, start_after: None };
     let res = match query(deps.as_ref(), mock_env(), msg) {
         Ok(r) => r,
         Err(_) => return Uint128::zero(),
@@ -233,7 +232,7 @@ fn query_group_total_locked(
         Err(_) => return Uint128::zero(),
     };
     
-    for slot in queue.queue.slots {
+    for slot in &queue.queues[0].1.slots {
         if slot.ltv == ltv {
             for group in slot.deposit_groups {
                 if group.max_borrow_ltv == max_borrow_ltv {
@@ -326,9 +325,9 @@ fn test_submit_deposit_updates_effective_total() {
     
     // Get actual vault_tokens from the deposit to calculate expected
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let deposit: BackingDepositResponse = from_json(
         query(deps.as_ref(), env.clone(), QueryMsg::GetBackingDeposit {
             user: "user1".to_string(),
@@ -391,9 +390,9 @@ fn test_submit_deposit_outside_epoch_no_effective_update() {
     
     // Get actual vault_tokens
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let actual_vault_tokens = get_deposit_vault_tokens(&deps, &env, "user1", "uusd", Decimal::percent(60), Decimal::percent(40), deposit_id).unwrap();
     
     // Deposit not in current epoch, so effective total should be zero
@@ -506,9 +505,9 @@ fn test_epoch_transition_new_deposit_only_in_effective() {
 
     // Get actual vault_tokens for deposit2
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit2_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit2_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let deposit2_vt = get_deposit_vault_tokens(&deps, &env, "user2", "uusd", Decimal::percent(60), Decimal::percent(40), deposit2_id).unwrap();
     let deposit2: BackingDepositResponse = from_json(
         query(deps.as_ref(), env.clone(), QueryMsg::GetBackingDeposit {
@@ -582,9 +581,9 @@ fn test_old_epoch_operations_no_effective_impact() {
     
     // Get actual deposit2 values
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit2_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit2_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let deposit1_id = deposit2_id - Uint128::one();
     let deposit2_vt = get_deposit_vault_tokens(&deps, &env, "user2", "uusd", Decimal::percent(60), Decimal::percent(40), deposit2_id).unwrap();
     let deposit2: BackingDepositResponse = from_json(
@@ -680,9 +679,9 @@ fn test_multiple_deposits_same_epoch_accumulate_effective() {
     
     // Get actual deposits to calculate expected
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit2_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit2_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let deposit1_id = deposit2_id - Uint128::one();
     
     let deposit1_vt = get_deposit_vault_tokens(&deps, &env, "user1", "uusd", Decimal::percent(60), Decimal::percent(40), deposit1_id).unwrap();
@@ -745,9 +744,9 @@ fn test_lock_deposit_updates_effective_total() {
     
     // Get deposit_id and actual values
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let deposit_vt = get_deposit_vault_tokens(&deps, &env, "user1", "uusd", Decimal::percent(60), Decimal::percent(40), deposit_id).unwrap();
     let deposit: BackingDepositResponse = from_json(
         query(deps.as_ref(), env.clone(), QueryMsg::GetBackingDeposit {
@@ -851,9 +850,9 @@ fn test_move_deposit_updates_both_groups_effective() {
     
     // Get deposit_id and actual values
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let deposit_vt = get_deposit_vault_tokens(&deps, &env, "user1", "uusd", Decimal::percent(60), Decimal::percent(40), deposit_id).unwrap();
     let deposit: BackingDepositResponse = from_json(
         query(deps.as_ref(), env.clone(), QueryMsg::GetBackingDeposit {
@@ -933,9 +932,9 @@ fn test_move_old_epoch_deposit_no_effective_change() {
     
     // Get deposit_id
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     
     // Move deposit to different group
     let info = mock_info("user1", &[]);
@@ -993,9 +992,9 @@ fn test_withdraw_deposit_updates_effective_total() {
     
     // Get deposit_id and actual values
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let deposit: BackingDepositResponse = from_json(
         query(deps.as_ref(), env.clone(), QueryMsg::GetBackingDeposit {
             user: "user1".to_string(),
@@ -1192,9 +1191,9 @@ fn test_condensing_old_epoch_no_effective_subtraction() {
     
     // Get actual vault_tokens for deposit3
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit3_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit3_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let deposit3_vt = get_deposit_vault_tokens(&deps, &env, "user1", "uusd", Decimal::percent(60), Decimal::percent(40), deposit3_id).unwrap();
 
     // Query effective total (should only include deposit3)
@@ -1274,9 +1273,9 @@ fn test_mixed_epoch_deposits_only_current_in_effective() {
     
     // Get actual vault_tokens for deposit2
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit2_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit2_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let deposit2_vt = get_deposit_vault_tokens(&deps, &env, "user2", "uusd", Decimal::percent(60), Decimal::percent(40), deposit2_id).unwrap();
 
     // Query group's effective total
@@ -1320,9 +1319,9 @@ fn test_complex_operations_across_epochs() {
     
     // Lock deposit1: 30 days
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit1_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit1_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     
     let info = mock_info("user1", &[]);
     let msg = ExecuteMsg::Lock {
@@ -1366,9 +1365,9 @@ fn test_complex_operations_across_epochs() {
 
     // Get actual vault_tokens for deposit2
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit2_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit2_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let deposit2_vt = get_deposit_vault_tokens(&deps, &env, "user2", "uusd", Decimal::percent(60), Decimal::percent(40), deposit2_id).unwrap();
 
     // Query effective total (should only include deposit2)
@@ -1497,9 +1496,9 @@ fn test_investigate_total_locked_discrepancy() {
     
     // Get deposit info
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let deposit: BackingDepositResponse = from_json(
         query(deps.as_ref(), env.clone(), QueryMsg::GetBackingDeposit {
             user: "user1".to_string(),
@@ -1571,9 +1570,9 @@ fn test_deposit_at_epoch_boundary() {
 
     // Get actual vault_tokens
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let actual_vault_tokens = get_deposit_vault_tokens(&deps, &env, "user1", "uusd", Decimal::percent(60), Decimal::percent(40), deposit_id).unwrap();
 
     // Query unused total (should be very large - almost all is lost due to late deposit)
@@ -1621,9 +1620,9 @@ fn test_deposit_at_epoch_start() {
     
     // Get actual vault_tokens
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     let actual_vault_tokens = get_deposit_vault_tokens(&deps, &env, "user1", "uusd", Decimal::percent(60), Decimal::percent(40), deposit_id).unwrap();
 
     // Query unused total (now tracking what's lost, not what's kept)
@@ -1668,9 +1667,9 @@ fn test_effective_total_never_negative() {
     
     // Get deposit_id
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
     
     // Withdraw full amount
     let info = mock_info("user1", &[]);

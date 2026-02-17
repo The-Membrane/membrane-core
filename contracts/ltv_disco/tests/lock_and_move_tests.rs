@@ -21,7 +21,6 @@ fn setup_mock_basket() -> Basket {
                 max_borrow_LTV: Decimal::percent(30),
                 rate_index: Decimal::zero(),
                 pool_info: None,
-                individual_cost: None,
             },
             cAsset {
                 asset: Asset {
@@ -32,7 +31,6 @@ fn setup_mock_basket() -> Basket {
                 max_borrow_LTV: Decimal::percent(30),
                 rate_index: Decimal::zero(),
                 pool_info: None,
-                individual_cost: None,
             }
         ],
         collateral_supply_caps: vec![],
@@ -138,9 +136,9 @@ fn create_queue_and_deposit(deps: &mut cosmwasm_std::OwnedDeps<cosmwasm_std::Mem
 
     // Get the deposit_id by querying the queue
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: asset.to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec![asset.to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    queue.queue.current_deposit_id - Uint128::one()
+    queue.queues[0].1.current_deposit_id - Uint128::one()
 }
 
 fn get_user_deposits(deps: &cosmwasm_std::OwnedDeps<cosmwasm_std::MemoryStorage, cosmwasm_std::testing::MockApi, cosmwasm_std::testing::MockQuerier>, user: &str, asset: &str) -> Vec<BackingDeposit> {
@@ -456,9 +454,9 @@ fn test_move_same_asset_preserves_lock() {
 
     // Get deposit_id
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
 
     // Verify deposit is locked
     let response: BackingDepositResponse = from_json(
@@ -538,9 +536,9 @@ fn test_move_cross_asset_preserves_lock() {
     execute(deps.as_mut(), env.clone(), info, msg).unwrap();
 
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
 
     let response: BackingDepositResponse = from_json(
         query(deps.as_ref(), env.clone(), QueryMsg::GetBackingDeposit {
@@ -827,10 +825,10 @@ fn test_move_cross_asset_state_integrity() {
 
     // Get initial queue states
     let uusd_queue_before: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
     let uatom_queue_before: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uatom".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uatom".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
 
     // Move from uusd to uatom
@@ -854,21 +852,21 @@ fn test_move_cross_asset_state_integrity() {
 
     // Verify queue states
     let uusd_queue_after: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
     let uatom_queue_after: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uatom".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uatom".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
 
     // Find source and dest groups
-    let source_slot = uusd_queue_before.queue.slots.iter()
+    let source_slot = uusd_queue_before.queues[0].1.slots.iter()
         .find(|s| s.ltv == Decimal::percent(60))
         .unwrap();
     let source_group = source_slot.deposit_groups.iter()
         .find(|g| g.max_borrow_ltv == Decimal::percent(40))
         .unwrap();
 
-    let dest_group_before = uatom_queue_before.queue.slots.iter()
+    let dest_group_before = uatom_queue_before.queues[0].1.slots.iter()
         .find(|s| s.ltv == Decimal::percent(60))
         .and_then(|s| s.deposit_groups.iter().find(|g| g.max_borrow_ltv == Decimal::percent(40)))
         .map(|g| g.total_deposit_tokens)
@@ -876,10 +874,10 @@ fn test_move_cross_asset_state_integrity() {
 
     // Verify base tokens moved correctly
     // Base tokens should decrease in source, increase in dest
-    let source_slot_after = uusd_queue_after.queue.slots.iter()
+    let source_slot_after = uusd_queue_after.queues[0].1.slots.iter()
         .find(|s| s.ltv == Decimal::percent(60))
         .unwrap();
-    let dest_group_after = uatom_queue_after.queue.slots.iter()
+    let dest_group_after = uatom_queue_after.queues[0].1.slots.iter()
         .find(|s| s.ltv == Decimal::percent(60))
         .unwrap()
         .deposit_groups.iter()
@@ -1079,9 +1077,9 @@ fn test_partial_lock_split_state_duplication_check() {
 
     // 8. Verify queue total_deposit_tokens didn't change (no actual tokens moved)
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let slot = queue.queue.slots.iter().find(|s| s.ltv == Decimal::percent(60)).unwrap();
+    let slot = queue.queues[0].1.slots.iter().find(|s| s.ltv == Decimal::percent(60)).unwrap();
     let group = slot.deposit_groups.iter().find(|g| g.max_borrow_ltv == Decimal::percent(40)).unwrap();
     
     // Total vault tokens in group should equal original
@@ -1227,9 +1225,9 @@ fn test_condensation_with_locks() {
     create_queue_and_deposit(&mut deps, &env, "uusd", "user1", 5000, Decimal::percent(60), Decimal::percent(40));
     
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id1 = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id1 = queue.queues[0].1.current_deposit_id - Uint128::one();
 
     // Lock first deposit
     let info = mock_info("user1", &[]);
@@ -1388,9 +1386,9 @@ fn test_locked_deposits_tracking_on_create_with_lock() {
 
     // Get deposit_id
     let queue: LTVQueueResponse = from_json(
-        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { asset: "uusd".to_string() }).unwrap()
+        query(deps.as_ref(), env.clone(), QueryMsg::GetLTVQueue { assets: vec!["uusd".to_string() ], limit: None, start_after: None }).unwrap()
     ).unwrap();
-    let deposit_id = queue.queue.current_deposit_id - Uint128::one();
+    let deposit_id = queue.queues[0].1.current_deposit_id - Uint128::one();
 
     // Query locked deposits
     let response: LockedDepositsResponse = from_json(

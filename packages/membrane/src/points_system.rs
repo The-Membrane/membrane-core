@@ -106,6 +106,20 @@ pub enum ExecuteMsg {
         /// Fee amount in CDT
         fee_amount: Uint128,
     },
+    /// Called by CDP when user exits volatile window with negative debt delta (repaid during volatility).
+    /// Awards 5 management points to the user.
+    CDPGivesUserManagementPoints {
+        /// User address to receive points
+        user: String,
+    },
+    /// Permissionless call to check and award management points.
+    /// Queries CDP for volatility window status and triggers debt delta check.
+    CheckManagementPoints {
+        /// User address to check
+        user: String,
+        /// Position ID to check
+        position_id: Uint128,
+    },
 }
 //Position Repayments can be done on the the base Positions contract
 

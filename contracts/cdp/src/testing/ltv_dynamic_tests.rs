@@ -5,7 +5,7 @@ mod tests {
         Addr, Decimal, Env,
     };
     use membrane::cdp::Config;
-    use membrane::types::{cAsset, Asset, AssetInfo};
+    use membrane::types::{cAsset, IRMConfig, Asset, AssetInfo};
 
     use crate::state::{LTVUpdateTracker, LTV_UPDATE_TRACKERS, CONFIG, BASKET};
     use crate::ltv_updater::{calculate_upward_accrual, apply_capped_downward_shift, SECONDS_PER_DAY};
@@ -36,6 +36,13 @@ mod tests {
             ltv_upward_kp: Decimal::percent(5), // 5% per day
             ltv_downward_period: 604800, // 1 week
             ltv_max_downward_shift: Decimal::percent(5), // 5% max shift
+            transmuter_addr: None,
+            irm_config: IRMConfig {
+                adjustment_speed: Decimal::from_atomics(50u128, 0).unwrap(),
+                min_adaptive_rate: Decimal::permille(1),
+                max_adaptive_rate: Decimal::from_atomics(1u128, 0).unwrap(),
+            },
+            points_contract: None,
         }
     }
 

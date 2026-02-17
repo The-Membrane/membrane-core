@@ -6,7 +6,7 @@ use membrane::math::{Decimal256, Uint256};
 use membrane::types::{AssetInfo, BidInput};
 use membrane::oracle::PriceResponse;
 
-use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
+use cosmwasm_std::testing::{mock_dependencies, mock_env, message_info};
 use cosmwasm_std::{attr, from_binary, Coin, Decimal, StdError, Uint128};
 
 #[test]
@@ -15,14 +15,14 @@ fn one_bidder_distribution() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -43,8 +43,8 @@ fn one_bidder_distribution() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1_000_000u128),
@@ -70,7 +70,7 @@ fn one_bidder_distribution() {
             denom: "gamm/pool/5".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
 
     let msg = ExecuteMsg::ClaimLiquidations {
@@ -79,7 +79,7 @@ fn one_bidder_distribution() {
         },
         bid_ids: None,
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -116,14 +116,14 @@ fn two_bidder_distribution() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 1u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -145,8 +145,8 @@ fn two_bidder_distribution() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(100u128),
@@ -172,7 +172,7 @@ fn two_bidder_distribution() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
 
     ///Submit 2nd bid
@@ -185,8 +185,8 @@ fn two_bidder_distribution() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "user0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("user"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(60u128),
@@ -211,7 +211,7 @@ fn two_bidder_distribution() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -223,7 +223,7 @@ fn two_bidder_distribution() {
         },
         bid_ids: None,
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -243,11 +243,14 @@ fn two_bidder_distribution() {
         amount: None,
     };
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(
-        err,
-        ContractError::Std(StdError::GenericErr {
-            msg: "Bid not found".to_string()
-        })
+    assert!(
+        matches!(err, ContractError::Std(_)),
+        "Expected StdError"
+    );
+    assert!(
+        err.to_string().contains("Bid not found"),
+        "Error message mismatch: {}",
+        err
     );
 
     //2nd bidder participated in 1 liquidations
@@ -257,7 +260,7 @@ fn two_bidder_distribution() {
         },
         bid_ids: None,
     };
-    let info = mock_info("user0000", &[]);
+    let info = message_info(&deps.api.addr_make("user"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -277,11 +280,14 @@ fn two_bidder_distribution() {
         amount: None,
     };
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(
-        err,
-        ContractError::Std(StdError::GenericErr {
-            msg: "Bid not found".to_string()
-        })
+    assert!(
+        matches!(err, ContractError::Std(_)),
+        "Expected StdError"
+    );
+    assert!(
+        err.to_string().contains("Bid not found"),
+        "Error message mismatch: {}",
+        err
     );
 }
 
@@ -291,14 +297,14 @@ fn two_bidder_distribution_big_number() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -320,8 +326,8 @@ fn two_bidder_distribution_big_number() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(10_000_000_000_u128),
@@ -347,7 +353,7 @@ fn two_bidder_distribution_big_number() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
 
     ///Submit 2nd bid for 6000
@@ -360,8 +366,8 @@ fn two_bidder_distribution_big_number() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "user0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("user"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(6_000_000_000_u128),
@@ -386,7 +392,7 @@ fn two_bidder_distribution_big_number() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -398,7 +404,7 @@ fn two_bidder_distribution_big_number() {
         },
         bid_ids: None,
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -418,11 +424,14 @@ fn two_bidder_distribution_big_number() {
         amount: None,
     };
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(
-        err,
-        ContractError::Std(StdError::GenericErr {
-            msg: "Bid not found".to_string()
-        })
+    assert!(
+        matches!(err, ContractError::Std(_)),
+        "Expected StdError"
+    );
+    assert!(
+        err.to_string().contains("Bid not found"),
+        "Error message mismatch: {}",
+        err
     );
 
     //2nd bidder participated in 1 liquidations
@@ -432,7 +441,7 @@ fn two_bidder_distribution_big_number() {
         },
         bid_ids: None,
     };
-    let info = mock_info("user0000", &[]);
+    let info = message_info(&deps.api.addr_make("user"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -452,11 +461,14 @@ fn two_bidder_distribution_big_number() {
         amount: None,
     };
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(
-        err,
-        ContractError::Std(StdError::GenericErr {
-            msg: "Bid not found".to_string()
-        })
+    assert!(
+        matches!(err, ContractError::Std(_)),
+        "Expected StdError"
+    );
+    assert!(
+        err.to_string().contains("Bid not found"),
+        "Error message mismatch: {}",
+        err
     );
 }
 
@@ -466,14 +478,14 @@ fn one_user_two_slots() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -495,8 +507,8 @@ fn one_user_two_slots() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(100_000_000u128),
@@ -534,7 +546,7 @@ fn one_user_two_slots() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
     execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
@@ -546,7 +558,7 @@ fn one_user_two_slots() {
         },
         bid_ids: None,
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -574,7 +586,7 @@ fn one_user_two_slots() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -586,7 +598,7 @@ fn one_user_two_slots() {
         },
         bid_ids: None,
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -606,11 +618,14 @@ fn one_user_two_slots() {
         amount: None,
     };
     let err = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap_err();
-    assert_eq!(
-        err,
-        ContractError::Std(StdError::GenericErr {
-            msg: "Bid not found".to_string()
-        })
+    assert!(
+        matches!(err, ContractError::Std(_)),
+        "Expected StdError"
+    );
+    assert!(
+        err.to_string().contains("Bid not found"),
+        "Error message mismatch: {}",
+        err
     );
 
     // Can only withdraw the leftover from the 10% bid
@@ -639,14 +654,14 @@ fn completely_empty_pool() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 10u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -668,8 +683,8 @@ fn completely_empty_pool() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1_000_000_000_u128),
@@ -695,7 +710,7 @@ fn completely_empty_pool() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     execute(deps.as_mut(), env.clone(), info, liq_msg).unwrap();
 
     ///Submit 2nd bid for 2000
@@ -708,8 +723,8 @@ fn completely_empty_pool() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "user0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("user"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(2_000_000_000_u128),
@@ -763,7 +778,7 @@ fn completely_empty_pool() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     //Increment time to unlock the second bid
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
 
@@ -774,7 +789,7 @@ fn completely_empty_pool() {
         },
         bid_ids: None,
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -794,11 +809,14 @@ fn completely_empty_pool() {
         amount: None,
     };
     let err = execute(deps.as_mut(), mock_env(), info, msg).unwrap_err();
-    assert_eq!(
-        err,
-        ContractError::Std(StdError::GenericErr {
-            msg: "Bid not found".to_string()
-        })
+    assert!(
+        matches!(err, ContractError::Std(_)),
+        "Expected StdError"
+    );
+    assert!(
+        err.to_string().contains("Bid not found"),
+        "Error message mismatch: {}",
+        err
     );
 
     //2nd bidder participated in 1 liquidation as well
@@ -808,7 +826,7 @@ fn completely_empty_pool() {
         },
         bid_ids: None,
     };
-    let info = mock_info("user0000", &[]);
+    let info = message_info(&deps.api.addr_make("user"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -826,14 +844,14 @@ fn product_truncated_to_zero() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 2u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -856,8 +874,8 @@ fn product_truncated_to_zero() {
             },
             bid_owner: None,
         };
-        let submit_info = mock_info(
-            "owner0000",
+        let submit_info = message_info(
+            &deps.api.addr_make("owner"),
             &[Coin {
                 denom: "cdt".to_string(),
                 amount: Uint128::from(1_000_000_000_u128),
@@ -883,7 +901,7 @@ fn product_truncated_to_zero() {
                 denom: "gamm/pool/5".to_string(),
             },
         };
-        let info = mock_info("positions_contract", &[]);
+        let info = message_info(&deps.api.addr_make("positions"), &[]);
         execute(deps.as_mut(), env.clone(), info.clone(), liq_msg).unwrap();
     }
 
@@ -893,7 +911,7 @@ fn product_truncated_to_zero() {
         },
         bid_ids: None,
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -946,14 +964,14 @@ fn two_bidder_distribution_multiple_common_slots() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 1u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -977,8 +995,8 @@ fn two_bidder_distribution_multiple_common_slots() {
         bid_owner: None,
     };
 
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(100_000_000u128),
@@ -997,8 +1015,8 @@ fn two_bidder_distribution_multiple_common_slots() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "user0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("user"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(100_000_000u128),
@@ -1017,8 +1035,8 @@ fn two_bidder_distribution_multiple_common_slots() {
         bid_owner: None,
     };
 
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(200_000_000u128),
@@ -1037,8 +1055,8 @@ fn two_bidder_distribution_multiple_common_slots() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "user0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("user"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(200_000_000u128),
@@ -1063,7 +1081,7 @@ fn two_bidder_distribution_multiple_common_slots() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -1077,7 +1095,7 @@ fn two_bidder_distribution_multiple_common_slots() {
         },
         bid_ids: None,
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -1095,7 +1113,7 @@ fn two_bidder_distribution_multiple_common_slots() {
         },
         bid_ids: None,
     };
-    let info = mock_info("user0000", &[]);
+    let info = message_info(&deps.api.addr_make("user"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -1133,7 +1151,7 @@ fn two_bidder_distribution_multiple_common_slots() {
         },
         amount: None,
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -1152,14 +1170,14 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -1181,8 +1199,8 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(50u128),
@@ -1201,8 +1219,8 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "user0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("user"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(100u128),
@@ -1220,8 +1238,8 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "user0001",
+    let submit_info = message_info(
+        &deps.api.addr_make("user0001"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(100u128),
@@ -1247,7 +1265,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     //Increment time to unlock the secondary bids
     env.block.time = env.block.time.plus_seconds(60u64);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -1264,8 +1282,8 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "user0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("user"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(250u128),
@@ -1284,8 +1302,8 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "user0001",
+    let submit_info = message_info(
+        &deps.api.addr_make("user0001"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(250u128),
@@ -1310,7 +1328,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     //Increment time to unlock the secondary bids
     env.block.time = env.block.time.plus_seconds(120u64);
     execute(deps.as_mut(), env, info, liq_msg).unwrap();
@@ -1323,7 +1341,7 @@ fn scalable_reward_distribution_after_multiple_liquidations() {
         },
         bid_ids: None,
     };
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let res = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
     assert_eq!(
         res.attributes,
@@ -1360,14 +1378,14 @@ fn not_enough_bid_for_collateral() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 1u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -1389,8 +1407,8 @@ fn not_enough_bid_for_collateral() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(100u128),
@@ -1409,8 +1427,8 @@ fn not_enough_bid_for_collateral() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "user0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("user"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(100u128),
@@ -1438,7 +1456,7 @@ fn not_enough_bid_for_collateral() {
             denom: "osmo".to_string(),
         },
     };
-    let info = mock_info("positions_contract", &[]);
+    let info = message_info(&deps.api.addr_make("positions"), &[]);
     //Increment time to unlock the second bid
     env.block.time = env.block.time.plus_seconds(70u64);
     //Liquidate whats possible

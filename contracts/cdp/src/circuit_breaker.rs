@@ -237,7 +237,7 @@ mod tests {
     };
     use crate::state::{ASSET_CIRCUIT_BREAKERS, HISTORICAL_ORACLE_PRICES, PriceTimestamp};
     use membrane::cdp::Config;
-    use membrane::types::{cAsset, Asset, AssetInfo};
+    use membrane::types::{cAsset, IRMConfig, Asset, AssetInfo};
     use membrane::oracle::PriceResponse;
 
     fn setup_storage_with_history(
@@ -784,6 +784,13 @@ mod tests {
             ltv_upward_kp: Decimal::percent(5),
             ltv_downward_period: 604800,
             ltv_max_downward_shift: Decimal::percent(5),
+            transmuter_addr: None,
+            irm_config: IRMConfig {
+                adjustment_speed: Decimal::from_atomics(50u128, 0).unwrap(),
+                min_adaptive_rate: Decimal::permille(1),
+                max_adaptive_rate: Decimal::from_atomics(1u128, 0).unwrap(),
+            },
+            points_contract: None,
         };
 
         // Create mock querier that returns still-high price (keeps it frozen)
@@ -802,7 +809,8 @@ mod tests {
             max_LTV: Decimal::percent(85),
             pool_info: None,
             rate_index: Decimal::one(),
-            individual_cost: None,
+            peg_rate_index: Decimal::one(),
+            force_redemptions: None,
         }];
 
         // Attempt to check assets - should fail because asset is frozen
@@ -878,6 +886,13 @@ mod tests {
             ltv_upward_kp: Decimal::percent(5),
             ltv_downward_period: 604800,
             ltv_max_downward_shift: Decimal::percent(5),
+            transmuter_addr: None,
+            irm_config: IRMConfig {
+                adjustment_speed: Decimal::from_atomics(50u128, 0).unwrap(),
+                min_adaptive_rate: Decimal::permille(1),
+                max_adaptive_rate: Decimal::from_atomics(1u128, 0).unwrap(),
+            },
+            points_contract: None,
         };
 
         // Create mock querier that returns still-low price (keeps it frozen)
@@ -896,7 +911,8 @@ mod tests {
             max_LTV: Decimal::percent(85),
             pool_info: None,
             rate_index: Decimal::one(),
-            individual_cost: None,
+            peg_rate_index: Decimal::one(),
+            force_redemptions: None,
         }];
 
         // Attempt to check assets - should fail because asset is frozen
@@ -978,6 +994,13 @@ mod tests {
             ltv_upward_kp: Decimal::percent(5),
             ltv_downward_period: 604800,
             ltv_max_downward_shift: Decimal::percent(5),
+            transmuter_addr: None,
+            irm_config: IRMConfig {
+                adjustment_speed: Decimal::from_atomics(50u128, 0).unwrap(),
+                min_adaptive_rate: Decimal::permille(1),
+                max_adaptive_rate: Decimal::from_atomics(1u128, 0).unwrap(),
+            },
+            points_contract: None,
         };
 
         // Create mock querier that returns normal price
@@ -996,7 +1019,8 @@ mod tests {
             max_LTV: Decimal::percent(85),
             pool_info: None,
             rate_index: Decimal::one(),
-            individual_cost: None,
+            peg_rate_index: Decimal::one(),
+            force_redemptions: None,
         }];
 
         // Attempt to check assets - should succeed because asset is not frozen

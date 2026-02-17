@@ -3,7 +3,6 @@ use cosmwasm_std::{
     attr, to_binary, Addr, CosmosMsg, DepsMut, Env,
     MessageInfo, Response, StdError, StdResult, Storage, Uint128, WasmMsg,
 };
-use cosmwasm_storage::{Bucket, ReadonlyBucket};
 use membrane::math::{Decimal256, Uint256, U256};
 use membrane::osmosis_proxy::ExecuteMsg as OP_ExecuteMsg;
 use membrane::liq_queue::Config;
@@ -12,11 +11,9 @@ use membrane::types::{Asset, AssetInfo, Bid, BidInput, PremiumSlot, Queue};
 use membrane::helpers::{validate_position_owner, withdrawal_msg};
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, QUEUES};
+use crate::state::{CONFIG, QUEUES, EPOCH_SCALE_SUM};
 
 const MAX_LIMIT: u32 = 32;
-
-static PREFIX_EPOCH_SCALE_SUM: &[u8] = b"epoch_scale_sum";
 
 /// Create Bid and add to the corresponding Slot
 pub fn submit_bid(
@@ -192,18 +189,18 @@ pub fn assert_bid_asset_from_sent_funds(
 ) -> StdResult<Asset> {
 
     if info.funds.is_empty() {
-        return Err(StdError::GenericErr {
-            msg: "No asset provided, only bid asset allowed".to_string(),
-        });
+        return Err(StdError::generic_err(
+            "No asset provided, only bid asset allowed"
+        ))
     }
 
     match bid_asset.clone() {
         AssetInfo::NativeToken { denom } => {
             if info.funds[0].denom == denom && info.funds.len() == 1 {
                 if info.funds[0].amount < minimum_bid {
-                    return Err(StdError::GenericErr {
-                        msg: format!("Bid amount too small, minimum is {}", minimum_bid),
-                    });
+                    return Err(StdError::generic_err(
+                        format!("Bid amount too small, minimum is {}", minimum_bid)
+                    ))
                 } else {
                     
                     Ok(Asset {
@@ -212,15 +209,15 @@ pub fn assert_bid_asset_from_sent_funds(
                     })
                 }
             } else {
-                Err(StdError::GenericErr {
-                    msg: "Invalid asset provided, only bid asset allowed".to_string(),
-                })
+                Err(StdError::generic_err(
+                    "Invalid asset provided, only bid asset allowed"
+                ))
             }
         }
         AssetInfo::Token { address: _ } => {
-            Err(StdError::GenericErr {
-                msg: "Bid asset's are native assets".to_string(),
-            })
+            Err(StdError::generic_err(
+                "Bid asset's are native assets"
+            ))
         }
     }
 }
@@ -845,16 +842,8 @@ pub fn store_epoch_scale_sum(
     scale: Uint128,
     sum: Decimal256,
 ) -> StdResult<()> {
-    let mut epoch_scale_sum: Bucket<Decimal256> = Bucket::multilevel(
-        deps,
-        &[
-            PREFIX_EPOCH_SCALE_SUM,
-            &bid_for.as_bytes(),
-            &premium_slot.to_be_bytes(),
-            &epoch.u128().to_be_bytes(),
-        ],
-    );
-    epoch_scale_sum.save(&scale.u128().to_be_bytes(), &sum)
+    let key = format!("{}:{}:{}:{}", bid_for, premium_slot, epoch, scale);
+    EPOCH_SCALE_SUM.save(deps, key, &sum)
 }
 
 /// Read epoch scale sum
@@ -865,17 +854,8 @@ pub fn read_epoch_scale_sum(
     epoch: Uint128,
     scale: Uint128,
 ) -> StdResult<Decimal256> {
-    let epoch_scale_sum: ReadonlyBucket<Decimal256> = ReadonlyBucket::multilevel(
-        deps,
-        &[
-            PREFIX_EPOCH_SCALE_SUM,
-            bid_for.as_bytes(),
-            &premium.to_be_bytes(),
-            &epoch.u128().to_be_bytes(),
-        ],
-    );
-
-    epoch_scale_sum.load(&scale.u128().to_be_bytes())
+    let key = format!("{}:{}:{}:{}", bid_for, premium, epoch, scale);
+    EPOCH_SCALE_SUM.load(deps, key)
 }
 
 /// Calculate the remaining bid amount after a scale change, i.e. a liquidation or a bid activation
@@ -924,9 +904,9 @@ pub fn read_premium_slot(
         //Hard coded 1% per slot
         Some(slot) => slot,
         None => {
-            return Err(StdError::GenericErr {
-                msg: "Invalid premium".to_string(),
-            })
+            return Err(StdError::generic_err(
+                "Invalid premium"
+            ))
         }
     };
 
@@ -1127,9 +1107,9 @@ pub fn read_bid(_deps: &dyn Storage, bid_id: Uint128, queue: Queue) -> StdResult
     }
 
     if read_bid.is_none() {
-        return Err(StdError::GenericErr {
-            msg: "Bid not found".to_string(),
-        });
+        return Err(StdError::generic_err(
+            "Bid not found"
+        ))
     }
 
     Ok(read_bid.unwrap())

@@ -13,14 +13,14 @@ use crate::execute::{
     refresh_lock,
     create_queue, update_queue, submit_deposit, withdraw_deposit, 
     add_bad_debt, add_revenue, claim_revenue_for_user, disperse_revenue, update_config,
-    execute_rate_assurance, lock_deposit, move_deposit, update_manager, toggle_withdrawals, execute_set_affiliate,
+    execute_rate_assurance, lock_deposit, move_deposit, update_deposit, toggle_withdrawals, execute_set_affiliate,
     set_manager_fee, clean_manager_fee, add_deposit_token_revenue
 };
 use crate::query::{
     query_config, query_ltv_queue, query_backing_deposit,
     query_backing_deposits_by_user, query_average_ltvs, query_can_handle_bad_debt, 
-    query_cumulative_revenue, query_pending_claims, query_user_lifetime_revenue, query_revenue_events, query_assets, query_daily_tvl, query_daily_ltv, query_user_total_deposits, query_locked_deposits,
-    query_vault_token_conversion, query_deposit_token_conversion, query_managed_deposit_keys, query_total_insurance, query_manager_fee
+    query_cumulative_revenue, query_pending_claims, query_user_lifetime_revenue, query_revenue_events, query_assets, query_daily_tvl, query_daily_ltv, query_user_total_deposits, query_locked_deposits, query_all_user_deposits,
+    query_vault_token_conversion, query_deposit_token_conversion, query_managed_deposit_keys, query_total_insurance, query_manager_fee, query_daily_insurance
 };
 use crate::reply::{handle_liquidation_swap_reply, handle_compound_swap_reply};
 use crate::state::{CONFIG};
@@ -146,8 +146,8 @@ pub fn execute(
         ExecuteMsg::UpdateQueue { asset, max_ltv, percent_to_disperse } => {
             update_queue(deps, env, info, asset, max_ltv, percent_to_disperse)
         }
-        ExecuteMsg::SubmitDeposit { deposit_input, deposit_owner, locked, deposit_id, manager, affiliate_address } => {
-            submit_deposit(deps, env, info, deposit_input, deposit_owner, locked, deposit_id, manager, affiliate_address)
+        ExecuteMsg::SubmitDeposit { deposit_input, deposit_owner, locked, deposit_id, manager, affiliate_address, revenue_destination } => {
+            submit_deposit(deps, env, info, deposit_input, deposit_owner, locked, deposit_id, manager, affiliate_address, revenue_destination)
         }
         ExecuteMsg::WithdrawDeposit { asset, ltv, max_borrow_ltv, deposit_id, amount, epoch_start_time } => {
             withdraw_deposit(deps, env, info, asset, ltv, max_borrow_ltv, deposit_id, amount, epoch_start_time)
@@ -161,8 +161,8 @@ pub fn execute(
         ExecuteMsg::MoveDeposit { asset, ltv, max_borrow_ltv, deposit_id, destination, amount, user, epoch_start_time } => {
             move_deposit(deps, env, info, asset, ltv, max_borrow_ltv, deposit_id, destination, amount, user, epoch_start_time)
         }
-        ExecuteMsg::UpdateManager { asset, ltv, max_borrow_ltv, deposit_id, manager, epoch_start_time } => {
-            update_manager(deps, env, info, asset, ltv, max_borrow_ltv, deposit_id, manager, epoch_start_time)
+        ExecuteMsg::UpdateDeposit { asset, ltv, max_borrow_ltv, deposit_id, deposit_owner, manager, revenue_destination, epoch_start_time } => {
+            update_deposit(deps, env, info, asset, ltv, max_borrow_ltv, deposit_id, deposit_owner, manager, revenue_destination, epoch_start_time)
         }
         ExecuteMsg::ToggleWithdrawals { user, asset, ltv, max_borrow_ltv, deposit_id, enabled, epoch_start_time } => {
             toggle_withdrawals(deps, info, user, asset, ltv, max_borrow_ltv, deposit_id, enabled, epoch_start_time)
@@ -232,7 +232,7 @@ pub fn execute(
 pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_json_binary(&query_config(deps)?),
-        QueryMsg::GetLTVQueue { asset } => to_json_binary(&query_ltv_queue(deps, env, asset)?),
+        QueryMsg::GetLTVQueue { assets, limit, start_after } => to_json_binary(&query_ltv_queue(deps, env, assets, limit, start_after)?),
         QueryMsg::GetBackingDeposit { user, asset, ltv, max_borrow_ltv, deposit_id } => {
             to_json_binary(&query_backing_deposit(deps, user, asset, ltv, max_borrow_ltv, deposit_id)?)
         }
@@ -275,6 +275,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::GetLockedDeposits { user } => {
             to_json_binary(&query_locked_deposits(deps, user)?)
         }
+        QueryMsg::GetAllUserDeposits { user } => {
+            to_json_binary(&query_all_user_deposits(deps, user)?)
+        }
         QueryMsg::VaultTokenConversion { asset, ltv, max_borrow_ltv, vault_tokens } => {
             to_json_binary(&query_vault_token_conversion(deps, asset, ltv, max_borrow_ltv, vault_tokens)?)
         }
@@ -289,6 +292,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::GetManagerFee { manager } => {
             to_json_binary(&query_manager_fee(deps, manager)?)
+        }
+        QueryMsg::GetDailyInsurance { asset } => {
+            to_json_binary(&query_daily_insurance(deps, asset)?)
         }
     }
 }

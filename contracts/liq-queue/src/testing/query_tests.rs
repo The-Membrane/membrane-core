@@ -8,7 +8,7 @@ use membrane::math::{Decimal256, Uint256};
 use membrane::types::{AssetInfo, Bid, BidInput, Asset};
 use membrane::oracle::PriceResponse;
 
-use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
+use cosmwasm_std::testing::{mock_dependencies, mock_env, message_info};
 use cosmwasm_std::{from_binary, Addr, Coin, Decimal, Uint128};
 
 #[test]
@@ -17,14 +17,14 @@ fn query_liquidatible() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -46,8 +46,8 @@ fn query_liquidatible() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1_000_000u128),
@@ -93,14 +93,14 @@ fn query_bid() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -122,8 +122,8 @@ fn query_bid() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1_000_000u128),
@@ -146,7 +146,7 @@ fn query_bid() {
     assert_eq!(
         resp,
         BidResponse {
-            user: String::from("owner0000"),
+            user: deps.api.addr_make("owner").to_string(),
             id: Uint128::new(1u128),
             amount: Uint256::from(1_000_000u128),
             liq_premium: 1u8,
@@ -169,8 +169,8 @@ fn query_bid() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1_000_000u128),
@@ -185,7 +185,7 @@ fn query_bid() {
         bid_for: AssetInfo::NativeToken {
             denom: "osmo".to_string(),
         },
-        user: String::from("owner0000"),
+        user: deps.api.addr_make("owner").to_string(),
         limit: None,
         start_after: None,
     };
@@ -196,7 +196,7 @@ fn query_bid() {
         resp,
         vec![
             BidResponse {
-                user: String::from("owner0000"),
+                user: deps.api.addr_make("owner").to_string(),
                 id: Uint128::new(1u128),
                 amount: Uint256::from(1_000_000u128),
                 liq_premium: 1u8,
@@ -208,7 +208,7 @@ fn query_bid() {
                 scale_snapshot: Uint128::zero(),
             },
             BidResponse {
-                user: String::from("owner0000"),
+                user: deps.api.addr_make("owner").to_string(),
                 id: Uint128::new(2u128),
                 amount: Uint256::from(1_000_000u128),
                 liq_premium: 10u8,
@@ -229,14 +229,14 @@ fn query_slots_queues() {
 
     let msg = InstantiateMsg {
         owner: None, //Defaults to sender
-        positions_contract: String::from("positions_contract"),
-        osmosis_proxy_contract: String::from("osmosis_proxy_contract"),
+        positions_contract: deps.api.addr_make("positions").to_string(),
+        osmosis_proxy_contract: deps.api.addr_make("osmosis_proxy").to_string(),
         waiting_period: 60u64,
         minimum_bid: Uint128::zero(),
         maximum_waiting_bids: 100u64,
     };
 
-    let info = mock_info("owner0000", &[]);
+    let info = message_info(&deps.api.addr_make("owner"), &[]);
     let _res = instantiate(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
 
     let msg = ExecuteMsg::AddQueue {
@@ -342,8 +342,8 @@ fn query_slots_queues() {
         },
         bid_owner: None,
     };
-    let submit_info = mock_info(
-        "owner0000",
+    let submit_info = message_info(
+        &deps.api.addr_make("owner"),
         &[Coin {
             denom: "cdt".to_string(),
             amount: Uint128::from(1_000_000u128),
@@ -367,7 +367,7 @@ fn query_slots_queues() {
         resp,
         SlotResponse {
             bids: vec![Bid {
-                user: Addr::unchecked("owner0000"),
+                user: deps.api.addr_make("owner"),
                 id: Uint128::new(1u128),
                 amount: Uint256::from(1_000_000u128),
                 liq_premium: 1u8,

@@ -1,9 +1,10 @@
-use cosmwasm_std::{Addr, Decimal, Uint128, StdResult, Api, StdError};
+use cosmwasm_std::{Addr, Coin, Decimal, Uint128, StdResult, Api, StdError};
 use cosmwasm_schema::cw_serde;
 
-use crate::types::{ DeploymentIntent, UserDeploymentIntents,
+use crate::types::{ IRMConfig, DeploymentIntent, UserDeploymentIntents,
     cAsset, Asset, AssetInfo, InsolventPosition,
-    SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, equal, PremiumInfo, DeploymentVenue,
+    SupplyCap, MultiAssetSupplyCap, TWAPPoolInfo, UserInfo, PoolType, Basket, Rates, equal, PremiumInfo, DeploymentVenue,
+    DebtSplit, RateSegment,
 };
 
 #[cw_serde]
@@ -21,7 +22,7 @@ pub struct InstantiateMsg {
     /// Timeframe for Credit TWAP in minutes
     pub credit_twap_timeframe: u64,    
     /// Interest rate slope multiplier
-    pub rate_slope_multiplier: Decimal, 
+    pub rate_slope_multiplier: Decimal,
     /// Base debt cap multiplier
     pub base_debt_cap_multiplier: Uint128,
     // /// Stability Pool contract
@@ -65,7 +66,7 @@ pub enum ExecuteMsg {
     IncreaseDebt {
         /// Position ID to increase debt of
         position_id: Uint128,
-        /// Amount of debt to increase
+        /// Amount of debt to increase (None allows editing rollover without increasing debt)
         amount: Option<Uint128>,
         /// LTV to borrow up to
         LTV: Option<Decimal>,
@@ -73,6 +74,14 @@ pub enum ExecuteMsg {
         mint_to_addr: Option<String>,
         /// Contract uses this to mint for a user into a Deployment Venue
         deployment_intent: Option<DeploymentIntent>,
+        /// Optional debt split to allocate across rate segments
+        debt_split: Option<DebtSplit>,
+        /// Optional rollover updates for existing fixed rate segments (duration_months -> rollover)
+        /// Allows editing rollover status even when amount is None
+        rollover_updates: Option<Vec<(u8, bool)>>,
+        /// If true, mint CDT and swap to USDC via transmuter.
+        /// Mutually exclusive with debt_split, deployment_intent, and mint_to_addr.
+        peg_debt: Option<bool>,
     },
     /// Withdraw collateral from a Position
     Withdraw {
@@ -90,7 +99,9 @@ pub enum ExecuteMsg {
         /// Position owner to repay debt of if not the sender
         position_owner: Option<String>, 
         /// Send excess assets to this address if not the sender
-        send_excess_to: Option<String>, 
+        send_excess_to: Option<String>,
+        /// Optional debt split to allocate repayment across rate segments
+        debt_split: Option<DebtSplit>,
     },
     // Repay message for the Stability Pool during liquidations
     // LiqRepay {},
@@ -101,28 +112,28 @@ pub enum ExecuteMsg {
         /// Position owner to liquidate
         position_owner: String,
     },
-    /// Redeem CDT for collateral
-    /// Redemption limit based on Position owner buy-in
-    RedeemCollateral {
-        /// Max % premium on the redeemed collateral`
-        max_collateral_premium: Option<u128>,
-    },
-    /// Edit Redeemability for owned Positions
-    EditRedeemability {
-        /// Position IDs to edit
-        position_ids: Vec<Uint128>,
-        /// Add or remove redeemability
-        redeemable: Option<bool>,
-        /// Edit premium on the redeemed collateral.
-        /// Can't set a 100% premium, as that would be a free loan repayment.
-        premium: Option<u128>,
-        /// Edit Max loan repayment %
-        max_loan_repayment: Option<Decimal>,
-        /// Restricted collateral assets.
-        /// These are restricted from use in redemptions.
-        /// Swaps the full list.
-        restricted_collateral_assets: Option<Vec<String>>,
-    },
+    // /// Redeem CDT for collateral
+    // /// Redemption limit based on Position owner buy-in
+    // RedeemCollateral {
+    //     /// Max % premium on the redeemed collateral`
+    //     max_collateral_premium: Option<u128>,
+    // },
+    // /// Edit Redeemability for owned Positions
+    // EditRedeemability {
+    //     /// Position IDs to edit
+    //     position_ids: Vec<Uint128>,
+    //     /// Add or remove redeemability
+    //     redeemable: Option<bool>,
+    //     /// Edit premium on the redeemed collateral.
+    //     /// Can't set a 100% premium, as that would be a free loan repayment.
+    //     premium: Option<u128>,
+    //     /// Edit Max loan repayment %
+    //     max_loan_repayment: Option<Decimal>,
+    //     /// Restricted collateral assets.
+    //     /// These are restricted from use in redemptions.
+    //     /// Swaps the full list.
+    //     restricted_collateral_assets: Option<Vec<String>>,
+    // },
     /// Accrue interest for a Position
     Accrue { 
         /// Positon owner to accrue interest for, defaults to sender
@@ -147,6 +158,12 @@ pub enum ExecuteMsg {
     },
     /// Fulfill minting intent
     FulfillIntents { users: Vec<String> },
+    /// Set deployment venue for a position (outside intent flow)
+    SetDeploymentVenue {
+        position_id: Uint128,
+        venue_address: String,
+        initial_deployed_debt_amount: Option<Uint128>,
+    },
     /// Update basket LTVs based on Disco averages
     /// Permissionless - can be called by anyone
     UpdateBasketLTVs {},
@@ -191,6 +208,14 @@ pub enum ExecuteMsg {
     /// Only callable by the revenue distributor contract
     /// Takes ALL available revenue and maintains per-asset attribution
     TakeRevenue {},
+    /// Check and clear position's volatile window debt delta - called by Points contract
+    /// Returns whether user qualifies for management points (negative delta = repaid during volatility)
+    CheckAndClearDebtDelta {
+        /// Position owner
+        position_owner: String,
+        /// Position ID
+        position_id: Uint128,
+    },
     //Callbacks; Only callable by the contract
     Callback(CallbackMsg),
 }
@@ -221,15 +246,15 @@ pub enum CallbackMsg {
 pub enum QueryMsg {
     /// Returns the contract's config
     Config {},
-    /// Get Basket redeemability
-    GetBasketRedeemability {
-        /// Position owner to query.
-        position_owner: Option<String>,
-        /// Premium to start after 
-        start_after: Option<u128>,
-        /// Response limiter
-        limit: Option<u32>,
-    },
+    // /// Get Basket redeemability
+    // GetBasketRedeemability {
+    //     /// Position owner to query.
+    //     position_owner: Option<String>,
+    //     /// Premium to start after
+    //     start_after: Option<u128>,
+    //     /// Response limiter
+    //     limit: Option<u32>,
+    // },
     /// Returns Positions in the contract's Basket
     GetBasketPositions {
         /// Start after this user address
@@ -292,6 +317,60 @@ pub enum QueryMsg {
         /// Asset to query historical prices for
         asset: String,
     },
+    /// Returns historical interest rates for an asset
+    GetHistoricalInterestRates {
+        /// Asset to query historical rates for
+        asset: String,
+    },
+    /// Returns historical LTV snapshots for an asset
+    GetHistoricalLTV {
+        /// Asset denom to query
+        asset_denom: String,
+        /// Start time (Unix timestamp)
+        start_time: Option<u64>,
+        /// End time (Unix timestamp)
+        end_time: Option<u64>,
+        /// Maximum number of snapshots to return
+        limit: Option<u32>,
+    },
+    /// Returns current LTV shift schedule information for an asset
+    GetLTVShiftInfo {
+        /// Asset denom to query
+        asset_denom: String,
+    },
+    /// Returns the Rates store
+    GetRates {},
+    /// Simulate liquidation market sales to estimate slippage cost
+    /// **Note**: Uses Astroport simulation only. Returns error if Duality routes configured.
+    SimulateLiquidation {
+        /// Collateral assets to sell
+        collateral_to_sell: Vec<Coin>,
+        /// Target denom to receive (usually credit asset)
+        target_denom: String,
+    },
+    /// Check if assets are in volatile windows (current volatility > average volatility)
+    /// Returns Vec<bool> where true = asset is in volatile window
+    CheckVolatilityWindow {
+        /// Asset denoms to check
+        assets: Vec<String>,
+    },
+}
+
+#[cw_serde]
+pub struct VolatilityWindowResponse {
+    /// For each asset, true if current volatility > average volatility
+    pub in_volatile_window: Vec<bool>,
+}
+
+#[cw_serde]
+pub struct SimulateLiquidationResponse {
+    /// Total input value of collateral being sold
+    pub total_input_value: Decimal,
+    /// Total expected output value in target denom
+    pub total_output_value: Decimal,
+    /// Slippage cost (input_value - output_value)
+    /// **Note**: Based on Astroport simulation only*
+    pub slippage_cost: Decimal,
 }
 
 #[cw_serde]
@@ -357,6 +436,12 @@ pub struct Config {
     pub ltv_downward_period: u64,
     /// Max downward shift per period as percentage (e.g., 0.05 = 5%)
     pub ltv_max_downward_shift: Decimal,
+    /// Transmuter contract address for peg_debt swaps
+    pub transmuter_addr: Option<Addr>,
+    /// AdaptiveCurveIRM configuration (Morpho-inspired)
+    pub irm_config: IRMConfig,
+    /// Points contract address for management points
+    pub points_contract: Option<Addr>,
 }
 
 
@@ -436,6 +521,12 @@ pub struct UpdateConfig {
     pub ltv_downward_period: Option<u64>,
     /// Max downward shift per period as percentage
     pub ltv_max_downward_shift: Option<Decimal>,
+    /// Transmuter contract address for peg_debt swaps
+    pub transmuter_addr: Option<String>,
+    /// AdaptiveCurveIRM configuration (Morpho-inspired)
+    pub irm_config: Option<IRMConfig>,
+    /// Points contract address for management points
+    pub points_contract: Option<String>,
 }
 
 #[cw_serde]
@@ -520,7 +611,7 @@ impl UpdateConfig {
             //Enforce 0-1k%
             if rate_slope_multiplier > Decimal::percent(10_00) || rate_slope_multiplier < Decimal::zero() {
                 return Err(StdError::generic_err(String::from("Rate slope multiplier must be between 0-10000%")));
-            }            
+            }
             config.rate_slope_multiplier = rate_slope_multiplier;
         }
         // if let Some(redemption_fee) = self.redemption_fee {
@@ -559,6 +650,15 @@ impl UpdateConfig {
                 return Err(StdError::generic_err(String::from("LTV max downward shift must be between 0-100%")));
             }
             config.ltv_max_downward_shift = ltv_max_downward_shift;
+        }
+        if let Some(transmuter_addr) = self.transmuter_addr {
+            config.transmuter_addr = Some(api.addr_validate(&transmuter_addr)?);
+        }
+        if let Some(irm_config) = self.irm_config {
+            config.irm_config = irm_config;
+        }
+        if let Some(points_contract) = self.points_contract {
+            config.points_contract = Some(api.addr_validate(&points_contract)?);
         }
         Ok(())
     }
@@ -599,10 +699,6 @@ pub struct EditBasket {
     pub distribute_revenue: Option<bool>,
     /// Take revenue, used as a way to distribute revenue
     pub take_revenue: Option<Uint128>,
-    /// Update individual costs for specific assets (asset_string, rate)
-    pub individual_costs: Option<Vec<(String, Decimal)>>,
-    /// Update individual cost updater addresses (asset_string, updater_address or None to clear)
-    pub individual_cost_updaters: Option<Vec<(String, Option<String>)>>,
 }
 
 impl EditBasket {    
@@ -610,6 +706,7 @@ impl EditBasket {
     pub fn edit_basket(
         self,
         basket: &mut Basket,
+        rates: &mut Rates,
         new_cAsset: cAsset,
         new_queue: Option<Addr>,
         oracle_set: bool,
@@ -651,10 +748,22 @@ impl EditBasket {
             }
         }
         if let Some(base_interest_rate) = self.base_interest_rate {
-            basket.base_interest_rate = base_interest_rate;
+            rates.base_interest_rate = base_interest_rate;
+            // Reinitialize current_adaptive_rate for all assets when base_interest_rate changes,
+            // so that adaptive smoothing starts from a reasonable point.
+            for rat in rates.current_adaptive_rate.iter_mut() {
+                if *rat < base_interest_rate {
+                    *rat = base_interest_rate;
+                }
+            }
+            for rat in rates.peg_current_adaptive_rate.iter_mut() {
+                if *rat < base_interest_rate {
+                    *rat = base_interest_rate;
+                }
+            }
         }
         if let Some(toggle) = self.negative_rates {
-            basket.negative_rates = toggle;
+            rates.negative_rates = toggle;
         }
         if let Some(toggle) = self.frozen {
             basket.frozen = toggle;
@@ -663,7 +772,7 @@ impl EditBasket {
             basket.distribute_revenue = toggle;
         }
         if let Some(error_margin) = self.cpc_margin_of_error {
-            basket.cpc_margin_of_error = error_margin;
+            rates.cpc_margin_of_error = error_margin;
         }
         if let Some(take_revenue) = self.take_revenue {
             basket.pending_revenue.total_pending = match basket.pending_revenue.total_pending.checked_sub(take_revenue){
@@ -690,8 +799,10 @@ pub struct PositionResponse {
     /// Allows front ends to get ratios using the same oracles.
     /// Useful for users who want to deposit or withdraw at the current ratio.
     pub cAsset_ratios: Vec<Decimal>,
-    /// Position outstanding debt
+    /// Position outstanding debt (total across all rate segments)
     pub credit_amount: Uint128,
+    /// Rate segments for this position (variable and fixed rate debt)
+    pub rate_segments: Vec<RateSegment>,
     /// Average borrow LTV of collateral assets
     pub avg_borrow_LTV: Decimal,
     /// Average max LTV of collateral assets
@@ -702,6 +813,8 @@ pub struct PositionResponse {
     pub pending_interest: Uint128,
     /// Total interest paid
     pub total_interest_accrued: Uint128,
+    /// Peg rate segments (USDC debt via transmuter)
+    pub peg_rate_segments: Vec<RateSegment>,
 }
 
 #[cw_serde]
@@ -727,11 +840,11 @@ pub struct CollateralInterestResponse {
     pub rates: Vec<Decimal>,
 }
 
-#[cw_serde]
-pub struct RedeemabilityResponse {
-    /// State for each premium 
-    pub premium_infos: Vec<PremiumInfo>,
-}
+// #[cw_serde]
+// pub struct RedeemabilityResponse {
+//     /// State for each premium
+//     pub premium_infos: Vec<PremiumInfo>,
+// }
 #[cw_serde]
 pub struct InsolvencyResponse {
     /// List of insolvent Positions
@@ -753,5 +866,36 @@ pub struct HistoricalOraclePricesResponse {
 pub struct PriceTimestamp {
     pub price: String,
     pub timestamp: u64,
+}
+
+#[cw_serde]
+pub struct HistoricalInterestRatesResponse {
+    pub rates: Vec<RateTimestamp>,
+}
+
+#[cw_serde]
+pub struct RateTimestamp {
+    pub rate: Decimal,
+    pub timestamp: u64,
+}
+
+#[cw_serde]
+pub struct HistoricalLTVResponse {
+    pub asset_denom: String,
+    pub snapshots: Vec<LTVSnapshot>,
+}
+
+#[cw_serde]
+pub struct LTVSnapshot {
+    pub timestamp: u64,
+    pub max_ltv: Decimal,
+    pub max_borrow_ltv: Decimal,
+}
+
+#[cw_serde]
+pub struct LTVShiftInfoResponse {
+    pub current_shift_number: u64,
+    pub next_shift_time: u64,
+    pub time_until_shift: u64,
 }
 

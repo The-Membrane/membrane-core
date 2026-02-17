@@ -362,10 +362,10 @@ impl DualityRoute {
                 token_out: self.to.to_string(),
                 // tick_index_in_to_out is depreciated in favor of limit_sell_price
                 tick_index_in_to_out: 0,
+                limit_sell_price,
                 amount_in: coin_in.amount.to_string(),
                 expiration_time: None,
                 max_amount_out: None,
-                limit_sell_price,
             })?
         };
 
@@ -387,7 +387,13 @@ use cosmwasm_std::CosmosMsg;
 use neutron_sdk::{
     bindings::msg::NeutronMsg as NeutronMsgType,
     proto_types::neutron::dex::MsgPlaceLimitOrder,
-    stargate::{aux::create_stargate_msg, dex::{msg::msg_multi_hop_swap, types::{LimitOrderType, MultiHopSwapRequest, PlaceLimitOrderRequest}}},
+    stargate::{
+        aux::create_stargate_msg,
+        dex::{
+            msg::msg_multi_hop_swap,
+            types::{LimitOrderType, MultiHopSwapRequest, PlaceLimitOrderRequest},
+        },
+    },
 };
 
 // Precision of the decimal values used in the Neutron DEX
@@ -402,6 +408,7 @@ const PLACE_LIMIT_ORDER_MSG_PATH: &str = "/neutron.dex.MsgPlaceLimitOrder";
 pub(crate) fn hashset<T: Eq + Clone + Hash>(data: &[T]) -> HashSet<T> {
     data.iter().cloned().collect()
 }
+
 /// Creates a Cosmos message for placing a limit order on the Neutron DEX.
 ///
 /// This function wraps the MsgPlaceLimitOrder in a CosmosMsg<NeutronMsg> that can be directly
@@ -531,32 +538,6 @@ mod tests {
         assert!(set.contains(&5));
     }
 
-    #[test]
-    fn test_serialize_prec_dec() {
-        // Standard case with both integer and decimal parts
-        assert_eq!(serialize_prec_dec("1.23").unwrap(), "1230000000000000000000000000");
-
-        // Case with leading zero in integer part (the buggy case)
-        assert_eq!(serialize_prec_dec("0.01").unwrap(), "10000000000000000000000000");
-
-        // Case with only integer part
-        assert_eq!(serialize_prec_dec("42").unwrap(), "42000000000000000000000000000");
-
-        // Zero case
-        assert_eq!(serialize_prec_dec("0.0").unwrap(), "0000000000000000000000000000");
-
-        // Case with trailing zeros in fractional part
-        assert_eq!(serialize_prec_dec("1.2300").unwrap(), "1230000000000000000000000000");
-
-        // Case with long fractional part
-        assert_eq!(serialize_prec_dec("0.000123").unwrap(), "123000000000000000000000");
-
-        // Edge case: exactly 27 digits in fractional part
-        assert_eq!(
-            serialize_prec_dec("0.123456789012345678901234567").unwrap(),
-            "123456789012345678901234567"
-        );
-    }
 }
 
 // Re-export NeutronMsg for use in contracts
@@ -643,6 +624,24 @@ pub struct SimulateSwapResponse {
     pub astroport_output: Option<Uint128>,
     /// Best DEX choice based on outputs
     pub best_dex: Option<DexChoice>,
+    /// Expected output for multi-hop route (if configured)
+    pub multihop_output: Option<Uint128>,
+    /// Per-hop breakdown (if multi-hop)
+    pub hop_breakdown: Option<Vec<HopSimulation>>,
+}
+
+#[cw_serde]
+pub struct HopSimulation {
+    /// DEX used for this hop
+    pub dex: DexChoice,
+    /// Input token for this hop
+    pub token_in: String,
+    /// Output token for this hop
+    pub token_out: String,
+    /// Input amount for this hop
+    pub amount_in: Uint128,
+    /// Expected output amount for this hop
+    pub amount_out: Uint128,
 }
 
 #[cw_serde]

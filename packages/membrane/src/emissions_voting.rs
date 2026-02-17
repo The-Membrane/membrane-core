@@ -29,6 +29,8 @@ pub enum ExecuteMsg {
         period_days: u64,
         /// Contract address to receive voting results
         callback_contract: String,
+        /// Whether votes persist across periods (default false)
+        persistent_voting: Option<bool>,
     },
     /// Cast a vote on a graph for any value within the range
     Vote {
@@ -61,6 +63,8 @@ pub enum ExecuteMsg {
         period_days: Option<u64>,
         /// New callback contract address
         callback_contract: Option<String>,
+        /// Whether votes persist across periods
+        persistent_voting: Option<bool>,
     },
     /// Remove a graph (owner only)
     RemoveGraph {
@@ -149,6 +153,8 @@ pub struct Uint128Graph {
     pub current_period_start: u64,
     /// Contract to receive results
     pub callback_contract: Addr,
+    /// Whether votes persist across periods
+    pub persistent_voting: bool,
 }
 
 /// Decimal voting graph
@@ -166,6 +172,8 @@ pub struct DecimalGraph {
     pub current_period_start: u64,
     /// Contract to receive results
     pub callback_contract: Addr,
+    /// Whether votes persist across periods
+    pub persistent_voting: bool,
 }
 
 /// Combined graph enum for storage
@@ -215,6 +223,13 @@ impl Graph {
         match self {
             Graph::Uint128(_) => GraphType::Uint128,
             Graph::Decimal(_) => GraphType::Decimal,
+        }
+    }
+
+    pub fn persistent_voting(&self) -> bool {
+        match self {
+            Graph::Uint128(g) => g.persistent_voting,
+            Graph::Decimal(g) => g.persistent_voting,
         }
     }
 }

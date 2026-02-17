@@ -196,6 +196,7 @@ pub fn handle_compound_swap_reply(deps: DepsMut, env: Env, _msg: Reply) -> Resul
         let submit_deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: env.contract.address.to_string(),
             msg: to_json_binary(&ExecuteMsg::SubmitDeposit {
+                revenue_destination: None,
                 affiliate_address: None,
                 deposit_input: membrane::ltv_disco::BackingDepositInput {
                     asset: asset_str.clone(),

@@ -4,21 +4,26 @@ version = "0.1.0"
 authors = ["Membrane Devs"]
 edition = "2018"
 
+[features]
+default = ["slinky-oracle"]
+slinky-oracle = []
+
 [dependencies]
-osmosis-std = {version = "0.16.1"}
-cosmwasm-std = { version = "2.3.0", default-features = false, features = ["cosmwasm_1_1"] }
+osmosis-std = { version = "0.27.0" }
+cosmwasm-std = { version = "2.0.4", default-features = false, features = ["cosmwasm_2_0", "stargate"] }
 neutron-sdk = { workspace = true }
-cosmwasm-schema = "1.1.0"
+cosmwasm-schema = "2.0.4"
+
 cw-coins = "0.6.1"
 pyth-sdk-cw = "1.0.0"
-prost = "0.11"
+prost = "0.13.3"
 uint = "0.8"
-cw-storage-plus = "1.0.3"
+cw-storage-plus = "2.0.0"
 schemars = "0.8.8"
 serde = { version = "1.0.137", default-features = false, features = ["derive"] }
 serde-json-wasm = { version = "1.0.0" }
 thiserror = { version = "1.0.31" }
-cw721-base = { version = "0.16.0", default-features = false, features = ["library"] }
-cw721 = "0.16.0"
+cw721-base = { version = "0.20.0", default-features = false, features = ["library"] }
+cw721 = "0.20.0"
 
 

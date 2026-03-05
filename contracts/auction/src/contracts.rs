@@ -11,13 +11,13 @@ use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::chain_proxy::ExecuteMsg as ChainProxyExecuteMsg;
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
-use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, DebtAuction, FeeAuction};
+use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, DebtAuction, FeeAuction, MBRNSale};
 use membrane::helpers::withdrawal_msg;
 use membrane::revenue_distributor::ExecuteMsg as RevenueDistributorExecuteMsg;
 use membrane::ltv_disco::ExecuteMsg as LtvDiscoExecuteMsg;
 
 use crate::error::ContractError;
-use crate::state::{CONFIG, DEBT_AUCTION, FEE_AUCTIONS, OWNERSHIP_TRANSFER};
+use crate::state::{CONFIG, DEBT_AUCTION, FEE_AUCTIONS, MBRN_SALE, OWNERSHIP_TRANSFER};
 
 // Contract name and version used for migration. 
 const CONTRACT_NAME: &str = "auctions";
@@ -96,6 +96,8 @@ pub fn execute(
         ExecuteMsg::SwapForMBRN { } => swap_for_mbrn(deps, info, env),
         ExecuteMsg::SwapForFee { auction_asset } => swap_with_the_contracts_desired_asset(deps, info, env, auction_asset),
         ExecuteMsg::RemoveAuction { } => remove_auction(deps, info),
+        ExecuteMsg::StartMBRNSale { max_cdt } => start_mbrn_sale(deps, env, info, max_cdt),
+        ExecuteMsg::BuySuppliedMBRN { } => buy_supplied_mbrn(deps, info, env),
         ExecuteMsg::UpdateConfig ( update)  => update_config( deps, info, update),
     }
 }
@@ -392,7 +394,7 @@ fn validate_asset(
     valid_denom: String
 )-> StdResult<Coin>{
     if coin.denom != valid_denom {
-        return Err(StdError::GenericErr{msg: format!("Invalid asset ({}) sent to fulfill auction. Must be {}", coin.denom, valid_denom)});
+        return Err(StdError::generic_err(format!("Invalid asset ({}) sent to fulfill auction. Must be {}", coin.denom, valid_denom)));
     }
 
     if coin.amount.is_zero() {
@@ -415,7 +417,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
     
     //Validate MBRN send
     if info.funds.len() != 1 {
-        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Only one coin can be sent") }));
+        return Err(ContractError::Std(StdError::generic_err("Only one coin can be sent")));
     }
     let coin = validate_asset(info.funds[0].clone(), config.clone().desired_asset)?;
 
@@ -431,9 +433,9 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
     };
     let earliest_swap_time = auction.auction_start_time + delay_window_seconds;
     if env.block.time.seconds() < earliest_swap_time {
-        return Err(ContractError::Std(StdError::GenericErr { 
-            msg: format!("Auction delay not passed. Can swap at timestamp: {}", earliest_swap_time)
-        }));
+        return Err(ContractError::Std(StdError::generic_err(
+            format!("Auction delay not passed. Can swap at timestamp: {}", earliest_swap_time)
+        )));
     }
 
     //If the auction is active, i.e. there is still debt to be repaid & auction has started
@@ -592,7 +594,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
 
         attrs.push(attr("auction_asset", auction.auction_asset.to_string()));
     } else {
-        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Auction isn't running now") }));
+        return Err(ContractError::Std(StdError::generic_err("Auction isn't running now")));
     }
 
     Ok(Response::new().add_messages(msgs).add_attributes(attrs))
@@ -644,6 +646,55 @@ fn get_discount_ratio(
     Ok(discount_ratio)
 }
 
+/// Calculate MBRN amount for a given CDT amount using oracle pricing and discount.
+/// Shared helper used by both `swap_for_mbrn` (debt auction) and `buy_supplied_mbrn` (MBRN sale).
+///
+/// Logic: MBRN oracle price → basket credit price → discount ratio → discounted price → MBRN amount
+fn calculate_mbrn_for_cdt(
+    deps: &DepsMut,
+    env: &Env,
+    config: &Config,
+    cdt_amount: Uint128,
+    auction_start_time: u64,
+) -> Result<Uint128, ContractError> {
+    // Get MBRN price (TWAP)
+    let res: Vec<PriceResponse> = deps.querier.query_wasm_smart(
+        config.oracle_contract.to_string(),
+        &OracleQueryMsg::Price {
+            asset_info: AssetInfo::NativeToken {
+                denom: config.mbrn_denom.clone(),
+            },
+            twap_timeframe: config.twap_timeframe,
+            oracle_time_limit: 600,
+            basket_id: None,
+        },
+    )?;
+    let mbrn_price = res[0].price;
+
+    // Get credit price at peg to further incentivize recapitalization
+    let basket = deps
+        .querier
+        .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.positions_contract.to_string(),
+            msg: to_json_binary(&CDPQueryMsg::GetBasket {})?,
+        }))?;
+    let basket_credit_price = basket.credit_price;
+
+    // Get discount
+    let discount_ratio = get_discount_ratio(env.clone(), auction_start_time, config.clone())?;
+
+    // Calculate discounted MBRN price
+    let discounted_mbrn_price = decimal_multiplication(mbrn_price, discount_ratio)?;
+    if discounted_mbrn_price.is_zero() {
+        return Err(ContractError::Std(StdError::generic_err("Discounted MBRN price is zero")));
+    }
+
+    let credit_value = basket_credit_price.get_value(cdt_amount)?;
+    let mbrn_amount = decimal_division(credit_value, discounted_mbrn_price)?;
+
+    Ok(mbrn_amount.to_uint_floor())
+}
+
 /// Swap the debt asset in the ongoing auction for MBRN at a discount.
 /// Handle Position repayments and arbitrary sends.
 /// Excess swap amount is returned to the sender.
@@ -654,7 +705,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
     let mut attrs = vec![attr("method", "swap_for_mbrn")];
 
     if info.funds.len() != 1 {
-        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Only one coin can be sent") }));
+        return Err(ContractError::Std(StdError::generic_err("Only one coin can be sent")));
     }
     let coin = validate_asset(info.funds[0].clone(), config.clone().cdt_denom)?;
 
@@ -671,52 +722,20 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
     };
     let earliest_swap_time = auction.auction_start_time + delay_window_seconds;
     if env.block.time.seconds() < earliest_swap_time {
-        return Err(ContractError::Std(StdError::GenericErr { 
-            msg: format!("Auction delay not passed. Can swap at timestamp: {}", earliest_swap_time)
-        }));
+        return Err(ContractError::Std(StdError::generic_err(
+            format!("Auction delay not passed. Can swap at timestamp: {}", earliest_swap_time)
+        )));
     }
 
     //If the auction is active, i.e. there is still debt to be repaid, swap for MBRN
     if !auction.remaining_recapitalization.is_zero() {
 
-        let swap_amount = Decimal::from_ratio(coin.amount, Uint128::new(1u128));                
-
-        let res: Vec<PriceResponse> = deps.querier.query_wasm_smart(
-            config.clone().oracle_contract.to_string(), 
-        &OracleQueryMsg::Price {
-                asset_info: AssetInfo::NativeToken {
-                    denom: config.clone().mbrn_denom,
-                },
-                twap_timeframe: config.clone().twap_timeframe,
-                oracle_time_limit: 600,
-                basket_id: None,
-            })?;
-        let mbrn_price = res[0].price;
-
-        //Get credit price at peg to further incentivize recapitalization
-        let basket = deps
-            .querier
-            .query::<Basket>(&QueryRequest::Wasm(WasmQuery::Smart {
-                contract_addr: config.clone().positions_contract.to_string(),
-                msg: to_json_binary(&CDPQueryMsg::GetBasket { })?,
-            }))?;
-        let basket_credit_price = basket.credit_price;
-
-        //Get discount
-        let discount_ratio = get_discount_ratio(env, auction.auction_start_time, config.clone())?;
-
-        //Mint MBRN for user
-        let discounted_mbrn_price = decimal_multiplication(mbrn_price, discount_ratio)?;
-        if discounted_mbrn_price.is_zero() {
-            return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Discounted MBRN price is zero") }));
-        }
-        let credit_value = basket_credit_price.get_value(swap_amount.to_uint_floor())?;
-        let mbrn_mint_amount =
-            decimal_division(credit_value, discounted_mbrn_price)? * Uint128::new(1u128);
+        // Calculate MBRN amount using shared pricing helper
+        let mbrn_mint_amount = calculate_mbrn_for_cdt(&deps, &env, &config, coin.amount, auction.auction_start_time)?;
 
         //Ensure MBRN mint amount is not zero
         if mbrn_mint_amount.is_zero() {
-            return Err(ContractError::Std(StdError::GenericErr { msg: String::from("MBRN mint amount is zero") }));
+            return Err(ContractError::Std(StdError::generic_err("MBRN mint amount is zero")));
         }
         //Else
         let message = CosmosMsg::Wasm(WasmMsg::Execute {
@@ -737,14 +756,12 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
                 coin.denom, mbrn_mint_amount
             ),
         ));
-        
-        let swap_amount: Uint128 = swap_amount * Uint128::new(1u128);
 
         // Determine how much of the sent CDT fulfills pending recapitalization
-        let fulfill_amount = if swap_amount >= auction.remaining_recapitalization {
+        let fulfill_amount = if coin.amount >= auction.remaining_recapitalization {
             auction.remaining_recapitalization
         } else {
-            swap_amount
+            coin.amount
         };
 
         // Send fulfilled CDT to the CDP to burn via FulfillBadDebt
@@ -759,7 +776,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
         }
 
         // Any remaining CDT is overpay and should be returned
-        let overpay = match swap_amount.checked_sub(fulfill_amount) {
+        let overpay = match coin.amount.checked_sub(fulfill_amount) {
             Ok(val) => val,
             Err(_) => Uint128::zero(),
         };
@@ -784,25 +801,185 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
             )?);
         }
     } else {
-        return Err(ContractError::Std(StdError::GenericErr { msg: String::from("Auction ended") }));
+        return Err(ContractError::Std(StdError::generic_err("Auction ended")));
     }
 
-    //Update or Remove DebtAuction 
+    //Update or Remove DebtAuction
     if auction.remaining_recapitalization.is_zero() {
         DEBT_AUCTION.remove(deps.storage);
     } else {
         DEBT_AUCTION.save(deps.storage, &auction)?;
     }
-      
+
     Ok(Response::new().add_messages(msgs))
 }
 
+/// Start an MBRN sale for bad debt coverage.
+/// Called by ltv_disco (no funds sent). Auction pulls MBRN from disco on demand.
+fn start_mbrn_sale(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    max_cdt: Uint128,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // Only ltv_disco can start MBRN sales
+    if let Some(ltv_disco) = &config.ltv_disco_contract {
+        if info.sender != *ltv_disco {
+            return Err(ContractError::Unauthorized {});
+        }
+    } else {
+        return Err(ContractError::CustomError {
+            val: String::from("ltv_disco_contract not configured"),
+        });
+    }
+
+    if max_cdt.is_zero() {
+        return Err(ContractError::CustomError {
+            val: String::from("max_cdt must be greater than zero"),
+        });
+    }
+
+    // No funds expected (pull model — disco retains MBRN)
+    if !info.funds.is_empty() {
+        return Err(ContractError::CustomError {
+            val: String::from("No funds should be sent; MBRN is pulled on demand"),
+        });
+    }
+
+    // Create or add to existing MBRN sale
+    match MBRN_SALE.load(deps.storage) {
+        Ok(mut sale) => {
+            sale.max_cdt += max_cdt;
+            // Keep existing auction_start_time to maintain discount progression
+            MBRN_SALE.save(deps.storage, &sale)?;
+        }
+        Err(_) => {
+            let sale = MBRNSale {
+                max_cdt,
+                cdt_fulfilled: Uint128::zero(),
+                auction_start_time: env.block.time.seconds(),
+                supplier: info.sender.clone(),
+            };
+            MBRN_SALE.save(deps.storage, &sale)?;
+        }
+    }
+
+    Ok(Response::new()
+        .add_attribute("method", "start_mbrn_sale")
+        .add_attribute("max_cdt", max_cdt)
+        .add_attribute("supplier", info.sender))
+}
+
+/// Buy MBRN from the disco supply sale by sending CDT.
+/// CDT goes to CDP.FulfillBadDebt, buyer receives MBRN at discount.
+/// Auction pulls MBRN from disco via SendMBRNForSale.
+fn buy_supplied_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    let mut attrs = vec![attr("method", "buy_supplied_mbrn")];
+
+    // Validate CDT sent
+    if info.funds.len() != 1 {
+        return Err(ContractError::Std(StdError::generic_err("Only one coin can be sent")));
+    }
+    let coin = validate_asset(info.funds[0].clone(), config.cdt_denom.clone())?;
+
+    // Load MBRN sale
+    let mut sale = MBRN_SALE.load(deps.storage)?;
+
+    let remaining_cdt_needed = sale.max_cdt.checked_sub(sale.cdt_fulfilled)
+        .unwrap_or(Uint128::zero());
+    if remaining_cdt_needed.is_zero() {
+        return Err(ContractError::Std(StdError::generic_err("MBRN sale is complete")));
+    }
+
+    // Query disco's available MBRN balance
+    let disco_mbrn_balance: Coin = deps.querier.query_balance(
+        sale.supplier.clone(),
+        config.mbrn_denom.clone(),
+    )?;
+    if disco_mbrn_balance.amount.is_zero() {
+        return Err(ContractError::Std(StdError::generic_err("No MBRN available in disco")));
+    }
+
+    // Cap CDT at remaining needed
+    let effective_cdt = std::cmp::min(coin.amount, remaining_cdt_needed);
+
+    // Calculate MBRN amount using shared pricing helper
+    let mbrn_amount = calculate_mbrn_for_cdt(&deps, &env, &config, effective_cdt, sale.auction_start_time)?;
+    if mbrn_amount.is_zero() {
+        return Err(ContractError::Std(StdError::generic_err("MBRN amount is zero")));
+    }
+
+    // Cap MBRN at what disco actually has
+    let actual_mbrn = std::cmp::min(mbrn_amount, disco_mbrn_balance.amount);
+
+    // If MBRN was capped, proportionally reduce CDT taken
+    let actual_cdt = if actual_mbrn < mbrn_amount {
+        effective_cdt.multiply_ratio(actual_mbrn, mbrn_amount)
+    } else {
+        effective_cdt
+    };
+    let total_refund = coin.amount.checked_sub(actual_cdt).unwrap_or(Uint128::zero());
+
+    // Update sale state
+    sale.cdt_fulfilled += actual_cdt;
+
+    // Pull MBRN from disco → send to buyer
+    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: sale.supplier.to_string(),
+        msg: to_json_binary(&LtvDiscoExecuteMsg::SendMBRNForSale {
+            amount: actual_mbrn,
+            recipient: info.sender.to_string(),
+        })?,
+        funds: vec![],
+    }));
+
+    // Send CDT to CDP FulfillBadDebt
+    if !actual_cdt.is_zero() {
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: config.positions_contract.to_string(),
+            msg: to_json_binary(&CDPExecuteMsg::FulfillBadDebt {})?,
+            funds: vec![Coin { denom: config.cdt_denom.clone(), amount: actual_cdt }],
+        }));
+    }
+
+    // Refund unused CDT to buyer
+    if !total_refund.is_zero() {
+        msgs.push(withdrawal_msg(
+            Asset {
+                info: AssetInfo::NativeToken {
+                    denom: config.cdt_denom.clone(),
+                },
+                amount: total_refund,
+            },
+            info.sender.clone(),
+        )?);
+    }
+
+    attrs.push(attr("cdt_received", actual_cdt));
+    attrs.push(attr("mbrn_sold", actual_mbrn));
+    attrs.push(attr("buyer", info.sender.clone()));
+
+    // Check if sale is complete
+    if sale.cdt_fulfilled >= sale.max_cdt {
+        MBRN_SALE.remove(deps.storage);
+        attrs.push(attr("sale_status", "completed"));
+    } else {
+        MBRN_SALE.save(deps.storage, &sale)?;
+    }
+
+    Ok(Response::new().add_messages(msgs).add_attributes(attrs))
+}
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Config {} => to_json_binary(&CONFIG.load(deps.storage)?),
         QueryMsg::DebtAuction {} => to_json_binary(&DEBT_AUCTION.load(deps.storage)?),
+        QueryMsg::MBRNSale {} => to_json_binary(&MBRN_SALE.may_load(deps.storage)?),
         QueryMsg::OngoingFeeAuctions { auction_asset, limit, start_after } => {
             to_json_binary(&get_ongoing_fee_auctions(
                 deps,
@@ -828,9 +1005,7 @@ fn get_ongoing_fee_auctions(
             Ok(vec![auction.clone()])
             
         } else {
-            Err(StdError::GenericErr {
-                msg: format!("Auction asset: {}, doesn't have an ongoing auction", auction_asset),
-            })
+            Err(StdError::generic_err(format!("Auction asset: {}, doesn't have an ongoing auction", auction_asset)))
         }
     } else {
         let limit: u64 = limit.unwrap_or(MAX_LIMIT);
@@ -847,9 +1022,7 @@ fn get_ongoing_fee_auctions(
                 resp.push( auction.clone() );
                 
             } else {
-                return Err(StdError::GenericErr {
-                    msg: format!("Invalid auction swap asset: {}", asset),
-                });
+                return Err(StdError::generic_err(format!("Invalid auction swap asset: {}", asset)));
             }
         }
         match start_after {

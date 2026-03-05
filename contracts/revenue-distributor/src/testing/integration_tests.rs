@@ -87,7 +87,7 @@ mod tests {
     // Mock Transmuter Contract
     #[cosmwasm_schema::cw_serde]
     pub enum MockTransmuterExecuteMsg {
-        EnterVault { recipient: Option<String> },
+        EnterVault { recipient: Option<String>, lock_days: Option<u64>, affiliate_address: Option<String>, affiliate_label: Option<String> },
     }
 
     pub fn transmuter_contract() -> Box<dyn Contract<Empty>> {
@@ -406,7 +406,7 @@ mod tests {
             points_system_contract: None,
             cdp_contract: Some(cdp_addr.to_string()),
             revenue_dispersal_window: None,
-            transmuter_lockdrop_contract: None,
+            acquisition_contract: None,
             ltv_disco_contract: None,
             auction_contract: None,
         };
@@ -535,7 +535,7 @@ mod tests {
             points_system_contract: None,
             cdp_contract: None,
             revenue_dispersal_window: None,
-            transmuter_lockdrop_contract: None,
+            acquisition_contract: None,
             ltv_disco_contract: None,
             auction_contract: None,
         };
@@ -765,7 +765,7 @@ mod tests {
             points_system_contract: None,
             cdp_contract: None,
             revenue_dispersal_window: None,
-            transmuter_lockdrop_contract: None,
+            acquisition_contract: None,
             ltv_disco_contract: None,
             auction_contract: None,
         };
@@ -805,7 +805,7 @@ mod tests {
             points_system_contract: None,
             cdp_contract: None,
             revenue_dispersal_window: None,
-            transmuter_lockdrop_contract: None,
+            acquisition_contract: None,
             ltv_disco_contract: None,
             auction_contract: None,
         };
@@ -1863,7 +1863,7 @@ mod tests {
             points_system_contract: None,
             cdp_contract: None,
             revenue_dispersal_window: Some(window_days),
-            transmuter_lockdrop_contract: None,
+            acquisition_contract: None,
             ltv_disco_contract: None,
             auction_contract: None,
         };
@@ -2051,7 +2051,7 @@ mod tests {
             points_system_contract: None,
             cdp_contract: None,
             revenue_dispersal_window: None,
-            transmuter_lockdrop_contract: None,
+            acquisition_contract: None,
             ltv_disco_contract: None,
             auction_contract: None,
         };
@@ -2317,7 +2317,7 @@ mod tests {
             points_system_contract: None,
             cdp_contract: None,
             revenue_dispersal_window: None,
-            transmuter_lockdrop_contract: None,
+            acquisition_contract: None,
             ltv_disco_contract: None,
             auction_contract: Some(auction_addr.to_string()),
         };
@@ -2387,7 +2387,7 @@ mod tests {
             points_system_contract: None,
             cdp_contract: None,
             revenue_dispersal_window: None,
-            transmuter_lockdrop_contract: None,
+            acquisition_contract: None,
             ltv_disco_contract: None,
             auction_contract: Some(auction_addr.to_string()),
         };

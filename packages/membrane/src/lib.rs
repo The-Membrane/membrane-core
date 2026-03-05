@@ -45,7 +45,7 @@ pub mod neutron_proxy;
 pub mod neutron_oracle;
 pub mod ltv_disco;
 pub mod transmuter;
-pub mod transmuter_lockdrop;
+pub mod acquisition;
 pub mod yield_arb;
 pub mod mars_mirror;
 pub mod mars_params;

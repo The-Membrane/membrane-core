@@ -29,7 +29,7 @@ use osmosis_std::types::osmosis::gamm::v1beta1::PoolAsset;
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, ADDRESSES, LaunchAddrs};
-use crate::reply::{handle_auction_reply, handle_cdp_reply, handle_create_denom_reply, handle_lq_reply, handle_np_reply, handle_oracle_reply, handle_staking_reply, handle_discount_vault_reply, handle_system_discounts_reply, handle_ltv_disco_reply, handle_transmuter_reply, handle_revenue_distributor_reply, handle_transmuter_lockdrop_reply, handle_yield_arb_reply, handle_mars_vt_reply, handle_points_system_reply, handle_emissions_voting_reply};
+use crate::reply::{handle_auction_reply, handle_cdp_reply, handle_create_denom_reply, handle_lq_reply, handle_np_reply, handle_oracle_reply, handle_staking_reply, handle_discount_vault_reply, handle_system_discounts_reply, handle_ltv_disco_reply, handle_transmuter_reply, handle_revenue_distributor_reply, handle_acquisition_reply, handle_yield_arb_reply, handle_mars_vt_reply, handle_points_system_reply, handle_emissions_voting_reply};
 
 // Contract name and version used for migration.
 const CONTRACT_NAME: &str = "neutron_launch";
@@ -44,7 +44,7 @@ pub const POSITIONS_REPLY_ID: u64 = 6;
 pub const LTV_DISCO_REPLY_ID: u64 = 17;
 pub const TRANSMUTER_REPLY_ID: u64 = 18;
 pub const REVENUE_DISTRIBUTOR_REPLY_ID: u64 = 19;
-pub const TRANSMUTER_LOCKDROP_REPLY_ID: u64 = 20;
+pub const ACQUISITION_REPLY_ID: u64 = 20;
 pub const YIELD_ARB_REPLY_ID: u64 = 21;
 pub const MARS_VT_REPLY_ID: u64 = 22;
 pub const POINTS_SYSTEM_REPLY_ID: u64 = 23;
@@ -97,7 +97,7 @@ pub fn instantiate(
         ltv_disco_id: msg.ltv_disco_id,
         transmuter_id: msg.transmuter_id,
         revenue_distributor_id: msg.revenue_distributor_id,
-        transmuter_lockdrop_id: msg.transmuter_lockdrop_id,
+        acquisition_id: msg.acquisition_id,
         yield_arb_id: msg.yield_arb_id,
         mars_vault_token_id: msg.mars_vault_token_id,
         points_system_id: msg.points_system_id,
@@ -123,7 +123,7 @@ pub fn instantiate(
         ltv_disco: Addr::unchecked(""),
         transmuter: Addr::unchecked(""),
         revenue_distributor: Addr::unchecked(""),
-        transmuter_lockdrop: Addr::unchecked(""),
+        acquisition: Addr::unchecked(""),
         yield_arb: Addr::unchecked(""),
         mars_vault_token: Addr::unchecked(""),
         points_system: Addr::unchecked(""),
@@ -208,7 +208,7 @@ pub fn reply(deps: DepsMut, env: Env, msg: Reply) -> StdResult<Response> {
         LTV_DISCO_REPLY_ID => handle_ltv_disco_reply(deps, env, msg),
         TRANSMUTER_REPLY_ID => handle_transmuter_reply(deps, env, msg),
         REVENUE_DISTRIBUTOR_REPLY_ID => handle_revenue_distributor_reply(deps, env, msg),
-        TRANSMUTER_LOCKDROP_REPLY_ID => handle_transmuter_lockdrop_reply(deps, env, msg),
+        ACQUISITION_REPLY_ID => handle_acquisition_reply(deps, env, msg),
         YIELD_ARB_REPLY_ID => handle_yield_arb_reply(deps, env, msg),
         MARS_VT_REPLY_ID => handle_mars_vt_reply(deps, env, msg),
         POINTS_SYSTEM_REPLY_ID => handle_points_system_reply(deps, env, msg),

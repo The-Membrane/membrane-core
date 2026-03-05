@@ -1,102 +1,78 @@
-use membrane::ltv_disco::{Config, LTVQueue, Dispersal, RevenueTrackingEntry, BackingDeposit, RevenueEvent, UserLifetimeRevenueEntry, TVLEntry, LTVEntry, LockedDeposit, InsuranceEntry};
+use membrane::ltv_disco::{Config, AssetQueue, RevenueTrackingEntry, BackingDeposit, RevenueEvent, UserLifetimeRevenueEntry, TVLEntry, DepositEntry, UnstakeRequest};
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Addr, Uint128, Decimal};
+use cosmwasm_std::{Addr, Uint128};
 use cw_storage_plus::{Item, Map};
 
 
 #[cw_serde]
 pub struct BadDebtPropagation {
-    pub asset: String, 
-    //This is in the denom of the deposit token so if its VTs its VTs, if its CDT its CDT
+    pub asset: String,
     pub amount: Uint128,
 }
 
-#[cw_serde]
-pub struct SwapPropagation {
-    /// CDT balance before swap to calculate swapped amount
-    pub cdt_balance_before: Uint128,
-}
-
 /// State tracking for compound swap operations
-/// 
-/// This struct is saved before initiating a compound swap and loaded in the reply handler
-/// to distribute newly received deposit tokens back to the contributing deposits.
-/// 
-/// # Usage Flow
-/// 1. claim_revenue_for_user saves this with deposit contributions and balance before swap
-/// 2. Swap executes via neutron_proxy (asynchronously)
-/// 3. Reply handler loads this, calculates new tokens, and distributes proportionally
 #[cw_serde]
 pub struct CompoundPropagation {
     /// Deposit keys and their CDT contribution amounts
     /// Format: Vec<(deposit_key_string, cdt_amount)>
-    /// Used to calculate proportional distribution of new deposit tokens
     pub deposit_contributions: Vec<(String, Uint128)>,
-    /// Deposit token balance before swap to calculate new tokens
-    /// CRITICAL: Used to determine how many NEW tokens were received (current - before)
+    /// Deposit token balance before swap
     pub deposit_token_balance_before: Uint128,
-    /// Asset for compound operations (e.g., "uusd")
+    /// Asset for compound operations
     pub asset: String,
 }
 
 pub const CONFIG: Item<Config> = Item::new("config");
-pub const LTV_QUEUES: Map<String, LTVQueue> = Map::new("ltv_queues"); // Asset , LTVQueue
+pub const ASSET_QUEUES: Map<String, AssetQueue> = Map::new("asset_queues");
 pub const OWNERSHIP_TRANSFER: Item<Addr> = Item::new("ownership_transfer");
-pub const DISPERSAL: Map<String, Dispersal> = Map::new("dispersal");
 
-// Revenue tracking: (Asset, MaxLTV, MaxBorrowLTV) -> Vec<RevenueTrackingEntry>
-pub const REVENUE_TRACKING: Map<(String, String, String), Vec<RevenueTrackingEntry>> = Map::new("revenue_tracking");
+// Revenue tracking: (Asset, SlotStr) -> Vec<RevenueTrackingEntry>
+pub const REVENUE_TRACKING: Map<(String, String), Vec<RevenueTrackingEntry>> = Map::new("revenue_tracking_v2");
 
-// Rate assurance: (Asset, MaxLTV, MaxBorrowLTV) -> Uint128 (base tokens per 1 trillion vault tokens)
-pub const RATE_ASSURANCE: Map<(String, String, String), Uint128> = Map::new("rate_assurance");
+// Rate assurance: (Asset, SlotStr) -> Uint128 (base tokens per 1 trillion vault tokens)
+pub const RATE_ASSURANCE: Map<(String, String), Uint128> = Map::new("rate_assurance_v2");
 
-pub const PENDING_BAD_DEBT: Map<String, Uint128> = Map::new("pending_bad_debt"); // Asset , Amount
+pub const PENDING_BAD_DEBT: Map<String, Uint128> = Map::new("pending_bad_debt");
 pub const BAD_DEBT_PROPAGATION: Item<BadDebtPropagation> = Item::new("bad_debt_propagation");
-pub const SWAP_PROPAGATION: Item<SwapPropagation> = Item::new("swap_propagation");
-pub const COMPOUND_PROPAGATION: Item<CompoundPropagation> = Item::new("compound_propagation"); 
+pub const COMPOUND_PROPAGATION: Item<CompoundPropagation> = Item::new("compound_propagation");
 
-// User claimable revenue removed; using event-based claiming
+// Revenue events per slot: (Asset, SlotStr) -> Vec<RevenueEvent>
+pub const REVENUE_EVENTS: Map<(String, String), Vec<RevenueEvent>> = Map::new("revenue_events_v2");
 
-// Revenue events per group: (Asset, MaxLTV, MaxBorrowLTV) -> Vec<RevenueEvent>
-pub const REVENUE_EVENTS: Map<(String, String, String), Vec<RevenueEvent>> = Map::new("revenue_events");
-
-// User lifetime revenue entries (Vec with limit)
+// User lifetime revenue entries
 pub const USER_LIFETIME_REVENUE: Map<(Addr, String), Vec<UserLifetimeRevenueEntry>> = Map::new("user_lifetime_revenue");
 
-// Backing deposits map for O(1) lookup: composite key "asset:ltv:max_borrow_ltv:user"
-pub const BACKING_DEPOSITS: Map<String, BackingDeposit> = Map::new("backing_deposits");
+// Backing deposits: "asset:slot:user:deposit_id" -> BackingDeposit
+pub const BACKING_DEPOSITS: Map<String, BackingDeposit> = Map::new("backing_deposits_v2");
 
-// User deposits index: (User_addr, Asset) -> Vec of deposit keys as strings
-pub const USER_DEPOSITS: Map<(Addr, String), Vec<String>> = Map::new("user_deposits");
+// User deposits index: (User_addr, Asset) -> Vec of deposit keys
+pub const USER_DEPOSITS: Map<(Addr, String), Vec<String>> = Map::new("user_deposits_v2");
 
-// Daily TVL tracker: Vec<TVLEntry> with 100 entry limit and daily granularity
+// Daily TVL tracker
 pub const DAILY_TVL_TRACKER: Item<Vec<TVLEntry>> = Item::new("daily_tvl_tracker");
 
-// Daily LTV tracker per asset: Asset -> Vec<LTVEntry> with 100 entry limit
-pub const DAILY_LTV_TRACKER: Map<String, Vec<LTVEntry>> = Map::new("daily_ltv_tracker");
+// Daily deposit tracker per asset (renamed from insurance tracker)
+pub const DAILY_DEPOSIT_TRACKER: Map<String, Vec<DepositEntry>> = Map::new("daily_deposit_tracker");
 
-// Daily insurance tracker per asset: Asset -> Vec<InsuranceEntry> with 100 entry limit
-pub const DAILY_INSURANCE_TRACKER: Map<String, Vec<InsuranceEntry>> = Map::new("daily_insurance_tracker");
-
-// User total deposits tracker: user address (String) -> total deposits (Uint128).
-// REdundant bc we could add this to USER_DEPOSITS as a new field and then range with a prefix but 
-// we need this to be fast for discount calcs so we aren't overloading the CDP execution costs.
+// User total deposits tracker
 pub const USER_TOTAL_DEPOSITS: Map<String, Uint128> = Map::new("user_total_deposits");
 
-// Locked deposits tracker: user address -> Vec of locked deposits with identifying info
-pub const USER_LOCKED_DEPOSITS: Map<Addr, Vec<LockedDeposit>> = Map::new("user_locked_deposits");
-
-// Manager -> Vec<deposit_key> (only keys, no full deposit info)
-pub const MANAGED_DEPOSITS: Map<Addr, Vec<String>> = Map::new("managed_deposits");
+// Manager -> Vec<deposit_key>
+pub const MANAGED_DEPOSITS: Map<Addr, Vec<String>> = Map::new("managed_deposits_v2");
 
 // Manager -> Decimal (fee percentage)
-pub const MANAGER_FEE: Map<Addr, Decimal> = Map::new("manager_fee");
+pub const MANAGER_FEE: Map<Addr, cosmwasm_std::Decimal> = Map::new("manager_fee");
 
-// ================= Affiliates =================
-/// Affiliates map: user address -> Vec<AffiliateData>
+// Affiliates map: user address -> Vec<AffiliateData>
 pub const AFFILIATES: Map<String, Vec<membrane::types::AffiliateData>> = Map::new("affiliates");
-/// Maximum number of affiliates per user
 pub const AFFILIATE_LIMIT: usize = 10;
+
+// Unstake requests: "asset:slot:user:deposit_id" -> UnstakeRequest
+pub const UNSTAKE_REQUESTS: Map<String, UnstakeRequest> = Map::new("unstake_requests");
+
+// User unstake requests index: (User_addr, Asset) -> Vec of unstake request keys
+pub const USER_UNSTAKE_REQUESTS: Map<(Addr, String), Vec<String>> = Map::new("user_unstake_requests");
+
 
 // Helper functions for managed deposits
 use cosmwasm_std::Storage;
@@ -148,4 +124,3 @@ pub fn update_managed_deposit_key(
     }
     Ok(())
 }
-

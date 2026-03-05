@@ -12,7 +12,7 @@ use osmosis_std::types::osmosis::lockup::{LockupQuerier, AccountLockedLongerDura
 
 use membrane::math::{decimal_division, decimal_multiplication};
 use membrane::system_discounts::{Config, ExecuteMsg, InstantiateMsg, QueryMsg, UpdateConfig, UserDiscountResponse, UserBoostResponse, IntentBoostsResponse, StableBackingDiscountsResponse, MigrateMsg};
-use membrane::transmuter_lockdrop::MbrnIntentOption;
+use membrane::acquisition::MbrnIntentOption;
 use membrane::transmuter::QueryMsg as Transmuter_QueryMsg;
 use membrane::stability_pool::QueryMsg as SP_QueryMsg;
 use membrane::staking::{QueryMsg as Staking_QueryMsg, Config as Staking_Config, StakerResponse, RewardsResponse};
@@ -542,7 +542,7 @@ fn get_intent_boosts(
 
             // Get lock_ceiling based on intent type
             let lock_ceiling = match &intent.intent_type {
-                membrane::transmuter_lockdrop::MbrnIntentType::Stake {} => {
+                membrane::acquisition::MbrnIntentType::Stake {} => {
                     // Query staking contract for lock_duration_ceiling
                     let staking_config = deps.querier.query::<Staking_Config>(&QueryRequest::Wasm(WasmQuery::Smart {
                         contract_addr: config.staking_contract.to_string(),
@@ -550,7 +550,7 @@ fn get_intent_boosts(
                     }))?;
                     staking_config.lock_duration_ceiling
                 }
-                membrane::transmuter_lockdrop::MbrnIntentType::DepositViaMarsMirror { .. } => {
+                membrane::acquisition::MbrnIntentType::DepositViaMarsMirror { .. } => {
                     // Query disco contract for lock_duration_ceiling
                     if let Some(ltv_disco_contract) = config.ltv_disco_contract.clone() {
                         let ltv_disco_config = deps.querier.query::<membrane::ltv_disco::Config>(&QueryRequest::Wasm(WasmQuery::Smart {
@@ -565,7 +565,7 @@ fn get_intent_boosts(
                         return Err(StdError::generic_err("LTV Disco contract not configured"));
                     }
                 }
-                membrane::transmuter_lockdrop::MbrnIntentType::SendToAddress { .. } => {
+                membrane::acquisition::MbrnIntentType::SendToAddress { .. } => {
                     // SendToAddress intents don't support locks
                     // return Err(StdError::generic_err("SendToAddress intents cannot have locks"));
                     // SendToAddress intents don't support locks

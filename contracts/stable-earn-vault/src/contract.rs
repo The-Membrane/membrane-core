@@ -154,7 +154,7 @@ pub fn instantiate(
     //Instantiatoor must send a vault token.
     let cdp_deposit_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
+        msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None, affiliate_address: None, affiliate_label: None })?,
         funds: vec![Coin {
             denom: config.deposit_token.vault_token.clone(),
             amount: Uint128::new(1_000_000_000_000),
@@ -2121,9 +2121,11 @@ fn handle_loop_reply(
             //Create deposit msg
             let cdp_deposit_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.cdp_contract_addr.to_string(),
-                msg: to_json_binary(&CDP_ExecuteMsg::Deposit { 
+                msg: to_json_binary(&CDP_ExecuteMsg::Deposit {
                     position_id: Some(config.cdp_position_id),
                     position_owner: None,
+                    affiliate_address: None,
+                    affiliate_label: None,
                 })?,
                 funds: vec![
                     Coin {
@@ -2162,7 +2164,7 @@ fn handle_close_reply(
 
             let cdp_deposit_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.cdp_contract_addr.to_string(),
-                msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
+                msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None, affiliate_address: None, affiliate_label: None })?,
                 funds: vec![Coin {
                     denom: config.deposit_token.vault_token.clone(),
                     amount: vt_balance,
@@ -2249,9 +2251,11 @@ fn handle_enter_reply(
             if !vt_sent_to_cdp.is_zero() {
                 let send_deposit_to_yield_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
                     contract_addr: config.cdp_contract_addr.to_string(),
-                    msg: to_json_binary(&CDP_ExecuteMsg::Deposit { 
+                    msg: to_json_binary(&CDP_ExecuteMsg::Deposit {
                         position_id: Some(config.cdp_position_id),
                         position_owner: None,
+                        affiliate_address: None,
+                        affiliate_label: None,
                     })?,
                     funds: vec![Coin {
                         denom: config.deposit_token.clone().vault_token,

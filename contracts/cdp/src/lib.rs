@@ -15,7 +15,6 @@ pub mod state;
 pub mod reply;
 pub mod rates;
 pub mod risk_engine;
-pub mod ltv_updater;
 pub mod circuit_breaker;
 pub mod debt_manager;
 

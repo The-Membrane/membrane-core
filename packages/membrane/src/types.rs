@@ -605,6 +605,10 @@ pub struct Rates {
     pub cpc_margin_of_error: Decimal,
     /// Toggle to allow negative redemption rates
     pub negative_rates: bool,
+    /// Acquisition bump rate set by the acquisition contract.
+    /// Applied ONLY to peg (USDC) debt as: peg_rate = base_rate + acquisition_bump_rate * (1/max_LTV).
+    /// Regular (CDT) debt is NOT affected by this bump.
+    pub acquisition_bump_rate: Decimal,
 }
 
 /// For splitting debt increases/repayments across rate segments
@@ -931,6 +935,18 @@ pub struct FeeAuction {
     pub auction_start_time: u64,
     /// Per-asset distribution (passed to Disco when MBRN swap completes)
     pub per_asset_distribution: Option<Vec<Asset>>,
+}
+
+#[cw_serde]
+pub struct MBRNSale {
+    /// CDT cap (total bad debt to cover)
+    pub max_cdt: Uint128,
+    /// CDT collected so far
+    pub cdt_fulfilled: Uint128,
+    /// Auction start time (for discount calculation)
+    pub auction_start_time: u64,
+    /// Address that holds the MBRN (ltv_disco)
+    pub supplier: Addr,
 }
 
 #[cw_serde]

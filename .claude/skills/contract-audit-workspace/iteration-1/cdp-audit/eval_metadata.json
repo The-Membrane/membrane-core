@@ -1,0 +1,16 @@
+{
+  "eval_id": 0,
+  "eval_name": "cdp-audit",
+  "prompt": "Audit the CDP contract at /Users/EBmic/membrane-core/contracts/cdp/ for security vulnerabilities. This is a lending/CDP protocol that manages collateralized debt positions — deposits, withdrawals, debt minting, liquidations, and interest accrual. Focus on the highest-priority vulnerability classes: access control, liquidation logic, oracle usage, and arithmetic safety. Produce a structured security report with severity classifications.",
+  "assertions": [
+    {"name": "has-structured-report", "description": "Output follows a structured report format with headers, severity levels, and locations"},
+    {"name": "has-severity-classifications", "description": "Each finding has a severity level (Critical/Major/Minor/Informational)"},
+    {"name": "has-code-locations", "description": "Findings reference specific file paths and line numbers or function names"},
+    {"name": "has-fix-recommendations", "description": "Findings include actionable fix recommendations, not just problem descriptions"},
+    {"name": "has-executive-summary", "description": "Report includes a summary overview of total findings by severity"},
+    {"name": "identifies-liquidation-logic", "description": "Analyzes liquidation flow for asset preservation, bypass vectors, or reentrancy risks"},
+    {"name": "checks-access-control", "description": "Reviews execute functions for missing or insufficient sender/caller checks"},
+    {"name": "analyzes-oracle-usage", "description": "Examines how prices are queried, validated, and whether TWAP vs spot is used correctly"},
+    {"name": "checks-bad-debt-handling", "description": "Reviews how protocol tracks and manages underwater/undercollateralized positions"}
+  ]
+}

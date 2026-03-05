@@ -29,7 +29,7 @@ pub struct InstantiateMsg {
     /// Revenue Distributor contract id
     pub revenue_distributor_id: u64,
     /// Transmuter Lockdrop contract id
-    pub transmuter_lockdrop_id: u64,
+    pub acquisition_id: u64,
     /// Yield Arb contract id
     pub yield_arb_id: u64,
     /// Mars Vault Token contract id
@@ -105,7 +105,7 @@ pub struct Config {
     /// Revenue Distributor contract id
     pub revenue_distributor_id: u64,
     /// Transmuter Lockdrop contract id
-    pub transmuter_lockdrop_id: u64,
+    pub acquisition_id: u64,
     /// Yield Arb contract id
     pub yield_arb_id: u64,
     /// Mars Vault Token contract id

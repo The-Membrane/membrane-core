@@ -1,0 +1,16 @@
+{
+  "eval_id": 1,
+  "eval_name": "staking-audit",
+  "prompt": "Audit the staking contract at /Users/EBmic/membrane-core/contracts/staking/ for security vulnerabilities. This contract manages MBRN token staking with governance delegation, revenue distribution, lock mechanisms, and affiliate fee tracking. Focus on reward distribution bugs, unbounded iterations, duplicate claim vectors, and access control. Produce a structured security report.",
+  "assertions": [
+    {"name": "has-structured-report", "description": "Output follows a structured report format with headers, severity levels, and locations"},
+    {"name": "has-severity-classifications", "description": "Each finding has a severity level (Critical/Major/Minor/Informational)"},
+    {"name": "has-code-locations", "description": "Findings reference specific file paths and line numbers or function names"},
+    {"name": "has-fix-recommendations", "description": "Findings include actionable fix recommendations"},
+    {"name": "has-executive-summary", "description": "Report includes a summary overview of total findings by severity"},
+    {"name": "identifies-unbounded-loops", "description": "Flags loops over collections that could grow without size limits"},
+    {"name": "checks-reward-distribution", "description": "Analyzes reward calculation and distribution logic for correctness"},
+    {"name": "checks-duplicate-claims", "description": "Looks for Vec parameters without deduplication in claim/batch functions"},
+    {"name": "reviews-delegation-access", "description": "Checks delegation and governance function authorization"}
+  ]
+}

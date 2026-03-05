@@ -36,6 +36,7 @@ pub mod tests {
             position_owner: Some(user_addr.to_string()),
             position_id: None,
             affiliate_address: None,
+            affiliate_label: None,
         };
         let cosmos_msg = cdp_contract
             .call(

@@ -12,10 +12,10 @@ use membrane::math::{decimal_division, decimal_multiplication, decimal_subtracti
 use membrane::system_discounts::{QueryMsg as DiscountQueryMsg, UserDiscountResponse, StableBackingDiscountsResponse};
 use membrane::types::{cAsset, IRMConfig, Asset, AssetInfo, Basket, CreditAssetBreakdown, FixedRate, FixedRateCap, FixedRateCaps, FixedRateEnd, Position, Rate, Rates, RateSegment, SupplyCap};
 
-use membrane::ltv_disco::{QueryMsg as LTVDiscoQueryMsg, LTVQueueResponse as LTVDiscoQueueResponse};
+use membrane::ltv_disco::{QueryMsg as LTVDiscoQueryMsg, AssetQueueResponse as LTVDiscoQueueResponse};
 
 use crate::query::{
-    get_asset_values, get_cAsset_ratios, query_ltv_disco_for_asset_ltvs, VOLATILITY_LIST_LIMIT,
+    get_asset_values, get_cAsset_ratios, VOLATILITY_LIST_LIMIT,
 };
 use crate::state::{get_target_position, update_position, update_historical_interest_rates, BASKET, CONFIG, RATES, VOLATILITY};
 use crate::ContractError;
@@ -232,7 +232,7 @@ fn get_asset_total_deposits(
     // Query all queues at once
     let disco_response: Result<LTVDiscoQueueResponse, _> = querier.query_wasm_smart(
         ltv_disco_addr.to_string(),
-        &LTVDiscoQueryMsg::GetLTVQueue {
+        &LTVDiscoQueryMsg::GetAssetQueue {
             assets: asset_strings.clone(),
             limit: None,
             start_after: None,
@@ -255,8 +255,7 @@ fn get_asset_total_deposits(
                     let total: Uint128 = queue
                         .slots
                         .iter()
-                        .flat_map(|slot| &slot.deposit_groups)
-                        .map(|group| group.total_deposit_tokens)
+                        .map(|slot| slot.total_deposit_tokens)
                         .sum();
                     if total.is_zero() { None } else { Some(total) }
                 })
@@ -276,17 +275,6 @@ pub fn external_accrue_call(
     position_ids: Vec<Uint128>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(storage)?;
-
-    // Update basket LTVs before position accrual
-    // This ensures positions use the most up-to-date LTVs
-    let _ltv_response = crate::ltv_updater::update_basket_ltvs(
-        cosmwasm_std::DepsMut {
-            storage,
-            api,
-            querier,
-        },
-        env.clone(),
-    )?;
 
     let mut basket = BASKET.load(storage)?;
 
@@ -422,10 +410,23 @@ pub fn update_rate_indices(
         }
     }
 
-    // Accumulate rate on each rate_index
+    // Apply acquisition bump rate to smoothed rates before accumulation.
+    // For each asset: effective_rate = smoothed_rate + (acquisition_bump_rate * max_LTV)
+    let mut effective_rates = smoothed_rates.clone();
+    if !rates.acquisition_bump_rate.is_zero() {
+        for (i, basket_asset) in basket.collateral_types.iter().enumerate() {
+            let bump_for_asset = decimal_multiplication(
+                rates.acquisition_bump_rate,
+                basket_asset.max_LTV,
+            )?;
+            effective_rates[i] = effective_rates[i] + bump_for_asset;
+        }
+    }
+
+    // Accumulate rate on each rate_index (using effective rates that include acquisition bump)
     for (i, basket_asset) in basket.collateral_types.clone().into_iter().enumerate() {
         let accrued_rate =
-            accumulate_interest_dec(basket_asset.rate_index, smoothed_rates[i], time_elapsed)?;
+            accumulate_interest_dec(basket_asset.rate_index, effective_rates[i], time_elapsed)?;
         basket.collateral_types[i].rate_index += accrued_rate;
     }
 
@@ -433,7 +434,7 @@ pub fn update_rate_indices(
     // NOTE: We don't use rates to give our transmuter 'lenders' liquidity,
     // we will enact new acquisition lockdrops instead.
     // Peg debt rates mirror regular debt rates for simplicity.
-    let peg_rates: Vec<Decimal> = smoothed_rates.clone();
+    let peg_rates: Vec<Decimal> = effective_rates.clone();
 
     // Update peg_current_adaptive_rate to match regular current_adaptive_rate
     for (i, _asset) in basket.collateral_types.iter().enumerate() {
@@ -477,12 +478,10 @@ pub fn get_interest_rates(
 ) -> StdResult<Vec<Decimal>> {
     let config = CONFIG.load(storage)?;
 
-    // Query ltv_disco for LTVs
-    let ltv_tuples = query_ltv_disco_for_asset_ltvs(
-        querier,
-        config.ltv_disco.clone(),
-        basket.clone().collateral_types.clone(),
-    )?;
+    // Use stored basket LTV values (static, governance-only)
+    let ltv_tuples: Vec<(Decimal, Decimal)> = basket.collateral_types.iter()
+        .map(|a| (a.max_LTV, a.max_borrow_LTV))
+        .collect();
 
     // Get TVL ratios: either passed in or calculate them
     let tvl_ratios: Vec<Decimal> = match cAsset_ratios {

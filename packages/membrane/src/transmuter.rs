@@ -32,7 +32,7 @@ pub struct InstantiateMsg {
     pub composition_leeway: Decimal,
     pub cdt_target_ratio: Decimal, //probably set to 0%, which means no CDT needed.
     pub usage_fee: Option<Decimal>,
-    /// Paired asset utilization threshold at which usage_fee activates (default 90%)
+    /// Paired asset utilization threshold at which usage_fee activates (default 80%)
     pub usage_fee_utilization_threshold: Option<Decimal>,
     pub swap_history_cap: u32,
     pub volume_history_cap: u32,
@@ -62,6 +62,10 @@ pub struct InstantiateMsg {
     pub revenue_distributor_fee_percentage: Option<Decimal>,
     /// Optional emissions voting contract address
     pub emissions_voting_contract: Option<String>,
+    /// Optional acquisition (acquisition) contract address for utilization notifications
+    pub acquisition_contract: Option<String>,
+    /// Optional points system contract address for awarding points
+    pub points_system_contract: Option<String>,
 }
 
 #[cw_serde]
@@ -105,6 +109,10 @@ pub enum ExecuteMsg {
         revenue_distributor_fee_percentage: Option<Decimal>,
         /// Optional emissions voting contract address
         emissions_voting_contract: Option<String>,
+        /// Optional acquisition (acquisition) contract address for utilization notifications
+        acquisition_contract: Option<String>,
+        /// Optional points system contract address for awarding points
+        points_system_contract: Option<String>,
     },
     EnterVault {
         recipient: Option<String>,
@@ -112,6 +120,8 @@ pub enum ExecuteMsg {
         lock_days: Option<u64>,
         /// Optional affiliate address to set when depositing
         affiliate_address: Option<String>,
+        /// Optional label for affiliate campaign tracking
+        affiliate_label: Option<String>,
     },
     DepositFee {},
     ExitVault {
@@ -197,6 +207,8 @@ pub enum QueryMsg {
     CurrentDepositId { user: String },
     /// Get deposit by ID for a user
     DepositById { user: String, deposit_id: Uint128 },
+    /// Get the underlying value for a given vault token amount (standard vault interface)
+    VaultTokenUnderlying { vault_token_amount: Uint128 },
 }
 
 #[cw_serde]
@@ -248,6 +260,10 @@ pub struct Config {
     pub revenue_distributor_fee_percentage: Decimal,
     /// Optional emissions voting contract address
     pub emissions_voting_contract: Option<Addr>,
+    /// Optional acquisition (acquisition) contract address for utilization notifications
+    pub acquisition_contract: Option<Addr>,
+    /// Optional points system contract address for awarding points
+    pub points_system_contract: Option<Addr>,
 }
 
 

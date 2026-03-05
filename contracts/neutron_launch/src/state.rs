@@ -20,7 +20,7 @@ pub struct LaunchAddrs {
     pub ltv_disco: Addr,
     pub transmuter: Addr,
     pub revenue_distributor: Addr,
-    pub transmuter_lockdrop: Addr,
+    pub acquisition: Addr,
     pub yield_arb: Addr,
     pub mars_vault_token: Addr,
     pub points_system: Addr,

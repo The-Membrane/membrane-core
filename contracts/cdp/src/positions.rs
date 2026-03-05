@@ -65,6 +65,7 @@ pub fn deposit(
     position_id: Option<Uint128>,
     cAssets: Vec<cAsset>,
     affiliate_address: Option<String>,
+    affiliate_label: Option<String>,
 ) -> Result<Response, ContractError> {    
     let config = CONFIG.load(deps.storage)?;
     let valid_owner_addr = validate_position_owner(deps.api, info.clone(), position_owner)?;
@@ -248,7 +249,7 @@ pub fn deposit(
                 affiliate_address: affiliate_addr.clone(),
                 affiliate_fee,
                 time_affiliated: env.block.time.seconds(),
-                label: None,
+                label: affiliate_label,
             });
             
             AFFILIATES.save(deps.storage, position_info.position_id.to_string(), &affiliates)?;
@@ -1486,14 +1487,31 @@ pub fn increase_debt(
         &position_owner,
     )?;
 
-    //Update Supply caps if this is the first debt taken out
+    //Update Supply caps: first mint adds to tally + checks, subsequent mints check only
     if prev_credit_amount.is_zero() {
+        // First mint - add collateral to tally AND check caps
         update_basket_tally(
-            deps.storage, 
-            deps.querier, 
-            env.clone(), 
-            &mut basket, 
+            deps.storage,
+            deps.querier,
+            env.clone(),
+            &mut basket,
             target_position.collateral_assets.clone(),
+            target_position.clone().collateral_assets,
+            true,
+            config.clone(),
+            false,
+        )?;
+    } else {
+        // Subsequent mints - check caps only (zero amounts don't modify tally)
+        let check_assets: Vec<cAsset> = target_position.collateral_assets.iter().map(|a| {
+            cAsset { asset: Asset { amount: Uint128::zero(), ..a.asset.clone() }, ..a.clone() }
+        }).collect();
+        update_basket_tally(
+            deps.storage,
+            deps.querier,
+            env.clone(),
+            &mut basket,
+            check_assets,
             target_position.clone().collateral_assets,
             true,
             config.clone(),
@@ -2900,7 +2918,7 @@ END REDEMPTION LOGIC COMMENTED OUT */
         collateral_supply_caps.push(SupplyCap {
             asset_info: asset.clone().asset.info,
             current_supply: Uint128::zero(),
-            supply_cap_ratio: Decimal::zero(),
+            supply_cap_ratio: Decimal::one(),
             debt_total: Uint128::zero(),
             lp,
             stability_pool_ratio_for_debt_cap: None,
@@ -2972,6 +2990,7 @@ END REDEMPTION LOGIC COMMENTED OUT */
         credit_last_accrued: env.block.time.seconds(),
         cpc_margin_of_error: Decimal::one(),
         negative_rates: true,
+        acquisition_bump_rate: Decimal::zero(),
     };
 
     //Denom check
@@ -3286,7 +3305,7 @@ pub fn edit_basket(
         basket.collateral_supply_caps.push(SupplyCap {
             asset_info: new_cAsset.clone().asset.info,
             current_supply: Uint128::zero(),
-            supply_cap_ratio: Decimal::zero(),
+            supply_cap_ratio: Decimal::one(),
             debt_total: Uint128::zero(),
             lp,
             stability_pool_ratio_for_debt_cap: None,

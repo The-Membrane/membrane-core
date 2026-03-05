@@ -70,6 +70,7 @@ fn test_early_withdrawal_transmuter_half_fulfilled() {
         recipient: None, 
         lock_days: Some(100),
         affiliate_address: None,
+        affiliate_label: None,
     };
     let result = execute(deps.as_mut(), env.clone(), info, msg);
     if let Err(e) = &result {
@@ -137,6 +138,7 @@ fn test_early_withdrawal_transmuter_after_expiration() {
         recipient: None, 
         lock_days: Some(100),
         affiliate_address: None,
+        affiliate_label: None,
     };
     execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     
@@ -202,6 +204,7 @@ fn test_unlock_partial_amount() {
         recipient: None, 
         lock_days: Some(100),
         affiliate_address: None,
+        affiliate_label: None,
     };
     execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     
@@ -262,6 +265,7 @@ fn test_unlock_fee_accumulation() {
         recipient: None, 
         lock_days: Some(100),
         affiliate_address: None,
+        affiliate_label: None,
     };
     execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     
@@ -300,6 +304,7 @@ fn test_unlock_fee_accumulation() {
         recipient: None, 
         lock_days: Some(100),
         affiliate_address: None,
+        affiliate_label: None,
     };
     execute(deps.as_mut(), env.clone(), info, msg).unwrap();
     

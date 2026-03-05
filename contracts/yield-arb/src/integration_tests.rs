@@ -166,7 +166,7 @@ fn mock_cdp_execute(
     msg: membrane::cdp::ExecuteMsg,
 ) -> StdResult<Response> {
     match msg {
-        membrane::cdp::ExecuteMsg::Deposit { position_id, position_owner, affiliate_address } => {
+        membrane::cdp::ExecuteMsg::Deposit { position_id, position_owner, affiliate_address, affiliate_label } => {
             // Simulate marsUSDC deposit into CDP position
             let mars_usdc_amount = info.funds.iter().find(|c| c.denom == "mars_usdc").map(|c| c.amount).unwrap_or(Uint128::zero());
             

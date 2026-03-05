@@ -74,7 +74,7 @@ fn enter_vault_with_incentive_toggle_tracks_user_vt() {
         deps.as_mut(),
         env.clone(),
         info,
-        TExecute::EnterVault { recipient: None, lock_days: None, affiliate_address: None }
+        TExecute::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None }
     ).unwrap();
     println!("res: {:?}", res.messages.len());
     // mint to contract and NO send to user
@@ -645,7 +645,7 @@ fn rate_limit_blocks_when_threshold_exceeded_and_nets_flows() {
     app.execute_contract(
         admin_addr.clone(),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None },
+        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -702,7 +702,7 @@ fn allowlist_uses_higher_threshold() {
     app.execute_contract(
         admin_addr.clone(),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None },
+        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -802,7 +802,7 @@ fn window_expiry_unblocks_usage() {
     ).unwrap();
 
     // Deposits only (no extra liquidity that would inflate threshold)
-    app.execute_contract(admin_addr.clone(), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None }, &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)]).unwrap();
+    app.execute_contract(admin_addr.clone(), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None }, &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)]).unwrap();
 
     // Add several entries spreading over time
     app.execute_contract(user_addr.clone(), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(4_000, ASSET_B)).unwrap();
@@ -877,7 +877,7 @@ fn usage_fee_applied_for_non_cdp_and_non_deployable() {
     app.execute_contract(
         admin_addr.clone(),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None },
+        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -1009,7 +1009,7 @@ fn paired_asset_outstanding_tracks_allowlisted_flows() {
     ).unwrap();
 
     // Seed enough cdt so CDT->USDC can be paid out
-    app.execute_contract(admin_addr.clone(), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None }, &[coin(50_000, ASSET_A), coin(50_000, ASSET_B)]).unwrap();
+    app.execute_contract(admin_addr.clone(), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None }, &[coin(50_000, ASSET_A), coin(50_000, ASSET_B)]).unwrap();
 
     // CDT->paired_asset is now CDP-only, so deployed tracking only applies to CDP.
     // CDP is not a deployment venue, so deployed counter won't increment from CDP swaps.
@@ -1053,7 +1053,7 @@ fn effective_target_reflects_deployed_value_and_bounds() {
     assert_eq!(eff0.target, Decimal::percent(50));
 
     // Add deposits 100k cdt + 100k paired, no deployed yet -> target stays 50%
-    app.execute_contract(admin_addr.clone(), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None }, &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)]).unwrap();
+    app.execute_contract(admin_addr.clone(), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None }, &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)]).unwrap();
     let eff1: membrane::transmuter::EffectiveTargetResponse = app
         .wrap()
         .query_wasm_smart(&contract, &QueryMsg::EffectiveTarget {})
@@ -1096,7 +1096,7 @@ fn effective_target_reflects_deployed_value_and_bounds() {
     // Ensure contract has paired_asset liquidity for payouts
     // Need to deposit both assets aligned with target ratio (50% CDT, 50% paired)
     // For 20k paired asset, need ~20k CDT to maintain 50/50 ratio
-    app.execute_contract(admin_addr.clone(), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None }, &[coin(20_000, ASSET_A), coin(20_000, ASSET_B)]).unwrap();
+    app.execute_contract(admin_addr.clone(), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None }, &[coin(20_000, ASSET_A), coin(20_000, ASSET_B)]).unwrap();
 
     // CDT→paired_asset is CDP-only; CDP is not a deployment venue so deployed counter stays 0
     app.send_tokens(admin_addr.clone(), cdp_addr.clone(), &coins(200_000, ASSET_A)).unwrap();
@@ -1117,7 +1117,7 @@ fn effective_target_reflects_deployed_value_and_bounds() {
     let revenue_distributor_addr = config_before.revenue_distributor_addr.clone().unwrap();
     let rd_addr_parsed = Addr::unchecked(&revenue_distributor_addr);
     app.send_tokens(admin_addr.clone(), rd_addr_parsed.clone(), &coins(200_000, ASSET_B)).unwrap();
-    app.execute_contract(rd_addr_parsed.clone(), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None }, &[coin(0, ASSET_A), coin(200_000, ASSET_B)]).unwrap();
+    app.execute_contract(rd_addr_parsed.clone(), contract.clone(), &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None }, &[coin(0, ASSET_A), coin(200_000, ASSET_B)]).unwrap();
     app.execute_contract(cdp_addr.clone(), contract.clone(), &ExecuteMsg::Transmute { recipient: None }, &coins(120_000, ASSET_A)).unwrap();
 
     // Total deposits base = (100k + 0) + (100k + 220k converted to base 1:1) = 420k; deployed ~130k (prev 10k + 120k)
@@ -1290,7 +1290,7 @@ fn enter_vault_mints_tokens_and_updates_state() {
     app.execute_contract(
         user_addr.clone(),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None },
+        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None },
         &[coin(USER_DEPOSIT, ASSET_A), coin(USER_DEPOSIT, ASSET_B)],
     )
     .unwrap();
@@ -1326,7 +1326,7 @@ fn exit_vault_withdraws_proportional_assets() {
     app.execute_contract(
         user_addr.clone(),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None },
+        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None },
         &[coin(USER_DEPOSIT, ASSET_A), coin(USER_DEPOSIT, ASSET_B)],
     )
     .unwrap();
@@ -1457,7 +1457,7 @@ fn volume_window_updates_and_resets() {
     app.execute_contract(
         admin_addr.clone(),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None },
+        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None },
         &[coin(200_000, ASSET_A), coin(200_000, ASSET_B)],
     )
     .unwrap();
@@ -1519,7 +1519,7 @@ fn global_rate_limit_blocks_when_threshold_exceeded() {
     app.execute_contract(
         admin_addr.clone(),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None },
+        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -1570,7 +1570,7 @@ fn global_rate_limit_nets_flows_correctly() {
     app.execute_contract(
         admin_addr.clone(),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None },
+        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -1636,7 +1636,7 @@ fn global_rate_limit_whitelisted_addresses_bypass() {
     app.execute_contract(
         admin_addr.clone(),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None },
+        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -1703,7 +1703,7 @@ fn global_rate_limit_separate_window_from_per_address() {
     app.execute_contract(
         admin_addr.clone(),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None },
+        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -1914,7 +1914,7 @@ fn global_rate_limit_dual_enforcement() {
     app.execute_contract(
         admin_addr.clone(),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None },
+        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -2008,7 +2008,7 @@ fn claim_incentives_applies_boost_attribute() {
     app.execute_contract(
         user_addr.clone(),
         contract.clone(),
-        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None },
+        &ExecuteMsg::EnterVault { recipient: None, lock_days: None, affiliate_address: None, affiliate_label: None },
         &[coin(100_000, ASSET_A), coin(100_000, ASSET_B)],
     ).unwrap();
 
@@ -2086,6 +2086,7 @@ fn test_enter_vault_with_lock_stores_in_user_deposits() {
             recipient: None,
             lock_days: Some(100),
             affiliate_address: None,
+            affiliate_label: None,
         },
         &coins(USER_DEPOSIT, ASSET_A),
     )
@@ -2120,6 +2121,7 @@ fn test_enter_vault_without_lock_stores_in_user_deposits() {
             recipient: None,
             lock_days: None,
             affiliate_address: None,
+            affiliate_label: None,
         },
         &coins(USER_DEPOSIT, ASSET_A),
     )
@@ -2151,6 +2153,7 @@ fn test_lock_vault_tokens_post_deposit() {
             recipient: None,
             lock_days: None,
             affiliate_address: None,
+            affiliate_label: None,
         },
         &coins(USER_DEPOSIT, ASSET_A),
     )
@@ -2210,6 +2213,7 @@ fn test_query_locked_vault_tokens_from_user_deposits() {
             recipient: None,
             lock_days: Some(100),
             affiliate_address: None,
+            affiliate_label: None,
         },
         &coins(USER_DEPOSIT, ASSET_A),
     )
@@ -2240,6 +2244,7 @@ fn test_unlock_expired_lock_from_user_deposits() {
             recipient: None,
             lock_days: Some(10),
             affiliate_address: None,
+            affiliate_label: None,
         },
         &coins(USER_DEPOSIT, ASSET_A),
     )
@@ -2292,6 +2297,7 @@ fn test_unlock_early_withdrawal_from_user_deposits() {
             recipient: None,
             lock_days: Some(100),
             affiliate_address: None,
+            affiliate_label: None,
         },
         &coins(USER_DEPOSIT, ASSET_A),
     )
@@ -2357,6 +2363,7 @@ fn test_partial_unlock_from_user_deposits() {
             recipient: None,
             lock_days: Some(100),
             affiliate_address: None,
+            affiliate_label: None,
         },
         &coins(USER_DEPOSIT, ASSET_A),
     )
@@ -2439,6 +2446,7 @@ fn test_lock_vault_tokens_validation() {
             recipient: None,
             lock_days: None,
             affiliate_address: None,
+            affiliate_label: None,
         },
         &coins(1000, ASSET_A),
     )
@@ -2494,6 +2502,7 @@ fn test_multiple_locks_and_unlocks() {
             recipient: None,
             lock_days: None,
             affiliate_address: None,
+            affiliate_label: None,
         },
         &coins(USER_DEPOSIT, ASSET_A),
     )

@@ -55,12 +55,14 @@ pub enum ExecuteMsg {
     Deposit {
         /// Position ID to deposit into.
         /// If the user wants to create a new/separate position, no position id is passed.
-        position_id: Option<Uint128>, 
+        position_id: Option<Uint128>,
         /// Position owner.
         /// Defaults to the sender.
         position_owner: Option<String>,
         /// Optional affiliate address to set when depositing
         affiliate_address: Option<String>,
+        /// Optional label for affiliate campaign tracking
+        affiliate_label: Option<String>,
     },
     /// Increase debt of a Position
     IncreaseDebt {
@@ -164,9 +166,6 @@ pub enum ExecuteMsg {
         venue_address: String,
         initial_deployed_debt_amount: Option<Uint128>,
     },
-    /// Update basket LTVs based on Disco averages
-    /// Permissionless - can be called by anyone
-    UpdateBasketLTVs {},
     /// Edit the contract's Basket
     EditBasket(EditBasket),
     /// Edit a cAsset in the contract's Basket
@@ -215,6 +214,12 @@ pub enum ExecuteMsg {
         position_owner: String,
         /// Position ID
         position_id: Uint128,
+    },
+    /// Set the acquisition bump rate from the acquisition contract.
+    /// Only callable by the configured acquisition_contract.
+    /// CDP applies: effective_rate += acquisition_bump_rate * position max_LTV
+    SetAcquisitionBumpRate {
+        rate: Decimal,
     },
     //Callbacks; Only callable by the contract
     Callback(CallbackMsg),
@@ -322,22 +327,6 @@ pub enum QueryMsg {
         /// Asset to query historical rates for
         asset: String,
     },
-    /// Returns historical LTV snapshots for an asset
-    GetHistoricalLTV {
-        /// Asset denom to query
-        asset_denom: String,
-        /// Start time (Unix timestamp)
-        start_time: Option<u64>,
-        /// End time (Unix timestamp)
-        end_time: Option<u64>,
-        /// Maximum number of snapshots to return
-        limit: Option<u32>,
-    },
-    /// Returns current LTV shift schedule information for an asset
-    GetLTVShiftInfo {
-        /// Asset denom to query
-        asset_denom: String,
-    },
     /// Returns the Rates store
     GetRates {},
     /// Simulate liquidation market sales to estimate slippage cost
@@ -430,18 +419,14 @@ pub struct Config {
     pub skip_credit_price_accrual: bool,
     /// Maximum number of liquidation stats stored
     pub liquidation_stat_limit: u64,
-    /// Proportional gain for upward LTV accrual (e.g., 0.05 = 5% of error per day)
-    pub ltv_upward_kp: Decimal,
-    /// Period for downward LTV shifts in seconds (e.g., 604800 = 1 week)
-    pub ltv_downward_period: u64,
-    /// Max downward shift per period as percentage (e.g., 0.05 = 5%)
-    pub ltv_max_downward_shift: Decimal,
     /// Transmuter contract address for peg_debt swaps
     pub transmuter_addr: Option<Addr>,
     /// AdaptiveCurveIRM configuration (Morpho-inspired)
     pub irm_config: IRMConfig,
     /// Points contract address for management points
     pub points_contract: Option<Addr>,
+    /// Acquisition (acquisition) contract address for SetAcquisitionBumpRate authorization
+    pub acquisition_contract: Option<Addr>,
 }
 
 
@@ -515,18 +500,14 @@ pub struct UpdateConfig {
     pub skip_credit_price_accrual: Option<bool>,
     /// Maximum number of liquidation stats stored
     pub liquidation_stat_limit: Option<u64>,
-    /// Proportional gain for upward LTV accrual
-    pub ltv_upward_kp: Option<Decimal>,
-    /// Period for downward LTV shifts in seconds
-    pub ltv_downward_period: Option<u64>,
-    /// Max downward shift per period as percentage
-    pub ltv_max_downward_shift: Option<Decimal>,
     /// Transmuter contract address for peg_debt swaps
     pub transmuter_addr: Option<String>,
     /// AdaptiveCurveIRM configuration (Morpho-inspired)
     pub irm_config: Option<IRMConfig>,
     /// Points contract address for management points
     pub points_contract: Option<String>,
+    /// Acquisition (acquisition) contract address
+    pub acquisition_contract: Option<String>,
 }
 
 #[cw_serde]
@@ -634,23 +615,6 @@ impl UpdateConfig {
         if let Some(liquidation_stat_limit) = self.liquidation_stat_limit {
             config.liquidation_stat_limit = liquidation_stat_limit;
         }
-        if let Some(ltv_upward_kp) = self.ltv_upward_kp {
-            //Enforce 0-100% range (realistically should be much lower, like 0-20%)
-            if ltv_upward_kp > Decimal::percent(100) || ltv_upward_kp < Decimal::zero() {
-                return Err(StdError::generic_err(String::from("LTV upward Kp must be between 0-100%")));
-            }
-            config.ltv_upward_kp = ltv_upward_kp;
-        }
-        if let Some(ltv_downward_period) = self.ltv_downward_period {
-            config.ltv_downward_period = ltv_downward_period;
-        }
-        if let Some(ltv_max_downward_shift) = self.ltv_max_downward_shift {
-            //Enforce 0-100% range
-            if ltv_max_downward_shift > Decimal::percent(100) || ltv_max_downward_shift < Decimal::zero() {
-                return Err(StdError::generic_err(String::from("LTV max downward shift must be between 0-100%")));
-            }
-            config.ltv_max_downward_shift = ltv_max_downward_shift;
-        }
         if let Some(transmuter_addr) = self.transmuter_addr {
             config.transmuter_addr = Some(api.addr_validate(&transmuter_addr)?);
         }
@@ -659,6 +623,9 @@ impl UpdateConfig {
         }
         if let Some(points_contract) = self.points_contract {
             config.points_contract = Some(api.addr_validate(&points_contract)?);
+        }
+        if let Some(acquisition_contract) = self.acquisition_contract {
+            config.acquisition_contract = Some(api.addr_validate(&acquisition_contract)?);
         }
         Ok(())
     }
@@ -879,23 +846,4 @@ pub struct RateTimestamp {
     pub timestamp: u64,
 }
 
-#[cw_serde]
-pub struct HistoricalLTVResponse {
-    pub asset_denom: String,
-    pub snapshots: Vec<LTVSnapshot>,
-}
-
-#[cw_serde]
-pub struct LTVSnapshot {
-    pub timestamp: u64,
-    pub max_ltv: Decimal,
-    pub max_borrow_ltv: Decimal,
-}
-
-#[cw_serde]
-pub struct LTVShiftInfoResponse {
-    pub current_shift_number: u64,
-    pub next_shift_time: u64,
-    pub time_until_shift: u64,
-}
 

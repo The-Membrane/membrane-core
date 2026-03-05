@@ -43,6 +43,8 @@ mod tests {
                     msg: to_binary(&CDP_ExecuteMsg::Deposit {
                         position_id: None,
                         position_owner: None,
+                        affiliate_address: None,
+                        affiliate_label: None,
                     })
                     .unwrap(),
                     funds: vec![coin(1_000, "debit")],

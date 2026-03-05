@@ -127,6 +127,9 @@ pub fn execute(
         ExecuteMsg::GivePointsForManagerFee { manager, fee_amount } => {
             give_points_for_manager_fee(deps, env, info, manager, fee_amount)
         }
+        ExecuteMsg::CheckTransmuterYield { user } => {
+            check_transmuter_yield(deps, env, info, user)
+        }
         ExecuteMsg::CDPGivesUserManagementPoints { user } => {
             cdp_gives_user_management_points(deps, info, user)
         }
@@ -1744,10 +1747,20 @@ fn give_points_for_affiliate_fee(
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
-    // Validate that the caller is the revenue distributor contract
-    let revenue_distributor = config.revenue_distributor_contract
-        .ok_or_else(|| ContractError::Std(StdError::generic_err("Revenue distributor contract not configured")))?;
-    if info.sender != revenue_distributor {
+    // Validate that the caller is an authorized contract (revenue distributor, transmuter, or disco)
+    let is_authorized = config.revenue_distributor_contract
+        .as_ref()
+        .map(|addr| info.sender == *addr)
+        .unwrap_or(false)
+    || config.transmuter_contract
+        .as_ref()
+        .map(|addr| info.sender == *addr)
+        .unwrap_or(false)
+    || config.ltv_disco_contract
+        .as_ref()
+        .map(|addr| info.sender == *addr)
+        .unwrap_or(false);
+    if !is_authorized {
         return Err(ContractError::Unauthorized {});
     }
 
@@ -1886,6 +1899,185 @@ fn give_points_for_manager_fee(
         .add_attribute("manager", manager)
         .add_attribute("fee_amount", fee_amount.to_string())
         .add_attribute("points", points.to_string()))
+}
+
+/// Check transmuter conversion rate and award points for deposit yield.
+/// Compares current rate to user's last recorded rate, awards points on the delta.
+fn check_transmuter_yield(
+    deps: DepsMut,
+    _env: Env,
+    info: MessageInfo,
+    user: Option<String>,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let transmuter_addr = config.transmuter_contract.clone().ok_or_else(|| {
+        ContractError::Std(StdError::generic_err("Transmuter contract not configured"))
+    })?;
+
+    let user_addr = if let Some(u) = user {
+        deps.api.addr_validate(&u)?
+    } else {
+        info.sender.clone()
+    };
+
+    // Query current conversion rate from transmuter via standard vault interface
+    // Using 1_000_000_000_000 as the standard vault token amount for rate calculation
+    let conversion_rate: Uint128 = deps.querier.query(
+        &QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: transmuter_addr.to_string(),
+            msg: to_json_binary(&membrane::transmuter::QueryMsg::VaultTokenUnderlying {
+                vault_token_amount: Uint128::new(1_000_000_000_000),
+            })?,
+        }),
+    )?;
+
+    // Query user's total deposit in transmuter
+    let user_deposits: membrane::transmuter::UserDepositsResponse = deps.querier.query(
+        &QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: transmuter_addr.to_string(),
+            msg: to_json_binary(&membrane::transmuter::QueryMsg::UserDeposits {
+                user: user_addr.to_string(),
+            })?,
+        }),
+    )?;
+    let total_deposit: Uint128 = user_deposits.deposits.iter().map(|d| d.amount).sum();
+
+    if total_deposit.is_zero() {
+        return Ok(Response::new()
+            .add_attribute("method", "check_transmuter_yield")
+            .add_attribute("user", user_addr.to_string())
+            .add_attribute("points_allocated", "false")
+            .add_attribute("reason", "no_deposits"));
+    }
+
+    // Load user's vault conversion rates
+    let mut user_rates = USER_VAULT_CONVERSION_RATES
+        .may_load(deps.storage, user_addr.clone())?
+        .unwrap_or_default();
+
+    // Find existing transmuter entry
+    let transmuter_key = transmuter_addr.to_string();
+    let found_idx = user_rates.iter().position(|r| r.vault_address == transmuter_key);
+
+    if let Some(idx) = found_idx {
+        let last_rate = user_rates[idx].last_conversion_rate;
+        let last_balance = user_rates[idx].last_vt_balance;
+
+        // Use the lower of current deposit total and last recorded balance
+        // (prevents gaming by depositing right before checking)
+        let effective_balance = std::cmp::min(total_deposit, last_balance);
+
+        if effective_balance.is_zero() || last_rate.is_zero() || conversion_rate <= last_rate {
+            // No yield or rate went down — just update tracking
+            user_rates[idx] = VaultConversionRate {
+                vault_address: transmuter_key,
+                last_conversion_rate: conversion_rate,
+                last_vt_balance: total_deposit,
+            };
+            USER_VAULT_CONVERSION_RATES.save(deps.storage, user_addr.clone(), &user_rates)?;
+
+            return Ok(Response::new()
+                .add_attribute("method", "check_transmuter_yield")
+                .add_attribute("user", user_addr.to_string())
+                .add_attribute("points_allocated", "false")
+                .add_attribute("reason", "no_yield"));
+        }
+
+        // Calculate yield: (new_rate / old_rate - 1) * effective_balance
+        let rate_diff = decimal_division(
+            Decimal::from_ratio(conversion_rate, Uint128::one()),
+            Decimal::from_ratio(last_rate, Uint128::one()),
+        )?.checked_sub(Decimal::one())
+         .unwrap_or(Decimal::zero());
+
+        let cdt_yield = decimal_multiplication(
+            rate_diff,
+            Decimal::from_ratio(effective_balance, Uint128::one()),
+        )?.to_uint_floor();
+
+        if cdt_yield.is_zero() {
+            user_rates[idx] = VaultConversionRate {
+                vault_address: transmuter_key,
+                last_conversion_rate: conversion_rate,
+                last_vt_balance: total_deposit,
+            };
+            USER_VAULT_CONVERSION_RATES.save(deps.storage, user_addr.clone(), &user_rates)?;
+
+            return Ok(Response::new()
+                .add_attribute("method", "check_transmuter_yield")
+                .add_attribute("user", user_addr.to_string())
+                .add_attribute("points_allocated", "false")
+                .add_attribute("reason", "zero_yield"));
+        }
+
+        // Find the transmuter_swap_fees multiplier from vault_yields or use default
+        let points_multipliers = POINTS_MULTIPLIERS.load(deps.storage)
+            .unwrap_or_else(|_| PointsMultipliers {
+                interest_rate: Decimal::one(),
+                vault_yields: vec![],
+                liquidation_execution: Decimal::one(),
+                liquidation_claims: Decimal::one(),
+                governance_votes: Decimal::one(),
+                transmuter_swap_fees: Decimal::one(),
+                disco_revenue: Decimal::one(),
+            });
+
+        // Use transmuter_swap_fees multiplier for deposit yield points
+        let transmuter_fee_diff = vec![Coin {
+            denom: config.cdt_denom.clone(),
+            amount: cdt_yield,
+        }];
+
+        // Get CDT price for points calculation
+        let basket: Basket = deps.querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+            contract_addr: config.positions_contract.to_string(),
+            msg: to_json_binary(&CDP_QueryMsg::GetBasket {})?,
+        }))?;
+
+        // Allocate points using existing allocate_points function
+        allocate_points(
+            deps.storage,
+            deps.querier,
+            config,
+            user_addr.clone(),
+            basket.credit_price,
+            Uint128::zero(), // revenue_paid
+            vec![],          // sp_claim_diff
+            vec![],          // lq_claim_diff
+            vec![],          // newly_voted_proposals
+            transmuter_fee_diff,
+            vec![],          // disco_revenue_diff
+            points_multipliers,
+        )?;
+
+        // Update tracking
+        user_rates[idx] = VaultConversionRate {
+            vault_address: transmuter_key,
+            last_conversion_rate: conversion_rate,
+            last_vt_balance: total_deposit,
+        };
+        USER_VAULT_CONVERSION_RATES.save(deps.storage, user_addr.clone(), &user_rates)?;
+
+        Ok(Response::new()
+            .add_attribute("method", "check_transmuter_yield")
+            .add_attribute("user", user_addr.to_string())
+            .add_attribute("points_allocated", "true")
+            .add_attribute("cdt_yield", cdt_yield.to_string()))
+    } else {
+        // First time — initialize tracking, no points yet
+        user_rates.push(VaultConversionRate {
+            vault_address: transmuter_key,
+            last_conversion_rate: conversion_rate,
+            last_vt_balance: total_deposit,
+        });
+        USER_VAULT_CONVERSION_RATES.save(deps.storage, user_addr.clone(), &user_rates)?;
+
+        Ok(Response::new()
+            .add_attribute("method", "check_transmuter_yield")
+            .add_attribute("user", user_addr.to_string())
+            .add_attribute("points_allocated", "false")
+            .add_attribute("reason", "initialized_tracking"))
+    }
 }
 
 /// Static points award for management through volatile window

@@ -1,0 +1,23 @@
+{
+  "skill_name": "contract-audit",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "Audit the CDP contract at /Users/EBmic/membrane-core/contracts/cdp/ for security vulnerabilities. This is a lending/CDP protocol that manages collateralized debt positions — deposits, withdrawals, debt minting, liquidations, and interest accrual. Focus on the highest-priority vulnerability classes: access control, liquidation logic, oracle usage, and arithmetic safety. Produce a structured security report with severity classifications.",
+      "expected_output": "Structured security report covering access control findings, liquidation logic analysis, oracle usage assessment, arithmetic safety checks, with severity classifications and fix recommendations",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "Audit the staking contract at /Users/EBmic/membrane-core/contracts/staking/ for security vulnerabilities. This contract manages MBRN token staking with governance delegation, revenue distribution, lock mechanisms, and affiliate fee tracking. Focus on reward distribution bugs, unbounded iterations, duplicate claim vectors, and access control. Produce a structured security report.",
+      "expected_output": "Structured security report covering reward distribution analysis, unbounded loop identification, duplicate claim vector assessment, access control review, with severity classifications",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Audit the ltv_disco contract at /Users/EBmic/membrane-core/contracts/ltv_disco/ for security vulnerabilities. This contract manages LTV-backed deposits with multiple asset queues, unstaking requests, revenue claiming, manager fees, bad debt tracking, and affiliate sharing. Focus on bad debt handling, access control, refund logic, and state management. Produce a structured security report.",
+      "expected_output": "Structured security report covering bad debt handling analysis, access control review, refund logic assessment, state management audit, with severity classifications",
+      "files": []
+    }
+  ]
+}

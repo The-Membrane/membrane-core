@@ -3,6 +3,23 @@
 version = 4
 
 [[package]]
+name = "acquisition"
+version = "0.1.0"
+dependencies = [
+ "cosmwasm-schema 2.3.0",
+ "cosmwasm-std 2.3.0",
+ "cosmwasm-storage",
+ "cw-multi-test",
+ "cw-storage-plus 2.0.0",
+ "cw-utils 2.0.0",
+ "cw2 2.0.0",
+ "membrane",
+ "schemars",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "ahash"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2901,23 +2918,6 @@ dependencies = [
  "cw2 2.0.0",
  "membrane",
  "osmosis-std",
- "schemars",
- "serde",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "transmuter-lockdrop"
-version = "0.1.0"
-dependencies = [
- "cosmwasm-schema 2.3.0",
- "cosmwasm-std 2.3.0",
- "cosmwasm-storage",
- "cw-multi-test",
- "cw-storage-plus 2.0.0",
- "cw-utils 2.0.0",
- "cw2 2.0.0",
- "membrane",
  "schemars",
  "serde",
  "thiserror 1.0.69",

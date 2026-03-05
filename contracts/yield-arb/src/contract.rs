@@ -358,10 +358,11 @@ fn handle_deposit_mars_reply(deps: DepsMut, env: Env) -> Result<Response, Contra
     //Deposit the vault tokens into the CDP
     let cdp_deposit = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: cfg.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&CDPExecuteMsg::Deposit { 
+        msg: to_json_binary(&CDPExecuteMsg::Deposit {
             position_id: Some(user.position_id),
             position_owner: Some(user.position_owner.clone()),
             affiliate_address: Some(env.contract.address.to_string()),
+            affiliate_label: None,
         })?,
         funds: vec![Coin { denom: mars_cfg.vault_token.clone(), amount: vt_balance }],
     });

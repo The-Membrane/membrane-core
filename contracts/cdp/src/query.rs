@@ -13,8 +13,6 @@ use membrane::cdp::{
     Config, CollateralInterestResponse, UserIntentResponse,
     InterestResponse, PositionResponse, BasketPositionsResponse, LiquidationStatResponse, HistoricalOraclePricesResponse, HistoricalInterestRatesResponse
 };
-use membrane::ltv_disco::{QueryMsg as LTVDiscoQueryMsg, AverageLTVsResponse};
-
 use membrane::types::{
     cAsset, Asset, AssetInfo, Basket, DebtCap, Position, StoredPrice, UserInfo
 };
@@ -22,9 +20,7 @@ use membrane::math::{decimal_division, decimal_multiplication, decimal_subtracti
 
 use crate::positions::get_amount_from_LTV;
 use crate::rates::get_total_debt_from_segments;
-use crate::state::{get_target_position, CollateralVolatility, ACTIVE_DEPLOYMENT_VENUES, BASKET, CONFIG, HISTORICAL_ORACLE_PRICES, HISTORICAL_INTEREST_RATES, LIQUIDATION_STATS, POSITIONS, RATES, STORED_PRICES, USER_INTENTS, VOLATILITY, LTV_HISTORY, LTV_UPDATE_TRACKERS, update_historical_oracle};
-use crate::ltv_updater::cap_ltv_values;
-
+use crate::state::{get_target_position, CollateralVolatility, ACTIVE_DEPLOYMENT_VENUES, BASKET, CONFIG, HISTORICAL_ORACLE_PRICES, HISTORICAL_INTEREST_RATES, LIQUIDATION_STATS, POSITIONS, RATES, STORED_PRICES, USER_INTENTS, VOLATILITY, update_historical_oracle};
 const MAX_LIMIT: u32 = 31;
 pub const VOLATILITY_LIST_LIMIT: u32 = 48;
 
@@ -718,65 +714,6 @@ pub fn simulate_LTV_mint(
     Ok( amount )
 }
 
-/// Query ltv_disco contract for average LTVs per asset
-/// Returns Vec of (max_ltv, max_borrow_ltv) tuples corresponding to each asset
-pub fn query_ltv_disco_for_asset_ltvs(
-    querier: QuerierWrapper,
-    ltv_disco_addr: Addr,
-    assets: Vec<cAsset>,
-) -> StdResult<Vec<(Decimal, Decimal)>> {
-    let mut ltv_tuples = Vec::new();
-
-    println!("[INSOLVENCY_DEBUG] === query_ltv_disco_for_asset_ltvs ===");
-    println!("[INSOLVENCY_DEBUG] ltv_disco_addr: {}", ltv_disco_addr);
-    println!("[INSOLVENCY_DEBUG] assets count: {}", assets.len());
-
-    for (i, asset) in assets.iter().enumerate() {
-        println!("[INSOLVENCY_DEBUG] Querying LTV disco for asset {}: {}", i, asset.asset.info);
-        println!("[INSOLVENCY_DEBUG] Asset {} stored LTVs: max_LTV={}, max_borrow_LTV={}", 
-            i, asset.max_LTV, asset.max_borrow_LTV);
-        
-        // Query ltv_disco for this specific asset's average LTVs
-        let response: AverageLTVsResponse = querier.query_wasm_smart(
-            ltv_disco_addr.to_string(),
-            &LTVDiscoQueryMsg::GetAverageLTVs {
-                assets: vec![asset.asset.info.to_string()],
-            },
-        )?;
-
-        println!("[INSOLVENCY_DEBUG] LTV disco response for asset {}: average_max_ltv={}, average_max_borrow_ltv={}", 
-            i, response.average_max_ltv, response.average_max_borrow_ltv);
-
-        // If ltv_disco returns zero (no deposits for this asset), fall back to cAsset's stored LTVs
-        let mut max_ltv = if response.average_max_ltv.is_zero() {
-            println!("[INSOLVENCY_DEBUG] Using fallback max_LTV from asset: {}", asset.max_LTV);
-            asset.max_LTV
-        } else {
-            println!("[INSOLVENCY_DEBUG] Using LTV disco max_ltv: {}", response.average_max_ltv);
-            response.average_max_ltv
-        };
-
-        let mut max_borrow_ltv = if response.average_max_borrow_ltv.is_zero() {
-            println!("[INSOLVENCY_DEBUG] Using fallback max_borrow_LTV from asset: {}", asset.max_borrow_LTV);
-            asset.max_borrow_LTV
-        } else {
-            println!("[INSOLVENCY_DEBUG] Using LTV disco max_borrow_ltv: {}", response.average_max_borrow_ltv);
-            response.average_max_borrow_ltv
-        };
-
-        // Ensure LTVs are valid: max_borrow_ltv < max_ltv
-        cap_ltv_values(&mut max_borrow_ltv, &mut max_ltv)
-            .map_err(|e| StdError::generic_err(format!("Failed to cap LTV values: {}", e)))?;
-
-        println!("[INSOLVENCY_DEBUG] Final LTVs for asset {} (after capping): max_ltv={}, max_borrow_ltv={}", 
-            i, max_ltv, max_borrow_ltv);
-
-        ltv_tuples.push((max_ltv, max_borrow_ltv));
-    }
-
-    Ok(ltv_tuples)
-}
-
 /// Calculate cAsset values & returns a tuple of (cAsset_values, cAsset_prices)
 pub fn get_asset_values(
     storage: &dyn Storage,
@@ -855,12 +792,10 @@ pub fn get_avg_LTV(
         is_deposit_function,
     )?;
     
-    //Query ltv_disco for asset LTVs
-    let ltv_tuples = query_ltv_disco_for_asset_ltvs(
-        querier,
-        config.ltv_disco.clone(),
-        collateral_assets.clone(),
-    )?;
+    // Use stored basket LTV values (static, governance-only)
+    let ltv_tuples: Vec<(Decimal, Decimal)> = collateral_assets.iter()
+        .map(|a| (a.max_LTV, a.max_borrow_LTV))
+        .collect();
     
     //Calculate avg LTV & return values
     calculate_avg_LTV(
@@ -1184,64 +1119,3 @@ pub fn query_simulate_liquidation(
     })
 }
 
-/// Query historical LTV snapshots for an asset
-pub fn query_historical_ltv(
-    deps: Deps,
-    asset_denom: String,
-    start_time: Option<u64>,
-    end_time: Option<u64>,
-    limit: Option<u32>,
-) -> StdResult<membrane::cdp::HistoricalLTVResponse> {
-    let limit = limit.unwrap_or(100).min(500) as usize; // Max 500 snapshots
-    let start = start_time.unwrap_or(0);
-    let end = end_time.unwrap_or(u64::MAX);
-
-    // Load all snapshots for this asset
-    let all_snapshots = LTV_HISTORY.may_load(deps.storage, asset_denom.clone())?.unwrap_or_else(|| vec![]);
-
-    // Filter by time range and limit
-    let snapshots: Vec<membrane::cdp::LTVSnapshot> = all_snapshots
-        .into_iter()
-        .filter(|snapshot| snapshot.timestamp >= start && snapshot.timestamp <= end)
-        .take(limit)
-        .collect();
-
-    Ok(membrane::cdp::HistoricalLTVResponse {
-        asset_denom,
-        snapshots,
-    })
-}
-
-/// Query LTV shift schedule information for an asset
-pub fn query_ltv_shift_info(
-    deps: Deps,
-    env: Env,
-    asset_denom: String,
-) -> StdResult<membrane::cdp::LTVShiftInfoResponse> {
-    // Load the LTV update tracker for this asset
-    let tracker = LTV_UPDATE_TRACKERS.may_load(deps.storage, asset_denom.clone())?
-        .ok_or_else(|| StdError::generic_err(format!("No LTV tracker found for asset {}", asset_denom)))?;
-
-    let current_time = env.block.time.seconds();
-
-    // Calculate time until the next shift (if there is a staged downward shift)
-    let (next_shift_time, time_until_shift) = if let Some(staged_ts) = tracker.staged_timestamp {
-        let config = CONFIG.load(deps.storage)?;
-        let shift_time = staged_ts + config.ltv_downward_period;
-        let time_until = if shift_time > current_time {
-            shift_time - current_time
-        } else {
-            0
-        };
-        (shift_time, time_until)
-    } else {
-        // No pending shift
-        (0, 0)
-    };
-
-    Ok(membrane::cdp::LTVShiftInfoResponse {
-        current_shift_number: 0, // This could be enhanced to track shift count
-        next_shift_time,
-        time_until_shift,
-    })
-}

@@ -78,7 +78,7 @@ pub enum QueryMsg {
     /// Returns % boost for each intent based on lock duration
     IntentBoosts {
         /// List of intents to calculate boosts for
-        intents: Vec<crate::transmuter_lockdrop::MbrnIntentOption>
+        intents: Vec<crate::acquisition::MbrnIntentOption>
     },
     /// Returns discount for positions with 100% force_redemption assets based on transmuter deposits
     StableBackingDiscounts {

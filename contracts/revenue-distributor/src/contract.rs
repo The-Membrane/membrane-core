@@ -7,7 +7,7 @@ use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::math::decimal_multiplication;
 use membrane::types::{Asset, AssetInfo};
 use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
-use membrane::ltv_disco::{QueryMsg as LTVDiscoQueryMsg, LTVQueueResponse};
+use membrane::ltv_disco::{QueryMsg as LTVDiscoQueryMsg, AssetQueueResponse};
 use membrane::auction::ExecuteMsg as AuctionExecuteMsg;
 
 use crate::error::ContractError;
@@ -78,7 +78,7 @@ pub fn instantiate(
             .map(|addr| deps.api.addr_validate(&addr))
             .transpose()?,
         revenue_dispersal_window: msg.revenue_dispersal_window.or(Some(7)),
-        transmuter_lockdrop_contract: msg.transmuter_lockdrop_contract
+        acquisition_contract: msg.acquisition_contract
             .map(|addr| deps.api.addr_validate(&addr))
             .transpose()?,
         ltv_disco_contract: msg.ltv_disco_contract
@@ -116,10 +116,10 @@ pub fn execute(
             points_system_contract,
             cdp_contract,
             revenue_dispersal_window,
-            transmuter_lockdrop_contract,
+            acquisition_contract,
             ltv_disco_contract,
             auction_contract,
-        } => update_config(deps, env, info, revenue_destinations, ltv_disco, transmuter_vault, points_system_contract, cdp_contract, revenue_dispersal_window, transmuter_lockdrop_contract, ltv_disco_contract, auction_contract),
+        } => update_config(deps, env, info, revenue_destinations, ltv_disco, transmuter_vault, points_system_contract, cdp_contract, revenue_dispersal_window, acquisition_contract, ltv_disco_contract, auction_contract),
         ExecuteMsg::TakeRevenueFromBasket {} => {
             take_revenue_from_basket(deps, env, info)
         }
@@ -409,7 +409,7 @@ pub fn update_config(
     points_system_contract: Option<String>,
     cdp_contract: Option<String>,
     revenue_dispersal_window: Option<u64>,
-    transmuter_lockdrop_contract: Option<String>,
+    acquisition_contract: Option<String>,
     ltv_disco_contract: Option<String>,
     auction_contract: Option<String>,
 ) -> Result<Response, ContractError> {
@@ -439,8 +439,8 @@ pub fn update_config(
     if let Some(window) = revenue_dispersal_window {
         update_dispersal_window(deps.storage, _env, info, window)?;
     }
-    if let Some(lockdrop) = transmuter_lockdrop_contract {
-        config.transmuter_lockdrop_contract = Some(deps.api.addr_validate(&lockdrop)?);
+    if let Some(lockdrop) = acquisition_contract {
+        config.acquisition_contract = Some(deps.api.addr_validate(&lockdrop)?);
     }
     if let Some(disco) = ltv_disco_contract {
         config.ltv_disco_contract = Some(deps.api.addr_validate(&disco)?);
@@ -682,9 +682,9 @@ fn ltv_disco_add_revenue_msgs(
         if portion.is_zero() { continue; }
 
         // Check if there are deposits in the disco for this asset
-        let has_deposits = match deps.querier.query_wasm_smart::<LTVQueueResponse>(
+        let has_deposits = match deps.querier.query_wasm_smart::<AssetQueueResponse>(
             config.ltv_disco.clone(),
-            &LTVDiscoQueryMsg::GetLTVQueue {
+            &LTVDiscoQueryMsg::GetAssetQueue {
                 assets: vec![asset_denom.clone()],
                 limit: None,
                 start_after: None,
@@ -876,7 +876,7 @@ pub fn update_dispersal_window(
     }
     
     // Update Lockdrop: minimum_lock_days and periods (using 5:2 ratio)
-    if let Some(lockdrop_addr) = &config.transmuter_lockdrop_contract {
+    if let Some(lockdrop_addr) = &config.acquisition_contract {
         let deposit_period = (window_days * 5) / 7;
         let withdrawal_period = (window_days * 2) / 7;
         
@@ -886,7 +886,7 @@ pub fn update_dispersal_window(
         
         let update_lockdrop_msg = CosmosMsg::Wasm(WasmMsg::Execute {
             contract_addr: lockdrop_addr.to_string(),
-            msg: to_json_binary(&membrane::transmuter_lockdrop::ExecuteMsg::UpdateConfig {
+            msg: to_json_binary(&membrane::acquisition::ExecuteMsg::UpdateConfig {
                 owner: None,
                 transmuter_contract: None,
                 neutron_proxy: None,

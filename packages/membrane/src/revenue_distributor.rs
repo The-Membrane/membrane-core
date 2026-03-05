@@ -32,7 +32,7 @@ pub struct Config {
     /// Revenue dispersal window in days (optional, if set, distributions only occur within this window)
     pub revenue_dispersal_window: Option<u64>,
     /// Transmuter lockdrop contract address (optional, for synchronized parameter updates)
-    pub transmuter_lockdrop_contract: Option<Addr>,
+    pub acquisition_contract: Option<Addr>,
     /// LTV Disco contract address (optional, for synchronized parameter updates)
     pub ltv_disco_contract: Option<Addr>,
     /// Auction contract address (for routing non-CDT revenue)
@@ -96,8 +96,8 @@ pub enum ExecuteMsg {
         cdp_contract: Option<String>,
         /// Update revenue dispersal window (in days)
         revenue_dispersal_window: Option<u64>,
-        /// Update transmuter lockdrop contract address
-        transmuter_lockdrop_contract: Option<String>,
+        /// Update acquisition contract address
+        acquisition_contract: Option<String>,
         /// Update LTV Disco contract address (for synchronized updates)
         ltv_disco_contract: Option<String>,
         /// Update auction contract address (for routing non-CDT revenue)
@@ -187,7 +187,7 @@ pub struct InstantiateMsg {
     /// Revenue dispersal window in days (optional)
     pub revenue_dispersal_window: Option<u64>,
     /// Transmuter lockdrop contract address (optional, for synchronized parameter updates)
-    pub transmuter_lockdrop_contract: Option<String>,
+    pub acquisition_contract: Option<String>,
     /// LTV Disco contract address (optional, for synchronized parameter updates)
     pub ltv_disco_contract: Option<String>,
     /// Auction contract address (optional, for routing non-CDT revenue)

@@ -340,9 +340,9 @@ fn test_deposit_with_affiliate() {
         info,
         TExecute::EnterVault {
             recipient: None,
-            deposit_for_incentives: Some(true),
-            intents: None,
+            lock_days: None,
             affiliate_address: Some("affiliate1".to_string()),
+            affiliate_label: None,
         },
     )
     .unwrap();
@@ -384,9 +384,9 @@ fn test_deposit_with_existing_affiliate_no_duplicate() {
         mock_info("user", &[coin(1000, "cdt")]),
         TExecute::EnterVault {
             recipient: None,
-            deposit_for_incentives: Some(true),
-            intents: None,
+            lock_days: None,
             affiliate_address: Some("affiliate1".to_string()),
+            affiliate_label: None,
         },
     )
     .unwrap();

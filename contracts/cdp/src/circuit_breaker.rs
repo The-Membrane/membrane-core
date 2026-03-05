@@ -781,9 +781,6 @@ mod tests {
             revenue_distributor: None,
             skip_credit_price_accrual: false,
             liquidation_stat_limit: 1000,
-            ltv_upward_kp: Decimal::percent(5),
-            ltv_downward_period: 604800,
-            ltv_max_downward_shift: Decimal::percent(5),
             transmuter_addr: None,
             irm_config: IRMConfig {
                 adjustment_speed: Decimal::from_atomics(50u128, 0).unwrap(),
@@ -883,9 +880,6 @@ mod tests {
             revenue_distributor: None,
             skip_credit_price_accrual: false,
             liquidation_stat_limit: 1000,
-            ltv_upward_kp: Decimal::percent(5),
-            ltv_downward_period: 604800,
-            ltv_max_downward_shift: Decimal::percent(5),
             transmuter_addr: None,
             irm_config: IRMConfig {
                 adjustment_speed: Decimal::from_atomics(50u128, 0).unwrap(),
@@ -991,9 +985,6 @@ mod tests {
             revenue_distributor: None,
             skip_credit_price_accrual: false,
             liquidation_stat_limit: 1000,
-            ltv_upward_kp: Decimal::percent(5),
-            ltv_downward_period: 604800,
-            ltv_max_downward_shift: Decimal::percent(5),
             transmuter_addr: None,
             irm_config: IRMConfig {
                 adjustment_speed: Decimal::from_atomics(50u128, 0).unwrap(),

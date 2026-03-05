@@ -1093,44 +1093,13 @@ pub mod tests {
     pub struct LTVDisco_MockInstantiateMsg {}
 
     pub fn ltv_disco_mock_contract() -> Box<dyn Contract<Empty>> {
-        use membrane::ltv_disco::{ExecuteMsg as LTVDisco_ExecuteMsg, QueryMsg as LTVDisco_QueryMsg, InstantiateMsg as LTVDisco_InstantiateMsg, AverageLTVsResponse};
+        use membrane::ltv_disco::{ExecuteMsg as LTVDisco_ExecuteMsg, QueryMsg as LTVDisco_QueryMsg};
         let contract = ContractWrapper::new(
             |_, _, _, _msg: LTVDisco_ExecuteMsg| -> StdResult<Response> { Ok(Response::new()) },
             |_, _, _, _msg: LTVDisco_MockInstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
             |_, _, msg: LTVDisco_QueryMsg| -> StdResult<Binary> {
                 match msg {
                     LTVDisco_QueryMsg::CanHandleBadDebt { .. } => Ok(to_json_binary(&false)?),
-                    LTVDisco_QueryMsg::GetAverageLTVs { .. } => {
-                        // Return zero LTVs to trigger fallback to stored LTVs
-                        Ok(to_json_binary(&AverageLTVsResponse {
-                            average_max_ltv: Decimal::zero(),
-                            average_max_borrow_ltv: Decimal::zero(),
-                        })?)
-                    },
-                    _ => Ok(to_json_binary(&true)?),
-                }
-            },
-        );
-        Box::new(contract)
-    }
-
-    // Mock LTV Disco Contract with non-zero LTVs
-    pub fn ltv_disco_mock_contract_with_deposits() -> Box<dyn Contract<Empty>> {
-        use membrane::ltv_disco::{ExecuteMsg as LTVDisco_ExecuteMsg, QueryMsg as LTVDisco_QueryMsg, InstantiateMsg as LTVDisco_InstantiateMsg, AverageLTVsResponse};
-        let contract = ContractWrapper::new(
-            |_, _, _, _msg: LTVDisco_ExecuteMsg| -> StdResult<Response> { Ok(Response::new()) },
-            |_, _, _, _msg: LTVDisco_InstantiateMsg| -> StdResult<Response> { Ok(Response::default()) },
-            |_, _, msg: LTVDisco_QueryMsg| -> StdResult<Binary> {
-                match msg {
-                    LTVDisco_QueryMsg::CanHandleBadDebt { .. } => Ok(to_json_binary(&false)?),
-                    LTVDisco_QueryMsg::GetAverageLTVs { .. } => {
-                        // Return higher LTVs than the stored fallback values
-                        // This simulates deposits in ltv_disco with higher LTV preferences
-                        Ok(to_json_binary(&AverageLTVsResponse {
-                            average_max_ltv: Decimal::percent(85), // Higher than typical 80%
-                            average_max_borrow_ltv: Decimal::percent(75), // Higher than typical 70%
-                        })?)
-                    },
                     _ => Ok(to_json_binary(&true)?),
                 }
             },
@@ -1788,7 +1757,7 @@ pub mod tests {
                             points_system_contract: None,
                             cdp_contract: None,
                             revenue_dispersal_window: None,
-                            transmuter_lockdrop_contract: None,
+                            acquisition_contract: None,
                             ltv_disco_contract: None,
                             auction_contract: None,
                         };
@@ -2225,9 +2194,6 @@ pub mod tests {
             skip_credit_price_accrual: None,
             liquidation_stat_limit: None,
             revenue_distributor: Some(revenue_distributor_contract_addr.to_string()),
-            ltv_upward_kp: None,
-            ltv_downward_period: None,
-            ltv_max_downward_shift: None,
             transmuter_addr: None,
             irm_config: Some(membrane::types::IRMConfig {
                 adjustment_speed: Decimal::from_str("50").unwrap(),
@@ -2331,10 +2297,7 @@ pub mod tests {
                 skip_credit_price_accrual: None,
                 liquidation_stat_limit: None,
                 revenue_distributor: Some({ let cfg: Config = app.wrap().query_wasm_smart(cdp_contract.addr(), &QueryMsg::Config {}).unwrap(); cfg.revenue_distributor.unwrap().to_string() }),
-            ltv_upward_kp: None,
-            ltv_downward_period: None,
-            ltv_max_downward_shift: None,
-                
+
                 transmuter_addr: None,
                 irm_config: None,
                 points_contract: None,
@@ -2347,7 +2310,7 @@ pub mod tests {
             let deposit_msg = ExecuteMsg::Deposit { 
                 position_owner: Some(app.api().addr_make(USER).to_string()), 
                 position_id: None,
-                affiliate_address: None,
+                affiliate_address: None, affiliate_label: None,
             };
             let cosmos_msg = cdp_contract.call(deposit_msg, vec![
                 coin(100_000_000_000, "debit"),
@@ -2483,7 +2446,7 @@ pub mod tests {
                 .unwrap();
 
             // Deposit collateral and borrow to create an undercollateralized position
-            let deposit = ExecuteMsg::Deposit { position_owner: Some(app.api().addr_make(USER).to_string()), position_id: None, affiliate_address: None };
+            let deposit = ExecuteMsg::Deposit { position_owner: Some(app.api().addr_make(USER).to_string()), position_id: None, affiliate_address: None, affiliate_label: None };
             let cosmos = cdp.call(deposit, vec![Coin { denom: "debit".to_string(), amount: Uint128::new(50_000_000_000) }]).unwrap();
             let user_addr = get_user_addr(&app);
             app.execute(user_addr, cosmos).unwrap();
@@ -2546,7 +2509,7 @@ pub mod tests {
 
 
             // Re-Deposit collateral 
-            let deposit = ExecuteMsg::Deposit { position_owner: Some(app.api().addr_make(USER).to_string()), position_id: Some(Uint128::one()), affiliate_address: None };
+            let deposit = ExecuteMsg::Deposit { position_owner: Some(app.api().addr_make(USER).to_string()), position_id: Some(Uint128::one()), affiliate_address: None, affiliate_label: None };
             let cosmos = cdp.call(deposit, vec![Coin { denom: "debit".to_string(), amount: Uint128::new(50_000_000_000) }]).unwrap();
             let user_addr = get_user_addr(&app);
             app.execute(user_addr, cosmos).unwrap();
@@ -2602,7 +2565,7 @@ pub mod tests {
             }};
             let cosmos = cdp.call(intent1, vec![]).unwrap();
             // Ensure the position exists first
-            let deposit = ExecuteMsg::Deposit { position_owner: Some(app.api().addr_make(USER).to_string()), position_id: None, affiliate_address: None };
+            let deposit = ExecuteMsg::Deposit { position_owner: Some(app.api().addr_make(USER).to_string()), position_id: None, affiliate_address: None, affiliate_label: None };
             let dep_cosmos = cdp.call(deposit, vec![Coin { denom: "debit".to_string(), amount: Uint128::new(50_000_000_000) }]).unwrap();
             let user_addr = get_user_addr(&app);
             app.execute(user_addr, dep_cosmos).unwrap();
@@ -2713,7 +2676,7 @@ pub mod tests {
             let (mut app, cdp, _lq) = proper_instantiate(false, false, false, false);
 
             // 1) Create a position and mint debt so it can later be liquidated into bad debt
-            let deposit = ExecuteMsg::Deposit { position_owner: Some(app.api().addr_make(USER).to_string()), position_id: None, affiliate_address: None };
+            let deposit = ExecuteMsg::Deposit { position_owner: Some(app.api().addr_make(USER).to_string()), position_id: None, affiliate_address: None, affiliate_label: None };
             let cosmos = cdp.call(deposit, vec![Coin { denom: "debit".to_string(), amount: Uint128::new(50_000_000_000) }]).unwrap();
             let user_addr = get_user_addr(&app);
             app.execute(user_addr, cosmos).unwrap();
@@ -2863,7 +2826,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(app.api().addr_make(USER).to_string()),
                 position_id: None,
-                affiliate_address: None,
+                affiliate_address: None, affiliate_label: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -2904,7 +2867,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(app.api().addr_make(USER).to_string()),
                 position_id: None,
-                affiliate_address: None,
+                affiliate_address: None, affiliate_label: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -3263,7 +3226,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(app.api().addr_make(USER).to_string()),
                 position_id: None,
-                affiliate_address: None,
+                affiliate_address: None, affiliate_label: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -3284,7 +3247,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(app.api().addr_make(USER).to_string()),
                 position_id: None,
-                affiliate_address: None,
+                affiliate_address: None, affiliate_label: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -3732,7 +3695,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(app.api().addr_make(USER).to_string()),
                 position_id: None,
-                affiliate_address: None,
+                affiliate_address: None, affiliate_label: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -3988,7 +3951,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(app.api().addr_make("test").to_string()),
                 position_id: None,
-                affiliate_address: None,
+                affiliate_address: None, affiliate_label: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -4397,7 +4360,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(app.api().addr_make("bigger_bank").to_string()),
                 position_id: None,
-                affiliate_address: None,
+                affiliate_address: None, affiliate_label: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -4855,7 +4818,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(app.api().addr_make("bigger_bank").to_string()),
                 position_id: None,
-                affiliate_address: None,
+                affiliate_address: None, affiliate_label: None,
             };
             let cosmos_msg = cdp_contract
                 .call(
@@ -4873,7 +4836,7 @@ pub mod tests {
             let msg = ExecuteMsg::Deposit {
                 position_owner: Some(app.api().addr_make("bigger_bank").to_string()),
                 position_id: None,
-                affiliate_address: None,
+                affiliate_address: None, affiliate_label: None,
             };
             let cosmos_msg = cdp_contract
                 .call(

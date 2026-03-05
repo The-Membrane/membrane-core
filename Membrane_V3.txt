@@ -1,9 +1,49 @@
+AUTONOMOUS ONBOARDING #2
+We can have an intents based build out similar to vanilla ETHLend where CDT lenders can choose collateral types and LTVs to lend at.
+We'd have to figure out a rate-system and how the product actually works to be sold as its variable collateral offerings & there would need to be marketing behind it to get users.
+Although this could simply be a product mainly used between current Branaics to start as like an internal testing ground.
+
+
+-----------------
+AUTONOMOUS ONBOARDING
+**Membrane Collateral Architecture Plan**
+
+**Core Invariants**
+
+- No collateral deposit accepted unless a registered tranche exists for that asset — the tranche deployment *is* the permission, no committee required
+- Debt cap is some multiple of the tranche. But also capped by comparative size since the accessible USDC for the asset is shared.
+- Tranche cannot exit while deposited collateral remains — the core enforces this mechanically, not through governance
+- Tranche exit lock loosens under two conditions: governance explicitly approves the asset as battle-tested, OR the asset has passed a minimum threshold of successful liquidation events without generating bad debt
+- Collateral that wipes its tranche deposits goes on 90 day cooldown before it can be retested.
+
+**Oracle & LP Safety Layer**
+
+- Collateral pricing sourced from LP-based oracles (Uniswap V3 TWAP or equivalent) rather than single-price feeds — LP manipulation is capital-intensive and therefore costly to sustain
+- Core checks LP depth at the time of collateral valuation — if depth falls below a defined threshold relative to open positions, borrowing against that asset is paused
+- Tranche deployer specifies the oracle at deployment and is first-loss if manipulation occurs, aligning their incentive to choose robust feeds
+- Bad debt ceiling per collateral type bounded by junior tranche size — if a manipulation event would exceed tranche coverage, the core rejects the position rather than socializing the loss
+
+**Logic-Driven Parameters**
+
+- LTV derived algorithmically from asset volatility and LP liquidity depth — no governance vote, computed from observable on-chain data
+- Liquidation threshold set as a fixed spread above LTV, calibrated to oracle latency and typical price impact for the asset's market cap tier
+- Interest rates handled emergently through the acquisition mechanism — utilization drives emissions-based USDC purchasing rather than rate spikes
+- Oracle selection is the only genuinely discretionary input, and it's made by the tranche deployer who bears first-loss consequences
+
+**Tranche Deployment Flow**
+
+- Anyone can deploy a tranche for any asset by specifying the LP oracle and depositing junior capital
+- Core registers the tranche and immediately enforces both invariants
+- Params are computed at deployment from on-chain data and update dynamically as liquidity conditions change
+- Governance's only role is retroactively blessing assets that have proven themselves — unlocking tranche exit as a reward for good track record rather than a gatekeeping function at entry
+-----------------
+
 EMISSIONS VOTING FOR THE LOCKDROP (done)
 - create a scale from 0-1M and have MBRN vote per week 
 - that means one lockdrop a week 
 - "emissions are protocol-ownership redistribution"
 
-MODULARIZE CDP INTO COLLATERAL - DEBT - LIQUIDATIONS
+MODULARIZE CDP INTO COLLATERAL - DEBT - LIQUIDATIONS (done)
 - for actions that need accrual, we call a msg hosted in the DEBT contract and then reply on success with a CallBack into the contract's functions. Accrues are too expensive to query.
 -- We'll need this for withdraw & liquidate for sure
 

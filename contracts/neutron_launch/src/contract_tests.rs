@@ -28,7 +28,7 @@ fn default_instantiate_msg() -> InstantiateMsg {
         ltv_disco_id: 0,
         transmuter_id: 0,
         revenue_distributor_id: 0,
-        transmuter_lockdrop_id: 0,
+        acquisition_id: 0,
         yield_arb_id: 0,
         mars_vault_token_id: 0,
         points_system_id: 0,

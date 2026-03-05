@@ -14,7 +14,7 @@ members = [
     "contracts/revenue-distributor",
     "contracts/neutron-proxy",
     "contracts/transmuter",
-    "contracts/transmuter-lockdrop",
+    "contracts/acquisition",
     "contracts/yield-arb",
     "contracts/neutron_launch",
     "contracts/emissions-voting",

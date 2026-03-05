@@ -1,6 +1,6 @@
 
 use cosmwasm_std::{
-    Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Int128, MessageInfo, QuerierWrapper, Response, StdError, StdResult, Storage, Timestamp, Uint128, WasmMsg, attr, coin, entry_point, to_json_binary
+    Addr, BankMsg, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, Int128, MessageInfo, QuerierWrapper, Response, StdError, StdResult, Storage, SubMsg, Timestamp, Uint128, WasmMsg, attr, coin, entry_point, to_json_binary
 };
 use cw2::set_contract_version;
 // use cw_storage_plus::Bound;
@@ -97,10 +97,10 @@ pub fn instantiate(
         ));
     }
 
-    // Default usage_fee_utilization_threshold to 90%
+    // Default usage_fee_utilization_threshold to 80%
     let usage_fee_utilization_threshold = msg
         .usage_fee_utilization_threshold
-        .unwrap_or(Decimal::percent(90));
+        .unwrap_or(Decimal::percent(80));
     if usage_fee_utilization_threshold > Decimal::one() {
         return Err(ContractError::Validation(
             "usage_fee_utilization_threshold must be less than or equal to 1".into(),
@@ -218,6 +218,12 @@ pub fn instantiate(
         emissions_voting_contract: msg.emissions_voting_contract
             .map(|s| deps.api.addr_validate(&s))
             .transpose()?,
+        acquisition_contract: msg.acquisition_contract
+            .map(|s| deps.api.addr_validate(&s))
+            .transpose()?,
+        points_system_contract: msg.points_system_contract
+            .map(|s| deps.api.addr_validate(&s))
+            .transpose()?,
     };
 
     CONFIG.save(deps.storage, &config)?;
@@ -274,6 +280,8 @@ pub fn execute(
             send_swap_fee,
             revenue_distributor_fee_percentage,
             emissions_voting_contract,
+            acquisition_contract,
+            points_system_contract,
         } => execute_update_config(
             deps,
             env,
@@ -301,8 +309,10 @@ pub fn execute(
             send_swap_fee,
             revenue_distributor_fee_percentage,
             emissions_voting_contract,
+            acquisition_contract,
+            points_system_contract,
         ),
-        ExecuteMsg::EnterVault { recipient, lock_days, affiliate_address } => execute_enter_vault(deps, env, info.clone(), recipient, lock_days, affiliate_address),
+        ExecuteMsg::EnterVault { recipient, lock_days, affiliate_address, affiliate_label } => execute_enter_vault(deps, env, info.clone(), recipient, lock_days, affiliate_address, affiliate_label),
         ExecuteMsg::DepositFee {} => execute_deposit_fee(deps, env, info.clone()),
         ExecuteMsg::ExitVault {
             recipient,
@@ -353,6 +363,8 @@ fn execute_update_config(
     send_swap_fee: Option<bool>,
     revenue_distributor_fee_percentage: Option<Decimal>,
     emissions_voting_contract: Option<String>,
+    acquisition_contract: Option<String>,
+    points_system_contract: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
     ensure_owner(&config, &info.sender)?;
@@ -556,9 +568,31 @@ fn execute_update_config(
         config.emissions_voting_contract = Some(validated_addr);
     }
 
+    if let Some(acq_addr_str) = acquisition_contract {
+        let validated_addr = deps.api.addr_validate(&acq_addr_str)?;
+        config.acquisition_contract = Some(validated_addr);
+    }
+
+    if let Some(ps_addr_str) = points_system_contract {
+        let validated_addr = deps.api.addr_validate(&ps_addr_str)?;
+        config.points_system_contract = Some(validated_addr);
+    }
+
     CONFIG.save(deps.storage, &config)?;
 
     Ok(Response::new().add_attribute("action", "update_config"))
+}
+
+/// Build an AccruePool notification message for the acquisition contract (if configured).
+/// Fire-and-forget: if acquisition contract errors, the transmuter tx reverts to keep accrual in sync.
+fn build_acquisition_notification(config: &Config) -> Option<CosmosMsg> {
+    config.acquisition_contract.as_ref().map(|addr| {
+        CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: addr.to_string(),
+            msg: to_json_binary(&membrane::acquisition::ExecuteMsg::AccruePool {}).unwrap(),
+            funds: vec![],
+        })
+    })
 }
 
 fn execute_enter_vault(
@@ -568,6 +602,7 @@ fn execute_enter_vault(
     recipient: Option<String>,
     lock_days: Option<u64>,
     affiliate_address: Option<String>,
+    affiliate_label: Option<String>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut deposit_total = DEPOSIT_TOTAL.load(deps.storage)?;
@@ -668,6 +703,7 @@ fn execute_enter_vault(
             affiliate_addr,
             config.affiliate_fee,
             env.block.time.seconds(),
+            affiliate_label,
         )?;
     }
 
@@ -723,13 +759,20 @@ fn execute_enter_vault(
         config.lock_ceiling,
     )?;
 
-    Ok(Response::new()
+    let mut response = Response::new()
         .add_messages(messages)
         .add_attributes(vec![
             attr("action", "enter_vault"),
             attr("deposit_amount", user_deposit_value.to_string()),
             attr("recipient", recipient_addr.as_str()),
-        ]))
+        ]);
+
+    // Notify acquisition contract of utilization change
+    if let Some(acq_msg) = build_acquisition_notification(&config) {
+        response = response.add_message(acq_msg);
+    }
+
+    Ok(response)
 }
 
 /// Add a user deposit with consolidation logic to prevent state bloat
@@ -1316,6 +1359,11 @@ fn execute_exit_vault(
         }));
     }
 
+    // Notify acquisition contract of utilization change
+    if let Some(acq_msg) = build_acquisition_notification(&config) {
+        response = response.add_message(acq_msg);
+    }
+
     Ok(response)
 }
 
@@ -1626,6 +1674,11 @@ fn execute_transmute(
         // If send_swap_fee is false or revenue distributor not configured, fees remain in the contract balance
     }
 
+    // Notify acquisition contract of utilization change
+    if let Some(acq_msg) = build_acquisition_notification(&config) {
+        response = response.add_message(acq_msg);
+    }
+
     Ok(response)
 }
 
@@ -1856,6 +1909,7 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::EmissionsConfig {} => to_json_binary(&query_emissions_config(deps)?),
         QueryMsg::CurrentDepositId { user } => to_json_binary(&query_current_deposit_id(deps, user)?),
         QueryMsg::DepositById { user, deposit_id } => to_json_binary(&query_deposit_by_id(deps, user, deposit_id)?),
+        QueryMsg::VaultTokenUnderlying { vault_token_amount } => to_json_binary(&query_vault_token_underlying(deps, env, vault_token_amount)?),
     }
 }
 
@@ -2093,6 +2147,25 @@ fn query_rate_history(
         total,
         next_start_after,
     })
+}
+
+/// Standard vault interface: returns underlying value for a given vault token amount.
+/// Conversion rate = total_deposit_value / deposit_total, applied to vault_token_amount.
+fn query_vault_token_underlying(deps: Deps, env: Env, vault_token_amount: Uint128) -> StdResult<Uint128> {
+    let config = CONFIG.load(deps.storage)?;
+    let deposit_total = DEPOSIT_TOTAL.load(deps.storage)?;
+    let (total_deposit_value, _) = get_total_deposit_value(deps.querier, &env, &config)
+        .map_err(|_| StdError::generic_err("Failed to query total deposit value"))?;
+
+    if deposit_total.is_zero() {
+        return Ok(vault_token_amount); // 1:1 if no deposits
+    }
+
+    let ratio = Decimal::from_ratio(total_deposit_value, deposit_total);
+    let underlying = decimal_multiplication(ratio, Decimal::from_ratio(vault_token_amount, Uint128::one()))?
+        .to_uint_floor();
+
+    Ok(underlying)
 }
 
 fn validate_asset_pair(pair: &AssetPair) -> Result<(), ContractError> {
@@ -2583,6 +2656,7 @@ fn add_affiliate_from_deposit(
     affiliate_address: String,
     affiliate_fee: Decimal,
     current_time: u64,
+    label: Option<String>,
 ) -> Result<(), ContractError> {
     // Validate affiliate address
     let _valid_addr = api.addr_validate(&affiliate_address)?;
@@ -2608,7 +2682,7 @@ fn add_affiliate_from_deposit(
         affiliate_address: affiliate_address.clone(),
         affiliate_fee,
         time_affiliated: current_time,
-        label: None,
+        label,
     });
     
     // Save
@@ -2684,10 +2758,10 @@ fn split_affiliate_fee(
     if affiliates.is_empty() {
         return Ok(vec![]);
     }
-    
+
     // Calculate total time affiliated since last claim/repayment
     let time_since_last_claim = current_time - affiliates[0].time_affiliated;
-    
+
     if time_since_last_claim == 0 {
         // If no time has passed, split equally
         let fee_per_affiliate = decimal_multiplication(
@@ -2696,9 +2770,9 @@ fn split_affiliate_fee(
         )?;
         return Ok(vec![fee_per_affiliate; affiliates.len()]);
     }
-    
+
     let mut affiliate_fees = vec![];
-    
+
     // Calculate time affiliated for each affiliate
     for i in 0..affiliates.len() {
         let time_affiliated = if i == affiliates.len() - 1 {
@@ -2708,19 +2782,19 @@ fn split_affiliate_fee(
             // Other affiliates: time from their affiliation to next affiliate's affiliation
             affiliates[i + 1].time_affiliated - affiliates[i].time_affiliated
         };
-        
+
         let ratio_affiliated = Decimal::from_ratio(time_affiliated, time_since_last_claim);
         // All affiliates use the same fee from config
         let per_affiliate_fee = decimal_multiplication(affiliate_fee, ratio_affiliated)?;
         affiliate_fees.push(per_affiliate_fee);
     }
-    
+
     // Assert that the sum of the affiliate fees is equal or less than the affiliate fee
     let sum_of_affiliate_fees = affiliate_fees.iter().sum::<Decimal>();
     if sum_of_affiliate_fees > affiliate_fee {
         return Err(StdError::generic_err(format!("Sum of affiliate fees is greater than the affiliate fee: {} > {}", sum_of_affiliate_fees, affiliate_fee)));
     }
-    
+
     Ok(affiliate_fees)
 }
 
@@ -3603,21 +3677,71 @@ fn execute_claim_retention_emissions(
     events.retain(|e| !e.amount_to_be_claimed.is_zero());
     EMISSIONS_EVENTS.save(deps.storage, &events)?;
     
-    // Send claimed emissions to user (assuming CDT denom)
+    // Send claimed emissions to user, deducting affiliate fees
     let mut response = Response::new()
         .add_attribute("action", "claim_retention_emissions")
         .add_attribute("user", user.clone())
         .add_attribute("total_claimed", total_claimed.to_string())
         .add_attribute("boost_multiplier", user_boost_multiplier.to_string());
-    
+
     let config = CONFIG.load(deps.storage)?;
-    
+
+    // Handle affiliate fees
+    let mut affiliate_fees_total = Uint128::zero();
     if !total_claimed.is_zero() {
+        let mut affiliates = crate::state::AFFILIATES.load(deps.storage, user.clone()).unwrap_or_default();
+        affiliates.retain(|a| !a.affiliate_fee.is_zero() || a.time_affiliated != 0);
+
+        if !affiliates.is_empty() {
+            let affiliate_fee_splits = split_affiliate_fee(affiliates.clone(), config.affiliate_fee, env.block.time.seconds())?;
+            let total_affiliate_fee_ratio: Decimal = affiliate_fee_splits.iter().sum();
+            affiliate_fees_total = decimal_multiplication(
+                Decimal::from_ratio(total_claimed, Uint128::one()),
+                total_affiliate_fee_ratio,
+            )?.to_uint_floor();
+
+            for (i, affiliate_fee_ratio) in affiliate_fee_splits.into_iter().enumerate() {
+                let affiliate_amount = decimal_multiplication(
+                    Decimal::from_ratio(affiliate_fees_total, Uint128::one()),
+                    affiliate_fee_ratio,
+                )?.to_uint_floor();
+
+                if !affiliate_amount.is_zero() {
+                    // Send CDT to affiliate
+                    response = response.add_message(BankMsg::Send {
+                        to_address: affiliates[i].affiliate_address.clone(),
+                        amount: vec![coin(affiliate_amount.u128(), config.deposit_pair.cdt.clone())],
+                    });
+
+                    // Award points to affiliate (reply_on_error so failure doesn't block claim)
+                    if let Some(ref points_system) = config.points_system_contract {
+                        let points_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                            contract_addr: points_system.to_string(),
+                            msg: to_json_binary(&membrane::points_system::ExecuteMsg::GivePointsForAffiliateFee {
+                                affiliate: affiliates[i].affiliate_address.clone(),
+                                fee_amount: affiliate_amount,
+                            })?,
+                            funds: vec![],
+                        });
+                        response = response.add_submessage(SubMsg::reply_on_error(points_msg, 0));
+                    }
+                }
+            }
+
+            update_affiliates(deps.storage, affiliates, user.clone(), env.block.time.seconds())?;
+        }
+    }
+
+    // Send remaining to user after affiliate fee deduction
+    let user_amount = total_claimed.saturating_sub(affiliate_fees_total);
+    if !user_amount.is_zero() {
         response = response.add_message(BankMsg::Send {
             to_address: user,
-            amount: vec![coin(total_claimed.u128(), config.deposit_pair.cdt.clone())],
+            amount: vec![coin(user_amount.u128(), config.deposit_pair.cdt.clone())],
         });
     }
+
+    response = response.add_attribute("affiliate_fees", affiliate_fees_total.to_string());
     
     Ok(response)
 }

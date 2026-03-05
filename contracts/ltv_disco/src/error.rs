@@ -15,8 +15,8 @@ pub enum ContractError {
     #[error("Too many assets sent, only {valid} allowed")]
     TooManyAssets { valid: String },
 
-    #[error("Invalid LTV")]
-    InvalidLTV {},
+    #[error("Invalid slot: LTV percentage must be an active slot within the asset's min/max LTV range")]
+    InvalidSlot {},
 
     #[error("Invalid deposit amount")]
     InvalidDepositAmount {},
@@ -39,15 +39,15 @@ pub enum ContractError {
     #[error("Custom error: {val}")]
     CustomError { val: String },
 
-    #[error("Invalid percent to disperse")]
-    InvalidPercentToDisperse {},
-
-    #[error("Dispersal not active")]
-    DispersalNotActive {},
-
-    #[error("Invalid dispersal window")]
-    InvalidDispersalWindow {},
-
     #[error("Withdrawals disabled")]
     WithdrawalsDisabled {},
+
+    #[error("Unstake request not ready yet")]
+    UnstakeNotReady {},
+
+    #[error("Unstake request already pending for this deposit")]
+    UnstakeAlreadyPending {},
+
+    #[error("Unstake request not found")]
+    UnstakeNotFound {},
 }

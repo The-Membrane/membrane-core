@@ -122,32 +122,21 @@ pub fn oracle_contract() -> Box<dyn Contract<Empty>> {
 
 //Mock LTV Disco Contract
 #[cw_serde]
-pub enum LTVDisco_MockExecuteMsg {}
-
-#[cw_serde]
 pub struct LTVDisco_MockInstantiateMsg {}
 
-#[cw_serde]
-pub enum LTVDisco_MockQueryMsg {
-    GetAverageLTVs { assets: Vec<String> }
-}
-
 pub fn ltv_disco_contract() -> Box<dyn Contract<Empty>> {
+    use membrane::ltv_disco::{ExecuteMsg as LTVDisco_ExecuteMsg, QueryMsg as LTVDisco_QueryMsg};
     let contract = ContractWrapper::new(
-        |deps, _, info, msg: LTVDisco_MockExecuteMsg| -> StdResult<Response> {
+        |_deps, _env, _info, _msg: LTVDisco_ExecuteMsg| -> StdResult<Response> {
             Ok(Response::default())
         },
         |_, _, _, _: LTVDisco_MockInstantiateMsg| -> StdResult<Response> {
             Ok(Response::default())
         },
-        |_, _, msg: LTVDisco_MockQueryMsg| -> StdResult<Binary> {
+        |_, _, msg: LTVDisco_QueryMsg| -> StdResult<Binary> {
             match msg {
-                LTVDisco_MockQueryMsg::GetAverageLTVs { assets: _ } => {
-                    Ok(to_json_binary(&membrane::ltv_disco::AverageLTVsResponse {
-                        average_max_ltv: Decimal::percent(80),
-                        average_max_borrow_ltv: Decimal::percent(70),
-                    })?)
-                }
+                LTVDisco_QueryMsg::CanHandleBadDebt { .. } => Ok(to_json_binary(&false)?),
+                _ => Ok(to_json_binary(&true)?),
             }
         },
     );
@@ -307,6 +296,7 @@ mod tests {
             position_owner: Some(user_addr.to_string()),
             position_id: None,
             affiliate_address: None,
+            affiliate_label: None,
         };
 
         let result = app.execute_contract(
@@ -386,6 +376,7 @@ mod tests {
             position_owner: Some(user_addr.to_string()),
             position_id: None,
             affiliate_address: None,
+            affiliate_label: None,
         };
 
         app.execute_contract(
@@ -459,6 +450,7 @@ mod tests {
             position_owner: Some(user_addr.to_string()),
             position_id: None,
             affiliate_address: None,
+            affiliate_label: None,
         };
 
         app.execute_contract(

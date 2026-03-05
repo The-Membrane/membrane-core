@@ -106,6 +106,12 @@ pub enum ExecuteMsg {
         /// Fee amount in CDT
         fee_amount: Uint128,
     },
+    /// Check transmuter conversion rate and award points for deposit yield.
+    /// Compares current rate to user's last recorded rate and awards points on the delta.
+    CheckTransmuterYield {
+        /// User to check (defaults to caller if not provided)
+        user: Option<String>,
+    },
     /// Called by CDP when user exits volatile window with negative debt delta (repaid during volatility).
     /// Awards 5 management points to the user.
     CDPGivesUserManagementPoints {

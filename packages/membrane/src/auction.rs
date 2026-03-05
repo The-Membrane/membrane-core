@@ -1,5 +1,5 @@
 use cosmwasm_schema::cw_serde;
-use cosmwasm_std::{Decimal, Addr};
+use cosmwasm_std::{Decimal, Addr, Uint128};
 
 use crate::types::{Asset, AssetInfo, UserInfo};
 
@@ -56,6 +56,15 @@ pub enum ExecuteMsg {
     SwapForFee { auction_asset: AssetInfo },
     /// Remove ongoing CDT auction, primarily for mistakes
     RemoveAuction {},
+    /// Start MBRN sale for bad debt coverage (called by ltv_disco, no funds sent).
+    /// Auction pulls MBRN from disco on demand when users buy.
+    StartMBRNSale {
+        /// Maximum CDT to collect (bad debt amount to cover)
+        max_cdt: Uint128,
+    },
+    /// Buy MBRN from the disco supply sale by sending CDT.
+    /// CDT goes to CDP.FulfillBadDebt, buyer receives MBRN at discount.
+    BuySuppliedMBRN {},
     /// Update config
     UpdateConfig(UpdateConfig),
 }
@@ -66,6 +75,8 @@ pub enum QueryMsg {
     Config {},
     /// Returns DebtAuction info
     DebtAuction {},
+    /// Returns MBRNSale info (if active)
+    MBRNSale {},
     /// Returns ongoing FeeAuctions
     OngoingFeeAuctions {
         /// Asset being sold 

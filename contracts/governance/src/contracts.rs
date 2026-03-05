@@ -656,6 +656,8 @@ pub fn check_messages(
                 msg: to_binary(&CDP_ExecuteMsg::Deposit {
                     position_id: None,
                     position_owner: None,
+                    affiliate_address: None,
+                    affiliate_label: None,
                 })?,
                 funds: vec![
                     asset_to_coin(

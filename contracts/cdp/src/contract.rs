@@ -27,12 +27,11 @@ use crate::positions::{
     BAD_DEBT_REPLY_ID, CLOSE_POSITION_REPLY_ID, LIQ_QUEUE_REPLY_ID, REVENUE_REPLY_ID, WITHDRAW_REPLY_ID, SELL_COLLATERAL_REPLY_ID, DEPLOYABLE_VENUE_REPLY_ID
 };
 use crate::query::{
-    query_active_deployment_venues, query_basket_credit_interest, query_basket_positions, query_collateral_rates, query_liquidation_stats, query_user_intent_state, simulate_LTV_mint, query_historical_oracle_prices, query_historical_interest_rates, query_volatility_window, query_simulate_liquidation, query_historical_ltv, query_ltv_shift_info
+    query_active_deployment_venues, query_basket_credit_interest, query_basket_positions, query_collateral_rates, query_liquidation_stats, query_user_intent_state, simulate_LTV_mint, query_historical_oracle_prices, query_historical_interest_rates, query_volatility_window, query_simulate_liquidation
 };
 use crate::liquidations::liquidate;
 use crate::reply::{handle_close_position_reply, handle_liq_queue_reply, handle_revenue_reply, handle_sell_collateral_reply, handle_withdraw_reply, handle_deployable_venue_reply};
 use crate::state::{ get_target_position, update_position, update_position_claims, ContractVersion, ACTIVE_DEPLOYMENT_VENUES, AFFILIATES, BASKET, CLOSE_POSITION, COLLATERAL_RATE_ASSURANCE, CONFIG, CONTRACT, LIQUIDATION, OWNERSHIP_TRANSFER, POSITIONS, RATES, ClosePositionPropagation};
-use crate::ltv_updater::update_basket_ltvs;
 
 // use membrane::range_bound_lp_vault::{QueryMsg as RBLP_QueryMsg, UserIntentResponse};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
@@ -73,9 +72,6 @@ pub fn instantiate(
         affiliate_fee_max: Decimal::percent(5), //5%
         skip_credit_price_accrual: true,
         liquidation_stat_limit: 500,
-        ltv_upward_kp: Decimal::percent(5), // 5% of error per day
-        ltv_downward_period: 1_209_600, // 2 weeks in seconds (14 days * 86400)
-        ltv_max_downward_shift: Decimal::percent(5), // Max 5% shift per period
         transmuter_addr: None,
         irm_config: membrane::types::IRMConfig {
             adjustment_speed: Decimal::from_str("50").unwrap(),     // 50/year
@@ -83,6 +79,7 @@ pub fn instantiate(
             max_adaptive_rate: Decimal::from_str("0.09").unwrap(), // 9% ceiling
         },
         points_contract: None,
+        acquisition_contract: None,
     };
 
     //Set optional config parameters
@@ -146,7 +143,7 @@ pub fn execute(
 ) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::UpdateConfig (update) => update_config(deps, info, update),
-        ExecuteMsg::Deposit { position_owner, position_id, affiliate_address} => {
+        ExecuteMsg::Deposit { position_owner, position_id, affiliate_address, affiliate_label} => {
             //Set valid_assets from funds sent
             let valid_assets = info
                 .clone()
@@ -168,7 +165,7 @@ pub fn execute(
             //If there is nothing being deposited, error
             if cAssets == vec![] { return Err(ContractError::CustomError { val: String::from("No deposit assets passed") }) }
 
-            deposit(deps, env, info, position_owner, position_id, cAssets, affiliate_address)
+            deposit(deps, env, info, position_owner, position_id, cAssets, affiliate_address, affiliate_label)
         }
         ExecuteMsg::Withdraw {
             position_id,
@@ -274,7 +271,6 @@ pub fn execute(
         ExecuteMsg::SetDeploymentVenue { position_id, venue_address, initial_deployed_debt_amount } => {
             set_deployment_venue(deps, info, position_id, venue_address, initial_deployed_debt_amount)
         },
-        ExecuteMsg::UpdateBasketLTVs {} => update_basket_ltvs(deps, env),
         ExecuteMsg::SetAffiliate { position_id, affiliate_address, affiliate_fee, label } => {
             set_affiliate(deps, env, info, position_id, affiliate_address, affiliate_fee, label)
         },
@@ -297,7 +293,39 @@ pub fn execute(
         ExecuteMsg::CheckAndClearDebtDelta { position_owner, position_id } => {
             check_and_clear_debt_delta(deps, info, position_owner, position_id)
         }
+        ExecuteMsg::SetAcquisitionBumpRate { rate } => {
+            set_acquisition_bump_rate(deps, info, rate)
+        }
     }
+}
+
+/// Set the acquisition bump rate. Only callable by the configured acquisition contract.
+/// Stores the bump rate in the Rates struct. The bump is applied during rate index
+/// accumulation as: effective_rate = smoothed_rate + (acquisition_bump_rate * max_LTV) per asset.
+fn set_acquisition_bump_rate(
+    deps: DepsMut,
+    info: MessageInfo,
+    rate: Decimal,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+
+    // Only the configured acquisition contract can call this
+    match &config.acquisition_contract {
+        Some(acq_addr) if info.sender == *acq_addr => {},
+        _ => return Err(ContractError::Unauthorized {
+            owner: config.acquisition_contract
+                .map(|a| a.to_string())
+                .unwrap_or_else(|| "not configured".to_string()),
+        }),
+    }
+
+    let mut rates = RATES.load(deps.storage)?;
+    rates.acquisition_bump_rate = rate;
+    RATES.save(deps.storage, &rates)?;
+
+    Ok(Response::new()
+        .add_attribute("action", "set_acquisition_bump_rate")
+        .add_attribute("rate", rate.to_string()))
 }
 
 /// Fulfill bad debt.
@@ -1119,12 +1147,6 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::CheckVolatilityWindow { assets } => {
             to_json_binary(&query_volatility_window(deps, assets)?)
-        }
-        QueryMsg::GetHistoricalLTV { asset_denom, start_time, end_time, limit } => {
-            to_json_binary(&query_historical_ltv(deps, asset_denom, start_time, end_time, limit)?)
-        }
-        QueryMsg::GetLTVShiftInfo { asset_denom } => {
-            to_json_binary(&query_ltv_shift_info(deps, env, asset_denom)?)
         }
     }
 }

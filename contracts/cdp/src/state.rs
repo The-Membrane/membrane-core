@@ -7,7 +7,7 @@ use membrane::helpers::get_contract_balances;
 use membrane::stability_pool_vault::calculate_base_tokens;
 
 use membrane::types::{AffiliateData, cAsset, Asset, AssetInfo, Basket, Rates, UserDeploymentIntents, Position, RedemptionInfo, StoredPrice, UserInfo};
-use membrane::cdp::{Config, ExecuteMsg, LTVSnapshot};
+use membrane::cdp::{Config, ExecuteMsg};
 
 use crate::ContractError;
 
@@ -16,9 +16,6 @@ use crate::risk_engine::update_basket_tally;
 const MAX_CDT_SUPPLY_ENTRIES: usize = 500;
 const MAX_ORACLE_ENTRIES: usize = 365;
 const MAX_INTEREST_RATE_ENTRIES: usize = 365;
-/// Maximum number of LTV history entries per asset
-const MAX_LTV_HISTORY_ENTRIES: usize = 365;
-
 const SECONDS_PER_DAY: u64 = 86400;
 
 #[cw_serde]
@@ -138,18 +135,6 @@ pub struct AssetCircuitBreaker {
     pub reference_price: Option<Decimal>,
 }
 
-#[cw_serde]
-pub struct LTVUpdateTracker {
-    /// Timestamp of last upward accrual
-    pub last_upward_update: u64,
-    /// Staged downward max_LTV (waiting to be applied)
-    pub staged_max_ltv: Option<Decimal>,
-    /// Staged downward max_borrow_LTV (waiting to be applied)
-    pub staged_max_borrow_ltv: Option<Decimal>,
-    /// Timestamp when downward values were staged (timer starts here)
-    pub staged_timestamp: Option<u64>,
-}
-
 pub const CONTRACT: Item<ContractVersion> = Item::new("contract_info");
 
 pub const CONFIG: Item<Config> = Item::new("config");
@@ -192,13 +177,8 @@ pub const CDT_SUPPLY: Item<Vec<SupplyTimestamp>> = Item::new("cdt_supply");
 pub const HISTORICAL_ORACLE_PRICES: Map<String, Vec<PriceTimestamp>> = Map::new("historical_oracle"); //asset, price
 /// Historical Interest Rate tracker
 pub const HISTORICAL_INTEREST_RATES: Map<String, Vec<RateTimestamp>> = Map::new("historical_interest_rates"); //asset, rates
-/// LTV Update Trackers for dynamic LTV mechanism
-pub const LTV_UPDATE_TRACKERS: Map<String, LTVUpdateTracker> = Map::new("ltv_update_trackers"); //asset_denom, tracker
 /// Per-asset circuit breaker state
 pub const ASSET_CIRCUIT_BREAKERS: Map<String, AssetCircuitBreaker> = Map::new("asset_circuit_breakers");
-/// Historical LTV data per asset - Map<asset_denom, Vec<LTVSnapshot>>
-pub const LTV_HISTORY: Map<String, Vec<LTVSnapshot>> = Map::new("ltv_history");
-
 //Helper functions
 
 /// Update CDT Supply Growth Tracker
@@ -305,53 +285,6 @@ pub fn update_cdt_supply(
     }
     //Save new CDT Supply Growth Tracker
     CDT_SUPPLY.save(storage, &cdt_supply)?;
-    Ok(())
-}
-
-/// Record historical LTV snapshot for an asset
-/// This should be called whenever an asset's LTV values are updated
-pub fn record_ltv_snapshot(
-    storage: &mut dyn Storage,
-    env: &Env,
-    asset_denom: &str,
-    max_ltv: Decimal,
-    max_borrow_ltv: Decimal,
-) -> StdResult<()> {
-    let current_time = env.block.time.seconds();
-
-    // Load or initialize the history vec for this asset
-    let mut ltv_history = LTV_HISTORY.may_load(storage, asset_denom.to_string())?.unwrap_or_else(|| vec![]);
-
-    // Check if we should add new snapshots
-    // If there are existing entries, check if we should update (similar to oracle tracking)
-    let should_add = if ltv_history.len() > 0 {
-        let last_entry = ltv_history.last().unwrap();
-
-        // Only add if enough time has passed (at least a day)
-        current_time >= last_entry.timestamp + SECONDS_PER_DAY
-    } else {
-        // No existing entries, add the first ones
-        true
-    };
-
-    if should_add {
-        // Add a single snapshot with both LTV values
-        ltv_history.push(LTVSnapshot {
-            timestamp: current_time,
-            max_ltv,
-            max_borrow_ltv,
-        });
-
-        // Prune if we exceed the max entries
-        if ltv_history.len() > MAX_LTV_HISTORY_ENTRIES {
-            let to_remove = ltv_history.len() - MAX_LTV_HISTORY_ENTRIES;
-            ltv_history.drain(0..to_remove);
-        }
-
-        // Save the updated history
-        LTV_HISTORY.save(storage, asset_denom.to_string(), &ltv_history)?;
-    }
-
     Ok(())
 }
 

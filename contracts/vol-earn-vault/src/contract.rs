@@ -126,7 +126,7 @@ pub fn instantiate(
     //This initial deposit means the position should never be empty due to user withdrawals.
     let cdp_deposit_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None })?,
+        msg: to_json_binary(&CDP_ExecuteMsg::Deposit { position_id: None, position_owner: None, affiliate_address: None, affiliate_label: None })?,
         funds: vec![
             info.funds[0].clone()
         ],
@@ -803,9 +803,11 @@ fn enter_vault(
     //Send the deposit to the CDP position
     let send_deposit_to_cdp_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
         contract_addr: config.cdp_contract_addr.to_string(),
-        msg: to_json_binary(&CDP_ExecuteMsg::Deposit { 
+        msg: to_json_binary(&CDP_ExecuteMsg::Deposit {
             position_id: Some(config.clone().cdp_position_id),
-            position_owner: None
+            position_owner: None,
+            affiliate_address: None,
+            affiliate_label: None,
         })?,
         funds: vec![Coin {
             denom: config.deposit_token.clone(),
@@ -1381,9 +1383,11 @@ fn handle_compound_reply(
             //Redeposit the deposit token into the CDP
             let redeposit_msg: CosmosMsg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: config.cdp_contract_addr.to_string(),
-                msg: to_json_binary(&CDP_ExecuteMsg::Deposit { 
+                msg: to_json_binary(&CDP_ExecuteMsg::Deposit {
                     position_id: Some(config.cdp_position_id),
                     position_owner: None,
+                    affiliate_address: None,
+                    affiliate_label: None,
                 })?,
                 funds: vec![
                     Coin {

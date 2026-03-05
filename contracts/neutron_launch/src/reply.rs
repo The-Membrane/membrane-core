@@ -7,7 +7,7 @@ use cosmwasm_std::{
 };
 use membrane::math::Uint256;
 use crate::error::ContractError;
-use crate::contracts::{POSITIONS_REPLY_ID, DEBT_AUCTION_REPLY_ID, SYSTEM_DISCOUNTS_REPLY_ID, DISCOUNT_VAULT_REPLY_ID, CREATE_DENOM_REPLY_ID, ORACLE_REPLY_ID, STAKING_REPLY_ID, LIQ_QUEUE_REPLY_ID, LTV_DISCO_REPLY_ID, TRANSMUTER_REPLY_ID, REVENUE_DISTRIBUTOR_REPLY_ID, TRANSMUTER_LOCKDROP_REPLY_ID, YIELD_ARB_REPLY_ID, MARS_VT_REPLY_ID, POINTS_SYSTEM_REPLY_ID, EMISSIONS_VOTING_REPLY_ID, NO_ACTION_ID};
+use crate::contracts::{POSITIONS_REPLY_ID, DEBT_AUCTION_REPLY_ID, SYSTEM_DISCOUNTS_REPLY_ID, DISCOUNT_VAULT_REPLY_ID, CREATE_DENOM_REPLY_ID, ORACLE_REPLY_ID, STAKING_REPLY_ID, LIQ_QUEUE_REPLY_ID, LTV_DISCO_REPLY_ID, TRANSMUTER_REPLY_ID, REVENUE_DISTRIBUTOR_REPLY_ID, ACQUISITION_REPLY_ID, YIELD_ARB_REPLY_ID, MARS_VT_REPLY_ID, POINTS_SYSTEM_REPLY_ID, EMISSIONS_VOTING_REPLY_ID, NO_ACTION_ID};
 use crate::state::{ADDRESSES, CONFIG};
 
 use membrane::staking::{InstantiateMsg as Staking_InstantiateMsg, ExecuteMsg as StakingExecuteMsg};
@@ -19,7 +19,7 @@ use membrane::mars_vault_token::{InstantiateMsg as MarsVT_InstantiateMsg, QueryM
 use membrane::ltv_disco::{InstantiateMsg as LTVDisco_InstantiateMsg, ExecuteMsg as LTVDiscoExecuteMsg};
 use membrane::transmuter::{InstantiateMsg as Transmuter_InstantiateMsg, ExecuteMsg as TransmuterExecuteMsg};
 use membrane::revenue_distributor::{InstantiateMsg as RevenueDistributor_InstantiateMsg, ExecuteMsg as RevenueDistributorExecuteMsg, RDVaultInfoMessage, RevenueDestination as RevenueDistributorRevenueDestination};
-use membrane::transmuter_lockdrop::{InstantiateMsg as TransmuterLockdrop_InstantiateMsg, ExecuteMsg as TransmuterLockdrop_ExecuteMsg};
+use membrane::acquisition::{InstantiateMsg as Acquisition_InstantiateMsg, ExecuteMsg as Acquisition_ExecuteMsg};
 use membrane::yield_arb::{InstantiateMsg as YieldArb_InstantiateMsg, ExecuteMsg as YieldArb_ExecuteMsg};
 use membrane::points_system::{InstantiateMsg as PointsSystem_InstantiateMsg, ExecuteMsg as PointsSystem_ExecuteMsg};
 use membrane::auction::{InstantiateMsg as DAInstantiateMsg, ExecuteMsg as DAExecuteMsg, UpdateConfig as AuctionUpdateConfig};
@@ -585,7 +585,7 @@ pub fn handle_transmuter_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<
                     points_system_contract: None, // Will be set later via UpdateConfig
                     cdp_contract: None, // Will be set later via UpdateConfig
                     revenue_dispersal_window: None, // Will be set later via UpdateConfig
-                    transmuter_lockdrop_contract: None, // Will be set later via UpdateConfig
+                    acquisition_contract: None, // Will be set later via UpdateConfig
                     ltv_disco_contract: None, // Will be set later via UpdateConfig
                     auction_contract: None, // Will be set later via UpdateConfig after auction is deployed
                 })?, 
@@ -634,10 +634,10 @@ pub fn handle_revenue_distributor_reply(deps: DepsMut, env: Env, msg: Reply)-> S
             ADDRESSES.save(deps.storage, &addrs)?;
 
             //Instantiate Transmuter Lockdrop
-            let transmuter_lockdrop_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
+            let acquisition_instantiation = CosmosMsg::Wasm(WasmMsg::Instantiate { 
                 admin: Some(config.owner.to_string()),  
-                code_id: config.clone().transmuter_lockdrop_id, 
-                msg: to_binary(&TransmuterLockdrop_InstantiateMsg {
+                code_id: config.clone().acquisition_id, 
+                msg: to_binary(&Acquisition_InstantiateMsg {
                     owner: config.owner.to_string(),  
                     transmuter_contract: addrs.clone().transmuter.to_string(),
                     neutron_proxy: addrs.clone().neutron_proxy.to_string(),
@@ -656,9 +656,9 @@ pub fn handle_revenue_distributor_reply(deps: DepsMut, env: Env, msg: Reply)-> S
                     emissions_voting_contract: None, // Set later via UpdateConfig in handle_emissions_voting_reply
                 })?, 
                 funds: vec![], 
-                label: String::from("transmuter_lockdrop"), 
+                label: String::from("acquisition"), 
             });
-            let sub_msg = SubMsg::reply_on_success(transmuter_lockdrop_instantiation, TRANSMUTER_LOCKDROP_REPLY_ID);
+            let sub_msg = SubMsg::reply_on_success(acquisition_instantiation, ACQUISITION_REPLY_ID);
             
             Ok(Response::new()
                 .add_submessage(sub_msg)
@@ -669,7 +669,7 @@ pub fn handle_revenue_distributor_reply(deps: DepsMut, env: Env, msg: Reply)-> S
 }
 
 /// Instantiate Yield Arb contract
-pub fn handle_transmuter_lockdrop_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
+pub fn handle_acquisition_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<Response>{
     match msg.result.into_result() {
         Ok(result) => {
             let config = CONFIG.load(deps.storage)?;
@@ -698,7 +698,7 @@ pub fn handle_transmuter_lockdrop_reply(deps: DepsMut, env: Env, msg: Reply)-> S
 
             //Save Transmuter Lockdrop address
             let mut addrs = ADDRESSES.load(deps.storage)?;
-            addrs.transmuter_lockdrop = valid_address.clone();
+            addrs.acquisition = valid_address.clone();
             ADDRESSES.save(deps.storage, &addrs)?;
                        
             //Instantiate Yield Arb
@@ -971,16 +971,16 @@ pub fn handle_emissions_voting_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                 sub_msgs.push(SubMsg::new(create_graph_msg));
             }
 
-            // Create graph for transmuter_lockdrop (Uint128)
+            // Create graph for acquisition (Uint128)
             let lockdrop_graph_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: addrs.emissions_voting.to_string(),
                 msg: to_binary(&EmissionsVotingExecuteMsg::CreateGraph {
-                    label: "transmuter_lockdrop".to_string(),
+                    label: "acquisition".to_string(),
                     graph_type: GraphType::Uint128,
                     range_min: "0".to_string(),
                     range_max: "1000000000000".to_string(), // 1M with 6 decimals
                     period_days: 7,
-                    callback_contract: addrs.transmuter_lockdrop.to_string(),
+                    callback_contract: addrs.acquisition.to_string(),
                     persistent_voting: None,
                 })?,
                 funds: vec![],
@@ -1047,6 +1047,8 @@ pub fn handle_emissions_voting_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                     send_swap_fee: None,
                     revenue_distributor_fee_percentage: None,
                     emissions_voting_contract: Some(addrs.emissions_voting.to_string()),
+                    acquisition_contract: None,
+                    points_system_contract: Some(addrs.points_system.to_string()),
                 })?,
                 funds: vec![],
             });
@@ -1078,10 +1080,10 @@ pub fn handle_emissions_voting_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                 funds: vec![],
             });
             
-            // Update transmuter lockdrop config to set emissions_voting_contract
+            // Update acquisition config to set emissions_voting_contract
             let update_lockdrop_config_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: addrs.transmuter_lockdrop.to_string(),
-                msg: to_binary(&TransmuterLockdrop_ExecuteMsg::UpdateConfig {
+                contract_addr: addrs.acquisition.to_string(),
+                msg: to_binary(&Acquisition_ExecuteMsg::UpdateConfig {
                     owner: None,
                     transmuter_contract: None,
                     neutron_proxy: None,
@@ -1161,7 +1163,7 @@ pub fn handle_emissions_voting_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                     points_system_contract: Some(addrs.points_system.to_string()),
                     cdp_contract: Some(addrs.positions.to_string()),
                     revenue_dispersal_window: Some(7u64),
-                    transmuter_lockdrop_contract: Some(addrs.transmuter_lockdrop.to_string()),
+                    acquisition_contract: Some(addrs.acquisition.to_string()),
                     ltv_disco_contract: Some(addrs.ltv_disco.to_string()),
                     auction_contract: Some(addrs.mbrn_auction.to_string()),
                 })?,
@@ -1192,9 +1194,6 @@ pub fn handle_emissions_voting_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                     affiliate_fee_max: None,
                     skip_credit_price_accrual: None,
                     liquidation_stat_limit: None,
-                    ltv_upward_kp: None,
-                    ltv_downward_period: None,
-                    ltv_max_downward_shift: None,
                     transmuter_addr: None,
                     irm_config: None,
                     points_contract: Some(addrs.points_system.to_string()),

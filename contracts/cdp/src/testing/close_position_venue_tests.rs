@@ -54,6 +54,7 @@ mod tests {
                 position_id: None,
                 position_owner: None,
                 affiliate_address: None,
+                affiliate_label: None,
             })
             .unwrap(),
             funds: vec![coin(10000_000_000, "debit")], // More collateral to support higher debt
@@ -291,6 +292,7 @@ mod tests {
                 position_id: None,
                 position_owner: None,
                 affiliate_address: None,
+                affiliate_label: None,
             })
             .unwrap(),
             funds: vec![coin(10000_000_000, "debit")], // More collateral to support higher debt

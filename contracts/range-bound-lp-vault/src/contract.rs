@@ -2051,6 +2051,8 @@ fn handle_parse_purchase_intents_reply(
                             msg: to_json_binary(&CDP_ExecuteMsg::Deposit {
                                 position_id: Some(Uint128::new(position_id as u128)),
                                 position_owner: Some(intent_prop.intents.user.clone()),
+                                affiliate_address: None,
+                                affiliate_label: None,
                             })?,
                             funds: vec![
                                 Coin {

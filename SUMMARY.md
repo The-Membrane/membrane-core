@@ -2,30 +2,62 @@
 
 * [What is Membrane?](README.md)
 
-## Protocol
+## Protocol Overview
 
-* [Overview](protocol/overview/README.md)
-  * [Asset Bundles](protocol/overview/asset-bundles.md)
-  * [Floating Redemption Price](protocol/overview/floating-redemption-price.md)
-  * [Interest Rates](protocol/overview/interest-rates.md)
-* [Liquidation Mechanism](protocol/liquidation-mechanism.md)
-* [Risk Management](protocol/risk-management.md)
-* [MBRN Tokenomics](protocol/mbrn-tokenomics.md)
+* [Architecture](docs/README.md)
 
-## Smart Contracts
+## CDP Organ
 
-* [Positions](smart-contracts/positions.md)
-* [Stability Pool](smart-contracts/stability-pool.md)
-* [Liquidation Queue](smart-contracts/liquidation-queue.md)
-* [Builder's Vesting](<smart-contracts/staking (1).md>)
-* [Staking](smart-contracts/staking.md)
-* [Governance](smart-contracts/gov.md)
-* [Oracle](smart-contracts/oracle.md)
-* [MBRN Auction](smart-contracts/mbrn-auction.md)
-* [Osmosis Proxy](smart-contracts/osmosis-proxy.md)
-* [Liquidity Check](smart-contracts/liquidity-check.md)
-* [Margin Proxy](smart-contracts/margin-proxy.md)
+* [Overview](docs/organs/cdp/README.md)
+* [Collateral](docs/organs/cdp/collateral.md)
+* [Debt](docs/organs/cdp/debt.md)
+* [Liquidation Engine](docs/organs/cdp/liquidation-engine.md)
+* [Liquidation Queue](docs/organs/cdp/liq-queue.md)
 
-## Technical Explanations
+## Transmuter Organ
 
-* [Liquidation Mechanism](technical-explanations/liquidation-mechanism.md)
+* [Overview](docs/organs/transmuter/README.md)
+* [Transmuter](docs/organs/transmuter/transmuter.md)
+
+## LTV Disco Organ
+
+* [Overview](docs/organs/ltv-disco/README.md)
+* [LTV Disco](docs/organs/ltv-disco/ltv-disco.md)
+* [Emissions Voting](docs/organs/ltv-disco/emissions-voting.md)
+
+## Acquisition Organ
+
+* [Overview](docs/organs/acquisition/README.md)
+* [Acquisition](docs/organs/acquisition/acquisition.md)
+
+## Governance Organ
+
+* [Overview](docs/organs/governance/README.md)
+* [Staking](docs/organs/governance/staking.md)
+* [Governance](docs/organs/governance/governance.md)
+* [Vesting](docs/organs/governance/vesting.md)
+
+## Revenue Organ
+
+* [Overview](docs/organs/revenue/README.md)
+* [Revenue Distributor](docs/organs/revenue/revenue-distributor.md)
+* [Auction](docs/organs/revenue/auction.md)
+
+## Shared Contracts
+
+* [Oracle](docs/shared/oracle.md)
+* [System Discounts](docs/shared/system-discounts.md)
+* [Points System](docs/shared/points-system.md)
+
+## Infrastructure
+
+* [Osmosis Proxy](docs/infrastructure/osmosis-proxy.md)
+* [Neutron Proxy](docs/infrastructure/neutron-proxy.md)
+* [Discount Vault](docs/infrastructure/discount-vault.md)
+
+## Cross-Organ Flows
+
+* [Revenue Flow](docs/cross-organ/revenue-flow.md)
+* [Liquidation Flow](docs/cross-organ/liquidation-flow.md)
+* [Acquisition to Disco Pipeline](docs/cross-organ/acquisition-to-disco-flow.md)
+* [Economic Flywheel & Market Position](docs/cross-organ/flywheel.md)

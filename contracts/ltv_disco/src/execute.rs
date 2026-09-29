@@ -1,5 +1,5 @@
 use cosmwasm_std::{
-    attr, to_json_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg, QuerierWrapper
+    attr, to_json_binary, Addr, BankMsg, Coin, CosmosMsg, Decimal, DepsMut, Env, MessageInfo, Order, Response, StdError, StdResult, Storage, SubMsg, Uint128, WasmMsg, QuerierWrapper
 };
 use std::collections::HashMap;
 use membrane::emissions_voting::{HasAnyVotesResponse, QueryMsg as EmissionsVotingQueryMsg};
@@ -13,13 +13,31 @@ use membrane::oracle::{QueryMsg as Oracle_QueryMsg, PriceResponse};
 use membrane::neutron_proxy::ExecuteMsg as NeutronProxy_ExecuteMsg;
 
 use crate::error::ContractError;
-use crate::state::{CompoundPropagation, COMPOUND_PROPAGATION, REVENUE_TRACKING, RATE_ASSURANCE, REVENUE_EVENTS, USER_LIFETIME_REVENUE, BACKING_DEPOSITS, USER_DEPOSITS, CONFIG, ASSET_QUEUES, DAILY_TVL_TRACKER, DAILY_DEPOSIT_TRACKER, USER_TOTAL_DEPOSITS, MANAGER_FEE, MANAGED_DEPOSITS, UNSTAKE_REQUESTS, USER_UNSTAKE_REQUESTS};
+use crate::state::{CompoundPropagation, COMPOUND_PROPAGATION, REVENUE_TRACKING, RATE_ASSURANCE, REVENUE_EVENTS, USER_LIFETIME_REVENUE, BACKING_DEPOSITS, USER_DEPOSITS, CONFIG, ASSET_QUEUES, DAILY_TVL_TRACKER, DAILY_DEPOSIT_TRACKER, USER_TOTAL_DEPOSITS, MANAGER_FEE, MANAGED_DEPOSITS, UNSTAKE_REQUESTS, USER_UNSTAKE_REQUESTS, PENDING_BAD_DEBT, update_manager_performance};
 
 const REVENUE_TRACKING_LIMIT: usize = 100;
 const LIFETIME_REVENUE_LIMIT: usize = 100;
 const TVL_TRACKER_LIMIT: usize = 100;
 const DEPOSIT_TRACKER_LIMIT: usize = 100;
 const ONE_DAY_SECONDS: u64 = 86400;
+
+// =================== Liquidation Engine Query Helper ===================
+
+/// Query the liquidation engine for the most recent liquidation timestamp involving an asset.
+fn query_last_liq_timestamp_for_asset(
+    querier: &QuerierWrapper,
+    liq_engine: &Addr,
+    asset: &str,
+) -> Result<Option<u64>, ContractError> {
+    let resp: membrane::liquidation_engine::LastLiquidationTimestampForAssetResponse =
+        querier.query_wasm_smart(
+            liq_engine.to_string(),
+            &membrane::liquidation_engine::QueryMsg::GetLastLiquidationTimestampForAsset {
+                asset: asset.to_string(),
+            },
+        )?;
+    Ok(resp.timestamp)
+}
 
 // =================== Key Helpers ===================
 
@@ -29,7 +47,7 @@ pub fn make_deposit_key(asset: &str, slot: u8, user: &str, deposit_id: &Uint128)
 }
 
 /// Build unstake request key (same format as deposit key)
-fn make_unstake_key(asset: &str, slot: u8, user: &str, deposit_id: &Uint128) -> String {
+pub fn make_unstake_key(asset: &str, slot: u8, user: &str, deposit_id: &Uint128) -> String {
     make_deposit_key(asset, slot, user, deposit_id)
 }
 
@@ -607,6 +625,14 @@ pub fn request_unstake(
         return Err(ContractError::WithdrawalsDisabled {});
     }
 
+    // Block unstake if asset has active bad debt auction
+    let pending_bad_debt = PENDING_BAD_DEBT
+        .may_load(deps.storage, asset.clone())?
+        .unwrap_or(Uint128::zero());
+    if !pending_bad_debt.is_zero() {
+        return Err(ContractError::AssetWithdrawalsFrozen { asset: asset.clone() });
+    }
+
     // Block if user has active emissions votes
     if let Some(ref emissions_contract) = config.emissions_voting_contract {
         let has_votes: HasAnyVotesResponse = deps.querier.query_wasm_smart(
@@ -720,6 +746,28 @@ pub fn complete_unstake(
     // Verify cooldown passed
     if env.block.time.seconds() < request.unlock_time {
         return Err(ContractError::UnstakeNotReady {});
+    }
+
+    // Block if last liquidation event for this asset was within unstaking_period
+    if let Some(ref liq_engine) = config.liquidation_engine_contract {
+        if let Some(last_liq_ts) = query_last_liq_timestamp_for_asset(
+            &deps.querier, liq_engine, &asset,
+        )? {
+            let lockout_end = last_liq_ts + config.unstaking_period;
+            if env.block.time.seconds() < lockout_end {
+                return Err(ContractError::UnstakeLiquidationLockout {
+                    lockout_until: lockout_end,
+                });
+            }
+        }
+    }
+
+    // Block completion if asset has active bad debt auction
+    let pending_bad_debt = PENDING_BAD_DEBT
+        .may_load(deps.storage, asset.clone())?
+        .unwrap_or(Uint128::zero());
+    if !pending_bad_debt.is_zero() {
+        return Err(ContractError::AssetWithdrawalsFrozen { asset: asset.clone() });
     }
 
     let deposit_key = make_deposit_key(&asset, slot, &info.sender.to_string(), &deposit_id);
@@ -1358,14 +1406,49 @@ pub fn add_deposit_token_revenue(
     Ok(Response::new().add_attributes(attrs))
 }
 
+/// Clear bad debt freeze for an asset after its auction obligation is fulfilled.
+/// Callable by auction contract only.
+pub fn clear_bad_debt_freeze(
+    deps: DepsMut,
+    info: MessageInfo,
+    asset: String,
+    cdt_amount: Uint128,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let auction = config.auction_contract
+        .ok_or(ContractError::CustomError { val: "auction_contract not configured".into() })?;
+    if info.sender != auction {
+        return Err(ContractError::Unauthorized {});
+    }
+
+    let current = PENDING_BAD_DEBT
+        .may_load(deps.storage, asset.clone())?
+        .unwrap_or(Uint128::zero());
+    let remaining = current.saturating_sub(cdt_amount);
+    if remaining.is_zero() {
+        PENDING_BAD_DEBT.remove(deps.storage, asset.clone());
+    } else {
+        PENDING_BAD_DEBT.save(deps.storage, asset.clone(), &remaining)?;
+    }
+
+    Ok(Response::new()
+        .add_attribute("method", "clear_bad_debt_freeze")
+        .add_attribute("asset", &asset)
+        .add_attribute("cdt_cleared", cdt_amount.to_string())
+        .add_attribute("remaining_pending", remaining.to_string()))
+}
+
 /// Send MBRN for bad debt auction sale (callable by auction contract only).
 /// Auction pulls MBRN from disco to send to buyers.
+/// Send MBRN for bad debt auction sale (callable by auction contract only).
+/// Slashes MBRN from the asset's slots (riskiest first) and sends to the buyer.
 pub fn send_mbrn_for_sale(
     deps: DepsMut,
     env: Env,
     info: MessageInfo,
     amount: Uint128,
     recipient: String,
+    asset: String,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -1391,15 +1474,95 @@ pub fn send_mbrn_for_sale(
 
     let valid_recipient = deps.api.addr_validate(&recipient)?;
 
-    // Verify we have enough MBRN
-    let mbrn_balance: Coin = deps.querier.query_balance(
-        env.contract.address,
-        mbrn_denom.clone(),
-    )?;
-    if mbrn_balance.amount < amount {
+    // Slash MBRN from this asset's slots (riskiest first)
+    let mut queue = ASSET_QUEUES.load(deps.storage, asset.clone())?;
+    let mut remaining = amount;
+
+    // Capture pre-slash state for manager bad debt attribution
+    let pre_slash_slots: Vec<(u8, Uint128, Uint128)> = queue.slots.iter()
+        .map(|s| {
+            let pct = (s.max_ltv * Decimal::from_ratio(100u128, 1u128)).to_uint_floor().u128() as u8;
+            (pct, s.total_deposit_tokens, s.total_vault_tokens)
+        })
+        .collect();
+
+    // Track slash per slot for attribution
+    let mut slash_per_slot: Vec<(u8, Uint128)> = Vec::new();
+
+    for slot in &mut queue.slots {
+        if remaining.is_zero() {
+            break;
+        }
+        if slot.total_deposit_tokens.is_zero() {
+            continue;
+        }
+        let slash = std::cmp::min(remaining, slot.total_deposit_tokens);
+        let pct = (slot.max_ltv * Decimal::from_ratio(100u128, 1u128)).to_uint_floor().u128() as u8;
+        slash_per_slot.push((pct, slash));
+        slot.total_deposit_tokens -= slash;
+        remaining -= slash;
+    }
+
+    if !remaining.is_zero() {
         return Err(ContractError::CustomError {
-            val: format!("Insufficient MBRN: have {}, need {}", mbrn_balance.amount, amount),
+            val: format!("Insufficient MBRN in asset {} slots: need {}, short {}", asset, amount, remaining),
         });
+    }
+
+    ASSET_QUEUES.save(deps.storage, asset.clone(), &queue)?;
+
+    // Attribute bad debt to managers whose deposits were in slashed slots
+    let mut manager_bad_debt: HashMap<Addr, Uint128> = HashMap::new();
+
+    for (slot_pct, slash_amount) in &slash_per_slot {
+        // Find the pre-slash totals for this slot
+        if let Some((_, pre_deposit_tokens, pre_vault_tokens)) = pre_slash_slots.iter()
+            .find(|(pct, _, _)| pct == slot_pct)
+        {
+            if pre_deposit_tokens.is_zero() || pre_vault_tokens.is_zero() {
+                continue;
+            }
+            let slot_str = slot_pct.to_string();
+
+            // Scan all managers for deposits in this asset:slot
+            let managers: Vec<(Addr, Vec<String>)> = MANAGED_DEPOSITS
+                .range(deps.storage, None, None, Order::Ascending)
+                .filter_map(|item| item.ok())
+                .collect();
+
+            for (manager, keys) in &managers {
+                for key in keys {
+                    let parts: Vec<&str> = key.split(':').collect();
+                    if parts.len() != 4 || parts[0] != asset || parts[1] != slot_str {
+                        continue;
+                    }
+                    if let Ok(deposit) = BACKING_DEPOSITS.load(deps.storage, key.clone()) {
+                        // Manager's share of the slash: proportional to their vault tokens
+                        let manager_loss = slash_amount.multiply_ratio(
+                            deposit.vault_tokens,
+                            *pre_vault_tokens,
+                        );
+                        if !manager_loss.is_zero() {
+                            *manager_bad_debt.entry(manager.clone()).or_insert(Uint128::zero()) += manager_loss;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Record performance entries for affected managers
+    for (manager, bad_debt_amount) in &manager_bad_debt {
+        let (total_capital, assets_managed) = calculate_manager_capital(deps.storage, manager)?;
+        update_manager_performance(
+            deps.storage,
+            env.block.time.seconds(),
+            manager,
+            Uint128::zero(),
+            *bad_debt_amount,
+            total_capital,
+            assets_managed,
+        )?;
     }
 
     // Send MBRN to recipient (the buyer)
@@ -1412,7 +1575,8 @@ pub fn send_mbrn_for_sale(
         .add_message(send_msg)
         .add_attribute("method", "send_mbrn_for_sale")
         .add_attribute("amount", amount)
-        .add_attribute("recipient", valid_recipient))
+        .add_attribute("recipient", valid_recipient)
+        .add_attribute("asset", asset))
 }
 
 // =================== Claiming ===================
@@ -1649,6 +1813,18 @@ pub fn claim_revenue_for_user(
                 });
                 submsgs.push(SubMsg::reply_on_error(points_msg, 0));
             }
+
+            // Update manager performance tracking
+            let (total_capital, assets_managed) = calculate_manager_capital(deps.storage, manager_addr)?;
+            update_manager_performance(
+                deps.storage,
+                env.block.time.seconds(),
+                manager_addr,
+                *fee_amount,
+                Uint128::zero(),
+                total_capital,
+                assets_managed,
+            )?;
         }
     }
 
@@ -1766,74 +1942,42 @@ pub fn add_bad_debt(
         return Err(ContractError::Unauthorized {});
     }
 
-    let mut queue = ASSET_QUEUES.load(deps.storage, asset.clone())?;
+    let queue = ASSET_QUEUES.load(deps.storage, asset.clone())?;
 
-    // Convert CDT bad debt to collateral amount using oracle
-    let asset_info = AssetInfo::NativeToken { denom: asset.clone() };
-    let cdt_info = AssetInfo::NativeToken { denom: config.cdt_denom.clone() };
-    let price_response: Vec<PriceResponse> = deps.querier.query_wasm_smart(
-        config.oracle_contract.to_string(),
-        &Oracle_QueryMsg::Prices {
-            asset_infos: vec![asset_info.clone(), cdt_info.clone()],
-            twap_timeframe: 0,
-            oracle_time_limit: 0,
-        },
+    // Total MBRN available across all slots for this asset
+    let total_mbrn: Uint128 = queue.slots.iter()
+        .map(|s| s.total_deposit_tokens)
+        .sum();
+
+    if total_mbrn.is_zero() {
+        return Err(ContractError::CustomError {
+            val: format!("No MBRN deposits for asset {}", asset),
+        });
+    }
+
+    // Freeze withdrawals for this asset
+    let current_pending = PENDING_BAD_DEBT
+        .may_load(deps.storage, asset.clone())?
+        .unwrap_or(Uint128::zero());
+    PENDING_BAD_DEBT.save(deps.storage, asset.clone(), &(current_pending + amount))?;
+
+    // Start MBRN sale at auction — no slashing here.
+    // Actual MBRN is pulled from slots when auction calls SendMBRNForSale.
+    let sale_msg = create_start_mbrn_sale_msg(
+        &config,
+        amount,
+        asset.clone(),
+        total_mbrn,
     )?;
-
-    let cdt_value = price_response[1].get_value(amount)?;
-    let collateral_amount_needed = price_response[0].get_amount(cdt_value)?;
-
-    let mut remaining_to_slash = collateral_amount_needed;
-    let mut total_slashed = Uint128::zero();
-
-    // Slash from slot 1 (riskiest) first, ascending order
-    for slot in &mut queue.slots {
-        if remaining_to_slash.is_zero() {
-            break;
-        }
-        if slot.total_deposit_tokens.is_zero() {
-            continue;
-        }
-
-        let slash_amount = std::cmp::min(remaining_to_slash, slot.total_deposit_tokens);
-        slot.total_deposit_tokens -= slash_amount;
-
-        // Track bad debt in CDT terms
-        let slashed_cdt = price_response[1].get_amount(price_response[0].get_value(slash_amount)?)?;
-        slot.bad_debt += slashed_cdt;
-
-        total_slashed += slash_amount;
-        remaining_to_slash -= slash_amount;
-    }
-
-    // If deposits were slashed, start MBRN sale at auction for bad debt coverage
-    if !total_slashed.is_zero() {
-        // Calculate CDT value of slashed amount (this is the max CDT to collect)
-        let slashed_cdt_value = price_response[1].get_amount(
-            price_response[0].get_value(total_slashed)?
-        )?;
-
-        let sale_msg = create_start_mbrn_sale_msg(
-            &config,
-            slashed_cdt_value,
-        )?;
-        msgs.push(sale_msg);
-    }
-
-    ASSET_QUEUES.save(deps.storage, asset.clone(), &queue)?;
-
-    let remaining_bad_debt = amount.saturating_sub(
-        price_response[1].get_amount(price_response[0].get_value(total_slashed).unwrap_or(cosmwasm_std::Decimal::zero())).unwrap_or(Uint128::zero())
-    );
+    msgs.push(sale_msg);
 
     Ok(Response::new()
         .add_messages(msgs)
         .add_attributes(vec![
             attr("method", "add_bad_debt"),
-            attr("asset", asset),
-            attr("total_bad_debt_cdt", amount.to_string()),
-            attr("slashed_collateral_amount", total_slashed.to_string()),
-            attr("remaining_bad_debt_cdt", remaining_bad_debt.to_string()),
+            attr("asset", &asset),
+            attr("bad_debt_cdt", amount.to_string()),
+            attr("mbrn_available", total_mbrn.to_string()),
         ]))
 }
 
@@ -1858,6 +2002,7 @@ pub fn update_config(
     revenue_distributor: Option<String>,
     auction_contract: Option<String>,
     mbrn_denom: Option<String>,
+    liquidation_engine_contract: Option<String>,
 ) -> Result<Response, ContractError> {
     let mut config = CONFIG.load(deps.storage)?;
 
@@ -1919,6 +2064,9 @@ pub fn update_config(
     }
     if let Some(mbrn) = mbrn_denom {
         config.mbrn_denom = Some(mbrn);
+    }
+    if let Some(liq_engine) = liquidation_engine_contract {
+        config.liquidation_engine_contract = Some(deps.api.addr_validate(&liq_engine)?);
     }
 
     CONFIG.save(deps.storage, &config)?;
@@ -2133,6 +2281,8 @@ pub fn update_daily_deposit_tracker(
 fn create_start_mbrn_sale_msg(
     config: &Config,
     bad_debt_cdt: Uint128,
+    asset: String,
+    mbrn_allocation: Uint128,
 ) -> Result<CosmosMsg, ContractError> {
     let auction_contract = config.auction_contract.clone()
         .ok_or(ContractError::CustomError {
@@ -2149,6 +2299,8 @@ fn create_start_mbrn_sale_msg(
         contract_addr: auction_contract.to_string(),
         msg: to_json_binary(&membrane::auction::ExecuteMsg::StartMBRNSale {
             max_cdt: bad_debt_cdt,
+            asset,
+            mbrn_allocation,
         })?,
         funds: vec![],
     });
@@ -2312,4 +2464,52 @@ fn update_affiliates(
 
     crate::state::AFFILIATES.save(storage, user, &updated_affiliates)?;
     Ok(())
+}
+
+// =================== Manager Performance Helpers ===================
+
+/// Calculate a manager's total capital managed and per-asset breakdown.
+/// Iterates MANAGED_DEPOSITS keys, converts vault tokens to deposit tokens.
+fn calculate_manager_capital(
+    storage: &dyn Storage,
+    manager: &Addr,
+) -> Result<(Uint128, Vec<(String, Uint128)>), ContractError> {
+    let keys = MANAGED_DEPOSITS
+        .may_load(storage, manager.clone())?
+        .unwrap_or_default();
+
+    let mut total = Uint128::zero();
+    let mut per_asset: HashMap<String, Uint128> = HashMap::new();
+
+    for key in keys {
+        let parts: Vec<&str> = key.split(':').collect();
+        if parts.len() != 4 {
+            continue;
+        }
+        let asset = parts[0].to_string();
+        let slot: u8 = parts[1].parse().unwrap_or(0);
+        if slot == 0 {
+            continue;
+        }
+
+        if let Ok(deposit) = BACKING_DEPOSITS.load(storage, key) {
+            if let Ok(queue) = ASSET_QUEUES.load(storage, asset.clone()) {
+                let target_ltv = Decimal::percent(slot as u64);
+                if let Some(s) = queue.slots.iter().find(|s| s.max_ltv == target_ltv) {
+                    if !s.total_vault_tokens.is_zero() && !s.total_deposit_tokens.is_zero() {
+                        let deposit_tokens = calculate_base_tokens(
+                            deposit.vault_tokens,
+                            s.total_deposit_tokens,
+                            s.total_vault_tokens,
+                        ).unwrap_or(deposit.vault_tokens);
+                        total += deposit_tokens;
+                        *per_asset.entry(asset).or_insert(Uint128::zero()) += deposit_tokens;
+                    }
+                }
+            }
+        }
+    }
+
+    let assets_vec: Vec<(String, Uint128)> = per_asset.into_iter().collect();
+    Ok((total, assets_vec))
 }

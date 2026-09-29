@@ -218,6 +218,7 @@ pub fn handle_liq_queue_reply(deps: DepsMut, msg: Reply, env: Env) -> StdResult<
                         rate_index: Decimal::one(),
                         peg_rate_index: Decimal::one(),
                         force_redemptions: None,
+                        max_threshold_to_delay: Decimal::percent(15),
                     }
                 );
 

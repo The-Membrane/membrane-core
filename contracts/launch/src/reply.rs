@@ -465,6 +465,7 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     pool_info: None,
                     rate_index: Decimal::one(),
                     hike_rates: Some(false),
+                    max_threshold_to_delay: Decimal::percent(15),
                 },
                 cAsset {
                     asset: Asset {
@@ -478,7 +479,8 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     pool_info: None,
                     rate_index: Decimal::one(),
                     hike_rates: Some(false),
-                },                
+                    max_threshold_to_delay: Decimal::percent(15),
+                },
                 cAsset {
                     asset: Asset {
                         info: AssetInfo::NativeToken {
@@ -491,6 +493,7 @@ pub fn handle_gov_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respon
                     pool_info: None,
                     rate_index: Decimal::one(),
                     hike_rates: Some(false),
+                    max_threshold_to_delay: Decimal::percent(15),
                 }],
                 credit_asset: Asset {
                     info: AssetInfo::NativeToken {
@@ -791,6 +794,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                     }),
                     rate_index: Decimal::one(),
                     hike_rates: Some(false),
+                    max_threshold_to_delay: Decimal::percent(15),
                 }),
                 liq_queue: Some(addrs.clone().liq_queue.to_string()),
                 collateral_supply_caps: Some(vec![
@@ -860,6 +864,7 @@ pub fn handle_lq_reply(deps: DepsMut, _env: Env, msg: Reply)-> StdResult<Respons
                     }),
                     rate_index: Decimal::one(),
                     hike_rates: Some(false),
+                    max_threshold_to_delay: Decimal::percent(15),
                 }),
                 liq_queue: None,
                 collateral_supply_caps: None,

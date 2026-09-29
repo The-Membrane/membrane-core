@@ -1,4 +1,4 @@
-use cosmwasm_std::{Decimal, StdError};
+use cosmwasm_std::{OverflowError, StdError};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
@@ -8,6 +8,9 @@ pub enum ContractError {
 
     #[error("Std error: {0}")]
     Std(#[from] StdError),
+
+    #[error("Overflow: {0}")]
+    Overflow(#[from] OverflowError),
 
     #[error("Custom error: {val}")]
     CustomError { val: String },
@@ -27,21 +30,24 @@ pub enum ContractError {
     #[error("Validation error: {0}")]
     Validation(String),
 
-    #[error("Rate limit exceeded for address {address}")]
-    RateLimitExceeded { address: String },
-
-    #[error("Global rate limit exceeded for non-whitelisted addresses")]
-    GlobalRateLimitExceeded {},
-    
-    #[error("Emissions voting contract not set")]
-    EmissionsVotingContractNotSet {},
-
-    #[error("Invalid graph result: {msg}")]
-    InvalidGraphResult { msg: String },
-
-    #[error("Cannot create emissions event with zero global weight")]
-    ZeroGlobalWeight {},
-
     #[error("CDT to paired asset swaps are restricted to the CDP contract")]
     CdtToPairedAssetRestricted {},
+
+    #[error("Duplicate tranche: ({denom}, {junior})")]
+    DuplicateTranche { denom: String, junior: bool },
+
+    #[error("Invalid collateral denom: {denom}")]
+    InvalidCollateralDenom { denom: String },
+
+    #[error("No tranche positions found for user")]
+    NoTranchePositions {},
+
+    #[error("Insufficient tranche balance: have {have}, need {need}")]
+    InsufficientTrancheBalance { have: String, need: String },
+
+    #[error("Bad debt amount {amount} exceeds max assignable {max}")]
+    BadDebtExceedsMax { amount: String, max: String },
+
+    #[error("Tranche rate decreased: pre {pre_rate}, post {post_rate}")]
+    TrancheRateDecreased { pre_rate: String, post_rate: String },
 }

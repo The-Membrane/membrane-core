@@ -173,9 +173,11 @@ pub enum ExecuteMsg {
         /// cAsset to edit
         asset: AssetInfo,
         /// Max users can borrow up to
-        max_borrow_LTV: Option<Decimal>, 
+        max_borrow_LTV: Option<Decimal>,
         /// Point of liquidation
         max_LTV: Option<Decimal>,
+        /// Max threshold over LLTV before immediate liquidation
+        max_threshold_to_delay: Option<Decimal>,
     },
     /// Set affiliate for a Position.
     /// Adds to current list of affiliations.
@@ -217,7 +219,8 @@ pub enum ExecuteMsg {
     },
     /// Set the acquisition bump rate from the acquisition contract.
     /// Only callable by the configured acquisition_contract.
-    /// CDP applies: effective_rate += acquisition_bump_rate * position max_LTV
+    /// Applied ONLY to peg (USDC) debt as: peg_rate = smoothed_rate + acquisition_bump_rate * (1 / max_LTV).
+    /// Regular (CDT) debt is NOT affected by this bump.
     SetAcquisitionBumpRate {
         rate: Decimal,
     },

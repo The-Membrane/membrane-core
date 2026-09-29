@@ -18,30 +18,16 @@ pub struct InstantiateMsg {
     pub discount_vault_contract: Option<String>,
     /// LTV Disco contract address
     pub ltv_disco_contract: Option<String>,
-    /// Transmuter contract address
-    pub transmuter_contract: Option<String>,
+    /// Osmosis proxy contract address (for supply queries)
+    pub osmosis_proxy: String,
     /// Minimum time in network to be eligible for discounts, in days
     pub minimum_time_in_network: u64,
-    /// Maximum discount percentage (0.0 to 1.0)
+    /// Maximum discount percentage (0.0 to 1.0), default 30%
     pub max_discount: Option<Decimal>,
-    /// MBRN amount required to reach max discount
-    pub mbrn_at_max_discount: Option<Uint128>,
     /// Maximum boost percentage (0.0 to max_boost)
     pub max_boost: Option<Decimal>,
-    /// Maximum stable backing discount percentage (0.0 to 1.0)
-    pub stable_backing_max_discount: Option<Decimal>,
-    /// First month discount percentage (60% of max)
-    pub stable_backing_first_month_discount: Option<Decimal>,
-    /// Remaining discount percentage (40% of max)
-    pub stable_backing_remaining_discount: Option<Decimal>,
-    /// Curve duration in days (default 90 days = 3 months)
-    pub stable_backing_curve_duration_days: Option<u64>,
-    /// First month duration in days (default 30 days)
-    pub stable_backing_first_month_days: Option<u64>,
-    /// Discountable debt multiplier (default 18x)
-    pub stable_backing_discountable_debt_multiplier: Option<u64>,
-    /// Transmuter balance multiplier (default 2x = 200%)
-    pub stable_backing_transmuter_balance_multiplier: Option<Decimal>,
+    /// Ratio of MBRN supply required for max discount (default 0.01 = 1%)
+    pub ratio_of_mbrn_supply_at_max_discount: Option<Decimal>,
 }
 
 #[cw_serde]
@@ -80,13 +66,6 @@ pub enum QueryMsg {
         /// List of intents to calculate boosts for
         intents: Vec<crate::acquisition::MbrnIntentOption>
     },
-    /// Returns discount for positions with 100% force_redemption assets based on transmuter deposits
-    StableBackingDiscounts {
-        /// User address
-        user: String,
-        /// Debt amount to calculate discount for
-        debt_amount: Uint128,
-    },
 }
 
 #[cw_serde]
@@ -107,36 +86,22 @@ pub struct Config {
     pub discount_vault_contract: Vec<Addr>,
     /// LTV Disco contract address
     pub ltv_disco_contract: Option<Addr>,
-    /// Transmuter contract address
-    pub transmuter_contract: Option<Addr>,
+    /// Osmosis proxy contract address
+    pub osmosis_proxy: Addr,
     /// Minimum time in network to be eligible for discounts, in days
     pub minimum_time_in_network: u64,
     /// Maximum discount percentage (0.0 to 1.0)
     pub max_discount: Decimal,
-    /// MBRN amount required to reach max discount
-    pub mbrn_at_max_discount: Uint128,
     /// Maximum boost percentage
     pub max_boost: Decimal,
-    /// Maximum stable backing discount percentage (0.0 to 1.0)
-    pub stable_backing_max_discount: Decimal,
-    /// First month discount percentage (60% of max)
-    pub stable_backing_first_month_discount: Decimal,
-    /// Remaining discount percentage (40% of max)
-    pub stable_backing_remaining_discount: Decimal,
-    /// Curve duration in days (default 90 days = 3 months)
-    pub stable_backing_curve_duration_days: u64,
-    /// First month duration in days (default 30 days)
-    pub stable_backing_first_month_days: u64,
-    /// Discountable debt multiplier (default 18x)
-    pub stable_backing_discountable_debt_multiplier: u64,
-    /// Transmuter balance multiplier (default 2x = 200%)
-    pub stable_backing_transmuter_balance_multiplier: Decimal,
+    /// Ratio of MBRN supply required to reach max discount (e.g. 0.01 = 1%)
+    pub ratio_of_mbrn_supply_at_max_discount: Decimal,
 }
 
 #[cw_serde]
 pub struct UpdateConfig {
     /// Contract owner
-    pub owner: Option<String>,     
+    pub owner: Option<String>,
     /// Oracle contract address
     pub oracle_contract: Option<String>,
     /// Positions contract address
@@ -149,40 +114,18 @@ pub struct UpdateConfig {
     pub discount_vault_contract: Option<(String, bool)>, //Addr + Add or remove
     /// LTV Disco contract address
     pub ltv_disco_contract: Option<String>,
-    /// Transmuter contract address
-    pub transmuter_contract: Option<String>,
+    /// Osmosis proxy contract address
+    pub osmosis_proxy: Option<String>,
     /// Minimum time in network to be eligible for discounts, in days
     pub minimum_time_in_network: Option<u64>,
     /// Maximum discount percentage
     pub max_discount: Option<Decimal>,
-    /// MBRN amount required to reach max discount
-    pub mbrn_at_max_discount: Option<Uint128>,
     /// Maximum boost percentage
     pub max_boost: Option<Decimal>,
     /// Add or Update a static discount
     pub static_discount: Option<UserDiscountResponse>,
-    /// Maximum stable backing discount percentage
-    pub stable_backing_max_discount: Option<Decimal>,
-    /// First month discount percentage
-    pub stable_backing_first_month_discount: Option<Decimal>,
-    /// Remaining discount percentage
-    pub stable_backing_remaining_discount: Option<Decimal>,
-    /// Curve duration in days
-    pub stable_backing_curve_duration_days: Option<u64>,
-    /// First month duration in days
-    pub stable_backing_first_month_days: Option<u64>,
-    /// Discountable debt multiplier
-    pub stable_backing_discountable_debt_multiplier: Option<u64>,
-    /// Transmuter balance multiplier
-    pub stable_backing_transmuter_balance_multiplier: Option<Decimal>,
-}
-
-#[cw_serde]
-pub struct StableBackingDiscountsResponse {
-    /// User address
-    pub user: String,
-    /// Discount percentage (0.0 to 1.0)
-    pub discount: Decimal,
+    /// Ratio of MBRN supply required for max discount
+    pub ratio_of_mbrn_supply_at_max_discount: Option<Decimal>,
 }
 
 #[cw_serde]
@@ -208,4 +151,11 @@ pub struct IntentBoostsResponse {
 }
 
 #[cw_serde]
-pub struct MigrateMsg {}
+pub struct MigrateMsg {
+    /// Osmosis proxy contract address (required for migration)
+    pub osmosis_proxy: String,
+    /// Ratio of MBRN supply at max discount (default 0.01 if not provided)
+    pub ratio_of_mbrn_supply_at_max_discount: Option<Decimal>,
+    /// Max discount override (default 30% if not provided)
+    pub max_discount: Option<Decimal>,
+}

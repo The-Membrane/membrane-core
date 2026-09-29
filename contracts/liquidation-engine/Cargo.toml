@@ -1,0 +1,30 @@
+[package]
+name = "liquidation-engine"
+version = "0.1.0"
+authors = ["Membrane Devs"]
+edition = "2018"
+
+exclude = [
+  "contract.wasm",
+  "hash.txt",
+]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+backtraces = []
+library = []
+
+[dependencies]
+membrane = { path = "../../packages/membrane" }
+osmosis-std = { version = "0.27.0" }
+cosmwasm-std = { version = "2.0.4", default-features = false, features = ["cosmwasm_2_0", "stargate"] }
+cosmwasm-schema = "2.0.4"
+cw-storage-plus = "2.0.0"
+serde = { version = "1.0.137", default-features = false, features = ["derive"] }
+thiserror = { version = "1.0.31" }
+
+[dev-dependencies]
+cw-multi-test = "2.0.0"
+proptest = "1.4.0"

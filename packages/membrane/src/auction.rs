@@ -33,6 +33,8 @@ pub struct InstantiateMsg {
     pub revenue_distributor_contract: Option<String>,
     /// LTV Disco contract address (for MBRN proceeds)
     pub ltv_disco_contract: Option<String>,
+    /// Debt contract address (for FulfillBadDebt CDT burning)
+    pub debt_contract: Option<String>,
 }
 
 #[cw_serde]
@@ -61,10 +63,29 @@ pub enum ExecuteMsg {
     StartMBRNSale {
         /// Maximum CDT to collect (bad debt amount to cover)
         max_cdt: Uint128,
+        /// Asset that triggered this bad debt
+        asset: String,
+        /// MBRN slashed from this asset's deposits (= max MBRN to sell for this asset)
+        mbrn_allocation: Uint128,
     },
     /// Buy MBRN from the disco supply sale by sending CDT.
     /// CDT goes to CDP.FulfillBadDebt, buyer receives MBRN at discount.
-    BuySuppliedMBRN {},
+    /// Splits evenly across active asset allocations with recursive redistribution.
+    BuySuppliedMBRN {
+        /// Recursion depth (None = 0, max 3). Used internally for redistribution.
+        depth: Option<u8>,
+        /// Original buyer address. Set internally on recursive calls so MBRN and
+        /// refunds go to the buyer, not the contract. Users should leave as None.
+        buyer: Option<String>,
+    },
+    /// Fulfill bad debt for an asset by sending CDT directly.
+    /// Reduces the asset's bad debt allocation in the active MBRN sale.
+    /// If the asset's bad debt is fully covered, clears the disco freeze.
+    /// CDT is forwarded to the debt contract for burning.
+    FulfillBadDebt {
+        /// Asset whose bad debt to fulfill
+        asset: String,
+    },
     /// Update config
     UpdateConfig(UpdateConfig),
 }
@@ -124,6 +145,8 @@ pub struct Config {
     pub revenue_distributor_contract: Option<Addr>,
     /// LTV Disco contract address (for MBRN proceeds)
     pub ltv_disco_contract: Option<Addr>,
+    /// Debt contract address (for FulfillBadDebt CDT burning)
+    pub debt_contract: Option<Addr>,
 }
 
 #[cw_serde]
@@ -162,6 +185,8 @@ pub struct UpdateConfig {
     pub revenue_distributor_contract: Option<String>,
     /// LTV Disco contract address (for MBRN proceeds)
     pub ltv_disco_contract: Option<String>,
+    /// Debt contract address (for FulfillBadDebt CDT burning)
+    pub debt_contract: Option<String>,
 }
 
 #[cw_serde]

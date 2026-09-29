@@ -448,6 +448,14 @@ pub struct cAsset {
     pub pool_info: Option<PoolInfo>,
     /// Force redemptions for positions using this asset
     pub force_redemptions: Option<bool>,
+    /// Max threshold over LLTV before immediate liquidation (per-asset).
+    /// e.g. 0.04 = 4% above max_LTV triggers immediate liquidation.
+    /// Historically each asset's (BTC, ATOM, OSMO) breach rate & recovery rate
+    /// optimize at a 4% max 1hr window without extending the window so large
+    /// that the protocol takes insane risk. Neither breaches the 4% window much
+    /// in the hour either so we can ensure users have the full hour delay 99%
+    /// of the time. See docs/liquidation_delay_window.md for full analysis.
+    pub max_threshold_to_delay: Decimal,
 }
 
 //intent state
@@ -937,9 +945,24 @@ pub struct FeeAuction {
     pub per_asset_distribution: Option<Vec<Asset>>,
 }
 
+/// Per-asset bad debt allocation within an MBRN sale
+#[cw_serde]
+pub struct AssetBadDebtAllocation {
+    /// Asset denom
+    pub asset: String,
+    /// MBRN slashed for this asset (= max MBRN to sell)
+    pub mbrn_allocated: Uint128,
+    /// MBRN sold so far (must not exceed mbrn_allocated)
+    pub mbrn_used: Uint128,
+    /// CDT bad debt to fulfill for this asset
+    pub cdt_bad_debt: Uint128,
+    /// CDT fulfilled so far for this asset
+    pub cdt_fulfilled: Uint128,
+}
+
 #[cw_serde]
 pub struct MBRNSale {
-    /// CDT cap (total bad debt to cover)
+    /// CDT cap (total bad debt to cover across all assets)
     pub max_cdt: Uint128,
     /// CDT collected so far
     pub cdt_fulfilled: Uint128,
@@ -947,6 +970,8 @@ pub struct MBRNSale {
     pub auction_start_time: u64,
     /// Address that holds the MBRN (ltv_disco)
     pub supplier: Addr,
+    /// Per-asset bad debt allocations
+    pub asset_allocations: Vec<AssetBadDebtAllocation>,
 }
 
 #[cw_serde]

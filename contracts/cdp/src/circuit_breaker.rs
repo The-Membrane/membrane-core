@@ -808,6 +808,7 @@ mod tests {
             rate_index: Decimal::one(),
             peg_rate_index: Decimal::one(),
             force_redemptions: None,
+            max_threshold_to_delay: Decimal::percent(15),
         }];
 
         // Attempt to check assets - should fail because asset is frozen
@@ -907,6 +908,7 @@ mod tests {
             rate_index: Decimal::one(),
             peg_rate_index: Decimal::one(),
             force_redemptions: None,
+            max_threshold_to_delay: Decimal::percent(15),
         }];
 
         // Attempt to check assets - should fail because asset is frozen
@@ -1012,6 +1014,7 @@ mod tests {
             rate_index: Decimal::one(),
             peg_rate_index: Decimal::one(),
             force_redemptions: None,
+            max_threshold_to_delay: Decimal::percent(15),
         }];
 
         // Attempt to check assets - should succeed because asset is not frozen

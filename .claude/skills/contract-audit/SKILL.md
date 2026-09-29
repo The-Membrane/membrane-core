@@ -7,6 +7,8 @@ description: Systematic DeFi/CosmWasm smart contract security auditing powered b
 
 Perform systematic security audits of CosmWasm smart contracts. Based on vulnerability patterns from 61 real Oak Security audit reports (2021-2025).
 
+> **Related:** `evm-defi-audit` (membrane-solidity) is the Solidity/EVM analogue of this pipeline — same classify → scan → trace → severity → report flow, EVM-specific checks. For a chain-agnostic quick checklist see `~/claude-knowledge/defi-audit/defi-lending-audit-checklist.md`; for parity/coverage gaps in a port (distinct from security) see the global `port-parity-audit` skill.
+
 **Token-efficiency rule**: Do NOT read the full reference guide. Read ONLY the specific reference file relevant to what you're currently investigating. Each reference is self-contained and under 150 lines.
 
 ## Reference Files (read on-demand, not upfront)

@@ -1556,6 +1556,7 @@ mod tests {
                 rate_index: Decimal::one(),
                 peg_rate_index: Decimal::one(),
                 hike_rates: None,
+                max_threshold_to_delay: Decimal::percent(15),
             }],
             credit_asset: Asset {
                 info: AssetInfo::NativeToken {
@@ -1609,6 +1610,7 @@ mod tests {
                 rate_index: Decimal::one(),
                 peg_rate_index: Decimal::one(),
                 hike_rates: None,
+                max_threshold_to_delay: Decimal::percent(15),
             }),
             liq_queue: None,
             credit_pool_infos: None,

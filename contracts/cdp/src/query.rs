@@ -292,6 +292,7 @@ pub fn query_basket_credit_interest(
             rate_index: Decimal::one(),
             peg_rate_index: Decimal::one(),
             force_redemptions: None,
+            max_threshold_to_delay: Decimal::percent(15),
         };
 
         let credit_TWAP_price = match  get_asset_values(

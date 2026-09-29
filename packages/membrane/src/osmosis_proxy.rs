@@ -136,6 +136,15 @@ pub enum QueryMsg {
     },
     /// Return list of swap routes
     GetSwapRoutes { },
+    /// Return supply history snapshots for a denom
+    GetSupplyHistory {
+        /// Native token denom
+        denom: String,
+        /// Max number of entries to return (default 365)
+        limit: Option<u32>,
+        /// Start after this timestamp (for pagination)
+        start_after: Option<u64>,
+    },
 }
 
 #[cw_serde]
@@ -188,6 +197,24 @@ pub struct TokenInfoResponse {
 pub struct ContractDenomsResponse {
     /// List of denoms owned by the contract
     pub denoms: Vec<String>,
+}
+
+#[cw_serde]
+pub struct SupplySnapshotResponse {
+    /// Token denom
+    pub denom: String,
+    /// Historical supply snapshots
+    pub snapshots: Vec<SupplySnapshotEntry>,
+}
+
+#[cw_serde]
+pub struct SupplySnapshotEntry {
+    /// Block time (seconds)
+    pub timestamp: u64,
+    /// Current supply at snapshot
+    pub current_supply: Uint128,
+    /// Burned supply at snapshot
+    pub burned_supply: Uint128,
 }
 
 #[cw_serde]

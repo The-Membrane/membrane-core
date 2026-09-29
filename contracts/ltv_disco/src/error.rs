@@ -50,4 +50,10 @@ pub enum ContractError {
 
     #[error("Unstake request not found")]
     UnstakeNotFound {},
+
+    #[error("Withdrawals frozen for {asset}: active bad debt auction")]
+    AssetWithdrawalsFrozen { asset: String },
+
+    #[error("Unstake blocked: liquidation lockout until {lockout_until}")]
+    UnstakeLiquidationLockout { lockout_until: u64 },
 }

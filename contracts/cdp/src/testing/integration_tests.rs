@@ -2086,6 +2086,7 @@ pub mod tests {
                 rate_index: Decimal::one(),
                 peg_rate_index: Decimal::one(),
                 force_redemptions: None,
+                max_threshold_to_delay: Decimal::percent(15),
             }],
             credit_asset: Asset {
                 info: AssetInfo::NativeToken {
@@ -2237,6 +2238,7 @@ pub mod tests {
                     rate_index: Decimal::one(),
                     peg_rate_index: Decimal::one(),
                         force_redemptions: None,
+                        max_threshold_to_delay: Decimal::percent(15),
                 }),
                 liq_queue: None,
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -3293,6 +3295,7 @@ pub mod tests {
                         rate_index: Decimal::one(),
                         peg_rate_index: Decimal::one(),
                         force_redemptions: None,
+                        max_threshold_to_delay: Decimal::percent(15),
                     }
                 ]
             );
@@ -3312,6 +3315,7 @@ pub mod tests {
                         rate_index: Decimal::one(),
                         peg_rate_index: Decimal::one(),
                         force_redemptions: None,
+                        max_threshold_to_delay: Decimal::percent(15),
                     }
                 ]
             );
@@ -3652,6 +3656,7 @@ pub mod tests {
                     rate_index: Decimal::one(),
                     peg_rate_index: Decimal::one(),
                         force_redemptions: None,
+                        max_threshold_to_delay: Decimal::percent(15),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -4211,6 +4216,7 @@ pub mod tests {
                     rate_index: Decimal::one(),
                     peg_rate_index: Decimal::one(),
                         force_redemptions: None,
+                        max_threshold_to_delay: Decimal::percent(15),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -4244,6 +4250,7 @@ pub mod tests {
                     rate_index: Decimal::one(),
                     peg_rate_index: Decimal::one(),
                         force_redemptions: None,
+                        max_threshold_to_delay: Decimal::percent(15),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -4297,6 +4304,7 @@ pub mod tests {
                     rate_index: Decimal::one(),
                     peg_rate_index: Decimal::one(),
                         force_redemptions: None,
+                        max_threshold_to_delay: Decimal::percent(15),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),
@@ -4670,6 +4678,7 @@ pub mod tests {
                     rate_index: Decimal::one(),
                     peg_rate_index: Decimal::one(),
                         force_redemptions: None,
+                        max_threshold_to_delay: Decimal::percent(15),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -4703,6 +4712,7 @@ pub mod tests {
                     rate_index: Decimal::one(),
                     peg_rate_index: Decimal::one(),
                         force_redemptions: None,
+                        max_threshold_to_delay: Decimal::percent(15),
                 }),
                 liq_queue: None,
                 credit_pool_infos: None,
@@ -4757,6 +4767,7 @@ pub mod tests {
                     rate_index: Decimal::one(),
                     peg_rate_index: Decimal::one(),
                     force_redemptions: None,
+                    max_threshold_to_delay: Decimal::percent(15),
                 }),
                 liq_queue: Some(lq_contract.addr().to_string()),
                 credit_pool_infos: Some(vec![PoolType::Balancer { pool_id: 1u64 }]),

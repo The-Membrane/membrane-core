@@ -118,6 +118,8 @@ mod tests {
                                     pool_info: None,
                                     rate_index: Decimal::one(),
                                     peg_rate_index: Decimal::one(),
+                                    force_redemptions: None,
+                                    max_threshold_to_delay: Decimal::percent(15),
                                 }],
                                 collateral_supply_caps: vec![],
                                 multi_asset_supply_caps: vec![],

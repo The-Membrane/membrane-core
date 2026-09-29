@@ -39,19 +39,16 @@ fn instantiate_contract() -> (cosmwasm_std::OwnedDeps<cosmwasm_std::MemoryStorag
         usage_fee_utilization_threshold: None,
         swap_history_cap: 50,
         volume_history_cap: 50,
-        rate_limit_window_secs: Some(60),
-        rate_limit_threshold: Some(Decimal::percent(10)),
         revenue_distributor_addr: Some(rev_addr.to_string()),
         revenue_distributions: None,
         allowlist: None,
-        allowlist_rate_limit_threshold: None,
-        global_rate_limit_window_secs: Some(3600),
-        global_rate_limit_threshold: Some(Decimal::percent(10)),
         lock_ceiling: 1460,
         affiliate_fee: Decimal::percent(1),
         send_swap_fee: Some(false),
         revenue_distributor_fee_percentage: None,
-        emissions_voting_contract: None,
+        acquisition_contract: None,
+        points_system_contract: None,
+        retention_multiplier: None,
     };
 
     let info = mock_info("owner", &[]);

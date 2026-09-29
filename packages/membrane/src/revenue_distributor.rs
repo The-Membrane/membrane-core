@@ -1,5 +1,5 @@
 use cosmwasm_schema::{cw_serde, QueryResponses};
-use cosmwasm_std::{Uint128, Addr};
+use cosmwasm_std::{Uint128, Addr, Decimal, StdError};
 use crate::types::{Asset, VaultInfo};
 
 /// Revenue promise for distribution
@@ -11,6 +11,43 @@ pub struct RevenuePromise {
     pub amount: Uint128,
 }
 
+/// Revenue split configuration defining how revenue is distributed among recipients.
+/// Disco/Junior/Senior are batched on the 1-week window; Reserve accumulates in-contract.
+#[cw_serde]
+pub struct RevenueSplit {
+    /// Fraction to LTV Disco (default 0.16) - batched, 1-week window
+    pub disco_ratio: Decimal,
+    /// Fraction to junior tranches (default 0.64) - batched, 1-week window
+    pub junior_ratio: Decimal,
+    /// Fraction to senior tranches (default 0.16) - batched, 1-week window
+    pub senior_ratio: Decimal,
+    /// Fraction to reserve (default 0.04) - accumulates in contract, no batch window
+    pub reserve_ratio: Decimal,
+}
+
+impl RevenueSplit {
+    /// Validate that all ratios sum to exactly 1.0
+    pub fn validate(&self) -> Result<(), StdError> {
+        let sum = self.disco_ratio + self.junior_ratio + self.senior_ratio + self.reserve_ratio;
+        if sum != Decimal::one() {
+            return Err(StdError::generic_err(
+                format!("Revenue split ratios must sum to 1.0, got {}", sum)
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the default revenue split (16/64/16/4)
+    pub fn default_split() -> Self {
+        RevenueSplit {
+            disco_ratio: Decimal::percent(16),
+            junior_ratio: Decimal::percent(64),
+            senior_ratio: Decimal::percent(16),
+            reserve_ratio: Decimal::percent(4),
+        }
+    }
+}
+
 /// Configuration for the revenue distributor
 #[cw_serde]
 pub struct Config {
@@ -18,8 +55,8 @@ pub struct Config {
     pub owner: Addr,
     /// Canonical asset for all distributions
     pub canonical_asset: Asset,
-    /// Revenue destinations for automatic distribution
-    pub revenue_destinations: Vec<RevenueDestination>,
+    /// Revenue split configuration (disco/junior/senior/reserve)
+    pub revenue_split: RevenueSplit,
     /// LTV Disco contract address.
     /// WARNING: DO NOT SET THE LTV DISCO AS A PROMISE, ONLY AS A DESTINATION.
     pub ltv_disco: Addr,
@@ -37,15 +74,6 @@ pub struct Config {
     pub ltv_disco_contract: Option<Addr>,
     /// Auction contract address (for routing non-CDT revenue)
     pub auction_contract: Option<Addr>,
-}
-
-/// Revenue destination configuration
-#[cw_serde]
-pub struct RevenueDestination {
-    /// Destination address (typically staking contract)
-    pub destination: Addr,
-    /// Distribution ratio (0.0 to 1.0)
-    pub distribution_ratio: cosmwasm_std::Decimal,
 }
 
 /// Vault info message type for instantiate/update (string address)
@@ -69,8 +97,8 @@ pub enum ExecuteMsg {
     SetPromises {
         /// Array of revenue promises
         promises: Vec<RevenuePromise>,
-        /// Optional asset distribution for LTV Disco rev distribution
-        ltv_disco_distribution: Option<Vec<Asset>>,
+        /// Optional per-asset distribution ratios (used for Disco, Junior, Senior per-asset routing)
+        per_asset_distribution: Option<Vec<Asset>>,
     },
     /// Distribute all current promises and clear them
     /// Uses reply_on_error for failed distributions to continue with others
@@ -84,8 +112,8 @@ pub enum ExecuteMsg {
     TakeRevenueFromBasket {},
     /// Update contract configuration (admin only)
     UpdateConfig {
-        /// New revenue destinations
-        revenue_destinations: Option<Vec<RevenueDestination>>,
+        /// Updated revenue split configuration
+        revenue_split: Option<RevenueSplit>,
         /// Update LTV Disco address
         ltv_disco: Option<String>,
         /// Update transmuter vault info
@@ -121,6 +149,19 @@ pub enum ExecuteMsg {
         /// Which collateral assets earned this revenue
         per_asset_distribution: Vec<crate::types::Asset>,
     },
+    /// Toggle bad debt fulfillment mode.
+    /// When active, ALL CDT revenue is routed to CDP's FulfillBadDebt instead of normal distribution.
+    /// Only callable by the CDP contract.
+    ToggleBadDebtFulfillment {
+        toggle: bool,
+    },
+    /// Withdraw accumulated reserve funds (admin only)
+    WithdrawReserve {
+        /// Amount to withdraw (withdraws all if None)
+        amount: Option<Uint128>,
+        /// Recipient address
+        recipient: String,
+    },
 }
 
 /// Query messages for the revenue distributor contract
@@ -145,6 +186,15 @@ pub enum QueryMsg {
     /// Get countdown until next epoch/distribution (in seconds)
     #[returns(EpochCountdownResponse)]
     EpochCountdown {},
+    /// Check if bad debt fulfillment mode is active
+    #[returns(bool)]
+    BadDebtActive {},
+    /// Get the current revenue split configuration
+    #[returns(RevenueSplit)]
+    RevenueSplit {},
+    /// Get accumulated reserve balance
+    #[returns(Uint128)]
+    ReserveBalance {},
 }
 
 /// Response for current epoch revenue accumulation
@@ -174,8 +224,8 @@ pub struct InstantiateMsg {
     pub owner: String,
     /// Canonical asset for all distributions
     pub canonical_asset: Asset,
-    /// Initial revenue destinations
-    pub revenue_destinations: Vec<RevenueDestination>,
+    /// Revenue split configuration (disco/junior/senior/reserve)
+    pub revenue_split: RevenueSplit,
     /// LTV Disco contract address
     pub ltv_disco: String,
     /// Transmuter vault info used for EnterVault and VT denom

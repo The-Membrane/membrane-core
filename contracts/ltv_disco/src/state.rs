@@ -1,4 +1,4 @@
-use membrane::ltv_disco::{Config, AssetQueue, RevenueTrackingEntry, BackingDeposit, RevenueEvent, UserLifetimeRevenueEntry, TVLEntry, DepositEntry, UnstakeRequest};
+use membrane::ltv_disco::{Config, AssetQueue, RevenueTrackingEntry, BackingDeposit, RevenueEvent, UserLifetimeRevenueEntry, TVLEntry, DepositEntry, UnstakeRequest, ManagerPerformanceEntry};
 use cosmwasm_schema::cw_serde;
 use cosmwasm_std::{Addr, Uint128};
 use cw_storage_plus::{Item, Map};
@@ -73,6 +73,10 @@ pub const UNSTAKE_REQUESTS: Map<String, UnstakeRequest> = Map::new("unstake_requ
 // User unstake requests index: (User_addr, Asset) -> Vec of unstake request keys
 pub const USER_UNSTAKE_REQUESTS: Map<(Addr, String), Vec<String>> = Map::new("user_unstake_requests");
 
+// Manager performance history: Manager -> Vec<ManagerPerformanceEntry>
+pub const MANAGER_PERFORMANCE: Map<Addr, Vec<ManagerPerformanceEntry>> = Map::new("manager_performance");
+pub const MANAGER_PERFORMANCE_LIMIT: usize = 100;
+
 
 // Helper functions for managed deposits
 use cosmwasm_std::Storage;
@@ -122,5 +126,41 @@ pub fn update_managed_deposit_key(
         keys[pos] = new_key;
         MANAGED_DEPOSITS.save(storage, manager.clone(), &keys)?;
     }
+    Ok(())
+}
+
+/// Update manager performance history with a new snapshot entry.
+/// Fees and bad debt are cumulative (added to previous totals).
+/// Capital managed is a point-in-time snapshot.
+pub fn update_manager_performance(
+    storage: &mut dyn Storage,
+    timestamp: u64,
+    manager: &Addr,
+    fees_earned_delta: Uint128,
+    bad_debt_delta: Uint128,
+    total_capital_managed: Uint128,
+    assets_managed: Vec<(String, Uint128)>,
+) -> Result<(), cosmwasm_std::StdError> {
+    let mut entries = MANAGER_PERFORMANCE
+        .may_load(storage, manager.clone())?
+        .unwrap_or_default();
+
+    let (prev_fees, prev_bad_debt) = entries.last()
+        .map(|e| (e.total_fees_earned, e.total_bad_debt_absorbed))
+        .unwrap_or((Uint128::zero(), Uint128::zero()));
+
+    entries.push(ManagerPerformanceEntry {
+        timestamp,
+        total_fees_earned: prev_fees + fees_earned_delta,
+        total_bad_debt_absorbed: prev_bad_debt + bad_debt_delta,
+        total_capital_managed,
+        assets_managed,
+    });
+
+    if entries.len() > MANAGER_PERFORMANCE_LIMIT {
+        entries.drain(0..entries.len() - MANAGER_PERFORMANCE_LIMIT);
+    }
+
+    MANAGER_PERFORMANCE.save(storage, manager.clone(), &entries)?;
     Ok(())
 }

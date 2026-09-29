@@ -21,7 +21,8 @@ members = [
     "contracts/auction",
     "contracts/collateral",
     "contracts/debt",
-    "contracts/liquidation-engine"
+    "contracts/liquidation-engine",
+    "contracts/osmosis-proxy"
 ]
 
 exclude = [

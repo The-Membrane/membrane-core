@@ -689,7 +689,7 @@ fn handle_collect_cost_transmute_reply(
         contract_addr: config.revenue_distributor_addr.to_string(),
         msg: to_json_binary(&RevenueDistributorExecuteMsg::SetPromises {
             promises,
-            ltv_disco_distribution: Some(ltv_disco_distributions),
+            per_asset_distribution: Some(ltv_disco_distributions),
         })?,
         funds: vec![Coin {
             denom: config.cdt_denom.clone(),

@@ -16,9 +16,9 @@ use osmosis_std::types::osmosis::poolmanager::v1beta1::PoolmanagerQuerier;
 use osmosis_std::types::osmosis::incentives::MsgCreateGauge;
 
 use crate::error::TokenFactoryError;
-use crate::state::{PendingTokenInfo, TokenInfo, SwapInfo, CONFIG, PENDING, SWAP_INFO, SWAP_ROUTES, TOKENS, TRANSMUTATION_PAIRS};
+use crate::state::{PendingTokenInfo, TokenInfo, SwapInfo, SupplySnapshot, CONFIG, PENDING, SWAP_INFO, SWAP_ROUTES, TOKENS, TRANSMUTATION_PAIRS, SUPPLY_HISTORY};
 use membrane::osmosis_proxy::{
-    Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, MigrateMsg, TokenInfoResponse, OwnerResponse, ContractDenomsResponse,
+    Config, ExecuteMsg, GetDenomResponse, InstantiateMsg, QueryMsg, MigrateMsg, TokenInfoResponse, OwnerResponse, ContractDenomsResponse, SupplySnapshotResponse, SupplySnapshotEntry,
 };
 use membrane::oracle::{QueryMsg as OracleQueryMsg, PriceResponse, AssetResponse};
 use membrane::types::{PoolStateResponse, Owner, AssetInfo, SwapRoute, TransmutationPairEntry};
@@ -770,44 +770,47 @@ pub fn mint_tokens(
     }; 
     
     //Update Token Supply
-    // TOKENS.update(
-    //     deps.storage,
-    //     denom.clone(),
-    //     |token_info| -> Result<TokenInfo, TokenFactoryError> {
-    //         match token_info {
-    //             Some(mut token_info) => {
-    //                 if token_info.clone().max_supply.is_some() {
-    //                     if token_info.current_supply <= token_info.max_supply.unwrap()
-    //                         || mint_allowed
-    //                     {
-    //                         token_info.current_supply += amount;
-    //                         mint_allowed = true;
-    //                     }
-    //                 } else {
-    //                     token_info.current_supply += amount;
-    //                     mint_allowed = true;
-    //                 }
+    TOKENS.update(
+        deps.storage,
+        denom.clone(),
+        |token_info| -> Result<TokenInfo, TokenFactoryError> {
+            match token_info {
+                Some(mut token_info) => {
+                    if token_info.clone().max_supply.is_some() {
+                        if token_info.current_supply <= token_info.max_supply.unwrap()
+                            || mint_allowed
+                        {
+                            token_info.current_supply += amount;
+                            mint_allowed = true;
+                        }
+                    } else {
+                        token_info.current_supply += amount;
+                        mint_allowed = true;
+                    }
 
-    //                 Ok(token_info)
-    //             }
-    //             None => {
-    //                 Err(TokenFactoryError::CustomError {
-    //                     val: String::from("Denom was not created in this contract"),
-    //                 })
-    //             }
-    //         }
-    //     },
-    // )?;
+                    Ok(token_info)
+                }
+                None => {
+                    Err(TokenFactoryError::CustomError {
+                        val: String::from("Denom was not created in this contract"),
+                    })
+                }
+            }
+        },
+    )?;
+
+    //Record supply snapshot
+    record_supply_snapshot(deps.storage, &env, &denom)?;
 
     //Create mint msg
     let mint_tokens_msg: CosmosMsg = TokenFactory::MsgMint{
-        sender: env.contract.address.to_string(), 
+        sender: env.contract.address.to_string(),
         amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin{
             denom: denom.clone(),
             amount: amount.to_string(),
-        }), 
+        }),
         mint_to_address: mint_to_address.clone(),
-    }.into(); 
+    }.into();
 
     let mut res = Response::new()
         .add_attribute("method", "mint_tokens")
@@ -927,26 +930,29 @@ pub fn burn_tokens(
 
 
     //Update Token Supply
-    // TOKENS.update(
-    //     deps.storage,
-    //     denom.clone(),
-    //     |token_info| -> Result<TokenInfo, TokenFactoryError> {
-    //         match token_info {
-    //             Some(mut token_info) => {
-    //                 //Update token_info
-    //                 token_info.current_supply -= amount;
-    //                 token_info.burned_supply += amount;
-                    
-    //                 Ok(token_info)
-    //             }
-    //             None => {
-    //                 Err(TokenFactoryError::CustomError {
-    //                     val: String::from("Denom was not created in this contract"),
-    //                 })
-    //             }
-    //         }
-    //     },
-    // )?;
+    TOKENS.update(
+        deps.storage,
+        denom.clone(),
+        |token_info| -> Result<TokenInfo, TokenFactoryError> {
+            match token_info {
+                Some(mut token_info) => {
+                    //Update token_info
+                    token_info.current_supply -= amount;
+                    token_info.burned_supply += amount;
+
+                    Ok(token_info)
+                }
+                None => {
+                    Err(TokenFactoryError::CustomError {
+                        val: String::from("Denom was not created in this contract"),
+                    })
+                }
+            }
+        },
+    )?;
+
+    //Record supply snapshot
+    record_supply_snapshot(deps.storage, &env, &denom)?;
 
     let burn_token_msg: CosmosMsg = TokenFactory::MsgBurn {
         sender: env.contract.address.to_string(),
@@ -966,6 +972,65 @@ pub fn burn_tokens(
     Ok(res)
 }
 
+/// Record a supply snapshot for a denom (at most one per day)
+fn record_supply_snapshot(
+    storage: &mut dyn cosmwasm_std::Storage,
+    env: &Env,
+    denom: &str,
+) -> Result<(), TokenFactoryError> {
+    let token_info = TOKENS.load(storage, denom.to_string())?;
+    let now = env.block.time.seconds();
+    const ONE_DAY: u64 = 86400;
+
+    let mut history = SUPPLY_HISTORY
+        .may_load(storage, denom.to_string())?
+        .unwrap_or_default();
+
+    // Only record if no snapshot today (dedupe by day)
+    let should_record = history
+        .last()
+        .map(|last| now - last.timestamp >= ONE_DAY)
+        .unwrap_or(true);
+
+    if should_record {
+        history.push(SupplySnapshot {
+            timestamp: now,
+            current_supply: token_info.current_supply,
+            burned_supply: token_info.burned_supply,
+        });
+        SUPPLY_HISTORY.save(storage, denom.to_string(), &history)?;
+    }
+
+    Ok(())
+}
+
+/// Query supply history for a denom
+fn get_supply_history(
+    deps: Deps,
+    denom: String,
+    limit: Option<u32>,
+    start_after: Option<u64>,
+) -> StdResult<SupplySnapshotResponse> {
+    let history = SUPPLY_HISTORY
+        .may_load(deps.storage, denom.clone())?
+        .unwrap_or_default();
+
+    let limit = limit.unwrap_or(365) as usize;
+
+    let snapshots: Vec<SupplySnapshotEntry> = history
+        .into_iter()
+        .filter(|s| start_after.map_or(true, |after| s.timestamp > after))
+        .take(limit)
+        .map(|s| SupplySnapshotEntry {
+            timestamp: s.timestamp,
+            current_supply: s.current_supply,
+            burned_supply: s.burned_supply,
+        })
+        .collect();
+
+    Ok(SupplySnapshotResponse { denom, snapshots })
+}
+
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
@@ -979,6 +1044,9 @@ pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
         QueryMsg::PoolState { id } => to_json_binary(&get_pool_state(deps, id)?),
         QueryMsg::GetTokenInfo { denom } => to_json_binary(&get_token_info(deps, denom)?),
         QueryMsg::GetSwapRoutes { } => to_json_binary(&SWAP_ROUTES.load(deps.storage)?),
+        QueryMsg::GetSupplyHistory { denom, limit, start_after } => {
+            to_json_binary(&get_supply_history(deps, denom, limit, start_after)?)
+        },
     }
 }
 

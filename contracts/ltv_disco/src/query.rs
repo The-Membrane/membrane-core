@@ -6,7 +6,8 @@ use membrane::ltv_disco::{
     UserLifetimeRevenueEntry, RevenueEvent, AssetsResponse, DailyTVLResponse,
     UserTotalDepositsResponse, ManagedDepositKeysResponse, ManagerFeeResponse,
     AllUserDepositsResponse, UserDepositInfo, DailyDepositResponse, UnstakeRequestsResponse,
-    SlotWeightsResponse, AverageLTVsResponse,
+    SlotWeightsResponse, AverageLTVsResponse, ManagerPerformanceResponse,
+    EffectiveUnlockTimeResponse,
 };
 use membrane::stability_pool_vault::{calculate_base_tokens, calculate_vault_tokens};
 use membrane::types::AssetInfo;
@@ -575,6 +576,15 @@ pub fn query_manager_fee(deps: Deps, manager: String) -> StdResult<ManagerFeeRes
     Ok(ManagerFeeResponse { manager, fee })
 }
 
+/// Query historic manager performance (fees earned, losses, capital managed)
+pub fn query_manager_performance(deps: Deps, manager: String) -> StdResult<ManagerPerformanceResponse> {
+    let manager_addr = deps.api.addr_validate(&manager)?;
+    let entries = crate::state::MANAGER_PERFORMANCE
+        .may_load(deps.storage, manager_addr)?
+        .unwrap_or_default();
+    Ok(ManagerPerformanceResponse { manager, entries })
+}
+
 /// Query pending unstake requests for a user
 pub fn query_unstake_requests(
     deps: Deps,
@@ -644,4 +654,49 @@ pub fn query_average_ltvs(deps: Deps, assets: Vec<String>) -> StdResult<AverageL
     };
 
     Ok(AverageLTVsResponse { average_max_ltv })
+}
+
+/// Query effective unlock time for an unstake request, accounting for liquidation lockout.
+pub fn query_effective_unlock_time(
+    deps: Deps,
+    env: Env,
+    asset: String,
+    slot: u8,
+    deposit_id: Uint128,
+    user: String,
+) -> StdResult<EffectiveUnlockTimeResponse> {
+    let config = CONFIG.load(deps.storage)?;
+
+    let unstake_key = crate::execute::make_unstake_key(&asset, slot, &user, &deposit_id);
+    let request = UNSTAKE_REQUESTS.load(deps.storage, unstake_key)?;
+
+    let mut effective_unlock_time = request.unlock_time;
+    let mut last_liquidation_timestamp = None;
+
+    if let Some(ref liq_engine) = config.liquidation_engine_contract {
+        let resp: membrane::liquidation_engine::LastLiquidationTimestampForAssetResponse =
+            deps.querier.query_wasm_smart(
+                liq_engine.to_string(),
+                &membrane::liquidation_engine::QueryMsg::GetLastLiquidationTimestampForAsset {
+                    asset: asset.clone(),
+                },
+            )?;
+        if let Some(ts) = resp.timestamp {
+            last_liquidation_timestamp = Some(ts);
+            let lockout_end = ts + config.unstaking_period;
+            if lockout_end > effective_unlock_time {
+                effective_unlock_time = lockout_end;
+            }
+        }
+    }
+
+    let is_locked_by_liquidation = effective_unlock_time > request.unlock_time
+        && env.block.time.seconds() < effective_unlock_time;
+
+    Ok(EffectiveUnlockTimeResponse {
+        request_unlock_time: request.unlock_time,
+        effective_unlock_time,
+        last_liquidation_timestamp,
+        is_locked_by_liquidation,
+    })
 }

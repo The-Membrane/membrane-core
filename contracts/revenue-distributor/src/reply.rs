@@ -48,36 +48,29 @@ pub fn handle_distribution_reply(
                 all_promises.remove(index);
             }
             PROMISES.save(deps.storage, &all_promises)?;
-            
-            // Check if this is an affiliate (not a revenue destination) and award points
+
+            // All promises are affiliates (split recipients are never in promises list)
             let config = CONFIG.load(deps.storage)?;
-            let is_revenue_destination = config
-                .revenue_destinations
-                .iter()
-                .any(|dest| dest.destination.to_string() == promise.address);
-            
             let mut response = Response::new()
                 .add_attribute("method", "reply_distribution")
                 .add_attribute("status", "success")
                 .add_attribute("address", promise.address.clone())
                 .add_attribute("amount", promise.amount.to_string());
-            
-            // If not a revenue destination, it's an affiliate - award points
-            if !is_revenue_destination {
-                if let Some(points_system) = &config.points_system_contract {
-                    let points_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                        contract_addr: points_system.to_string(),
-                        msg: to_json_binary(&PointsSystemExecuteMsg::GivePointsForAffiliateFee {
-                            affiliate: promise.address.clone(),
-                            fee_amount: promise.amount,
-                        })?,
-                        funds: vec![],
-                    });
-                    // Use reply_on_error so points failure doesn't fail the distribution
-                    response = response.add_submessage(SubMsg::reply_on_error(points_msg, 0));
-                }
+
+            // Award points for affiliate fee
+            if let Some(points_system) = &config.points_system_contract {
+                let points_msg = CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: points_system.to_string(),
+                    msg: to_json_binary(&PointsSystemExecuteMsg::GivePointsForAffiliateFee {
+                        affiliate: promise.address.clone(),
+                        fee_amount: promise.amount,
+                    })?,
+                    funds: vec![],
+                });
+                // Use reply_on_error so points failure doesn't fail the distribution
+                response = response.add_submessage(SubMsg::reply_on_error(points_msg, 0));
             }
-            
+
             Ok(response)
         }
         SubMsgResult::Err(err) => {
@@ -166,7 +159,7 @@ pub fn handle_take_revenue_reply(
                     contract_addr: env.contract.address.to_string(),
                     msg: to_json_binary(&ExecuteMsg::SetPromises {
                         promises: vec![],
-                        ltv_disco_distribution: Some(per_asset_rev),
+                        per_asset_distribution: Some(per_asset_rev),
                     })?,
                     funds: vec![Coin {
                         denom: config.canonical_asset.info.to_string(),

@@ -9,7 +9,7 @@ use cosmwasm_std::{
     attr, to_json_binary, BankMsg, Addr, Binary, Coin, CosmosMsg, Decimal, Deps, DepsMut, Env, MessageInfo, Order, Reply, Response, StdError, StdResult, SubMsg, Uint128, WasmMsg
 };
 use membrane::neutron_proxy::{
-    Config, ContractDenomsResponse, DexChoice, DualityRoute, ExecuteMsg, GetDenomResponse, HopConfig, InstantiateMsg, MigrateMsg, QueryMsg, TokenInfoResponse, NeutronOwnerEntry, NeutronMsg, TransmuteSupplyThresholdEntry
+    Config, ContractDenomsResponse, DexChoice, DualityRoute, ExecuteMsg, GetDenomResponse, HopConfig, InstantiateMsg, MigrateMsg, QueryMsg, TokenInfoResponse, NeutronOwnerEntry, NeutronMsg, TransmuteSupplyThresholdEntry, SupplySnapshotResponse, SupplySnapshotEntry
 };
 use membrane::{mars_vault_token, transmuter};
 use membrane::types::{AssetInfo, NeutronOwner, TransmutationPair, TransmutationPairEntry, VaultEntry, VestingPeriod};
@@ -17,7 +17,7 @@ use membrane::helpers::get_contract_balances;
 use cw2::set_contract_version;
 
 use crate::error::TokenFactoryError;
-use crate::state::{PendingTokenInfo, TokenInfo, SwapInfo, CONFIG, PENDING, TOKENS, SWAP_ROUTES, SWAP_INFO, SWAP_ROUTE_CONFIG, TRANSMUTE_SUPPLY_THRESHOLDS};
+use crate::state::{PendingTokenInfo, TokenInfo, SwapInfo, SupplySnapshot, CONFIG, PENDING, TOKENS, SWAP_ROUTES, SWAP_INFO, SWAP_ROUTE_CONFIG, TRANSMUTE_SUPPLY_THRESHOLDS, SUPPLY_HISTORY};
 use osmosis_std::types::osmosis::tokenfactory::v1beta1::{self as TokenFactory, QueryDenomsFromCreatorResponse, MsgCreateDenomResponse};
 
 // version info for migration info
@@ -1218,15 +1218,18 @@ pub fn mint_tokens(
         },
     )?;
 
+    //Record supply snapshot
+    record_supply_snapshot(deps.storage, &env, &denom)?;
+
     //Create mint msg
     let mint_tokens_msg: CosmosMsg<NeutronMsg> = TokenFactory::MsgMint{
-        sender: env.contract.address.to_string(), 
+        sender: env.contract.address.to_string(),
         amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin{
             denom: denom.clone(),
             amount: amount.to_string(),
-        }), 
+        }),
         mint_to_address: mint_to_address.clone(),
-    }.into(); 
+    }.into();
 
     let mut res = Response::<NeutronMsg>::new()
         .add_attribute("method", "mint_tokens")
@@ -1367,6 +1370,9 @@ pub fn burn_tokens(
         },
     )?;
 
+    //Record supply snapshot
+    record_supply_snapshot(deps.storage, &env, &denom)?;
+
     let burn_token_msg: CosmosMsg<NeutronMsg> = TokenFactory::MsgBurn {
         sender: env.contract.address.to_string(),
         amount: Some(osmosis_std::types::cosmos::base::v1beta1::Coin{
@@ -1383,6 +1389,65 @@ pub fn burn_tokens(
         .add_message(burn_token_msg);
 
     Ok(res)
+}
+
+/// Record a supply snapshot for a denom (at most one per day)
+fn record_supply_snapshot(
+    storage: &mut dyn cosmwasm_std::Storage,
+    env: &Env,
+    denom: &str,
+) -> Result<(), TokenFactoryError> {
+    let token_info = TOKENS.load(storage, denom.to_string())?;
+    let now = env.block.time.seconds();
+    const ONE_DAY: u64 = 86400;
+
+    let mut history = SUPPLY_HISTORY
+        .may_load(storage, denom.to_string())?
+        .unwrap_or_default();
+
+    // Only record if no snapshot today (dedupe by day)
+    let should_record = history
+        .last()
+        .map(|last| now - last.timestamp >= ONE_DAY)
+        .unwrap_or(true);
+
+    if should_record {
+        history.push(SupplySnapshot {
+            timestamp: now,
+            current_supply: token_info.current_supply,
+            burned_supply: token_info.burned_supply,
+        });
+        SUPPLY_HISTORY.save(storage, denom.to_string(), &history)?;
+    }
+
+    Ok(())
+}
+
+/// Query supply history for a denom
+fn get_supply_history(
+    deps: Deps,
+    denom: String,
+    limit: Option<u32>,
+    start_after: Option<u64>,
+) -> StdResult<SupplySnapshotResponse> {
+    let history = SUPPLY_HISTORY
+        .may_load(deps.storage, denom.clone())?
+        .unwrap_or_default();
+
+    let limit = limit.unwrap_or(365) as usize;
+
+    let snapshots: Vec<SupplySnapshotEntry> = history
+        .into_iter()
+        .filter(|s| start_after.map_or(true, |after| s.timestamp > after))
+        .take(limit)
+        .map(|s| SupplySnapshotEntry {
+            timestamp: s.timestamp,
+            current_supply: s.current_supply,
+            burned_supply: s.burned_supply,
+        })
+        .collect();
+
+    Ok(SupplySnapshotResponse { denom, snapshots })
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
@@ -1406,6 +1471,9 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         },
         QueryMsg::AstroportPairInfo { asset_infos } => {
             to_json_binary(&get_astroport_pair_info(deps, asset_infos)?)
+        },
+        QueryMsg::GetSupplyHistory { denom, limit, start_after } => {
+            to_json_binary(&get_supply_history(deps, denom, limit, start_after)?)
         },
     }
 }

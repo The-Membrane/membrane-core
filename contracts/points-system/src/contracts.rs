@@ -20,7 +20,8 @@ use membrane::staking::ExecuteMsg as Staking_ExecuteMsg;
 use membrane::types::{AssetInfo, Basket, UserInfo, PointsMultipliers, VaultMultiplier};
 use membrane::emissions_voting::{QueryMsg as EmissionsVotingQueryMsg, ExecuteMsg as EmissionsVotingExecuteMsg, GraphType};
 use membrane::range_bound_lp_vault::QueryMsg as RB_QueryMsg;
-use membrane::system_discounts::{QueryMsg as SystemDiscounts_QueryMsg, UserBoostResponse};
+// DISABLED: GetBoost query removed from system
+// use membrane::system_discounts::{QueryMsg as SystemDiscounts_QueryMsg, UserBoostResponse};
 use membrane::transmuter::ExecuteMsg as Transmuter_ExecuteMsg;
 
 use crate::error::ContractError;
@@ -945,24 +946,20 @@ fn allocate_points(
     //Calculate base points
     let base_points = decimal_multiplication(total_value, config.clone().points_per_dollar)?;
 
-    //Apply boost multiplier if system_discounts contract is configured
-    let points = if let Some(discounts_addr) = &config.system_discounts_contract {
-        // Query user's boost
-        let boost_response: UserBoostResponse = querier.query::<UserBoostResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: discounts_addr.to_string(),
-            msg: to_json_binary(&SystemDiscounts_QueryMsg::UserBoost {
-                user: user.to_string(),
-            })?
-        }))?;
-        
-        // Calculate boost multiplier: 1 + boost_percentage
-        let boost_multiplier = Decimal::one() + boost_response.boost;
-        
-        // Apply boost to points
-        decimal_multiplication(base_points, boost_multiplier)?
-    } else {
-        base_points
-    };
+    // DISABLED: GetBoost query removed from system
+    // let points = if let Some(discounts_addr) = &config.system_discounts_contract {
+    //     let boost_response: UserBoostResponse = querier.query::<UserBoostResponse>(&QueryRequest::Wasm(WasmQuery::Smart {
+    //         contract_addr: discounts_addr.to_string(),
+    //         msg: to_json_binary(&SystemDiscounts_QueryMsg::UserBoost {
+    //             user: user.to_string(),
+    //         })?
+    //     }))?;
+    //     let boost_multiplier = Decimal::one() + boost_response.boost;
+    //     decimal_multiplication(base_points, boost_multiplier)?
+    // } else {
+    //     base_points
+    // };
+    let points = base_points;
 
     //Save points to user
     let mut user_stats = match USER_STATS.load(storage, user.clone()){
@@ -1789,25 +1786,21 @@ fn give_points_for_affiliate_fee(
     // Calculate base points
     let base_points = decimal_multiplication(fee_value, config.points_per_dollar)?;
     
-    // Apply boost multiplier if system_discounts contract is configured
-    let points = if let Some(discounts_addr) = &config.system_discounts_contract {
-        // Query user's boost
-        let boost_response: UserBoostResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: discounts_addr.to_string(),
-            msg: to_json_binary(&SystemDiscounts_QueryMsg::UserBoost {
-                user: affiliate.clone(),
-            })?,
-        }))?;
-        
-        // Calculate boost multiplier: 1 + boost_percentage
-        let boost_multiplier = Decimal::one() + boost_response.boost;
-        
-        // Apply boost to points
-        decimal_multiplication(base_points, boost_multiplier)?
-    } else {
-        base_points
-    };
-    
+    // DISABLED: GetBoost query removed from system
+    // let points = if let Some(discounts_addr) = &config.system_discounts_contract {
+    //     let boost_response: UserBoostResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+    //         contract_addr: discounts_addr.to_string(),
+    //         msg: to_json_binary(&SystemDiscounts_QueryMsg::UserBoost {
+    //             user: affiliate.clone(),
+    //         })?,
+    //     }))?;
+    //     let boost_multiplier = Decimal::one() + boost_response.boost;
+    //     decimal_multiplication(base_points, boost_multiplier)?
+    // } else {
+    //     base_points
+    // };
+    let points = base_points;
+
     // Save points to affiliate
     let mut user_stats = USER_STATS.may_load(storage, affiliate_addr.clone())?
         .unwrap_or(UserStats {
@@ -1865,25 +1858,21 @@ fn give_points_for_manager_fee(
     // Calculate base points
     let base_points = decimal_multiplication(fee_value, config.points_per_dollar)?;
     
-    // Apply boost multiplier if system_discounts contract is configured
-    let points = if let Some(discounts_addr) = &config.system_discounts_contract {
-        // Query user's boost
-        let boost_response: UserBoostResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
-            contract_addr: discounts_addr.to_string(),
-            msg: to_json_binary(&SystemDiscounts_QueryMsg::UserBoost {
-                user: manager.clone(),
-            })?,
-        }))?;
-        
-        // Calculate boost multiplier: 1 + boost_percentage
-        let boost_multiplier = Decimal::one() + boost_response.boost;
-        
-        // Apply boost to points
-        decimal_multiplication(base_points, boost_multiplier)?
-    } else {
-        base_points
-    };
-    
+    // DISABLED: GetBoost query removed from system
+    // let points = if let Some(discounts_addr) = &config.system_discounts_contract {
+    //     let boost_response: UserBoostResponse = querier.query(&QueryRequest::Wasm(WasmQuery::Smart {
+    //         contract_addr: discounts_addr.to_string(),
+    //         msg: to_json_binary(&SystemDiscounts_QueryMsg::UserBoost {
+    //             user: manager.clone(),
+    //         })?,
+    //     }))?;
+    //     let boost_multiplier = Decimal::one() + boost_response.boost;
+    //     decimal_multiplication(base_points, boost_multiplier)?
+    // } else {
+    //     base_points
+    // };
+    let points = base_points;
+
     // Save points to manager
     let mut user_stats = USER_STATS.may_load(storage, manager_addr.clone())?
         .unwrap_or(UserStats {

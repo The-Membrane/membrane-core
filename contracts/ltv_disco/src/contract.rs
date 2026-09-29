@@ -16,7 +16,7 @@ use crate::execute::{
     add_bad_debt, add_revenue, claim_revenue_for_user, update_config,
     execute_rate_assurance, execute_set_affiliate,
     set_manager_fee, clean_manager_fee, add_deposit_token_revenue,
-    send_mbrn_for_sale,
+    send_mbrn_for_sale, clear_bad_debt_freeze,
 };
 use crate::query::{
     query_config, query_asset_queue, query_backing_deposit,
@@ -25,7 +25,8 @@ use crate::query::{
     query_revenue_events, query_assets, query_daily_tvl, query_user_total_deposits,
     query_all_user_deposits, query_vault_token_conversion, query_deposit_token_conversion,
     query_managed_deposit_keys, query_total_insurance, query_manager_fee, query_daily_deposits,
-    query_unstake_requests, query_slot_weights, query_average_ltvs,
+    query_unstake_requests, query_slot_weights, query_average_ltvs, query_manager_performance,
+    query_effective_unlock_time,
 };
 use crate::reply::handle_compound_swap_reply;
 use crate::state::CONFIG;
@@ -74,6 +75,10 @@ pub fn instantiate(
         .map(|addr| deps.api.addr_validate(&addr))
         .transpose()?;
 
+    let liquidation_engine_contract = msg.liquidation_engine_contract
+        .map(|addr| deps.api.addr_validate(&addr))
+        .transpose()?;
+
     let owner = if let Some(owner_str) = msg.owner {
         deps.api.addr_validate(&owner_str)?
     } else {
@@ -96,6 +101,7 @@ pub fn instantiate(
         revenue_distributor,
         auction_contract,
         mbrn_denom: msg.mbrn_denom,
+        liquidation_engine_contract,
     };
 
     set_contract_version(deps.storage, CONTRACT_NAME, CONTRACT_VERSION)?;
@@ -148,7 +154,7 @@ pub fn execute(
         ExecuteMsg::ClaimRevenueForUser { user, asset, limit, compound_action } => {
             claim_revenue_for_user(deps, env, info, user, asset, limit, compound_action)
         }
-        ExecuteMsg::UpdateConfig { owner, cdp_contract, deposit_denom, cdt_denom, minimum_deposit, unstaking_period, oracle_contract, chain_proxy_contract, emissions_voting_contract, affiliate_fee, max_management_fee, points_system_contract, revenue_distributor, auction_contract, mbrn_denom } => {
+        ExecuteMsg::UpdateConfig { owner, cdp_contract, deposit_denom, cdt_denom, minimum_deposit, unstaking_period, oracle_contract, chain_proxy_contract, emissions_voting_contract, affiliate_fee, max_management_fee, points_system_contract, revenue_distributor, auction_contract, mbrn_denom, liquidation_engine_contract } => {
             update_config(
                 deps,
                 info,
@@ -167,6 +173,7 @@ pub fn execute(
                 revenue_distributor,
                 auction_contract,
                 mbrn_denom,
+                liquidation_engine_contract,
             )
         }
         ExecuteMsg::SetAffiliate { user, affiliate_address, label } => {
@@ -181,8 +188,11 @@ pub fn execute(
         ExecuteMsg::AddDepositTokenRevenue { per_asset_distribution } => {
             add_deposit_token_revenue(deps, env, info, per_asset_distribution)
         }
-        ExecuteMsg::SendMBRNForSale { amount, recipient } => {
-            send_mbrn_for_sale(deps, env, info, amount, recipient)
+        ExecuteMsg::SendMBRNForSale { amount, recipient, asset } => {
+            send_mbrn_for_sale(deps, env, info, amount, recipient, asset)
+        }
+        ExecuteMsg::ClearBadDebtFreeze { asset, cdt_amount } => {
+            clear_bad_debt_freeze(deps, info, asset, cdt_amount)
         }
         ExecuteMsg::RateAssurance { asset, slot } => {
             execute_rate_assurance(deps, env, info, asset, slot)
@@ -259,6 +269,17 @@ pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
         }
         QueryMsg::GetAverageLTVs { assets } => {
             to_json_binary(&query_average_ltvs(deps, assets)?)
+        }
+        QueryMsg::GetPendingBadDebt { asset } => {
+            to_json_binary(&crate::state::PENDING_BAD_DEBT
+                .may_load(deps.storage, asset)?
+                .unwrap_or(cosmwasm_std::Uint128::zero()))
+        }
+        QueryMsg::GetManagerPerformance { manager } => {
+            to_json_binary(&query_manager_performance(deps, manager)?)
+        }
+        QueryMsg::GetEffectiveUnlockTime { asset, slot, deposit_id, user } => {
+            to_json_binary(&query_effective_unlock_time(deps, env, asset, slot, deposit_id, user)?)
         }
     }
 }

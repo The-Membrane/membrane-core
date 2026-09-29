@@ -3072,6 +3072,7 @@ pub fn edit_basket(
         rate_index: Decimal::one(),
         peg_rate_index: Decimal::one(),
         force_redemptions: None,
+        max_threshold_to_delay: Decimal::percent(15),
     };
 
     let mut msgs: Vec<CosmosMsg> = vec![];
@@ -3785,7 +3786,7 @@ pub fn credit_burn_rev_msg(
                     contract_addr: config.revenue_distributor.unwrap().to_string(),
                     msg: to_json_binary(&membrane::revenue_distributor::ExecuteMsg::SetPromises {
                         promises,
-                        ltv_disco_distribution: Some(ltv_disco_distribution),
+                        per_asset_distribution: Some(ltv_disco_distribution),
                     })?,
                     funds: vec![asset_to_coin(Asset {
                         amount: revenue_amount,

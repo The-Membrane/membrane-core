@@ -1,0 +1,17 @@
+[package]
+name = "pyth-sdk-cw"
+version = "1.2.0"
+edition = "2018"
+authors = ["Pyth Data Foundation"]
+description = "Data structures and utilites for the Pyth price oracle"
+license = "Apache-2.0"
+repository = "https://github.com/pyth-network/pyth-crosschain"
+
+[features]
+osmosis = []
+
+[dependencies]
+cosmwasm-schema = "2.0.4"
+cosmwasm-std = "2.0.4"
+pyth-sdk = "0.7.0"
+thiserror = "1.0.20"

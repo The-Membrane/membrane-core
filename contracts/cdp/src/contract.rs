@@ -35,6 +35,7 @@ use crate::state::{ get_target_position, update_position, update_position_claims
 
 // use membrane::range_bound_lp_vault::{QueryMsg as RBLP_QueryMsg, UserIntentResponse};
 use membrane::osmosis_proxy::ExecuteMsg as OsmoExecuteMsg;
+use membrane::revenue_distributor::ExecuteMsg as RevDistExecuteMsg;
 
 // version info for migration info
 const CONTRACT_NAME: &str = "crates.io:cdp";
@@ -242,7 +243,8 @@ pub fn execute(
             asset,
             max_borrow_LTV,
             max_LTV,
-        } => edit_cAsset(deps, info, asset, max_borrow_LTV, max_LTV),
+            max_threshold_to_delay,
+        } => edit_cAsset(deps, info, asset, max_borrow_LTV, max_LTV, max_threshold_to_delay),
         ExecuteMsg::EditBasket(edit) => edit_basket(deps, env, info,edit),
         ExecuteMsg::Liquidate {
             position_id,
@@ -383,7 +385,20 @@ fn fulfill_bad_debt(
             amount: excess,
         }],
     }));
-    
+
+    // If bad debt is fully cleared, notify revenue-distributor to untoggle
+    if basket.pending_bad_debt.is_zero() {
+        if let Some(ref rev_dist) = config.revenue_distributor {
+            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: rev_dist.to_string(),
+                msg: to_json_binary(&RevDistExecuteMsg::ToggleBadDebtFulfillment {
+                    toggle: false,
+                })?,
+                funds: vec![],
+            }));
+        }
+    }
+
     //Update basket
     BASKET.save(deps.storage, &basket)?;
 
@@ -498,6 +513,7 @@ fn edit_cAsset(
     asset: AssetInfo,
     max_borrow_LTV: Option<Decimal>,
     max_LTV: Option<Decimal>,
+    max_threshold_to_delay: Option<Decimal>,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -562,6 +578,11 @@ fn edit_cAsset(
                         val:String::from("Invalid borrow LTV"),
                     })
                 }
+            }
+
+            if let Some(threshold) = max_threshold_to_delay {
+                asset.max_threshold_to_delay = threshold;
+                attrs.push(attr("max_threshold_to_delay", threshold.to_string()));
             }
 
         // Write the mutated asset back in place
@@ -942,38 +963,26 @@ fn check_and_fulfill_bad_debt(
             }
         }
 
-        //Send remaining bad debt amount to the auction contract if greater than 0.
-        //This will trigger a MBRN auction to sell MBRN to repay the bad debt.
-        if config.debt_auction.is_some() && !bad_debt_amount.is_zero() {
-            let auction_msg = AuctionExecuteMsg::StartAuction {
-                repayment_position_info: Some(UserInfo {
-                    position_id,
-                    position_owner: position_owner.to_string(),
-                }),
-                auction_asset: Asset {
-                    amount: bad_debt_amount,
-                    info: basket.clone().credit_asset.info,
-                },
-                send_to: None,
-                per_asset_distribution: None, // Bad debt auction doesn't track per-asset distribution
-            };
-
+        //If remaining bad debt > 0, toggle revenue-distributor to redirect all revenue to FulfillBadDebt
+        if !bad_debt_amount.is_zero() {
+            let revenue_distributor = config.revenue_distributor
+                .ok_or_else(|| ContractError::CustomError {
+                    val: String::from("Revenue distributor contract not configured"),
+                })?;
             messages.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.debt_auction.unwrap_or_else(|| Addr::unchecked("")).to_string(),
-                msg: to_json_binary(&auction_msg)?,
+                contract_addr: revenue_distributor.to_string(),
+                msg: to_json_binary(&RevDistExecuteMsg::ToggleBadDebtFulfillment {
+                    toggle: true,
+                })?,
                 funds: vec![],
             }));
-        } else {
-            return Err(ContractError::CustomError {
-                val: String::from("Debt Auction contract not added to config"),
-            });
         }
 
         //Save Basket w/ updated revenue & pending bad debt
         BASKET.save(deps.storage, &basket)?;
-        
+
         attrs.push(
-            attr("amount_sent_to_auction", bad_debt_amount)
+            attr("bad_debt_remaining", bad_debt_amount)
         );
 
         Ok(Response::new()

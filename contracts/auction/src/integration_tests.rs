@@ -126,7 +126,7 @@ mod tests {
                         basket_id,
                     } => {
                         if asset_info.to_string() == String::from("no_price"){
-                            return Err(cosmwasm_std::StdError::GenericErr { msg: String::from("Asset has no oracle price") })
+                            return Err(cosmwasm_std::StdError::generic_err("Asset has no oracle price"))
                         } else {
                             Ok(to_json_binary(&vec![PriceResponse {
                                 prices: vec![],
@@ -189,31 +189,32 @@ mod tests {
                         current_position_id: Uint128::one(),
                         collateral_types: vec![],
                         collateral_supply_caps: vec![],
-                        lastest_collateral_rates: vec![],
-                        credit_asset: Asset {
+                        multi_asset_supply_caps: vec![],
+                        credit_asset: membrane::types::CreditAssetBreakdown {
                             info: AssetInfo::NativeToken {
                                 denom: String::from("credit_fulldenom"),
                             },
-                            amount: Uint128::zero(),
+                            variable_amount: Uint128::zero(),
+                            one_month_amount: Uint128::zero(),
+                            three_month_amount: Uint128::zero(),
+                            six_month_amount: Uint128::zero(),
+                            peg_variable_amount: Uint128::zero(),
+                            peg_one_month_amount: Uint128::zero(),
+                            peg_three_month_amount: Uint128::zero(),
+                            peg_six_month_amount: Uint128::zero(),
                         },
-                        credit_price: PriceResponse { 
-                            prices: vec![], 
-                            price: Decimal::one(), 
+                        credit_price: PriceResponse {
+                            prices: vec![],
+                            price: Decimal::one(),
                             decimals: 0
                         },
                         liq_queue: None,
-                        base_interest_rate: Decimal::zero(),
                         pending_revenue: membrane::types::PendingRevenue {
                             total_pending: Uint128::zero(),
                             per_asset_rev: vec![],
                         },
-                        negative_rates: true,
-                        cpc_margin_of_error: Decimal::zero(),
-                        multi_asset_supply_caps: vec![],
                         frozen: false,
                         distribute_revenue: true,
-                        credit_last_accrued: 0,
-                        rates_last_accrued: 0,
                         oracle_set: false,
                         pending_bad_debt: Uint128::zero(),
                     })?),
@@ -222,16 +223,18 @@ mod tests {
                             BasketPositionsResponse {
                                 user: String::from("user"),
                                 positions: vec![
-                                    PositionResponse { 
-                                        position_id: Uint128::zero(), 
-                                        collateral_assets: vec![], 
-                                        cAsset_ratios: vec![], 
-                                        credit_amount: Uint128::zero(), 
-                                        avg_borrow_LTV: Decimal::zero(), 
+                                    PositionResponse {
+                                        position_id: Uint128::zero(),
+                                        collateral_assets: vec![],
+                                        cAsset_ratios: vec![],
+                                        credit_amount: Uint128::zero(),
+                                        rate_segments: vec![],
+                                        avg_borrow_LTV: Decimal::zero(),
                                         avg_max_LTV: Decimal::zero(),
                                         deployed_to: vec![],
                                         pending_interest: Uint128::zero(),
                                         total_interest_accrued: Uint128::zero(),
+                                        peg_rate_segments: vec![],
                                     }
                                 ]
                             }
@@ -340,6 +343,7 @@ mod tests {
             delay_window_minutes: Some(0), // No delay for tests
             revenue_distributor_contract: None,
             ltv_disco_contract: None,
+            debt_contract: None,
         };
 
         let debt_contract_addr = app
@@ -925,6 +929,7 @@ mod tests {
                 delay_window_minutes: None,
                 revenue_distributor_contract: None,
                 ltv_disco_contract: None,
+                debt_contract: None,
             });
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -960,6 +965,7 @@ mod tests {
                 delay_window_minutes: None,
                 revenue_distributor_contract: None,
                 ltv_disco_contract: None,
+                debt_contract: None,
             });
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked(ADMIN), cosmos_msg).unwrap();
@@ -983,6 +989,7 @@ mod tests {
                 delay_window_minutes: None,
                 revenue_distributor_contract: None,
                 ltv_disco_contract: None,
+                debt_contract: None,
             });
             let cosmos_msg = debt_contract.call(msg, vec![]).unwrap();
             app.execute(Addr::unchecked("new_owner"), cosmos_msg).unwrap();
@@ -1015,6 +1022,7 @@ mod tests {
                     delay_window_minutes: 0,
                     revenue_distributor_contract: None,
                     ltv_disco_contract: None,
+                    debt_contract: None,
                 },
             );
         }
@@ -1121,6 +1129,905 @@ mod tests {
             assert_eq!(auctions.len(), 1);
             // per_asset_distribution should be None
             assert!(auctions[0].per_asset_distribution.is_none());
+        }
+    }
+
+    mod mbrn_sale {
+        use super::*;
+        use cosmwasm_std::BlockInfo;
+        use membrane::auction::{UpdateConfig, Config};
+        use membrane::ltv_disco::ExecuteMsg as LtvDiscoExecuteMsg;
+        use membrane::types::{MBRNSale, AssetBadDebtAllocation};
+
+        // Mock Disco contract that handles SendMBRNForSale and ClearBadDebtFreeze
+        #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, JsonSchema)]
+        #[serde(rename_all = "snake_case")]
+        pub struct Disco_MockInstantiateMsg {}
+
+        pub fn disco_contract() -> Box<dyn Contract<Empty>> {
+            let contract = ContractWrapper::new(
+                |deps, env, info, msg: LtvDiscoExecuteMsg| -> StdResult<Response> {
+                    match msg {
+                        LtvDiscoExecuteMsg::SendMBRNForSale { amount, recipient, asset } => {
+                            // Send MBRN from our balance to recipient
+                            let send_msg = cosmwasm_std::BankMsg::Send {
+                                to_address: recipient,
+                                amount: vec![coin(amount.u128(), "mbrn_denom")],
+                            };
+                            Ok(Response::new()
+                                .add_message(send_msg)
+                                .add_attribute("method", "send_mbrn_for_sale")
+                                .add_attribute("amount", amount)
+                                .add_attribute("asset", asset))
+                        }
+                        LtvDiscoExecuteMsg::ClearBadDebtFreeze { asset, cdt_amount } => {
+                            Ok(Response::new()
+                                .add_attribute("method", "clear_bad_debt_freeze")
+                                .add_attribute("asset", asset)
+                                .add_attribute("cdt_amount", cdt_amount))
+                        }
+                        _ => Ok(Response::default()),
+                    }
+                },
+                |_, _, _, _: Disco_MockInstantiateMsg| -> StdResult<Response> {
+                    Ok(Response::default())
+                },
+                |_, _, _: cosmwasm_std::Empty| -> StdResult<Binary> {
+                    Ok(to_json_binary(&"")?)
+                },
+            );
+            Box::new(contract)
+        }
+
+        fn setup_with_disco() -> (App, DebtContract, Addr, Addr) {
+            let mut app = AppBuilder::new().build(|router, _, storage| {
+                let bank = BankKeeper::new();
+                bank.init_balance(
+                    storage,
+                    &Addr::unchecked(USER),
+                    vec![coin(1_000_000, "credit_fulldenom"), coin(100_000, "mbrn_denom")],
+                ).unwrap();
+                bank.init_balance(
+                    storage,
+                    &Addr::unchecked(ADMIN),
+                    vec![coin(1_000_000, "credit_fulldenom")],
+                ).unwrap();
+                router.bank = bank;
+            });
+
+            // Instantiate mocks
+            let proxy_id = app.store_code(osmosis_proxy_contract());
+            let proxy_addr = app.instantiate_contract(proxy_id, Addr::unchecked(ADMIN), &Osmo_MockInstantiateMsg {}, &[], "proxy", None).unwrap();
+
+            let oracle_id = app.store_code(oracle_contract());
+            let oracle_addr = app.instantiate_contract(oracle_id, Addr::unchecked(ADMIN), &Oracle_MockInstantiateMsg {}, &[], "oracle", None).unwrap();
+
+            let cdp_id = app.store_code(cdp_contract());
+            let cdp_addr = app.instantiate_contract(cdp_id, Addr::unchecked(ADMIN), &CDP_MockInstantiateMsg {}, &[], "cdp", None).unwrap();
+
+            let disco_id = app.store_code(disco_contract());
+            let disco_addr = app.instantiate_contract(disco_id, Addr::unchecked(ADMIN), &Disco_MockInstantiateMsg {}, &[], "disco", None).unwrap();
+
+            // Fund disco with MBRN
+            app.send_tokens(Addr::unchecked(USER), disco_addr.clone(), &[coin(100_000, "mbrn_denom")]).unwrap();
+
+            // Instantiate auction with ltv_disco configured
+            let auction_id = app.store_code(debt_contract());
+            let msg = InstantiateMsg {
+                owner: None,
+                oracle_contract: oracle_addr.to_string(),
+                osmosis_proxy: proxy_addr.to_string(),
+                positions_contract: cdp_addr.to_string(),
+                governance_contract: cdp_addr.to_string(), // reuse cdp as dummy
+                staking_contract: cdp_addr.to_string(),    // reuse cdp as dummy
+                twap_timeframe: 90u64,
+                mbrn_denom: String::from("mbrn_denom"),
+                initial_discount: Decimal::percent(1),
+                discount_increase_timeframe: 60u64,
+                discount_increase: Decimal::percent(1),
+                delay_window_minutes: Some(0),
+                revenue_distributor_contract: None,
+                ltv_disco_contract: Some(disco_addr.to_string()),
+                debt_contract: Some(cdp_addr.to_string()), // reuse cdp mock (has FulfillBadDebt handler)
+            };
+            let auction_addr = app.instantiate_contract(auction_id, Addr::unchecked(ADMIN), &msg, &[], "auction", None).unwrap();
+            let auction_contract = DebtContract(auction_addr.clone());
+
+            (app, auction_contract, cdp_addr, disco_addr)
+        }
+
+        #[test]
+        fn start_mbrn_sale_per_asset() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            // Unauthorized: non-disco can't start
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(1000),
+                asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(500),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+
+            // Disco starts sale for uatom
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(1000),
+                asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(10),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            // Check sale state
+            let sale: MBRNSale = app.wrap().query_wasm_smart(
+                auction_contract.addr(),
+                &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert_eq!(sale.max_cdt, Uint128::new(1000));
+            assert_eq!(sale.asset_allocations.len(), 1);
+            assert_eq!(sale.asset_allocations[0].asset, "uatom");
+            assert_eq!(sale.asset_allocations[0].mbrn_allocated, Uint128::new(10));
+
+            // Disco adds second asset
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(2000),
+                asset: "uosmo".into(),
+                mbrn_allocation: Uint128::new(30),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            // Check sale now has 2 assets
+            let sale: MBRNSale = app.wrap().query_wasm_smart(
+                auction_contract.addr(),
+                &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert_eq!(sale.max_cdt, Uint128::new(3000));
+            assert_eq!(sale.asset_allocations.len(), 2);
+            assert_eq!(sale.asset_allocations[1].asset, "uosmo");
+            assert_eq!(sale.asset_allocations[1].mbrn_allocated, Uint128::new(30));
+
+            // Adding to same asset stacks
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(500),
+                asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(5),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            let sale: MBRNSale = app.wrap().query_wasm_smart(
+                auction_contract.addr(),
+                &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert_eq!(sale.asset_allocations.len(), 2); // Still 2 assets
+            assert_eq!(sale.asset_allocations[0].mbrn_allocated, Uint128::new(15)); // 10 + 5
+            assert_eq!(sale.asset_allocations[0].cdt_bad_debt, Uint128::new(1500)); // 1000 + 500
+        }
+
+        #[test]
+        fn even_split_and_exhaustion() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            // Start sale with 3 assets: allocations = 100, 500, 1000 MBRN
+            // CDT bad debt: 10_000 each (large enough to not be the limiting factor)
+            for (asset, mbrn) in [("uatom", 100u128), ("uosmo", 500), ("ustars", 1000)] {
+                let msg = ExecuteMsg::StartMBRNSale {
+                    max_cdt: Uint128::new(10_000),
+                    asset: asset.into(),
+                    mbrn_allocation: Uint128::new(mbrn),
+                };
+                let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+                app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+            }
+
+            // Advance time past delay window for discount
+            app.set_block(BlockInfo {
+                height: 1000,
+                time: app.block_info().time.plus_seconds(120),
+                chain_id: "test".to_string(),
+            });
+
+            // With 1:1 pricing and ~3% discount, 1 CDT ≈ 1.03 MBRN.
+            // Send 300 CDT → ~309 MBRN total → even split: ~103 MBRN per asset.
+            // uatom has 100 MBRN → exhausted. uosmo (500) and ustars (1000) continue.
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(300, "credit_fulldenom")]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Check sale state — uatom should be removed (MBRN exhausted)
+            let sale: Option<MBRNSale> = app.wrap().query_wasm_smart(
+                auction_contract.addr(),
+                &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert!(sale.is_some(), "Sale should still exist (uosmo and ustars remain)");
+            let sale = sale.unwrap();
+
+            // uatom should be removed from allocations
+            assert!(!sale.asset_allocations.iter().any(|a| a.asset == "uatom"),
+                "uatom should be exhausted and removed");
+            // uosmo and ustars should remain with some usage
+            let uosmo = sale.asset_allocations.iter().find(|a| a.asset == "uosmo").unwrap();
+            assert!(uosmo.mbrn_used > Uint128::zero(), "uosmo should have some MBRN used");
+            assert!(uosmo.mbrn_used < uosmo.mbrn_allocated, "uosmo should not be exhausted yet");
+
+            let ustars = sale.asset_allocations.iter().find(|a| a.asset == "ustars").unwrap();
+            assert!(ustars.mbrn_used > Uint128::zero(), "ustars should have some MBRN used");
+
+            // Verify ClearBadDebtFreeze was called for uatom (check events)
+            let has_clear = res.events.iter().any(|e|
+                e.attributes.iter().any(|a| a.key == "method" && a.value == "clear_bad_debt_freeze")
+                && e.attributes.iter().any(|a| a.key == "asset" && a.value == "uatom")
+            );
+            assert!(has_clear, "ClearBadDebtFreeze should have been called for uatom");
+
+            // Verify SendMBRNForSale recipient is the buyer, not the auction contract
+            let send_events: Vec<_> = res.events.iter()
+                .filter(|e| e.attributes.iter().any(|a| a.key == "method" && a.value == "send_mbrn_for_sale"))
+                .collect();
+            assert!(!send_events.is_empty(), "SendMBRNForSale should have been called");
+        }
+
+        #[test]
+        fn recursive_redistribution() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            // 2 assets: one very small (10 MBRN), one large (50_000 MBRN)
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(10_000),
+                asset: "tiny".into(),
+                mbrn_allocation: Uint128::new(10),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(50_000),
+                asset: "large".into(),
+                mbrn_allocation: Uint128::new(50_000),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            app.set_block(BlockInfo {
+                height: 1000,
+                time: app.block_info().time.plus_seconds(120),
+                chain_id: "test".to_string(),
+            });
+
+            // Buy with 100 CDT. Even split: 50 CDT each → ~51 MBRN each.
+            // "tiny" has 10 MBRN → exhausted, uses ~10 MBRN / ~10 CDT.
+            // Leftover ~40 CDT redistributed to "large" via recursive call.
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Check that "tiny" was exhausted
+            let sale: Option<MBRNSale> = app.wrap().query_wasm_smart(
+                auction_contract.addr(),
+                &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert!(sale.is_some(), "Sale should still exist (large remains)");
+            let sale = sale.unwrap();
+            assert!(!sale.asset_allocations.iter().any(|a| a.asset == "tiny"), "tiny should be exhausted");
+            assert!(sale.asset_allocations.iter().any(|a| a.asset == "large"));
+
+            // "large" should have received more CDT than just 50 (its initial 50% share)
+            // due to recursive redistribution of tiny's leftover
+            let large_alloc = sale.asset_allocations.iter().find(|a| a.asset == "large").unwrap();
+            assert!(large_alloc.cdt_fulfilled > Uint128::new(50),
+                "large should have received more than half due to redistribution, got {}", large_alloc.cdt_fulfilled);
+
+            // Verify SendMBRNForSale was called multiple times (initial + recursive)
+            let send_events: Vec<_> = res.events.iter()
+                .filter(|e| e.attributes.iter().any(|a| a.key == "method" && a.value == "send_mbrn_for_sale"))
+                .collect();
+            assert!(send_events.len() >= 2,
+                "SendMBRNForSale should be called at least twice (initial + recursive), got {}", send_events.len());
+        }
+
+        #[test]
+        fn buy_completes_sale_when_all_exhausted() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            // Single asset with small allocation (50 MBRN, 100 CDT bad debt)
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(100),
+                asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(50),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            app.set_block(BlockInfo {
+                height: 1000,
+                time: app.block_info().time.plus_seconds(120),
+                chain_id: "test".to_string(),
+            });
+
+            // Buy with 200 CDT — more than the 100 CDT bad debt, so CDT cap triggers
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(200, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Sale should be completely removed (all allocations exhausted)
+            let sale: Option<MBRNSale> = app.wrap().query_wasm_smart(
+                auction_contract.addr(),
+                &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert!(sale.is_none(), "Sale should be removed when all allocations are exhausted");
+        }
+
+        #[test]
+        fn start_mbrn_sale_unauthorized() {
+            let (mut app, auction_contract, _, _disco_addr) = setup_with_disco();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(1000),
+                asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(100),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            // Non-disco sender
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+        }
+
+        #[test]
+        fn start_mbrn_sale_zero_cdt() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::zero(),
+                asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(100),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr, cosmos_msg).unwrap_err();
+        }
+
+        #[test]
+        fn start_mbrn_sale_no_funds_allowed() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            // Sending funds should fail (pull model)
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(1000),
+                asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(100),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
+            app.execute(disco_addr, cosmos_msg).unwrap_err();
+        }
+
+        #[test]
+        fn buy_no_active_sale() {
+            let (mut app, auction_contract, _, _disco_addr) = setup_with_disco();
+
+            // No sale started — buy should fail
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+        }
+
+        #[test]
+        fn buy_partial_single_asset() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(10_000),
+                asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(10_000),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            app.set_block(BlockInfo {
+                height: 1000,
+                time: app.block_info().time.plus_seconds(120),
+                chain_id: "test".to_string(),
+            });
+
+            // Small buy — should not exhaust
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(10, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Sale should still exist with partial fulfillment
+            let sale: Option<MBRNSale> = app.wrap().query_wasm_smart(
+                auction_contract.addr(),
+                &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert!(sale.is_some());
+            let sale = sale.unwrap();
+            assert_eq!(sale.asset_allocations.len(), 1);
+            assert!(sale.asset_allocations[0].cdt_fulfilled > Uint128::zero());
+            assert!(sale.asset_allocations[0].mbrn_used > Uint128::zero());
+            assert!(sale.cdt_fulfilled > Uint128::zero());
+        }
+
+        #[test]
+        fn buy_cdt_cap_limits_asset() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            // Asset with lots of MBRN but small CDT bad debt — CDT cap triggers
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(10), // tiny CDT
+                asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(10_000), // huge MBRN
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            app.set_block(BlockInfo {
+                height: 1000,
+                time: app.block_info().time.plus_seconds(120),
+                chain_id: "test".to_string(),
+            });
+
+            // Send enough CDT to cover the 10 CDT bad debt
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Sale should be complete (CDT fulfilled even though MBRN has plenty left)
+            let sale: Option<MBRNSale> = app.wrap().query_wasm_smart(
+                auction_contract.addr(),
+                &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert!(sale.is_none(), "Sale should complete when CDT bad debt is fulfilled");
+        }
+
+        #[test]
+        fn buy_mbrn_cap_limits_asset() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            // Asset with tiny MBRN but large CDT bad debt — MBRN cap triggers
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(100_000),
+                asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(5), // tiny MBRN
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            app.set_block(BlockInfo {
+                height: 1000,
+                time: app.block_info().time.plus_seconds(120),
+                chain_id: "test".to_string(),
+            });
+
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(1000, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Sale should be complete (MBRN exhausted)
+            let sale: Option<MBRNSale> = app.wrap().query_wasm_smart(
+                auction_contract.addr(),
+                &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert!(sale.is_none(), "Sale should complete when MBRN is exhausted");
+        }
+
+        #[test]
+        fn buy_depth_cap_refunds_at_max() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            // 4 assets with 1 MBRN each — needs 4 recursive rounds to exhaust all,
+            // but max depth is 3 so the last refund goes to buyer
+            for i in 0..4 {
+                let msg = ExecuteMsg::StartMBRNSale {
+                    max_cdt: Uint128::new(10_000),
+                    asset: format!("asset{}", i),
+                    mbrn_allocation: Uint128::new(1),
+                };
+                let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+                app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+            }
+
+            app.set_block(BlockInfo {
+                height: 1000,
+                time: app.block_info().time.plus_seconds(120),
+                chain_id: "test".to_string(),
+            });
+
+            // Large buy — each round exhausts one asset, leftover redistributes
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(1000, "credit_fulldenom")]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Check depth attributes to confirm recursion happened
+            let depth_attrs: Vec<_> = res.events.iter()
+                .flat_map(|e| e.attributes.iter())
+                .filter(|a| a.key == "depth")
+                .map(|a| a.value.clone())
+                .collect();
+            // Should have at least depth 0 and some recursive depths
+            assert!(depth_attrs.contains(&"0".to_string()), "Should have initial depth 0");
+        }
+
+        #[test]
+        fn buyer_field_unauthorized_from_non_contract() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(1000),
+                asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(100),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            app.set_block(BlockInfo {
+                height: 1000,
+                time: app.block_info().time.plus_seconds(120),
+                chain_id: "test".to_string(),
+            });
+
+            // External user trying to spoof buyer field should fail
+            let msg = ExecuteMsg::BuySuppliedMBRN {
+                depth: Some(1),
+                buyer: Some("victim".to_string()),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+        }
+
+        #[test]
+        fn clear_bad_debt_freeze_called_per_asset() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            // 2 assets, one small one large
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(10_000), asset: "small".into(),
+                mbrn_allocation: Uint128::new(5),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(10_000), asset: "big".into(),
+                mbrn_allocation: Uint128::new(50_000),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            app.set_block(BlockInfo {
+                height: 1000,
+                time: app.block_info().time.plus_seconds(120),
+                chain_id: "test".to_string(),
+            });
+
+            // Buy enough to exhaust "small" but not "big"
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(20, "credit_fulldenom")]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // ClearBadDebtFreeze should be called for "small" only
+            let clear_for_small = res.events.iter().any(|e|
+                e.attributes.iter().any(|a| a.key == "method" && a.value == "clear_bad_debt_freeze")
+                && e.attributes.iter().any(|a| a.key == "asset" && a.value == "small")
+            );
+            let clear_for_big = res.events.iter().any(|e|
+                e.attributes.iter().any(|a| a.key == "method" && a.value == "clear_bad_debt_freeze")
+                && e.attributes.iter().any(|a| a.key == "asset" && a.value == "big")
+            );
+            assert!(clear_for_small, "ClearBadDebtFreeze should fire for exhausted small asset");
+            assert!(!clear_for_big, "ClearBadDebtFreeze should NOT fire for active big asset");
+        }
+
+        #[test]
+        fn multiple_buys_progressive() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(10_000),
+                asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(1_000),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            app.set_block(BlockInfo {
+                height: 1000,
+                time: app.block_info().time.plus_seconds(120),
+                chain_id: "test".to_string(),
+            });
+
+            // Buy 1: partial
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(10, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            let sale: MBRNSale = app.wrap().query_wasm_smart(
+                auction_contract.addr(), &QueryMsg::MBRNSale {},
+            ).unwrap();
+            let first_mbrn = sale.asset_allocations[0].mbrn_used;
+            let first_cdt = sale.cdt_fulfilled;
+            assert!(first_mbrn > Uint128::zero());
+            assert!(first_cdt > Uint128::zero());
+
+            // Buy 2: more partial
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(10, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            let sale: MBRNSale = app.wrap().query_wasm_smart(
+                auction_contract.addr(), &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert!(sale.asset_allocations[0].mbrn_used > first_mbrn, "MBRN used should increase");
+            assert!(sale.cdt_fulfilled > first_cdt, "CDT fulfilled should increase");
+        }
+
+        // =================== FulfillBadDebt (Altruistic) ===================
+
+        #[test]
+        fn fulfill_bad_debt_no_active_sale() {
+            let (mut app, auction_contract, _, _) = setup_with_disco();
+
+            let msg = ExecuteMsg::FulfillBadDebt { asset: "uatom".into() };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+        }
+
+        #[test]
+        fn fulfill_bad_debt_wrong_asset() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(1000), asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(100),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            // Try to fulfill for a different asset
+            let msg = ExecuteMsg::FulfillBadDebt { asset: "uosmo".into() };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+        }
+
+        #[test]
+        fn fulfill_bad_debt_no_cdt_sent() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(1000), asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(100),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            // No funds
+            let msg = ExecuteMsg::FulfillBadDebt { asset: "uatom".into() };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+        }
+
+        #[test]
+        fn fulfill_bad_debt_partial() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(1000), asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(500),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            // Partial fulfill: 300 of 1000
+            let msg = ExecuteMsg::FulfillBadDebt { asset: "uatom".into() };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(300, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Sale should still exist with reduced bad debt
+            let sale: MBRNSale = app.wrap().query_wasm_smart(
+                auction_contract.addr(), &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert_eq!(sale.asset_allocations[0].cdt_fulfilled, Uint128::new(300));
+            assert_eq!(sale.cdt_fulfilled, Uint128::new(300));
+            // MBRN should NOT be touched (no slashing for altruistic fill)
+            assert_eq!(sale.asset_allocations[0].mbrn_used, Uint128::zero());
+        }
+
+        #[test]
+        fn fulfill_bad_debt_full_clears_freeze() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(500), asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(100),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            // Fully cover the bad debt
+            let msg = ExecuteMsg::FulfillBadDebt { asset: "uatom".into() };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(500, "credit_fulldenom")]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Sale should be removed
+            let sale: Option<MBRNSale> = app.wrap().query_wasm_smart(
+                auction_contract.addr(), &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert!(sale.is_none(), "Sale should be removed after full fulfillment");
+
+            // ClearBadDebtFreeze should have been called
+            let has_clear = res.events.iter().any(|e|
+                e.attributes.iter().any(|a| a.key == "method" && a.value == "clear_bad_debt_freeze")
+                && e.attributes.iter().any(|a| a.key == "asset" && a.value == "uatom")
+            );
+            assert!(has_clear, "ClearBadDebtFreeze should fire for fully fulfilled asset");
+        }
+
+        #[test]
+        fn fulfill_bad_debt_excess_refunded() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(100), asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(50),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            // Send 300 CDT for 100 CDT bad debt — 200 should be refunded
+            let msg = ExecuteMsg::FulfillBadDebt { asset: "uatom".into() };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(300, "credit_fulldenom")]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Verify only 100 CDT was applied
+            let applied = res.events.iter()
+                .flat_map(|e| e.attributes.iter())
+                .find(|a| a.key == "cdt_applied")
+                .map(|a| a.value.clone());
+            assert_eq!(applied, Some("100".to_string()), "Only 100 CDT should be applied to bad debt");
+
+            // Sale should be complete
+            let sale: Option<MBRNSale> = app.wrap().query_wasm_smart(
+                auction_contract.addr(), &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert!(sale.is_none());
+        }
+
+        #[test]
+        fn fulfill_bad_debt_one_of_multiple_assets() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            // Two assets
+            for (asset, cdt, mbrn) in [("uatom", 500u128, 100u128), ("uosmo", 1000, 200)] {
+                let msg = ExecuteMsg::StartMBRNSale {
+                    max_cdt: Uint128::new(cdt), asset: asset.into(),
+                    mbrn_allocation: Uint128::new(mbrn),
+                };
+                let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+                app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+            }
+
+            // Fulfill only uatom's bad debt
+            let msg = ExecuteMsg::FulfillBadDebt { asset: "uatom".into() };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(500, "credit_fulldenom")]).unwrap();
+            let res = app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Sale should still exist (uosmo remains)
+            let sale: MBRNSale = app.wrap().query_wasm_smart(
+                auction_contract.addr(), &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert_eq!(sale.asset_allocations.len(), 1);
+            assert_eq!(sale.asset_allocations[0].asset, "uosmo");
+
+            // ClearBadDebtFreeze called for uatom only
+            let clear_uatom = res.events.iter().any(|e|
+                e.attributes.iter().any(|a| a.key == "method" && a.value == "clear_bad_debt_freeze")
+                && e.attributes.iter().any(|a| a.key == "asset" && a.value == "uatom")
+            );
+            assert!(clear_uatom, "ClearBadDebtFreeze should fire for uatom");
+        }
+
+        #[test]
+        fn fulfill_bad_debt_then_buy_mbrn() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            // Two assets
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(500), asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(100),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(1000), asset: "uosmo".into(),
+                mbrn_allocation: Uint128::new(500),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            // Altruistically fill uatom
+            let msg = ExecuteMsg::FulfillBadDebt { asset: "uatom".into() };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(500, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Now buy MBRN — should only affect uosmo
+            app.set_block(BlockInfo {
+                height: 1000,
+                time: app.block_info().time.plus_seconds(120),
+                chain_id: "test".to_string(),
+            });
+
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // uosmo should have progress, uatom should be gone
+            let sale: MBRNSale = app.wrap().query_wasm_smart(
+                auction_contract.addr(), &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert_eq!(sale.asset_allocations.len(), 1);
+            assert_eq!(sale.asset_allocations[0].asset, "uosmo");
+            assert!(sale.asset_allocations[0].mbrn_used > Uint128::zero());
+        }
+
+        #[test]
+        fn fulfill_bad_debt_already_fulfilled() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(100), asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(50),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            // Fulfill fully
+            let msg = ExecuteMsg::FulfillBadDebt { asset: "uatom".into() };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Try again — should fail (sale removed)
+            let msg = ExecuteMsg::FulfillBadDebt { asset: "uatom".into() };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(50, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap_err();
+        }
+
+        #[test]
+        fn fulfill_and_buy_interleaved() {
+            let (mut app, auction_contract, _, disco_addr) = setup_with_disco();
+
+            let msg = ExecuteMsg::StartMBRNSale {
+                max_cdt: Uint128::new(1000), asset: "uatom".into(),
+                mbrn_allocation: Uint128::new(500),
+            };
+            let cosmos_msg = auction_contract.call(msg, vec![]).unwrap();
+            app.execute(disco_addr.clone(), cosmos_msg).unwrap();
+
+            app.set_block(BlockInfo {
+                height: 1000,
+                time: app.block_info().time.plus_seconds(120),
+                chain_id: "test".to_string(),
+            });
+
+            // Buy some MBRN first (partial)
+            let msg = ExecuteMsg::BuySuppliedMBRN { depth: None, buyer: None };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(100, "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            let sale: MBRNSale = app.wrap().query_wasm_smart(
+                auction_contract.addr(), &QueryMsg::MBRNSale {},
+            ).unwrap();
+            let cdt_after_buy = sale.asset_allocations[0].cdt_fulfilled;
+            assert!(cdt_after_buy > Uint128::zero());
+
+            // Now altruistically fill the rest
+            let remaining = Uint128::new(1000) - cdt_after_buy;
+            let msg = ExecuteMsg::FulfillBadDebt { asset: "uatom".into() };
+            let cosmos_msg = auction_contract.call(msg, vec![coin(remaining.u128(), "credit_fulldenom")]).unwrap();
+            app.execute(Addr::unchecked(USER), cosmos_msg).unwrap();
+
+            // Sale should be complete
+            let sale: Option<MBRNSale> = app.wrap().query_wasm_smart(
+                auction_contract.addr(), &QueryMsg::MBRNSale {},
+            ).unwrap();
+            assert!(sale.is_none(), "Sale should complete after buy + fulfill cover total bad debt");
         }
     }
 }

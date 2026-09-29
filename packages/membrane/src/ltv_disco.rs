@@ -37,6 +37,8 @@ pub struct InstantiateMsg {
     pub auction_contract: Option<String>,
     /// MBRN denom (optional)
     pub mbrn_denom: Option<String>,
+    /// Liquidation engine contract address (optional, enables unstaking lockout)
+    pub liquidation_engine_contract: Option<String>,
 }
 
 /// Execute messages
@@ -151,6 +153,7 @@ pub enum ExecuteMsg {
         revenue_distributor: Option<String>,
         auction_contract: Option<String>,
         mbrn_denom: Option<String>,
+        liquidation_engine_contract: Option<String>,
     },
     /// Rate assurance check per slot (only callable by the contract)
     RateAssurance {
@@ -181,6 +184,14 @@ pub enum ExecuteMsg {
     SendMBRNForSale {
         amount: Uint128,
         recipient: String,
+        /// Asset whose bad debt this MBRN sale is for
+        asset: String,
+    },
+    /// Clear bad debt freeze for an asset after its auction obligation is fulfilled.
+    /// Callable by auction contract only.
+    ClearBadDebtFreeze {
+        asset: String,
+        cdt_amount: Uint128,
     },
 }
 
@@ -267,9 +278,33 @@ pub enum QueryMsg {
     /// Get weighted average max LTV for assets.
     /// Queried by the Collateral contract during dynamic LTV updates.
     GetAverageLTVs { assets: Vec<String> },
+    /// Get pending bad debt for an asset (> 0 means withdrawals frozen)
+    GetPendingBadDebt { asset: String },
+    /// Get historic manager performance (fees earned, losses, capital managed)
+    GetManagerPerformance { manager: String },
+    /// Get effective unlock time for an unstake request, accounting for liquidation lockout
+    GetEffectiveUnlockTime {
+        asset: String,
+        slot: u8,
+        deposit_id: Uint128,
+        user: String,
+    },
 }
 
 // ============== Responses ==============
+
+/// Response for effective unlock time query
+#[cw_serde]
+pub struct EffectiveUnlockTimeResponse {
+    /// Original unlock time from the unstake request
+    pub request_unlock_time: u64,
+    /// Effective unlock time (max of request unlock and last_liq + unstaking_period)
+    pub effective_unlock_time: u64,
+    /// Last liquidation timestamp for this asset (if any)
+    pub last_liquidation_timestamp: Option<u64>,
+    /// Whether unstaking is currently blocked by liquidation lockout
+    pub is_locked_by_liquidation: bool,
+}
 
 /// Response for asset queue query
 #[cw_serde]
@@ -313,6 +348,13 @@ pub enum TotalInsuranceResponse {
 pub struct ManagerFeeResponse {
     pub manager: String,
     pub fee: Decimal,
+}
+
+/// Response for manager performance query
+#[cw_serde]
+pub struct ManagerPerformanceResponse {
+    pub manager: String,
+    pub entries: Vec<ManagerPerformanceEntry>,
 }
 
 /// Pending claims aggregate response
@@ -431,6 +473,8 @@ pub struct Config {
     pub auction_contract: Option<Addr>,
     /// MBRN denom
     pub mbrn_denom: Option<String>,
+    /// Liquidation engine contract address (enables unstaking lockout after liquidation events)
+    pub liquidation_engine_contract: Option<Addr>,
 }
 
 /// A single LTV-designated slot in the risk tranche system.
@@ -539,6 +583,20 @@ pub struct RevenueEvent {
 pub struct UserLifetimeRevenueEntry {
     pub timestamp: u64,
     pub total_claimed: Uint128,
+}
+
+/// Manager performance tracking entry (cumulative snapshots)
+#[cw_serde]
+pub struct ManagerPerformanceEntry {
+    pub timestamp: u64,
+    /// Cumulative CDT fees earned by this manager
+    pub total_fees_earned: Uint128,
+    /// Cumulative bad debt (deposit tokens) absorbed across managed deposits
+    pub total_bad_debt_absorbed: Uint128,
+    /// Total deposit tokens currently managed (point-in-time snapshot)
+    pub total_capital_managed: Uint128,
+    /// Per-asset breakdown: (asset_denom, deposit_tokens)
+    pub assets_managed: Vec<(String, Uint128)>,
 }
 
 /// TVL tracking entry

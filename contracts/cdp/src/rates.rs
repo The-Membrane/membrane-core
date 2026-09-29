@@ -9,7 +9,7 @@ use cosmwasm_std::{
 use membrane::cdp::Config;
 use membrane::helpers::get_asset_liquidity;
 use membrane::math::{decimal_division, decimal_multiplication, decimal_subtraction};
-use membrane::system_discounts::{QueryMsg as DiscountQueryMsg, UserDiscountResponse, StableBackingDiscountsResponse};
+use membrane::system_discounts::{QueryMsg as DiscountQueryMsg, UserDiscountResponse};
 use membrane::types::{cAsset, IRMConfig, Asset, AssetInfo, Basket, CreditAssetBreakdown, FixedRate, FixedRateCap, FixedRateCaps, FixedRateEnd, Position, Rate, Rates, RateSegment, SupplyCap};
 
 use membrane::ltv_disco::{QueryMsg as LTVDiscoQueryMsg, AssetQueueResponse as LTVDiscoQueueResponse};
@@ -410,31 +410,30 @@ pub fn update_rate_indices(
         }
     }
 
-    // Apply acquisition bump rate to smoothed rates before accumulation.
-    // For each asset: effective_rate = smoothed_rate + (acquisition_bump_rate * max_LTV)
-    let mut effective_rates = smoothed_rates.clone();
+    // Accumulate rate on each rate_index using the smoothed (base) rates.
+    // The acquisition bump is NOT applied to regular (CDT) debt.
+    for (i, basket_asset) in basket.collateral_types.clone().into_iter().enumerate() {
+        let accrued_rate =
+            accumulate_interest_dec(basket_asset.rate_index, smoothed_rates[i], time_elapsed)?;
+        basket.collateral_types[i].rate_index += accrued_rate;
+    }
+
+    // --- Peg debt (USDC): base rate PLUS the acquisition bump (peg-debt only) ---
+    // The acquisition bump is scoped to peg debt only:
+    //   peg_rate = smoothed_rate + (acquisition_bump_rate * (1 / max_LTV))
+    // NOTE: We don't use rates to give our transmuter 'lenders' liquidity,
+    // we will enact new acquisition lockdrops instead.
+    let mut peg_rates: Vec<Decimal> = smoothed_rates.clone();
     if !rates.acquisition_bump_rate.is_zero() {
         for (i, basket_asset) in basket.collateral_types.iter().enumerate() {
             let bump_for_asset = decimal_multiplication(
                 rates.acquisition_bump_rate,
-                basket_asset.max_LTV,
-            )?;
-            effective_rates[i] = effective_rates[i] + bump_for_asset;
+                decimal_division(Decimal::one(), basket_asset.max_LTV).unwrap_or(Decimal::one()),
+            )
+            .unwrap_or(Decimal::zero());
+            peg_rates[i] = peg_rates[i] + bump_for_asset;
         }
     }
-
-    // Accumulate rate on each rate_index (using effective rates that include acquisition bump)
-    for (i, basket_asset) in basket.collateral_types.clone().into_iter().enumerate() {
-        let accrued_rate =
-            accumulate_interest_dec(basket_asset.rate_index, effective_rates[i], time_elapsed)?;
-        basket.collateral_types[i].rate_index += accrued_rate;
-    }
-
-    // --- Peg debt: Uses the SAME rates as regular debt ---
-    // NOTE: We don't use rates to give our transmuter 'lenders' liquidity,
-    // we will enact new acquisition lockdrops instead.
-    // Peg debt rates mirror regular debt rates for simplicity.
-    let peg_rates: Vec<Decimal> = effective_rates.clone();
 
     // Update peg_current_adaptive_rate to match regular current_adaptive_rate
     for (i, _asset) in basket.collateral_types.iter().enumerate() {
@@ -983,6 +982,7 @@ pub fn accrue(
         rate_index: Decimal::one(),
         peg_rate_index: Decimal::one(),
         force_redemptions: None,
+        max_threshold_to_delay: Decimal::percent(15),
     };
 
     let credit_TWAP_price = match get_asset_values(
@@ -1053,7 +1053,13 @@ pub fn accrue(
     rates.credit_last_accrued = env.block.time.seconds();
 
     //We divide w/ the greater number first so the quotient is always 1.__
-    price_difference = {
+    //Guard against zero prices: a zero TWAP or redemption price would divide-by-zero
+    //below and error the whole accrual. In that case there is nothing to accrue anyway
+    //(skip_credit_price_accrual is already set when the TWAP is zero).
+    price_difference = if credit_TWAP_price.is_zero() || basket.credit_price.price.is_zero() {
+        negative_rate = false;
+        Decimal::zero()
+    } else {
         //If market price > than repayment price
         match credit_TWAP_price.cmp(&basket.clone().credit_price.price) {
             Ordering::Greater => {
@@ -1362,24 +1368,10 @@ fn get_discounted_interest(
     position: &Position,
     basket: &Basket,
 ) -> StdResult<Uint128> {
-    // Check if position is 100% force_redemption assets
-    let discount = if is_position_100_percent_force_redemption(position, basket) {
-        // Use StableBackingDiscounts query
-        let stable_discount: StableBackingDiscountsResponse =
-            querier.query_wasm_smart(
-                discounts_contract.clone(),
-                &DiscountQueryMsg::StableBackingDiscounts { 
-                    user: user.clone(),
-                    debt_amount: undiscounted_interest,
-                }
-            )?;
-        stable_discount.discount
-    } else {
-        // Use regular UserDiscount query
-        let user_discount: UserDiscountResponse =
-            querier.query_wasm_smart(discounts_contract, &DiscountQueryMsg::UserDiscount { user })?;
-        user_discount.discount
-    };
+    // Use UserDiscount query for all positions
+    let user_discount: UserDiscountResponse =
+        querier.query_wasm_smart(discounts_contract, &DiscountQueryMsg::UserDiscount { user })?;
+    let discount = user_discount.discount;
 
     let discounted_interest = {
         let percent_of_interest = decimal_subtraction(Decimal::one(), discount)?;

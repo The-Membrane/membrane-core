@@ -11,10 +11,11 @@ use membrane::oracle::{PriceResponse, QueryMsg as OracleQueryMsg};
 use membrane::chain_proxy::ExecuteMsg as ChainProxyExecuteMsg;
 use membrane::staking::ExecuteMsg as StakingExecuteMsg;
 use membrane::cdp::{ExecuteMsg as CDPExecuteMsg, QueryMsg as CDPQueryMsg};
-use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, DebtAuction, FeeAuction, MBRNSale};
+use membrane::types::{Asset, AssetInfo, RepayPosition, UserInfo, AuctionRecipient, Basket, DebtAuction, FeeAuction, MBRNSale, AssetBadDebtAllocation};
 use membrane::helpers::withdrawal_msg;
 use membrane::revenue_distributor::ExecuteMsg as RevenueDistributorExecuteMsg;
 use membrane::ltv_disco::ExecuteMsg as LtvDiscoExecuteMsg;
+use membrane::debt::ExecuteMsg as DebtExecuteMsg;
 
 use crate::error::ContractError;
 use crate::state::{CONFIG, DEBT_AUCTION, FEE_AUCTIONS, MBRN_SALE, OWNERSHIP_TRANSFER};
@@ -57,6 +58,9 @@ pub fn instantiate(
         ltv_disco_contract: msg.ltv_disco_contract
             .map(|addr| deps.api.addr_validate(&addr))
             .transpose()?,
+        debt_contract: msg.debt_contract
+            .map(|addr| deps.api.addr_validate(&addr))
+            .transpose()?,
     };
 
     if let Some(owner) = msg.owner {
@@ -96,8 +100,9 @@ pub fn execute(
         ExecuteMsg::SwapForMBRN { } => swap_for_mbrn(deps, info, env),
         ExecuteMsg::SwapForFee { auction_asset } => swap_with_the_contracts_desired_asset(deps, info, env, auction_asset),
         ExecuteMsg::RemoveAuction { } => remove_auction(deps, info),
-        ExecuteMsg::StartMBRNSale { max_cdt } => start_mbrn_sale(deps, env, info, max_cdt),
-        ExecuteMsg::BuySuppliedMBRN { } => buy_supplied_mbrn(deps, info, env),
+        ExecuteMsg::StartMBRNSale { max_cdt, asset, mbrn_allocation } => start_mbrn_sale(deps, env, info, max_cdt, asset, mbrn_allocation),
+        ExecuteMsg::BuySuppliedMBRN { depth, buyer } => buy_supplied_mbrn(deps, info, env, depth, buyer),
+        ExecuteMsg::FulfillBadDebt { asset } => fulfill_bad_debt(deps, info, env, asset),
         ExecuteMsg::UpdateConfig ( update)  => update_config( deps, info, update),
     }
 }
@@ -211,6 +216,9 @@ fn update_config(
     if let Some(addr) = update.ltv_disco_contract {
         config.ltv_disco_contract = Some(deps.api.addr_validate(&addr)?);
     }
+    if let Some(addr) = update.debt_contract {
+        config.debt_contract = Some(deps.api.addr_validate(&addr)?);
+    }
 
     //Save Config
     CONFIG.save(deps.storage, &config)?;
@@ -287,8 +295,30 @@ fn start_auction(
                 }
             }
         })?;
-    } //If CDT, start DebtAuction
+    } //Debt auctions deprecated: bad debt is now fulfilled via revenue distribution
     else if auction_asset.info.to_string() == config.clone().cdt_denom {
+        return Err(ContractError::Std(StdError::generic_err(
+            "Debt auctions deprecated: bad debt is now fulfilled via revenue distribution"
+        )));
+    }
+
+
+    Ok(Response::new().add_attributes(attrs))
+}
+
+/// DEPRECATED: Original debt auction start code retained for reference.
+/// Bad debt is now fulfilled via revenue distribution.
+#[allow(dead_code)]
+fn _deprecated_start_debt_auction(
+    deps: DepsMut,
+    env: Env,
+    info: MessageInfo,
+    user_info: Option<UserInfo>,
+    send_to: Option<String>,
+    auction_asset: Asset,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let mut attrs = vec![attr("method", "start_auction")];
 
         //Both can't be Some
         if send_to.is_some() && user_info.is_some(){
@@ -360,8 +390,6 @@ fn start_auction(
                 DEBT_AUCTION.save(deps.storage, &auction)?;
             }
         };
-    }
-
 
     Ok(Response::new().add_attributes(attrs))
 }
@@ -535,7 +563,7 @@ fn swap_with_the_contracts_desired_asset(deps: DepsMut, info: MessageInfo, env: 
                         contract_addr: revenue_distributor.to_string(),
                         msg: to_json_binary(&RevenueDistributorExecuteMsg::SetPromises {
                             promises: vec![],
-                            ltv_disco_distribution: auction.per_asset_distribution.clone(),
+                            per_asset_distribution: auction.per_asset_distribution.clone(),
                         })?,
                         funds: vec![Coin {
                             denom: config.cdt_denom.clone(),
@@ -696,9 +724,14 @@ fn calculate_mbrn_for_cdt(
 }
 
 /// Swap the debt asset in the ongoing auction for MBRN at a discount.
-/// Handle Position repayments and arbitrary sends.
-/// Excess swap amount is returned to the sender.
+/// DEPRECATED: Bad debt is now fulfilled via revenue distribution, not MBRN mints.
 fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response, ContractError> {
+    return Err(ContractError::Std(StdError::generic_err(
+        "Debt auctions deprecated: bad debt is now fulfilled via revenue distribution"
+    )));
+
+    #[allow(unreachable_code)]
+    {
     let config = CONFIG.load(deps.storage)?;
 
     let mut msgs: Vec<CosmosMsg> = vec![];
@@ -766,11 +799,13 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
 
         // Send fulfilled CDT to the CDP to burn via FulfillBadDebt
         if !fulfill_amount.is_zero() {
-            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: config.clone().positions_contract.to_string(),
-                msg: to_json_binary(&CDPExecuteMsg::FulfillBadDebt {})?,
-                funds: vec![Coin { denom: coin.clone().denom, amount: fulfill_amount }],
-            }));
+            if let Some(ref debt_addr) = config.debt_contract {
+                msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                    contract_addr: debt_addr.to_string(),
+                    msg: to_json_binary(&DebtExecuteMsg::FulfillBadDebt {})?,
+                    funds: vec![Coin { denom: coin.clone().denom, amount: fulfill_amount }],
+                }));
+            }
 
             attrs.push(attr("fulfilled_bad_debt", fulfill_amount));
         }
@@ -812,6 +847,7 @@ fn swap_for_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response,
     }
 
     Ok(Response::new().add_messages(msgs))
+    } // end #[allow(unreachable_code)] block
 }
 
 /// Start an MBRN sale for bad debt coverage.
@@ -821,6 +857,8 @@ fn start_mbrn_sale(
     env: Env,
     info: MessageInfo,
     max_cdt: Uint128,
+    asset: String,
+    mbrn_allocation: Uint128,
 ) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
 
@@ -852,7 +890,19 @@ fn start_mbrn_sale(
     match MBRN_SALE.load(deps.storage) {
         Ok(mut sale) => {
             sale.max_cdt += max_cdt;
-            // Keep existing auction_start_time to maintain discount progression
+            // Add or update asset allocation
+            if let Some(alloc) = sale.asset_allocations.iter_mut().find(|a| a.asset == asset) {
+                alloc.mbrn_allocated += mbrn_allocation;
+                alloc.cdt_bad_debt += max_cdt;
+            } else {
+                sale.asset_allocations.push(AssetBadDebtAllocation {
+                    asset: asset.clone(),
+                    mbrn_allocated: mbrn_allocation,
+                    mbrn_used: Uint128::zero(),
+                    cdt_bad_debt: max_cdt,
+                    cdt_fulfilled: Uint128::zero(),
+                });
+            }
             MBRN_SALE.save(deps.storage, &sale)?;
         }
         Err(_) => {
@@ -861,6 +911,13 @@ fn start_mbrn_sale(
                 cdt_fulfilled: Uint128::zero(),
                 auction_start_time: env.block.time.seconds(),
                 supplier: info.sender.clone(),
+                asset_allocations: vec![AssetBadDebtAllocation {
+                    asset: asset.clone(),
+                    mbrn_allocated: mbrn_allocation,
+                    mbrn_used: Uint128::zero(),
+                    cdt_bad_debt: max_cdt,
+                    cdt_fulfilled: Uint128::zero(),
+                }],
             };
             MBRN_SALE.save(deps.storage, &sale)?;
         }
@@ -869,16 +926,137 @@ fn start_mbrn_sale(
     Ok(Response::new()
         .add_attribute("method", "start_mbrn_sale")
         .add_attribute("max_cdt", max_cdt)
+        .add_attribute("asset", asset)
+        .add_attribute("mbrn_allocation", mbrn_allocation)
         .add_attribute("supplier", info.sender))
 }
 
+/// Fulfill bad debt for a specific asset by sending CDT directly.
+/// Reduces the asset's bad debt allocation without requiring MBRN purchase.
+/// If the asset's bad debt is fully covered, clears the disco freeze.
+/// CDT is forwarded to the debt contract for burning.
+fn fulfill_bad_debt(
+    deps: DepsMut,
+    info: MessageInfo,
+    _env: Env,
+    asset: String,
+) -> Result<Response, ContractError> {
+    let config = CONFIG.load(deps.storage)?;
+    let mut msgs: Vec<CosmosMsg> = vec![];
+    let mut attrs = vec![attr("method", "fulfill_bad_debt")];
+
+    // Validate CDT sent
+    if info.funds.len() != 1 {
+        return Err(ContractError::Std(StdError::generic_err("Only one coin can be sent")));
+    }
+    let coin = validate_asset(info.funds[0].clone(), config.cdt_denom.clone())?;
+
+    // Load MBRN sale
+    let mut sale = MBRN_SALE.load(deps.storage)?;
+
+    // Find the asset's allocation
+    let alloc = sale.asset_allocations.iter_mut()
+        .find(|a| a.asset == asset)
+        .ok_or(ContractError::Std(StdError::generic_err(
+            format!("No active bad debt allocation for asset {}", asset),
+        )))?;
+
+    // Calculate how much CDT to apply (cap at remaining bad debt)
+    let remaining_cdt = alloc.cdt_bad_debt.checked_sub(alloc.cdt_fulfilled)
+        .unwrap_or(Uint128::zero());
+    let applied = std::cmp::min(coin.amount, remaining_cdt);
+
+    if applied.is_zero() {
+        return Err(ContractError::Std(StdError::generic_err("Asset bad debt already fulfilled")));
+    }
+
+    // Update allocation
+    alloc.cdt_fulfilled += applied;
+    sale.cdt_fulfilled += applied;
+
+    attrs.push(attr("asset", asset.clone()));
+    attrs.push(attr("cdt_applied", applied));
+    attrs.push(attr("sender", info.sender.clone()));
+
+    // Forward CDT to debt contract for burning
+    let debt_addr = config.debt_contract.clone()
+        .ok_or(ContractError::CustomError { val: "debt_contract not configured".into() })?;
+    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+        contract_addr: debt_addr.to_string(),
+        msg: to_json_binary(&DebtExecuteMsg::FulfillBadDebt {})?,
+        funds: vec![Coin { denom: config.cdt_denom.clone(), amount: applied }],
+    }));
+
+    // Refund excess
+    let excess = coin.amount.checked_sub(applied).unwrap_or(Uint128::zero());
+    if !excess.is_zero() {
+        msgs.push(withdrawal_msg(
+            Asset {
+                info: AssetInfo::NativeToken { denom: config.cdt_denom.clone() },
+                amount: excess,
+            },
+            info.sender.clone(),
+        )?);
+    }
+
+    // Check if this asset is now fully resolved (CDT fulfilled)
+    // Note: MBRN cap is not relevant here — bad debt is paid directly
+    let is_completed = alloc.cdt_fulfilled >= alloc.cdt_bad_debt;
+
+    if is_completed {
+        let completed_cdt = alloc.cdt_fulfilled;
+        let completed_asset = alloc.asset.clone();
+
+        // Clear disco freeze
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: sale.supplier.to_string(),
+            msg: to_json_binary(&LtvDiscoExecuteMsg::ClearBadDebtFreeze {
+                asset: completed_asset,
+                cdt_amount: completed_cdt,
+            })?,
+            funds: vec![],
+        }));
+
+        // Remove completed allocation
+        sale.asset_allocations.retain(|a| a.asset != asset);
+        attrs.push(attr("asset_completed", "true"));
+    }
+
+    // Save or remove sale
+    if sale.asset_allocations.is_empty() {
+        MBRN_SALE.remove(deps.storage);
+        attrs.push(attr("sale_status", "completed"));
+    } else {
+        MBRN_SALE.save(deps.storage, &sale)?;
+    }
+
+    Ok(Response::new().add_messages(msgs).add_attributes(attrs))
+}
+
+/// Max recursion depth for buy_supplied_mbrn redistribution
+const MAX_BUY_MBRN_DEPTH: u8 = 3;
+
 /// Buy MBRN from the disco supply sale by sending CDT.
 /// CDT goes to CDP.FulfillBadDebt, buyer receives MBRN at discount.
-/// Auction pulls MBRN from disco via SendMBRNForSale.
-fn buy_supplied_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Response, ContractError> {
+/// Splits evenly across active asset allocations. If any asset can't fulfill
+/// its share, the leftover CDT is redistributed via recursive self-call (max depth 3).
+fn buy_supplied_mbrn(deps: DepsMut, info: MessageInfo, env: Env, depth: Option<u8>, buyer: Option<String>) -> Result<Response, ContractError> {
     let config = CONFIG.load(deps.storage)?;
     let mut msgs: Vec<CosmosMsg> = vec![];
     let mut attrs = vec![attr("method", "buy_supplied_mbrn")];
+    let current_depth = depth.unwrap_or(0);
+
+    // Resolve buyer: on initial call it's info.sender, on recursive calls it's passed through.
+    // On recursion, sender is the contract itself — we trust the buyer field it set.
+    let buyer_addr = if let Some(ref addr) = buyer {
+        // Only the contract itself can set buyer (recursive call)
+        if info.sender != env.contract.address {
+            return Err(ContractError::Unauthorized {});
+        }
+        Addr::unchecked(addr)
+    } else {
+        info.sender.clone()
+    };
 
     // Validate CDT sent
     if info.funds.len() != 1 {
@@ -895,81 +1073,165 @@ fn buy_supplied_mbrn(deps: DepsMut, info: MessageInfo, env: Env) -> Result<Respo
         return Err(ContractError::Std(StdError::generic_err("MBRN sale is complete")));
     }
 
-    // Query disco's available MBRN balance
-    let disco_mbrn_balance: Coin = deps.querier.query_balance(
-        sale.supplier.clone(),
-        config.mbrn_denom.clone(),
-    )?;
-    if disco_mbrn_balance.amount.is_zero() {
-        return Err(ContractError::Std(StdError::generic_err("No MBRN available in disco")));
-    }
-
     // Cap CDT at remaining needed
     let effective_cdt = std::cmp::min(coin.amount, remaining_cdt_needed);
 
-    // Calculate MBRN amount using shared pricing helper
-    let mbrn_amount = calculate_mbrn_for_cdt(&deps, &env, &config, effective_cdt, sale.auction_start_time)?;
-    if mbrn_amount.is_zero() {
+    // Calculate total MBRN for this CDT at current discount
+    let total_mbrn = calculate_mbrn_for_cdt(&deps, &env, &config, effective_cdt, sale.auction_start_time)?;
+    if total_mbrn.is_zero() {
         return Err(ContractError::Std(StdError::generic_err("MBRN amount is zero")));
     }
 
-    // Cap MBRN at what disco actually has
-    let actual_mbrn = std::cmp::min(mbrn_amount, disco_mbrn_balance.amount);
+    // Get active allocations (still have MBRN remaining AND CDT bad debt remaining)
+    let active_indices: Vec<usize> = sale.asset_allocations.iter().enumerate()
+        .filter(|(_, a)| a.mbrn_allocated > a.mbrn_used && a.cdt_bad_debt > a.cdt_fulfilled)
+        .map(|(i, _)| i)
+        .collect();
+    let active_count = active_indices.len() as u128;
+    if active_count == 0 {
+        return Err(ContractError::Std(StdError::generic_err("No active asset allocations")));
+    }
 
-    // If MBRN was capped, proportionally reduce CDT taken
-    let actual_cdt = if actual_mbrn < mbrn_amount {
-        effective_cdt.multiply_ratio(actual_mbrn, mbrn_amount)
-    } else {
-        effective_cdt
-    };
-    let total_refund = coin.amount.checked_sub(actual_cdt).unwrap_or(Uint128::zero());
+    // Even split across active assets
+    let mbrn_per_asset = total_mbrn / Uint128::from(active_count);
+    let cdt_per_asset = effective_cdt / Uint128::from(active_count);
 
-    // Update sale state
-    sale.cdt_fulfilled += actual_cdt;
+    let mut total_mbrn_used = Uint128::zero();
+    let mut total_cdt_used = Uint128::zero();
+    let mut completed_assets: Vec<(String, Uint128)> = vec![];
 
-    // Pull MBRN from disco → send to buyer
-    msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-        contract_addr: sale.supplier.to_string(),
-        msg: to_json_binary(&LtvDiscoExecuteMsg::SendMBRNForSale {
-            amount: actual_mbrn,
-            recipient: info.sender.to_string(),
-        })?,
-        funds: vec![],
-    }));
+    for idx in active_indices {
+        let alloc = &mut sale.asset_allocations[idx];
+        let mbrn_remaining = alloc.mbrn_allocated - alloc.mbrn_used;
+        let cdt_remaining = alloc.cdt_bad_debt - alloc.cdt_fulfilled;
 
-    // Send CDT to CDP FulfillBadDebt
-    if !actual_cdt.is_zero() {
+        // Cap each independently at remaining allocation
+        let mbrn_capped = std::cmp::min(mbrn_per_asset, mbrn_remaining);
+        let cdt_capped = std::cmp::min(cdt_per_asset, cdt_remaining);
+
+        // Determine which cap is binding and proportionally adjust the other
+        let (asset_mbrn, asset_cdt) = if mbrn_capped < mbrn_per_asset && !mbrn_per_asset.is_zero()
+            && (cdt_capped == cdt_per_asset || cdt_per_asset.is_zero())
+        {
+            // MBRN is the sole limiting factor → reduce CDT proportionally
+            let adjusted_cdt = cdt_per_asset.multiply_ratio(mbrn_capped, mbrn_per_asset);
+            (mbrn_capped, std::cmp::min(adjusted_cdt, cdt_remaining))
+        } else if cdt_capped < cdt_per_asset && !cdt_per_asset.is_zero()
+            && (mbrn_capped == mbrn_per_asset || mbrn_per_asset.is_zero())
+        {
+            // CDT is the sole limiting factor → reduce MBRN proportionally
+            let adjusted_mbrn = mbrn_per_asset.multiply_ratio(cdt_capped, cdt_per_asset);
+            (std::cmp::min(adjusted_mbrn, mbrn_remaining), cdt_capped)
+        } else if mbrn_capped < mbrn_per_asset && cdt_capped < cdt_per_asset {
+            // Both are limiting — use whichever gives less value
+            let mbrn_limited_cdt = cdt_per_asset.multiply_ratio(mbrn_capped, mbrn_per_asset);
+            let cdt_limited_mbrn = mbrn_per_asset.multiply_ratio(cdt_capped, cdt_per_asset);
+            if mbrn_limited_cdt <= cdt_capped {
+                // MBRN is tighter
+                (mbrn_capped, std::cmp::min(mbrn_limited_cdt, cdt_remaining))
+            } else {
+                // CDT is tighter
+                (std::cmp::min(cdt_limited_mbrn, mbrn_remaining), cdt_capped)
+            }
+        } else {
+            // Neither is limiting
+            (mbrn_capped, cdt_capped)
+        };
+
+        alloc.mbrn_used += asset_mbrn;
+        alloc.cdt_fulfilled += asset_cdt;
+        total_mbrn_used += asset_mbrn;
+        total_cdt_used += asset_cdt;
+
+        // Pull MBRN from disco for this specific asset
+        if !asset_mbrn.is_zero() {
+            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: sale.supplier.to_string(),
+                msg: to_json_binary(&LtvDiscoExecuteMsg::SendMBRNForSale {
+                    amount: asset_mbrn,
+                    recipient: buyer_addr.to_string(),
+                    asset: alloc.asset.clone(),
+                })?,
+                funds: vec![],
+            }));
+        }
+
+        // Check if this asset is exhausted
+        if alloc.mbrn_used >= alloc.mbrn_allocated || alloc.cdt_fulfilled >= alloc.cdt_bad_debt {
+            completed_assets.push((alloc.asset.clone(), alloc.cdt_fulfilled));
+        }
+    }
+
+    // Update sale totals
+    sale.cdt_fulfilled += total_cdt_used;
+
+    // Send CDT to debt contract for burning
+    if !total_cdt_used.is_zero() {
+        let debt_addr = config.debt_contract.clone()
+            .ok_or(ContractError::CustomError { val: "debt_contract not configured".into() })?;
         msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
-            contract_addr: config.positions_contract.to_string(),
-            msg: to_json_binary(&CDPExecuteMsg::FulfillBadDebt {})?,
-            funds: vec![Coin { denom: config.cdt_denom.clone(), amount: actual_cdt }],
+            contract_addr: debt_addr.to_string(),
+            msg: to_json_binary(&DebtExecuteMsg::FulfillBadDebt {})?,
+            funds: vec![Coin { denom: config.cdt_denom.clone(), amount: total_cdt_used }],
         }));
     }
 
-    // Refund unused CDT to buyer
-    if !total_refund.is_zero() {
-        msgs.push(withdrawal_msg(
-            Asset {
-                info: AssetInfo::NativeToken {
-                    denom: config.cdt_denom.clone(),
-                },
-                amount: total_refund,
-            },
-            info.sender.clone(),
-        )?);
+    // Clear freezes for completed assets
+    for (asset, cdt_amount) in &completed_assets {
+        msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+            contract_addr: sale.supplier.to_string(),
+            msg: to_json_binary(&LtvDiscoExecuteMsg::ClearBadDebtFreeze {
+                asset: asset.clone(),
+                cdt_amount: *cdt_amount,
+            })?,
+            funds: vec![],
+        }));
     }
 
-    attrs.push(attr("cdt_received", actual_cdt));
-    attrs.push(attr("mbrn_sold", actual_mbrn));
-    attrs.push(attr("buyer", info.sender.clone()));
+    // Remove completed allocations
+    sale.asset_allocations.retain(|a|
+        a.mbrn_used < a.mbrn_allocated && a.cdt_fulfilled < a.cdt_bad_debt
+    );
 
-    // Check if sale is complete
-    if sale.cdt_fulfilled >= sale.max_cdt {
+    // Check if entire sale is complete
+    if sale.asset_allocations.is_empty() {
         MBRN_SALE.remove(deps.storage);
         attrs.push(attr("sale_status", "completed"));
     } else {
         MBRN_SALE.save(deps.storage, &sale)?;
     }
+
+    // Handle leftover CDT via recursive redistribution
+    let leftover_cdt = coin.amount.checked_sub(total_cdt_used).unwrap_or(Uint128::zero());
+    if !leftover_cdt.is_zero() {
+        if current_depth < MAX_BUY_MBRN_DEPTH && !sale.asset_allocations.is_empty() {
+            // Recursive call with leftover CDT to redistribute among remaining assets
+            msgs.push(CosmosMsg::Wasm(WasmMsg::Execute {
+                contract_addr: env.contract.address.to_string(),
+                msg: to_json_binary(&membrane::auction::ExecuteMsg::BuySuppliedMBRN {
+                    depth: Some(current_depth + 1),
+                    buyer: Some(buyer_addr.to_string()),
+                })?,
+                funds: vec![Coin { denom: config.cdt_denom.clone(), amount: leftover_cdt }],
+            }));
+        } else {
+            // Refund leftover to buyer
+            msgs.push(withdrawal_msg(
+                Asset {
+                    info: AssetInfo::NativeToken {
+                        denom: config.cdt_denom.clone(),
+                    },
+                    amount: leftover_cdt,
+                },
+                buyer_addr.clone(),
+            )?);
+        }
+    }
+
+    attrs.push(attr("cdt_used", total_cdt_used));
+    attrs.push(attr("mbrn_sold", total_mbrn_used));
+    attrs.push(attr("buyer", buyer_addr.clone()));
+    attrs.push(attr("depth", current_depth.to_string()));
 
     Ok(Response::new().add_messages(msgs).add_attributes(attrs))
 }

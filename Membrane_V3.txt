@@ -1,3 +1,6 @@
+AUTONOMOUS ONBOARDING notes
+- CDT holders and lenders should have to consen to collateral additions or removals (even if gatd by Disco deposits?)
+
 AUTONOMOUS ONBOARDING #2
 We can have an intents based build out similar to vanilla ETHLend where CDT lenders can choose collateral types and LTVs to lend at.
 We'd have to figure out a rate-system and how the product actually works to be sold as its variable collateral offerings & there would need to be marketing behind it to get users.

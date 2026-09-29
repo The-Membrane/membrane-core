@@ -61,3 +61,16 @@ pub const SWAP_ROUTE_CONFIG: Map<(String, String), DexPreference> = Map::new("sw
 // Map: token denom -> supply threshold (minimum supply required before transmuting is enabled)
 pub const TRANSMUTE_SUPPLY_THRESHOLDS: Map<String, Uint128> = Map::new("transmute_supply_thresholds");
 pub const MULTIHOP_STATE: Item<MultiHopState> = Item::new("multihop_state");
+
+#[cw_serde]
+pub struct SupplySnapshot {
+    /// Block time (seconds)
+    pub timestamp: u64,
+    /// Current supply at snapshot
+    pub current_supply: Uint128,
+    /// Burned supply at snapshot
+    pub burned_supply: Uint128,
+}
+
+/// Supply history per denom: Map<denom, Vec<SupplySnapshot>>
+pub const SUPPLY_HISTORY: Map<String, Vec<SupplySnapshot>> = Map::new("supply_history");

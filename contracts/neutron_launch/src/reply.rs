@@ -18,7 +18,7 @@ use membrane::liq_queue::{InstantiateMsg as LQInstantiateMsg, ExecuteMsg as LQEx
 use membrane::mars_vault_token::{InstantiateMsg as MarsVT_InstantiateMsg, QueryMsg as MarsVT_QueryMsg};
 use membrane::ltv_disco::{InstantiateMsg as LTVDisco_InstantiateMsg, ExecuteMsg as LTVDiscoExecuteMsg};
 use membrane::transmuter::{InstantiateMsg as Transmuter_InstantiateMsg, ExecuteMsg as TransmuterExecuteMsg};
-use membrane::revenue_distributor::{InstantiateMsg as RevenueDistributor_InstantiateMsg, ExecuteMsg as RevenueDistributorExecuteMsg, RDVaultInfoMessage, RevenueDestination as RevenueDistributorRevenueDestination};
+use membrane::revenue_distributor::{InstantiateMsg as RevenueDistributor_InstantiateMsg, ExecuteMsg as RevenueDistributorExecuteMsg, RDVaultInfoMessage, RevenueSplit};
 use membrane::acquisition::{InstantiateMsg as Acquisition_InstantiateMsg, ExecuteMsg as Acquisition_ExecuteMsg};
 use membrane::yield_arb::{InstantiateMsg as YieldArb_InstantiateMsg, ExecuteMsg as YieldArb_ExecuteMsg};
 use membrane::points_system::{InstantiateMsg as PointsSystem_InstantiateMsg, ExecuteMsg as PointsSystem_ExecuteMsg};
@@ -494,7 +494,6 @@ pub fn handle_ltv_disco_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<R
                     composition_leeway: Decimal::percent(5), 
                     asset_a_to_b_rate: Decimal::one(), 
                     cdt_target_ratio: Decimal::zero(), 
-                    // 0.05% swap fee gives the market room to create public liquidity
                     usage_fee: Some(Decimal::from_str("0.0005").unwrap()),
                     usage_fee_utilization_threshold: Some(Decimal::percent(90)),
                     swap_history_cap: 100u32,  
@@ -570,12 +569,7 @@ pub fn handle_transmuter_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResult<
                         info: AssetInfo::NativeToken { denom: config.clone().credit_denom.clone() },
                         amount: Uint128::zero(),
                     },
-                    revenue_destinations: vec![
-                        RevenueDistributorRevenueDestination {
-                            destination: addrs.clone().ltv_disco,
-                            distribution_ratio: Decimal::percent(100), 
-                        }
-                    ],
+                    revenue_split: RevenueSplit::default_split(),
                     ltv_disco: addrs.clone().ltv_disco.to_string(),
                     transmuter_vault: RDVaultInfoMessage {
                         vault_addr: addrs.clone().transmuter.to_string(),
@@ -889,15 +883,16 @@ pub fn handle_points_system_reply(deps: DepsMut, env: Env, msg: Reply)-> StdResu
                     positions_contract: addrs.clone().positions.to_string(),
                     staking_contract: addrs.clone().staking.to_string(),
                     lockdrop_contract: None,
-                    discount_vault_contract: None, // Discount vault is no longer used
-                    ltv_disco_contract: Some(addrs.clone().ltv_disco.to_string()), 
-                    minimum_time_in_network: 7u64, 
-                    max_discount: Some(Decimal::percent(75)), 
-                    mbrn_at_max_discount: None, 
-                    max_boost: None, 
-                })?, 
-                funds: vec![], 
-                label: String::from("system_discounts"), 
+                    discount_vault_contract: None,
+                    ltv_disco_contract: Some(addrs.clone().ltv_disco.to_string()),
+                    osmosis_proxy: addrs.clone().neutron_proxy.to_string(),
+                    minimum_time_in_network: 7u64,
+                    max_discount: Some(Decimal::percent(30)),
+                    max_boost: None,
+                    ratio_of_mbrn_supply_at_max_discount: None,
+                })?,
+                funds: vec![],
+                label: String::from("system_discounts"),
             });
             let sub_msg = SubMsg::reply_on_success(system_discounts_instantiation, SYSTEM_DISCOUNTS_REPLY_ID);     
             
@@ -987,39 +982,7 @@ pub fn handle_emissions_voting_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
             });
             sub_msgs.push(SubMsg::new(lockdrop_graph_msg));
 
-            // Create graph for transmuter_total_emissions (Uint128) with persistent_voting=true
-            let total_emissions_graph_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: addrs.emissions_voting.to_string(),
-                msg: to_binary(&EmissionsVotingExecuteMsg::CreateGraph {
-                    label: membrane::transmuter::TOTAL_EMISSIONS_GRAPH_LABEL.to_string(),
-                    graph_type: GraphType::Uint128,
-                    range_min: "0".to_string(),
-                    range_max: "100_000_000_000_000000".to_string(), // Adjust as needed
-                    period_days: 30, // Monthly
-                    callback_contract: addrs.transmuter.to_string(),
-                    persistent_voting: Some(true),
-                })?,
-                funds: vec![],
-            });
-            sub_msgs.push(SubMsg::new(total_emissions_graph_msg));
-
-            // Create graph for transmuter_acquisition_percentage (Decimal) with persistent_voting=true
-            let acquisition_percentage_graph_msg = CosmosMsg::Wasm(WasmMsg::Execute {
-                contract_addr: addrs.emissions_voting.to_string(),
-                msg: to_binary(&EmissionsVotingExecuteMsg::CreateGraph {
-                    label: membrane::transmuter::ACQUISITION_PERCENTAGE_GRAPH_LABEL.to_string(),
-                    graph_type: GraphType::Decimal,
-                    range_min: "0.0".to_string(),
-                    range_max: "0.2".to_string(), // 0-20%
-                    period_days: 30, // Monthly
-                    callback_contract: addrs.transmuter.to_string(),
-                    persistent_voting: Some(true),
-                })?,
-                funds: vec![],
-            });
-            sub_msgs.push(SubMsg::new(acquisition_percentage_graph_msg));
-
-            // Update transmuter config to set emissions_voting_contract
+            // Update transmuter config to set points_system_contract
             let update_transmuter_config_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: addrs.transmuter.to_string(),
                 msg: to_binary(&TransmuterExecuteMsg::UpdateConfig {
@@ -1036,7 +999,12 @@ pub fn handle_emissions_voting_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                     volume_history_cap: None,
                     rate_limit_window_secs: None,
                     rate_limit_threshold: None,
-                    allowlist: None,
+                    allowlist: Some(vec![
+                        StringEntry {
+                            entry: addrs.clone().positions.to_string(),
+                            remove: false,
+                        },
+                    ]),
                     allowlist_rate_limit_threshold: None,
                     global_rate_limit_window_secs: None,
                     global_rate_limit_threshold: None,
@@ -1046,9 +1014,9 @@ pub fn handle_emissions_voting_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
                     affiliate_fee: Decimal::percent(1), // Required field
                     send_swap_fee: None,
                     revenue_distributor_fee_percentage: None,
-                    emissions_voting_contract: Some(addrs.emissions_voting.to_string()),
                     acquisition_contract: None,
                     points_system_contract: Some(addrs.points_system.to_string()),
+                    retention_multiplier: Some(Decimal::zero()),
                 })?,
                 funds: vec![],
             });
@@ -1157,7 +1125,7 @@ pub fn handle_emissions_voting_reply(deps: DepsMut, _env: Env, msg: Reply)-> Std
             let update_revenue_distributor_config_msg = CosmosMsg::Wasm(WasmMsg::Execute {
                 contract_addr: addrs.revenue_distributor.to_string(),
                 msg: to_binary(&RevenueDistributorExecuteMsg::UpdateConfig {
-                    revenue_destinations: None,
+                    revenue_split: None,
                     ltv_disco: None,
                     transmuter_vault: None,
                     points_system_contract: Some(addrs.points_system.to_string()),
@@ -1260,18 +1228,19 @@ pub fn handle_discount_vault_reply(deps: DepsMut, env: Env, msg: Reply)-> StdRes
                     staking_contract: addrs.clone().staking.to_string(),
                     lockdrop_contract: None,
                     discount_vault_contract: Some(addrs.clone().discount_vault.to_string()),
-                    ltv_disco_contract: Some(addrs.clone().ltv_disco.to_string()), 
-                    minimum_time_in_network: 7u64, 
-                    max_discount: Some(Decimal::percent(75)), 
-                    mbrn_at_max_discount: None, 
-                    max_boost: None, 
-                })?, 
-                funds: vec![], 
-                label: String::from("system_discounts"), 
+                    ltv_disco_contract: Some(addrs.clone().ltv_disco.to_string()),
+                    osmosis_proxy: addrs.clone().neutron_proxy.to_string(),
+                    minimum_time_in_network: 7u64,
+                    max_discount: Some(Decimal::percent(30)),
+                    max_boost: None,
+                    ratio_of_mbrn_supply_at_max_discount: None,
+                })?,
+                funds: vec![],
+                label: String::from("system_discounts"),
             });
-            let sub_msg = SubMsg::reply_on_success(system_discounts_instantiation, SYSTEM_DISCOUNTS_REPLY_ID);     
-            
-            
+            let sub_msg = SubMsg::reply_on_success(system_discounts_instantiation, SYSTEM_DISCOUNTS_REPLY_ID);
+
+
             Ok(Response::new()
                 .add_submessage(sub_msg)
             )
@@ -1424,7 +1393,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, env: Env, msg: Reply)-> StdR
                     contract_addr: addrs.clone().revenue_distributor.to_string(), 
                     msg: to_binary(&RevenueDistributorExecuteMsg::SetPromises {
                         promises: vec![], // Empty promises - we're just setting up the distribution map
-                        ltv_disco_distribution: Some(vec![
+                        per_asset_distribution: Some(vec![
                             Asset {
                                 info: AssetInfo::NativeToken { denom: mars_vt_denom.clone() },
                                 amount: Uint128::new(1_000_000_000_000u128), // Ratio amount - this sets 100% since it's the only asset
@@ -1467,6 +1436,7 @@ pub fn handle_system_discounts_reply(deps: DepsMut, env: Env, msg: Reply)-> StdR
                             pool_info: None,
                             rate_index: Decimal::one(),
                             force_redemptions: Some(true),
+                            max_threshold_to_delay: Decimal::percent(15),
                         }),
                         liq_queue: None,
                         collateral_supply_caps: Some(vec![

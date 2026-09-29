@@ -8,6 +8,8 @@ use crate::state::{
     DISTRIBUTION_PROP,
     EPOCH_REVENUE_ACCUMULATION,
     LAST_DISTRIBUTION_TIME,
+    BAD_DEBT_ACTIVE,
+    RESERVE_ACCUMULATION,
 };
 
 /// Query contract configuration
@@ -81,4 +83,20 @@ pub fn query_epoch_countdown(deps: Deps, env: Env) -> StdResult<cosmwasm_std::Bi
     })
 }
 
+/// Query whether bad debt fulfillment mode is active
+pub fn query_bad_debt_active(deps: Deps) -> StdResult<cosmwasm_std::Binary> {
+    let active = BAD_DEBT_ACTIVE.may_load(deps.storage)?.unwrap_or(false);
+    to_json_binary(&active)
+}
 
+/// Query current revenue split configuration
+pub fn query_revenue_split(deps: Deps) -> StdResult<cosmwasm_std::Binary> {
+    let config = CONFIG.load(deps.storage)?;
+    to_json_binary(&config.revenue_split)
+}
+
+/// Query accumulated reserve balance
+pub fn query_reserve_balance(deps: Deps) -> StdResult<cosmwasm_std::Binary> {
+    let reserve = RESERVE_ACCUMULATION.may_load(deps.storage)?.unwrap_or(Uint128::zero());
+    to_json_binary(&reserve)
+}
